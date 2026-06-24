@@ -1,0 +1,50 @@
+[package]
+name = "koru-desktop"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "koru_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# --- Koru Desktop ---
+# Async runtime (Tauri ya usa tokio; lo declaramos para nuestras tareas async)
+tokio = { version = "1", features = ["full"] }
+# Cliente HTTP para SSO + ESI (rustls para no depender de OpenSSL del sistema)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# PKCE + crypto
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.8"
+# Validación de JWT (access_token) contra el JWKS de CCP
+jsonwebtoken = "9"
+# Almacenamiento seguro del refresh_token en el keychain del SO
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native"] }
+# Caché/persistencia local
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Listener loopback para el callback de OAuth
+tiny_http = "0.12"
+# Abrir el navegador del sistema para el login
+open = "5"
+# Utilidades
+url = "2"
+thiserror = "1"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+

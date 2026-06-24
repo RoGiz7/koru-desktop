@@ -1,0 +1,273 @@
+# Koru Desktop — Spec Técnico v1
+
+**Estado:** borrador inicial · **Fecha:** 2026-06-22 · **Owner:** Zigor / equipo Rekium
+
+## 1. Objetivo
+
+App de escritorio standalone para que cada jugador saque sus **estadísticas personales** de EVE Online
+(PvP, wallet, skills, assets/industria) hablando **directamente con ESI** (API oficial de CCP),
+sin depender de la infraestructura de Alliance Auth.
+
+Replica el valor de `koru_stats` (PvP + export) pero como binario distribuible: cada usuario
+gestiona su propio token, caché local, funciona offline, y puede leer cosas que la web/AA no
+puede (logs locales del juego).
+
+### Qué NO es
+- No sustituye a AA/corptools para **datos de corp/alianza** ni auditoría (eso necesita tokens de
+  director y BD central → sigue siendo `koru_auditor` / `koru_tickets`).
+- No agrega datos de terceros sin su consentimiento: solo ve los datos del personaje que loguea.
+
+## 2. Stack
+
+| Capa | Tecnología | Notas |
+|------|-----------|-------|
+| Shell | **Tauri 2.x** | Binario nativo multiplataforma, ~10 MB |
+| Backend | **Rust** | OAuth, cliente ESI, caché, parsing de logs |
+| Frontend | **React + TypeScript** | Mejor ecosistema para dashboards de datos |
+| Estado/fetch | **TanStack Query** | Encaja con el caché y revalidación de ESI |
+| Charts | **Recharts** (o visx) | Tablas y gráficos de stats |
+| HTTP (Rust) | `reqwest` (rustls) | Cliente ESI/SSO |
+| JWT | `jsonwebtoken` + JWKS | Validación del access_token |
+| Storage seguro | `keyring` | Refresh token en el keychain del SO |
+| Caché local | **SQLite** (`rusqlite` bundled) | Datos ESI cacheados + histórico |
+| Logs locales | `notify` (file watch) | Fase 5: intel desde Gamelogs/Chatlogs |
+
+**Por qué Rust hace el grueso:** OAuth, almacenamiento del refresh token y llamadas ESI viven en
+el backend de Tauri (Rust), expuestas al frontend vía `#[tauri::command]`. El frontend nunca toca
+el token directamente.
+
+## 3. Registro de la aplicación (CCP)
+
+Ver `docs/REGISTRO_APP.md`. Resumen: tipo **Authentication & API Access** (PKCE, sin secret),
+callback `http://localhost:8765/callback`, copiar el **client_id** a `src-tauri/src/config.rs`.
+
+## 4. Flujo de autenticación — OAuth 2.0 Authorization Code + PKCE
+
+> CCP recomienda PKCE explícitamente para apps de escritorio (no pueden guardar un secret).
+
+### Endpoints
+- **No hardcodear.** Leer de `https://login.eveonline.com/.well-known/oauth-authorization-server`
+  y cachear (implementado en `sso/metadata.rs`). De ahí salen `authorization_endpoint`,
+  `token_endpoint`, `jwks_uri`.
+
+### Pasos (implementado en `sso/`)
+1. `code_verifier` = 32 bytes aleatorios → base64url. (`sso/pkce.rs`)
+2. `code_challenge` = base64url(SHA256(verifier)) **sin padding**.
+3. `state` aleatorio (anti-CSRF).
+4. Listener local en `http://localhost:8765/callback`. (`sso/callback.rs`)
+5. Abrir navegador en `authorization_endpoint` con `response_type=code`, `client_id`,
+   `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method=S256`.
+6. Capturar `code`, **verificar `state`**.
+7. POST a `token_endpoint` (form, **sin Basic Auth**): `grant_type=authorization_code`, `code`,
+   `code_verifier`, `client_id`. (`sso/token.rs`)
+8. Respuesta: `access_token` (JWT ~20 min) + `refresh_token`.
+9. Guardar `refresh_token` en **keyring**. (`sso/store.rs`)
+
+### Refresh
+- `grant_type=refresh_token` + `client_id`. **Manejar rotación**: guardar siempre el último.
+- Un solo refresh en vuelo por personaje (mutex en `TokenManager`, `sso/mod.rs`) → evita la race
+  condition que vimos en corptools.
+
+### Validación del JWT (`sso/jwt.rs`)
+- JWKS desde `jwks_uri` (cacheado). Verificar firma RSA, `iss`, `aud` (client_id + "EVE Online"), `exp`.
+- Claims: `sub = EVE:CHARACTER:<id>`, `name`, `scp`.
+
+### Multi-personaje
+- Cada login añade un personaje; su refresh token va al keyring con clave = character_id.
+
+## 5. Llamadas a ESI (`esi/mod.rs`)
+
+- **Base:** `https://esi.evetech.net`
+- **Header obligatorio:** `X-Compatibility-Date: YYYY-MM-DD` (en `config.rs`). Sin él, ESI sirve la
+  versión más antigua. Reemplaza el viejo esquema `/latest/` `/v5/` de corptools.
+- **User-Agent** identificativo.
+- **Error budget:** cabeceras `X-ESI-Error-Limit-Remain` / `-Reset`; back-off al agotarse.
+- **Caché:** respetar `Expires`/`ETag` (tabla `esi_cache`).
+- **Paginación:** cabecera `X-Pages`.
+
+## 6. Endpoints y scopes por estadística
+
+Ver `docs/SCOPES.md` (verificado contra la lista oficial route→scope).
+
+## 7. Esquema SQLite
+
+Ver `src-tauri/src/db/schema.sql`. Tablas: `characters`, `esi_cache`, `killmails` (+ por dominio
+en fases siguientes). Los refresh tokens **NO** van en SQLite (keyring).
+
+## 8. Arquitectura de carpetas (real)
+
+```
+koru-desktop/
+├── docs/                 # SPEC, SCOPES, REGISTRO_APP
+├── src-tauri/src/
+│   ├── config.rs         # constantes (client_id, scopes, compat date)
+│   ├── error.rs          # AppError serializable
+│   ├── sso/              # pkce, metadata, token, jwt, store, callback, mod
+│   ├── esi/              # cliente ESI (compat-date, error budget)
+│   ├── db/               # SQLite + schema.sql
+│   ├── commands.rs       # #[tauri::command]
+│   └── lib.rs            # builder + estado
+└── src/                  # frontend React+TS (App.tsx)
+```
+
+## 9. Roadmap por fases
+
+- **F0 — Andamiaje:** Tauri + React + SQLite. ✅
+- **F1 — Auth:** PKCE, multi-personaje, refresh + keyring, validación JWT. ✅
+- **F2 — PvP:** killmails (ESI + zKill), dashboard + export CSV, histórico completo, caché ETag,
+  rate-limit/backoff. ✅
+- **F3 — Wallet + Skills.**
+- **F4 — Assets + Industria.**
+- **F5 — Intel local:** watcher + parser de Chatlogs/Gamelogs.
+- **F6 — Pulido:** export, packaging, auto-update Tauri, firma Windows.
+
+### Cross-cutting (aplica a TODAS las secciones)
+
+- **Vista global multi-personaje (importante):** además de la vista por personaje, una vista
+  "Todos / Global" que **suma los datos de todos los personajes** para cada sección (PvP, wallet,
+  skills, assets). Es la suma de tus personajes lo que da la foto real de tu jugabilidad.
+  - **Matiz de diseño — deduplicar por evento:** al agregar PvP, contar **killmails distintos**,
+    no filas por personaje. Si dos de tus personajes participan en el MISMO kill, es **un** kill, no
+    dos (kills/ISK no se deben doblar). Global kills = killmail_ids únicos donde algún personaje
+    tuyo es atacante; global losses = killmail_ids únicos donde algún personaje tuyo es víctima.
+  - Para wallet/skills/assets la suma es directa (no hay solapamiento entre personajes), salvo
+    cuidar el SP total y balances por personaje vs total.
+  - UI: un selector arriba "Personaje ▾ / Global" que recalcula cada sección.
+
+## 9b. Backlog (pendientes acordados, para implementar pronto)
+
+- **Tabla de killmails: paginación + filtros.** Hoy la tabla "Recientes" muestra solo los 50
+  últimos (las stats y el CSV sí usan TODO el historial). Falta paginar (p. ej. 50/página,
+  Anterior/Siguiente) y filtros básicos (kills / losses, por sistema, por nave) para navegar el
+  historial completo dentro de la app.
+- **Vista global multi-personaje** (ver sección 9, cross-cutting).
+- **Límite de páginas de zKill** configurable (hoy 100) por si alguien tiene un historial enorme.
+- **UX de progreso en sincronizaciones largas.** El "Procesados: N" actual no transmite que sigue
+  trabajando; con historiales grandes (5000+ kills) la sync dura varios minutos y un usuario podría
+  pensar que se colgó y cortarla. Mejorar:
+  - Mensaje explícito tipo "Sincronizando histórico… N killmails (página X). Puede tardar varios
+    minutos la primera vez; no cierres la app."
+  - Indicador de actividad (spinner/animación) + tiempo transcurrido y/o página actual.
+  - Emitir también la página actual en el evento `km_progress` (hoy solo manda el contador).
+  - Idealmente, deshabilitar/avisar en el botón mientras corre y permitir cancelar de forma limpia.
+
+### Backlog PvP — afinado de métricas (para ir puliendo)
+
+- **Daño por kill / top damage.** El detalle del killmail trae `damage_done` por atacante. Guardar
+  el daño del personaje y si fue **top damage** y/o **final blow**. Mostrarlo por kill en la tabla.
+- **% de eficacia (ISK efficiency).** `isk_destroyed / (isk_destroyed + isk_lost) * 100`. Es un KPI
+  directo con los datos que ya tenemos; añadir tarjeta. (zKill también lo expone, pero lo calculamos
+  nosotros.)
+- **Top 5 naves más caras destruidas.** Ordenar kills por `isk_value` desc. OJO: hoy en los kills
+  guardamos la nave DEL PERSONAJE, no la de la víctima. Para esto hay que **añadir
+  `victim_ship_type_id`** (y quizá `victim_name`) al guardar el killmail y a la tabla.
+- **Región junto a cada sistema (top sistemas).** A la derecha de "Top sistemas", mostrar la región
+  de cada sistema. Mapear `system_id -> region` vía SDE (recomendado, sin coste de API) o por ESI
+  (`/universe/systems/{id}` → constellation → region). Cachear el mapa; reutilizable de `eve_sde`.
+
+### Backlog UI — lista de personajes (rediseño)
+
+- **Tarjetas de personaje más limpias y escalables.** Hoy cada personaje muestra la lista cruda de
+  scopes (ruidoso). Rediseñar para que sea estético y útil incluso con 20+ personajes:
+  - **Foto del personaje** (`https://images.evetech.net/characters/{id}/portrait?size=64`).
+  - **Corporación** (y alianza) a la que pertenece, con su logo
+    (`https://images.evetech.net/corporations/{id}/logo`). Resolver vía
+    `/characters/{id}/` → corporation_id → nombre.
+  - **Sistema actual** (requiere scope `esi-location.read_location.v1`, que ya está declarado).
+  - Quitar la lista de scopes de la vista principal (moverla a un "detalle" o iconos).
+  - **Layout en rejilla** (p. ej. 4 columnas, tantas filas como hagan falta) en vez de tarjetas
+    apiladas a ancho completo, para que con muchos personajes siga siendo compacto y ordenado.
+  - Mantener accesos rápidos por tarjeta (Ver datos / Cerrar sesión) de forma discreta.
+
+- **Ranking de rivales (posible pestaña nueva "Némesis/Rivales").** A partir de los killmails:
+  - **Quién más te mata** y **a quién más matas**, tanto por **personaje** como por **corporación**
+    (y opcionalmente alianza). Rankings con nº de kills/losses e ISK implicada.
+  - Datos: el detalle del killmail ya trae `character_id`/`corporation_id`/`alliance_id` de víctima
+    y de cada atacante. Para "a quién matas" → contar víctimas (y sus corps) en tus kills; para
+    "quién te mata" → contar atacantes (y sus corps) en tus losses. Resolver nombres con
+    `/universe/names/` (cachear).
+  - Encaja como pestaña propia por volumen de datos; reutiliza el `raw` del killmail (conviene
+    guardar el detalle completo en `raw`, hoy guardamos solo el id — ver nota abajo).
+  - **Nota de datos:** para esto y para "naves de víctima", merece la pena **guardar el JSON
+    completo del killmail en `killmails.raw`** (hoy guardamos solo el `killmail_id`). Así estos
+    análisis no requieren re-bajar nada de ESI.
+
+## 9d. Backlog — Soberanía / upgrades Equinox en el tooltip de sistema
+
+Mostrar en la **leyenda/tooltip de cada sistema** (y opcional overlay) la info de soberanía Equinox.
+**Disponible vía ESI** (no es importación manual): con Equinox CCP añadió una ruta de "Sovereignty
+Systems" que junta mapa + estructuras en una sola respuesta.
+
+Qué mostrar por sistema:
+- **Quién lo posee** (alianza/corp) — ya teníamos `/sovereignty/map/`.
+- **Sovereignty Hub**: upgrades instalados, si están online.
+- **Reagents restantes**, **Power** y **Workforce** (de los Orbital Skyhooks del sistema).
+- Estado de los **Skyhooks**.
+
+Notas de implementación:
+- Parte es pública (ocupación, qué estructuras hay); el detalle fino (reagents, etc.) puede
+  requerir **auth + access lists** → encaja con "solo tus propios tokens".
+- **Confirmar endpoint(s) y scopes exactos** al implementarlo (la API de soberanía cambió mucho con
+  Equinox; ver dev blog "Equinox on ESI" y "Updates for Equinox – Developers Edition").
+- Integrar en el `map-tip` (tooltip de hover) y/o como overlay "Soberanía".
+
+## 9c. Backlog — Planificador de rutas en el mapa (feature grande)
+
+Diseñar rutas sobre nuestro mapa de New Eden, estilo autopilot del juego pero más potente.
+Inspirado en que CCP liberó `carbonengine/pathfinder` (C++), pero lo hacemos **nativo en Rust**
+sobre nuestro `neweden.json` (no dependemos de su código; sirve de referencia de correctitud).
+
+Por niveles de viabilidad:
+
+**Nivel 1 — Rutas por stargates (fácil, ya tenemos los datos).**
+- Grafo de saltos = `neweden.json` jumps. Dijkstra/BFS en Rust.
+- Modos como el juego: **más corta · más segura (≥0.5) · menos segura**.
+- UI: clic origen → destino en el mapa, dibuja la ruta resaltada; lista de saltos con seguridad.
+- Coste: bajo. Es el MVP del planificador.
+
+**Nivel 2 — Fatiga de salto (medio, scope disponible).**
+- ESI `/characters/{id}/fatigue/` (scope `esi-characters.read_fatigue.v1`, ya registrable) →
+  `last_jump_date`, `jump_fatigue_expire_date`, `last_update_date`.
+- Mostrar fatiga actual del personaje y **estimar la fatiga añadida** por una ruta de jump drive.
+- Nota: los **Ansiblex NO generan fatiga** (ventaja a reflejar en el cálculo).
+
+**Nivel 3 — Jump drive de capitales: rango y fuel por skills (medio).**
+- Rango de salto = f(nave, skill **Jump Drive Calibration**). Fórmula de rango ya documentada en
+  `docs/COMUNIDAD_Y_VISION` (map-data: distancia LY con el factor 9.46e15 m/LY).
+- Fuel (Liquid Ozone) por salto de capital = consumo_base_nave × distancia_LY ×
+  (1 − 0.10 × **Jump Fuel Conservation**). Necesita skills del personaje (scope skills, ya lo
+  tenemos) + nave elegida + consumo base por SDE (dogma attributes).
+- UI: elegir nave + personaje → calcular saltos posibles, fuel total y fatiga.
+
+**Nivel 4 — Ansiblex (jump gates) (APARCADO — decisión jun 2026).**
+- **Decisión:** no implementar de momento. El auto-descubrimiento exige un personaje **Director**
+  con scope de corp (`esi-corporations.read_structures.v1`), lo que rompe el principio de "app
+  personal y privada: cada usuario solo con sus propios tokens, sin credenciales de terceros".
+  Y la entrada manual de toda una red de golpe es poco práctica. Se queda fuera del alcance.
+- (Referencia técnica si algún día se retoma) opciones de descubrimiento:
+- Los Ansiblex permiten saltar entre sistemas conectados **sin fatiga**; fuel (ozono) lo paga la
+  estructura, fórmula: `ozono = masa_kg × distancia_LY × 0.000003 + 50`.
+- **Problema:** ESI no expone fácilmente la red de Ansiblex de tu alianza. Opciones:
+  a) **Entrada manual** de conexiones Ansiblex (origen↔destino) por el usuario/alianza.
+  b) Detectar vía `/corporations/{id}/structures` (requiere rol director) si son de tu corp.
+  c) Importar de fuentes de comunidad. → Empezar por (a), entrada manual, que es robusta.
+- Una vez cargados, los Ansiblex se añaden como **aristas extra** al grafo de rutas (sin fatiga).
+
+**Nivel 5 — Wormholes (difícil / externo).**
+- Las conexiones de wormhole son **dinámicas** y **no están en ESI** ni en el SDE. Solo se obtienen
+  por escaneo en vivo (mapeadores tipo Tripwire/Pathfinder/Wanderer) o entrada manual.
+- Alcance realista: permitir **añadir conexiones temporales manualmente** al grafo (un WH abierto
+  de X a Y) para que el planificador las tenga en cuenta en esa sesión. Integración con mapeadores
+  externos = exploración futura.
+
+**Orden sugerido:** N1 (rutas stargate) → N3 (rango/fuel de capital por skills) + N2 (fatiga) →
+N4 (Ansiblex manual) → N5 (WH manual). N1 ya aporta muchísimo y es barato.
+
+## 10. Riesgos / decisiones abiertas
+
+- **Rotación de refresh tokens:** mitigada con mutex por personaje.
+- **Compatibility-date:** fijada `2026-06-01`; definir proceso para subirla.
+- **SDE:** ¿descarga embebida vs. `/universe/`? Decidir en F2.
+- **Distribución/firma:** SmartScreen + auto-update en F6.
+- **zKillboard ToS / rate limit:** respetar User-Agent y caché.
+- **Privacidad:** todo local; nada sale de la máquina salvo las llamadas propias a ESI/zKill.
