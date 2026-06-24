@@ -6,6 +6,7 @@ import "./App.css";
 import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl } from "./format";
 import {
   FEATURES,
+  SCOPE,
   KM_LIMIT,
   AUTO_SYNC_MS,
   TABS,
