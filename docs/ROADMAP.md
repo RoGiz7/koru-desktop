@@ -132,6 +132,26 @@
 10. **git + `.gitignore`** → movido a **sección 0** (ya no es "cuando madure": hace falta ya).
 11. **Firma de binario Windows** (SmartScreen) y **auto-update** de Tauri.
 
+#### Guía de distribución v1 (cómo repartir el .exe)
+
+Clave: **el código va al repo; el instalador (.exe) NO** (la carpeta de compilado está en `.gitignore`).
+El binario se reparte aparte, vía **GitHub Releases**.
+
+Pasos:
+1. **Generar el instalador** en Windows: `npm run tauri build`. Sale en
+   `src-tauri/target/release/bundle/` (un `.msi` y/o un `setup.exe` NSIS). Eso es lo que se instala.
+2. **Publicar en GitHub Releases** (en github.com, pestaña *Releases*, no en el árbol de archivos):
+   *Draft a new release* → crear un tag (`v0.1.0`) → título + notas → **arrastrar el instalador** como
+   adjunto → *Publish*. Queda una página de descarga; se reparte ese enlace por Rekium.
+3. Subir la versión: cada release nueva = nuevo tag (`v0.1.1`…) con su instalador.
+
+Avisos:
+- **SmartScreen**: como el binario no está firmado, Windows mostrará "Windows protegió tu PC" →
+  el usuario pulsa "Más información → Ejecutar de todas formas". Normal en apps indie; avisarlo en las
+  instrucciones. Quitarlo del todo = certificado de firma (de pago) → ver punto 11.
+- **Auto-update (opcional, futuro)**: el updater de Tauri puede mirar la última Release y actualizar
+  solo. Se monta cuando interese; para empezar basta el enlace de la Release.
+
 ---
 
 ## Notas
