@@ -16,209 +16,34 @@ import {
   POIS,
 } from "./constants";
 import type { Tab, MapOverlay } from "./constants";
-
-/* ---------- tipos ---------- */
-type Character = {
-  character_id: number;
-  name: string;
-  scopes: string[];
-  last_sync: string | null;
-};
-type LoginOutcome = { character_id: number; character_name: string; scopes: string[] };
-type CharacterCard = {
-  character_id: number;
-  name: string;
-  corporation_id: number | null;
-  corporation_name: string | null;
-  alliance_id: number | null;
-  alliance_name: string | null;
-  system_id: number | null;
-  system_name: string | null;
-  scopes: string[];
-};
-
-type NameCount = { id: number; count: number; name: string | null; region: string | null };
-type TopKill = {
-  killmail_id: number;
-  isk_value: number | null;
-  system_id: number | null;
-  system_name: string | null;
-  victim_ship_id: number | null;
-  victim_ship_name: string | null;
-  killed_at: string | null;
-};
-type KillmailRow = {
-  killmail_id: number;
-  is_loss: boolean;
-  ship_type_id: number | null;
-  system_id: number | null;
-  isk_value: number | null;
-  killed_at: string | null;
-  solo: boolean;
-  char_damage: number | null;
-  final_blow: boolean;
-  top_damage: boolean;
-  ship_name: string | null;
-  system_name: string | null;
-};
-type PvpStats = {
-  kills: number;
-  losses: number;
-  isk_destroyed: number;
-  isk_lost: number;
-  solo_kills: number;
-  final_blows: number;
-  top_damage_kills: number;
-  efficiency: number;
-  top_ships: NameCount[];
-  top_systems: NameCount[];
-  top_expensive: TopKill[];
-  recent: KillmailRow[];
-};
-
-type RefTypeSum = { ref_type: string; total: number };
-type JournalRow = {
-  id: number;
-  date: string | null;
-  ref_type: string | null;
-  amount: number | null;
-  balance: number | null;
-  description: string | null;
-};
-type WalletStats = {
-  income: number;
-  expense: number;
-  net: number;
-  entries: number;
-  top_income: RefTypeSum[];
-  top_expense: RefTypeSum[];
-  recent: JournalRow[];
-};
-type WalletView = { balance: number; stats: WalletStats };
-
-type NetworthPoint = { date: string; liquid: number; asset_value: number; total: number };
-type NetworthView = {
-  liquid: number;
-  asset_value: number;
-  total: number;
-  series: NetworthPoint[];
-  prices_loaded: number;
-};
-
-type QueueItem = {
-  skill_id: number;
-  finished_level: number;
-  finish_date: string | null;
-  queue_position: number;
-  skill_name: string | null;
-};
-type SkillsSummary = {
-  total_sp: number;
-  unallocated_sp: number;
-  skill_count: number;
-  queue: QueueItem[];
-};
-type CharTraining = {
-  character_id: number;
-  character_name: string;
-  skill_id: number | null;
-  skill_name: string | null;
-  finished_level: number;
-  finish_date: string | null;
-};
-type GlobalSkills = {
-  total_sp: number;
-  unallocated_sp: number;
-  skill_count: number;
-  character_count: number;
-  training: CharTraining[];
-};
-
-type AssetsSummary = {
-  stacks: number;
-  distinct_types: number;
-  total_units: number;
-  est_value: number;
-  top_types: NameCount[];
-};
-type JobView = {
-  job_id: number;
-  activity: string;
-  runs: number;
-  status: string | null;
-  blueprint_name: string | null;
-  product_name: string | null;
-  end_date: string | null;
-  character: string | null;
-};
-type MiningRow = {
-  date: string | null;
-  system_id: number | null;
-  type_id: number;
-  type_name: string | null;
-  quantity: number;
-};
-type MiningSummary = {
-  total_units: number;
-  entries: number;
-  top_ores: NameCount[];
-  recent: MiningRow[];
-};
-type SysActivity = {
-  system_id: number;
-  kills: number;
-  losses: number;
-  isk: number;
-};
-type Battle = {
-  system_id: number;
-  system_name: string | null;
-  start: string;
-  slug: string;
-  kills: number;
-  losses: number;
-  isk: number;
-  total: number;
-};
-type RivalEntry = { id: number; name: string | null; count: number };
-type Rivals = {
-  you_kill_chars: RivalEntry[];
-  you_kill_corps: RivalEntry[];
-  kills_you_chars: RivalEntry[];
-  kills_you_corps: RivalEntry[];
-};
-// New Eden desde el SDE local (public/neweden.json)
-type NeSystem = {
-  id: number;
-  n: string;
-  x: number;
-  y: number;
-  s: number;
-  r: number;
-  c: number;
-  gx: number;
-  gy: number;
-  gz: number;
-};
-type NewEden = {
-  systems: NeSystem[];
-  jumps: [number, number][];
-  regions: { id: number; n: string }[];
-  constellations: { id: number; n: string }[];
-};
-type SystemKills = { system_id: number; ship_kills: number; pod_kills: number; npc_kills: number };
-type SystemJumps = { system_id: number; ship_jumps: number };
-type AssetSystem = { system_id: number; count: number };
-type SovSystem = { system_id: number; owner_id: number | null; kind: string; owner_name: string | null };
-type FwSystem = {
-  solar_system_id: number;
-  owner_faction_id: number;
-  occupier_faction_id: number;
-  contested: string | null;
-  victory_points: number;
-  victory_points_threshold: number;
-};
-type CharLoc = { id: number; name: string; system_id: number };
+import type {
+  Character,
+  LoginOutcome,
+  CharacterCard,
+  NameCount,
+  KillmailRow,
+  PvpStats,
+  WalletView,
+  NetworthPoint,
+  NetworthView,
+  SkillsSummary,
+  GlobalSkills,
+  AssetsSummary,
+  JobView,
+  MiningSummary,
+  SysActivity,
+  Battle,
+  RivalEntry,
+  Rivals,
+  NeSystem,
+  NewEden,
+  SystemKills,
+  SystemJumps,
+  AssetSystem,
+  SovSystem,
+  FwSystem,
+  CharLoc,
+} from "./types";
 
 /* ---------- app ---------- */
 function App() {
