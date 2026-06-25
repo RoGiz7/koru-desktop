@@ -1219,6 +1219,46 @@ h4 {
   font-size: 1rem;
 }
 
+/* Sub-filtro desplegable (fila de pastillas encima de la barra) */
+.map-subfilter {
+  position: absolute;
+  bottom: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: rgba(16, 20, 28, 0.82);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 6;
+  max-width: calc(100% - 24px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.msf-btn {
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted-2);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.msf-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.msf-btn.active {
+  background: var(--accent);
+  border-color: var(--accent-border);
+  color: #fff;
+}
+
 /* Marca sutil para las capas "tuyas" (datos personales) vs públicas */
 .mfb-btn.mine:not(.active) .mfb-label {
   color: var(--accent-text);

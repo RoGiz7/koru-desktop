@@ -98,6 +98,29 @@ export const POIS: Poi[] = [
   { name: "Old Man Star", kind: "pvp", note: "Icono de la Guerra de Facciones (lowsec)" },
 ];
 
+// Sub-filtros desplegables por capa (estilo mapa oficial). Solo las capas que aquí aparecen
+// muestran desplegable; el valor "all" = sin filtrar.
+export const SUBFILTERS: Partial<Record<MapOverlay, { v: string; l: string }[]>> = {
+  soberania: [
+    { v: "all", l: "Todos" },
+    { v: "alliance", l: "Alianzas" },
+    { v: "faction", l: "Facciones" },
+  ],
+  fw: [
+    { v: "all", l: "Todos" },
+    { v: "500003", l: "Amarr" },
+    { v: "500001", l: "Caldari" },
+    { v: "500004", l: "Gallente" },
+    { v: "500002", l: "Minmatar" },
+  ],
+  poi: [
+    { v: "all", l: "Todos" },
+    { v: "hub", l: "Hubs" },
+    { v: "historico", l: "Históricos" },
+    { v: "pvp", l: "PvP" },
+  ],
+};
+
 export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: string; group: "publico" | "tuyo" }[] = [
   { key: "ubicacion", label: "Ubicación", short: "Ubicación", icon: "📍", group: "tuyo" },
   { key: "poi", label: "Lugares notables", short: "Lugares", icon: "🏛️", group: "publico" },

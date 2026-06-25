@@ -105,7 +105,9 @@
    `../documentacion/inspiracion-mapa-new-eden.md`) — HECHO (frontend, falta compilar/probar Windows):
    **barra inferior de capas** (Ubicación·Seguridad·Soberanía·Kills 1h·Jumps 1h·Tu PvP·Assets·Minería,
    con las capas "tuyas" marcadas) + **panel de contexto derecho** con título/descripción/KPIs por capa.
-   Pendiente sobre esta base: sub-filtros desplegables y, a confirmar, **Insurgencias**.
+   **Sub-filtros desplegables** ✅ HECHOS (frontend): Soberanía→Todos/Alianzas/Facciones,
+   FW→por imperio, Lugares→por tipo (fila de pastillas sobre la barra, reset al cambiar de capa).
+   Pendiente sobre esta base: capa **Insurgencias** (a confirmar endpoint ESI).
 0d. ✅ **Capa Guerra de facciones** — HECHA (backend + frontend): comando público `get_fw_systems`
    (`/fw/systems/`, sin token) + overlay `fw` coloreado por imperio (Caldari/Minmatar/Amarr/Gallente),
    radio/intensidad según `victory_points`/`contested`, KPI "sistemas disputados" y facción en el

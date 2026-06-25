@@ -12,6 +12,7 @@ import {
   TABS,
   TAB_HEAD,
   OVERLAYS,
+  SUBFILTERS,
   FW_FACTIONS,
   POIS,
 } from "./constants";
@@ -1378,6 +1379,8 @@ function MapView(props: {
   const [view, setView] = useState({ z: 1, x: 0, y: 0 });
   const [selected, setSelected] = useState<number | null>(null);
   const [hover, setHover] = useState<{ sid: number; sx: number; sy: number } | null>(null);
+  const [subFilter, setSubFilter] = useState<string>("all"); // sub-filtro de la capa activa
+  useEffect(() => setSubFilter("all"), [overlay]); // reset al cambiar de capa
   // Planificador de rutas
   const [routeActive, setRouteActive] = useState(false);
   const [routeMode, setRouteMode] = useState<RouteMode>("shortest");
@@ -1657,17 +1660,21 @@ function MapView(props: {
     if (!geo || overlay !== "soberania" || !sovBySystem) return null;
     return [...sovBySystem.values()].map((sv) => {
       if (sv.owner_id == null) return null;
+      // sub-filtro: Alianzas (alliance/corp) vs Facciones (faction)
+      if (subFilter === "alliance" && !(sv.kind === "alliance" || sv.kind === "corporation")) return null;
+      if (subFilter === "faction" && sv.kind !== "faction") return null;
       const s = geo.idx.get(sv.system_id);
       if (!s) return null;
       const p = geo.proj(s);
       return <circle key={`sov-${sv.system_id}`} cx={p.px} cy={p.py} r={1.6} fill={ownerColor(sv.owner_id)} fillOpacity={0.85} />;
     });
-  }, [geo, overlay, sovBySystem]);
+  }, [geo, overlay, sovBySystem, subFilter]);
 
   // Guerra de facciones: color = imperio que controla; radio/intensidad = cuán disputado.
   const fwCircles = useMemo(() => {
     if (!geo || overlay !== "fw" || !fwBySystem) return null;
     return [...fwBySystem.values()].map((f) => {
+      if (subFilter !== "all" && f.owner_faction_id !== Number(subFilter)) return null;
       const s = geo.idx.get(f.solar_system_id);
       if (!s) return null;
       const p = geo.proj(s);
@@ -1678,7 +1685,7 @@ function MapView(props: {
       const op = f.contested === "vulnerable" ? 1 : f.contested === "contested" ? 0.85 : 0.55;
       return <circle key={`fw-${f.solar_system_id}`} cx={p.px} cy={p.py} r={r} fill={col} fillOpacity={op} />;
     });
-  }, [geo, overlay, fwBySystem]);
+  }, [geo, overlay, fwBySystem, subFilter]);
 
   // Sistemas alcanzables por salto de capital (low/null dentro del rango LY).
   const jumpReach = useMemo(() => {
@@ -2156,6 +2163,7 @@ function MapView(props: {
             {/* capa Lugares notables (POI) */}
             {overlay === "poi" &&
               POIS.map((poi) => {
+                if (subFilter !== "all" && poi.kind !== subFilter) return null;
                 const s = geo.nameIdx.get(poi.name.toLowerCase());
                 if (!s) return null;
                 const p = geo.proj(s);
@@ -2363,6 +2371,21 @@ function MapView(props: {
             )}
           </div>
         </div>
+
+        {/* Sub-filtro de la capa activa (desplegable, estilo mapa oficial) */}
+        {SUBFILTERS[overlay] && (
+          <div className="map-subfilter">
+            {SUBFILTERS[overlay]!.map((o) => (
+              <button
+                key={o.v}
+                className={`msf-btn ${subFilter === o.v ? "active" : ""}`}
+                onClick={() => setSubFilter(o.v)}
+              >
+                {o.l}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Barra de filtros de capas (abajo-centro) */}
         <div className="map-filterbar">
