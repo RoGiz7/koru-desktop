@@ -715,6 +715,26 @@ pub async fn get_incursions(state: State<'_, AppState>) -> AppResult<Vec<Incursi
     Ok(inc)
 }
 
+/// Estado del servidor Tranquility (público `/status/`): nº de jugadores online, versión, VIP.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ServerStatus {
+    #[serde(default)]
+    pub players: i64,
+    #[serde(default)]
+    pub server_version: String,
+    #[serde(default)]
+    pub start_time: Option<String>,
+    #[serde(default)]
+    pub vip: bool,
+}
+
+/// Estado de TQ. Si el servidor está caído, `/status/` falla → el frontend lo trata como offline.
+#[tauri::command]
+pub async fn get_server_status(state: State<'_, AppState>) -> AppResult<ServerStatus> {
+    let s: ServerStatus = state.esi.get_cached(&state.db, 0, "/status/", None).await?;
+    Ok(s)
+}
+
 /// Mapa PvP de un personaje: actividad por sistema (k-space). Las coordenadas/seguridad/nombre
 /// los resuelve el frontend desde el SDE local (neweden.json) — sin llamadas a ESI.
 #[tauri::command]

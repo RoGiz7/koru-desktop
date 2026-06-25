@@ -50,6 +50,7 @@ import type {
   FwSystem,
   CharLoc,
   Incursion,
+  ServerStatus,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -60,6 +61,24 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [feature, setFeature] = useState("identity");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
+  // Estado del servidor EVE (Tranquility)
+  const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
+  const [serverOffline, setServerOffline] = useState(false);
+  useEffect(() => {
+    const load = () =>
+      invoke<ServerStatus>("get_server_status")
+        .then((s) => {
+          setServerStatus(s);
+          setServerOffline(false);
+        })
+        .catch(() => {
+          setServerStatus(null);
+          setServerOffline(true);
+        });
+    load();
+    const id = window.setInterval(load, 120_000); // refresco cada 2 min
+    return () => window.clearInterval(id);
+  }, []);
   // Auto-actualización
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -837,6 +856,35 @@ function App() {
           )}
         </div>
         <div className="statusbar-meta">
+          <span className="sb-badge" title="Hora EVE (UTC)">
+            🕓 {new Date(now).toISOString().substring(11, 16)} EVE
+          </span>
+          <span className="sb-sep" />
+          <span
+            className="sb-badge"
+            title={
+              serverOffline
+                ? "Tranquility caído o en VIP"
+                : serverStatus
+                ? `Tranquility online${serverStatus.vip ? " (VIP)" : ""}`
+                : "Comprobando estado del servidor…"
+            }
+          >
+            <span
+              className="sb-dot"
+              style={{
+                background: serverOffline
+                  ? "var(--danger)"
+                  : !serverStatus
+                  ? "var(--fg-muted)"
+                  : serverStatus.vip
+                  ? "#e3a13a"
+                  : "var(--ok)",
+              }}
+            />
+            TQ {serverOffline ? "offline" : serverStatus ? `· ${fmtSp(serverStatus.players)}` : "…"}
+          </span>
+          <span className="sb-sep" />
           <span className="sb-badge" title="Mapa y datos servidos desde la base de datos local (SDE), sin llamada a ESI">
             <span className="sb-dot" />
             SDE local

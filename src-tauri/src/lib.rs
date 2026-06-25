@@ -85,6 +85,7 @@ pub fn run() {
             commands::get_sov_systems,
             commands::get_fw_systems,
             commands::get_incursions,
+            commands::get_server_status,
             commands::get_assets_map,
             commands::get_assets_map_global,
             commands::get_mining_map,

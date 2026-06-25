@@ -215,6 +215,12 @@ export type FwSystem = {
   victory_points_threshold: number;
 };
 export type CharLoc = { id: number; name: string; system_id: number };
+export type ServerStatus = {
+  players: number;
+  server_version: string;
+  start_time: string | null;
+  vip: boolean;
+};
 export type Incursion = {
   constellation_id: number;
   faction_id: number;
