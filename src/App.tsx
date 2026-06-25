@@ -773,7 +773,12 @@ function App() {
                   className={`navg ${active ? "active" : ""}`}
                   onClick={() => changeTab(g.subs[0].key)}
                 >
-                  <span className="navg-ico">{g.icon}</span> {g.group}
+                  {g.typeId ? (
+                    <img className="navg-img" src={typeIcon(g.typeId)} alt="" loading="lazy" />
+                  ) : (
+                    <span className="navg-ico">{g.icon}</span>
+                  )}{" "}
+                  {g.group}
                 </button>
               );
             })}
@@ -1126,6 +1131,26 @@ function PvpView(props: {
     onKmPage,
   } = props;
   const [chart, setChart] = useState(false);
+  const [kmSort, setKmSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
+  const onKmSort = (col: string) =>
+    setKmSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
+  const kmSorted = [...kmRows].sort((a, b) => {
+    const d = kmSort.dir;
+    switch (kmSort.col) {
+      case "type":
+        return ((a.is_loss ? 1 : 0) - (b.is_loss ? 1 : 0)) * d;
+      case "ship":
+        return (a.ship_name ?? "").localeCompare(b.ship_name ?? "") * d;
+      case "sys":
+        return (a.system_name ?? "").localeCompare(b.system_name ?? "") * d;
+      case "dmg":
+        return ((a.char_damage ?? 0) - (b.char_damage ?? 0)) * d;
+      case "isk":
+        return ((a.isk_value ?? 0) - (b.isk_value ?? 0)) * d;
+      default:
+        return (a.killed_at ?? "").localeCompare(b.killed_at ?? "") * d;
+    }
+  });
   return (
     <>
       {!global && (
@@ -1296,16 +1321,16 @@ function PvpView(props: {
       <table className="km-table">
         <thead>
           <tr>
-            <th>Tipo</th>
-            <th>Nave</th>
-            <th>Sistema</th>
-            <th>Daño</th>
-            <th>ISK</th>
-            <th>Fecha</th>
+            <Th label="Tipo" col="type" sort={kmSort} onSort={onKmSort} />
+            <Th label="Nave" col="ship" sort={kmSort} onSort={onKmSort} />
+            <Th label="Sistema" col="sys" sort={kmSort} onSort={onKmSort} />
+            <Th label="Daño" col="dmg" sort={kmSort} onSort={onKmSort} />
+            <Th label="ISK" col="isk" sort={kmSort} onSort={onKmSort} />
+            <Th label="Fecha" col="date" sort={kmSort} onSort={onKmSort} />
           </tr>
         </thead>
         <tbody>
-          {kmRows.map((k) => (
+          {kmSorted.map((k) => (
             <tr
               key={k.killmail_id}
               className={`clickable ${k.is_loss ? "loss" : "kill"}`}
@@ -1462,6 +1487,22 @@ function WalletViewC(props: {
   onSync?: () => void;
 }) {
   const { data, busy, global, onSync } = props;
+  const [wSort, setWSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
+  const onWSort = (col: string) =>
+    setWSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
+  const wRows = [...(data?.stats.recent ?? [])].sort((a, b) => {
+    const d = wSort.dir;
+    switch (wSort.col) {
+      case "type":
+        return (a.ref_type ?? "").localeCompare(b.ref_type ?? "") * d;
+      case "amount":
+        return ((a.amount ?? 0) - (b.amount ?? 0)) * d;
+      case "balance":
+        return ((a.balance ?? 0) - (b.balance ?? 0)) * d;
+      default:
+        return (a.date ?? "").localeCompare(b.date ?? "") * d;
+    }
+  });
   return (
     <>
       {!global && (
@@ -1509,14 +1550,14 @@ function WalletViewC(props: {
           <table className="km-table">
             <thead>
               <tr>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Cantidad</th>
-                <th>Balance</th>
+                <Th label="Fecha" col="date" sort={wSort} onSort={onWSort} />
+                <Th label="Tipo" col="type" sort={wSort} onSort={onWSort} />
+                <Th label="Cantidad" col="amount" sort={wSort} onSort={onWSort} />
+                <Th label="Balance" col="balance" sort={wSort} onSort={onWSort} />
               </tr>
             </thead>
             <tbody>
-              {data.stats.recent.map((j) => (
+              {wRows.map((j) => (
                 <tr key={j.id} className={(j.amount ?? 0) >= 0 ? "kill" : "loss"}>
                   <td>{j.date?.replace("T", " ").slice(0, 16) ?? "-"}</td>
                   <td>{j.ref_type ?? "-"}</td>

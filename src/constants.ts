@@ -19,10 +19,12 @@ export type Tab =
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
 export type NavSub = { key: Tab; label: string; scopes?: string[]; soon?: boolean };
-export const NAV: { group: string; icon: string; subs: NavSub[] }[] = [
+// `typeId` opcional = icono real de EVE (images.evetech.net) para el grupo; si no, se usa `icon` (emoji).
+export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[] }[] = [
   {
     group: "Patrimonio",
     icon: "💰",
+    typeId: 44992, // PLEX
     subs: [
       { key: "patrimonio", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1", "esi-assets.read_assets.v1"] },
       { key: "wallet", label: "Wallet", scopes: ["esi-wallet.read_character_wallet.v1"] },
@@ -33,6 +35,7 @@ export const NAV: { group: string; icon: string; subs: NavSub[] }[] = [
   {
     group: "PvP",
     icon: "⚔️",
+    typeId: 587, // Rifter
     subs: [
       { key: "pvp", label: "PvP", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "rivales", label: "Rivales", scopes: ["esi-killmails.read_killmails.v1"] },
@@ -51,6 +54,7 @@ export const NAV: { group: string; icon: string; subs: NavSub[] }[] = [
   {
     group: "Industria",
     icon: "🏭",
+    typeId: 34, // Tritanium (minerales)
     subs: [
       { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1", "esi-industry.read_character_mining.v1"] },
       { key: "planetologia", label: "Planetología", soon: true },

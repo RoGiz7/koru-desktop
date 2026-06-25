@@ -446,6 +446,20 @@ button.danger:hover {
   margin-right: 0.15rem;
 }
 
+.navg-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 0.1rem;
+}
+
+.navg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
 .tab.soon {
   opacity: 0.65;
   font-style: italic;
