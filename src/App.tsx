@@ -53,6 +53,7 @@ import type {
   ServerStatus,
   MarketOrder,
   Planet,
+  RattingDetail,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -123,6 +124,7 @@ function App() {
   const [assetsDetail, setAssetsDetail] = useState<AssetDetail[] | null>(null);
   const [marketOrders, setMarketOrders] = useState<MarketOrder[] | null>(null);
   const [planets, setPlanets] = useState<Planet[] | null>(null);
+  const [ratting, setRatting] = useState<RattingDetail | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
@@ -192,6 +194,7 @@ function App() {
     setAssetsDetail(null);
     setMarketOrders(null);
     setPlanets(null);
+    setRatting(null);
     setWalletData(null);
     setSkillsData(null);
     setGSkills(null);
@@ -304,6 +307,7 @@ function App() {
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders_global"));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets_global"));
+        if (t === "rateo") setRatting(await invoke<RattingDetail>("get_ratting_global"));
         if (t === "industria") {
           setJobsData(await invoke<JobView[]>("get_industry_global"));
           setMiningData(await invoke<MiningSummary>("get_mining_global"));
@@ -325,6 +329,7 @@ function App() {
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets", { characterId }));
+        if (t === "rateo") setRatting(await invoke<RattingDetail>("get_ratting", { characterId }));
         if (t === "industria") {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
@@ -873,7 +878,8 @@ function App() {
           )}
           {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
-          {(tab === "rateo" || tab === "abyssals" || tab === "factional") && (
+          {tab === "rateo" && <RateoView data={ratting} busy={sectionBusy} />}
+          {(tab === "abyssals" || tab === "factional") && (
             <div className="soon-box">
               <div className="soon-emoji">🚧</div>
               <p className="muted">
@@ -1664,6 +1670,21 @@ let nePromise: Promise<NewEden> | null = null;
 function loadNewEden(): Promise<NewEden> {
   if (!nePromise) nePromise = fetch("/neweden.json").then((r) => r.json());
   return nePromise;
+}
+
+/** Etiqueta de semana ISO (YYYY-Sww) a partir de una fecha YYYY-MM-DD. */
+function weekKey(date: string): string {
+  const dt = new Date(date + "T00:00:00Z");
+  const dayNr = (dt.getUTCDay() + 6) % 7;
+  dt.setUTCDate(dt.getUTCDate() - dayNr + 3); // jueves de esa semana
+  const firstThursday = new Date(Date.UTC(dt.getUTCFullYear(), 0, 4));
+  const week =
+    1 +
+    Math.round(
+      (dt.getTime() - firstThursday.getTime()) / 86400000 / 7 -
+        ((firstThursday.getUTCDay() + 6) % 7) / 7,
+    );
+  return `${dt.getUTCFullYear()}-S${String(week).padStart(2, "0")}`;
 }
 
 const MAP_W = 1000;
@@ -3023,6 +3044,165 @@ function Th({
     <th className="th-sort" onClick={() => onSort(col)} title="Ordenar">
       {label} <span className="th-arrow">{active ? (sort.dir === 1 ? "▲" : "▼") : "↕"}</span>
     </th>
+  );
+}
+
+function RateoView({
+  data,
+  busy,
+}: {
+  data: RattingDetail | null;
+  busy: boolean;
+}) {
+  const [gran, setGran] = useState<"day" | "week" | "month" | "year">("day");
+  const [cumulative, setCumulative] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [names, setNames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    loadNewEden()
+      .then((ne) => setNames(new Map(ne.systems.map((s) => [s.id, s.n]))))
+      .catch(() => {});
+  }, []);
+
+  if (!data) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  if (data.entries === 0)
+    return (
+      <p className="muted small">
+        Sin ingresos de rateo en el journal. Sincroniza la wallet del personaje (sección Wallet)
+        para empezar a acumular el histórico en tu PC.
+      </p>
+    );
+
+  const sysName = (id: number) => names.get(id) ?? `#${id}`;
+  const granLabel =
+    gran === "day" ? "día" : gran === "week" ? "semana" : gran === "month" ? "mes" : "año";
+
+  // Filtra por rango de fechas (YYYY-MM-DD) y agrupa por granularidad.
+  const daily = data.daily.filter((d) => (!from || d.date >= from) && (!to || d.date <= to));
+  const bucketKey = (date: string) =>
+    gran === "year"
+      ? date.slice(0, 4)
+      : gran === "month"
+        ? date.slice(0, 7)
+        : gran === "week"
+          ? weekKey(date)
+          : date;
+  const buckets = new Map<string, { isk: number; rats: number }>();
+  for (const d of daily) {
+    const k = bucketKey(d.date);
+    const e = buckets.get(k) ?? { isk: 0, rats: 0 };
+    e.isk += d.bounty + d.ess;
+    e.rats += d.rats;
+    buckets.set(k, e);
+  }
+  let series = [...buckets.entries()].map(([label, v]) => ({ label, isk: v.isk, rats: v.rats }));
+  if (cumulative) {
+    let acc = 0;
+    series = series.map((s) => ({ ...s, isk: (acc += s.isk) }));
+  }
+
+  const totalIsk = data.total_bounty + data.total_ess;
+  const iskPerHour = data.active_hours > 0 ? totalIsk / data.active_hours : 0;
+  const topSystems = data.by_system.slice(0, 12);
+
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="ISK total (bounty + ESS)" value={fmtIsk(totalIsk)} tone="pos" />
+        <Kpi label="Bounties" value={fmtIsk(data.total_bounty)} tone="pos" />
+        <Kpi label="ESS" value={fmtIsk(data.total_ess)} tone="pos" />
+        <Kpi label="Ratas eliminadas" value={fmtSp(data.rats_killed)} />
+        <Kpi label="ISK / hora (estim.)" value={fmtIsk(iskPerHour)} />
+      </div>
+
+      <div className="rateo-controls">
+        <div className="seg">
+          {(["day", "week", "month", "year"] as const).map((g) => (
+            <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
+              {g === "day" ? "Día" : g === "week" ? "Semana" : g === "month" ? "Mes" : "Año"}
+            </button>
+          ))}
+        </div>
+        <label className="rateo-check">
+          <input
+            type="checkbox"
+            checked={cumulative}
+            onChange={(e) => setCumulative(e.target.checked)}
+          />
+          Acumulado
+        </label>
+        <label className="rateo-date">
+          Desde <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="rateo-date">
+          Hasta <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        {(from || to) && (
+          <button
+            className="rateo-clear"
+            onClick={() => {
+              setFrom("");
+              setTo("");
+            }}
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      <div className="top-list">
+        <h4>
+          {cumulative ? "ISK acumulado" : "ISK"} por {granLabel}
+        </h4>
+        <Bars
+          items={series.map((s) => ({ label: s.label, value: s.isk }))}
+          color="#3fb950"
+          fmt={fmtIsk}
+        />
+      </div>
+
+      <div className="top-list">
+        <h4>Ratas por {granLabel}</h4>
+        <Bars
+          items={series.map((s) => ({ label: s.label, value: s.rats }))}
+          color="#d29922"
+          fmt={fmtSp}
+        />
+      </div>
+
+      <div className="top-list">
+        <h4>ISK por sistema (histórico)</h4>
+        <Bars
+          items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
+          color="#4f9cff"
+          fmt={fmtIsk}
+        />
+      </div>
+
+      <div className="top-list">
+        <h4>Detalle por sistema</h4>
+        <table className="km-table">
+          <thead>
+            <tr>
+              <th>Sistema</th>
+              <th>ISK</th>
+              <th>Ratas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {topSystems.map((s) => (
+              <tr key={s.system_id}>
+                <td>{sysName(s.system_id)}</td>
+                <td>{fmtIsk(s.isk)}</td>
+                <td>{fmtSp(s.rats)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

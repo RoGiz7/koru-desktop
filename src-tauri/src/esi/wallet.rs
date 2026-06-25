@@ -18,6 +18,16 @@ pub struct JournalEntry {
     pub balance: Option<f64>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub context_id: Option<i64>,
+    #[serde(default)]
+    pub context_id_type: Option<String>,
+    #[serde(default)]
+    pub first_party_id: Option<i64>,
+    #[serde(default)]
+    pub second_party_id: Option<i64>,
 }
 
 /// Balance actual de la cartera (ESI devuelve un número suelto). Cacheado por el cliente.
@@ -65,6 +75,11 @@ pub async fn sync_journal(
                 e.amount,
                 e.balance,
                 e.description.as_deref(),
+                e.reason.as_deref(),
+                e.context_id,
+                e.context_id_type.as_deref(),
+                e.first_party_id,
+                e.second_party_id,
             )?;
             new_count += 1;
         }

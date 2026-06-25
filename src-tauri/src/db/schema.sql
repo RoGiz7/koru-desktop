@@ -48,7 +48,12 @@ CREATE TABLE IF NOT EXISTS wallet_journal (
     ref_type       TEXT,
     amount         REAL,
     balance        REAL,
-    description    TEXT
+    description    TEXT,
+    reason          TEXT,
+    context_id      INTEGER,
+    context_id_type TEXT,
+    first_party_id  INTEGER,
+    second_party_id INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_wj_char ON wallet_journal(character_id);

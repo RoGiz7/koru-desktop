@@ -39,6 +39,12 @@ impl Db {
             "ALTER TABLE killmails ADD COLUMN top_damage INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Journal: campos de detalle para histórico de rateo (sistema vía ESS, etc.).
+        let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN reason TEXT", []);
+        let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN context_id INTEGER", []);
+        let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN context_id_type TEXT", []);
+        let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN first_party_id INTEGER", []);
+        let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN second_party_id INTEGER", []);
         Ok(Db {
             conn: Mutex::new(conn),
         })
@@ -273,6 +279,54 @@ impl Db {
 }
 
 // --- Killmails ---
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RattingPoint {
+    pub date: String,
+    pub isk: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RattingSummary {
+    pub total: f64,
+    pub entries: i64,
+    pub trend: Vec<RattingPoint>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RattingSystem {
+    pub system_id: i64,
+    pub isk: f64,
+    pub rats: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RattingDay {
+    pub date: String, // YYYY-MM-DD
+    pub bounty: f64,
+    pub ess: f64,
+    pub rats: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RattingDetail {
+    pub total_bounty: f64,
+    pub total_ess: f64,
+    pub rats_killed: i64,
+    pub entries: i64,
+    pub active_hours: i64,
+    pub by_system: Vec<RattingSystem>,
+    pub daily: Vec<RattingDay>,
+}
+
+/// Suma las cantidades del campo `reason` de un bounty_prizes.
+/// Formato: "24129: 1,24130: 6,16895: 2" => typeID_rata: cantidad.
+fn parse_rat_count(reason: &str) -> i64 {
+    reason
+        .split(',')
+        .filter_map(|p| p.rsplit(':').next()?.trim().parse::<i64>().ok())
+        .sum()
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PvpTrendPoint {
@@ -613,6 +667,138 @@ impl Db {
         Ok(rows)
     }
 
+    /// Resumen de rateo (bounties + ESS) desde el wallet journal. None = global (todos los pj).
+    pub fn ratting_summary(&self, character_id: Option<i64>) -> AppResult<RattingSummary> {
+        let conn = self.conn.lock().unwrap();
+        let (total, entries): (f64, i64) = conn.query_row(
+            "SELECT COALESCE(SUM(amount), 0.0), COUNT(*) FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND ref_type IN ('bounty_prizes', 'ess_escrow_transfer') AND amount > 0",
+            rusqlite::params![character_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let mut stmt = conn.prepare(
+            "SELECT MIN(substr(date, 1, 10)) AS d, COALESCE(SUM(amount), 0.0)
+             FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND ref_type IN ('bounty_prizes', 'ess_escrow_transfer') AND amount > 0 AND date IS NOT NULL
+             GROUP BY strftime('%Y-%W', date)
+             ORDER BY d ASC",
+        )?;
+        let trend = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok(RattingPoint {
+                    date: r.get(0)?,
+                    isk: r.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(RattingSummary {
+            total,
+            entries,
+            trend,
+        })
+    }
+
+    /// Detalle de rateo: ISK por sistema (context_id), ratas (reason) y buckets diarios.
+    pub fn ratting_detail(&self, character_id: Option<i64>) -> AppResult<RattingDetail> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date, ref_type, amount, context_id, reason
+             FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND ref_type IN ('bounty_prizes', 'ess_escrow_transfer')
+               AND amount > 0",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?, // date
+                    r.get::<_, Option<String>>(1)?, // ref_type
+                    r.get::<_, f64>(2)?,             // amount
+                    r.get::<_, Option<i64>>(3)?,     // context_id (system)
+                    r.get::<_, Option<String>>(4)?,  // reason
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        use std::collections::{HashMap, HashSet};
+        let mut total_bounty = 0.0f64;
+        let mut total_ess = 0.0f64;
+        let mut rats_killed = 0i64;
+        let mut entries = 0i64;
+        let mut sys: HashMap<i64, (f64, i64)> = HashMap::new(); // system -> (isk, rats)
+        let mut days: HashMap<String, (f64, f64, i64)> = HashMap::new(); // day -> (bounty, ess, rats)
+        let mut active: HashSet<String> = HashSet::new(); // horas distintas con bounty
+
+        for (date, ref_type, amount, context_id, reason) in rows {
+            entries += 1;
+            let is_bounty = ref_type.as_deref() == Some("bounty_prizes");
+            let rats = if is_bounty {
+                reason.as_deref().map(parse_rat_count).unwrap_or(0)
+            } else {
+                0
+            };
+            if is_bounty {
+                total_bounty += amount;
+                rats_killed += rats;
+            } else {
+                total_ess += amount;
+            }
+            if let Some(sid) = context_id {
+                let e = sys.entry(sid).or_insert((0.0, 0));
+                e.0 += amount;
+                e.1 += rats;
+            }
+            if let Some(d) = date.as_deref() {
+                let day = d.get(0..10).unwrap_or(d).to_string();
+                let e = days.entry(day).or_insert((0.0, 0.0, 0));
+                if is_bounty {
+                    e.0 += amount;
+                    e.2 += rats;
+                } else {
+                    e.1 += amount;
+                }
+                if is_bounty {
+                    if let Some(h) = d.get(0..13) {
+                        active.insert(h.to_string());
+                    }
+                }
+            }
+        }
+
+        let mut by_system: Vec<RattingSystem> = sys
+            .into_iter()
+            .map(|(system_id, (isk, rats))| RattingSystem {
+                system_id,
+                isk,
+                rats,
+            })
+            .collect();
+        by_system.sort_by(|a, b| b.isk.partial_cmp(&a.isk).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut daily: Vec<RattingDay> = days
+            .into_iter()
+            .map(|(date, (bounty, ess, rats))| RattingDay {
+                date,
+                bounty,
+                ess,
+                rats,
+            })
+            .collect();
+        daily.sort_by(|a, b| a.date.cmp(&b.date));
+
+        Ok(RattingDetail {
+            total_bounty,
+            total_ess,
+            rats_killed,
+            entries,
+            active_hours: active.len() as i64,
+            by_system,
+            daily,
+        })
+    }
+
     /// Tendencia temporal: kills/losses/ISK agrupados por semana. Para el gráfico de líneas.
     pub fn pvp_trend(&self, character_id: i64) -> AppResult<Vec<PvpTrendPoint>> {
         let conn = self.conn.lock().unwrap();
@@ -846,6 +1032,7 @@ impl Db {
         Ok(ids)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_journal(
         &self,
         id: i64,
@@ -855,13 +1042,23 @@ impl Db {
         amount: Option<f64>,
         balance: Option<f64>,
         description: Option<&str>,
+        reason: Option<&str>,
+        context_id: Option<i64>,
+        context_id_type: Option<&str>,
+        first_party_id: Option<i64>,
+        second_party_id: Option<i64>,
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO wallet_journal (id, character_id, date, ref_type, amount, balance, description)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO wallet_journal
+                (id, character_id, date, ref_type, amount, balance, description,
+                 reason, context_id, context_id_type, first_party_id, second_party_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO NOTHING",
-            rusqlite::params![id, character_id, date, ref_type, amount, balance, description],
+            rusqlite::params![
+                id, character_id, date, ref_type, amount, balance, description,
+                reason, context_id, context_id_type, first_party_id, second_party_id
+            ],
         )?;
         Ok(())
     }

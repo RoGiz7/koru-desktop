@@ -216,6 +216,30 @@ export type FwSystem = {
   victory_points_threshold: number;
 };
 export type CharLoc = { id: number; name: string; system_id: number };
+export type RattingPoint = { date: string; isk: number };
+export type JournalSample = {
+  ref_type: string;
+  amount: number;
+  date: string | null;
+  description: string | null;
+  reason: string | null;
+  context_id: number | null;
+  context_id_type: string | null;
+  first_party_id: number | null;
+  second_party_id: number | null;
+};
+export type RattingSummary = { total: number; entries: number; trend: RattingPoint[] };
+export type RattingSystem = { system_id: number; isk: number; rats: number };
+export type RattingDay = { date: string; bounty: number; ess: number; rats: number };
+export type RattingDetail = {
+  total_bounty: number;
+  total_ess: number;
+  rats_killed: number;
+  entries: number;
+  active_hours: number;
+  by_system: RattingSystem[];
+  daily: RattingDay[];
+};
 export type Planet = {
   system_id: number;
   system_name: string | null;

@@ -1,7 +1,7 @@
 //! Comandos Tauri expuestos al frontend.
 
 use crate::config;
-use crate::db::{CharacterRow, Db, NetworthPoint, PvpStats, PvpTrendPoint, WalletStats};
+use crate::db::{CharacterRow, Db, NetworthPoint, PvpStats, PvpTrendPoint, RattingDetail, WalletStats};
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
 use crate::esi::assets::AssetsSummary;
@@ -767,6 +767,109 @@ pub async fn reprocess_killmails(window: Window, state: State<'_, AppState>) -> 
     killmails::reprocess(&state.db, move |d| {
         let _ = win.emit("reprocess_progress", d);
     })
+}
+
+/// Detalle de rateo (bounties + ESS) de un personaje (PvE): sistema, ratas, buckets.
+#[tauri::command]
+pub async fn get_ratting(character_id: i64, state: State<'_, AppState>) -> AppResult<RattingDetail> {
+    state.db.ratting_detail(Some(character_id))
+}
+
+/// Detalle de rateo global (todos los personajes).
+#[tauri::command]
+pub async fn get_ratting_global(state: State<'_, AppState>) -> AppResult<RattingDetail> {
+    state.db.ratting_detail(None)
+}
+
+/// Entrada de journal con TODOS los campos relevantes (para inspeccionar qué expone ESI).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct JournalFull {
+    #[serde(default)]
+    ref_type: Option<String>,
+    #[serde(default)]
+    amount: Option<f64>,
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    context_id: Option<i64>,
+    #[serde(default)]
+    context_id_type: Option<String>,
+    #[serde(default)]
+    first_party_id: Option<i64>,
+    #[serde(default)]
+    second_party_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JournalSample {
+    pub ref_type: String,
+    pub amount: f64,
+    pub date: Option<String>,
+    pub description: Option<String>,
+    pub reason: Option<String>,
+    pub context_id: Option<i64>,
+    pub context_id_type: Option<String>,
+    pub first_party_id: Option<i64>,
+    pub second_party_id: Option<i64>,
+}
+
+/// DEBUG: devuelve unas entradas reales de bounty_prizes / ess_escrow_transfer con todos los campos,
+/// para ver qué expone ESI (sistema en context_id, nº de ratas en description/reason, etc.).
+#[tauri::command]
+pub async fn inspect_ratting_journal(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<JournalSample>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-wallet.read_character_wallet.v1",
+        "Wallet",
+    )
+    .await?;
+    let mut out: Vec<JournalSample> = Vec::new();
+    for page in 1..=10u32 {
+        let entries: Vec<JournalFull> = match state
+            .esi
+            .get_cached(
+                &state.db,
+                character_id,
+                &format!("/characters/{character_id}/wallet/journal/?page={page}"),
+                Some(&token),
+            )
+            .await
+        {
+            Ok(e) => e,
+            Err(_) => break,
+        };
+        if entries.is_empty() {
+            break;
+        }
+        for e in entries {
+            let rt = e.ref_type.clone().unwrap_or_default();
+            if (rt == "bounty_prizes" || rt == "ess_escrow_transfer") && out.len() < 16 {
+                out.push(JournalSample {
+                    ref_type: rt,
+                    amount: e.amount.unwrap_or(0.0),
+                    date: e.date,
+                    description: e.description,
+                    reason: e.reason,
+                    context_id: e.context_id,
+                    context_id_type: e.context_id_type,
+                    first_party_id: e.first_party_id,
+                    second_party_id: e.second_party_id,
+                });
+            }
+        }
+        if out.len() >= 16 {
+            break;
+        }
+    }
+    Ok(out)
 }
 
 /// Tendencia temporal PvP (por semana) de un personaje, para el gráfico de líneas.
