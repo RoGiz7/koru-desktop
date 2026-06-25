@@ -91,15 +91,31 @@ function App() {
   const [updating, setUpdating] = useState(false);
   const pendingUpdate = useRef<Update | null>(null);
   useEffect(() => {
-    // Al arrancar, comprobar si hay una versión más nueva publicada en Releases.
-    check()
-      .then((update) => {
-        if (update) {
+    // Comprueba si hay una versión más nueva publicada en Releases.
+    // Defensa en capas: al arrancar + cada 6h + al recuperar el foco de la ventana.
+    // En cuanto encuentra una, deja de comprobar (pendingUpdate ya seteado).
+    let cancelled = false;
+    const run = async () => {
+      if (pendingUpdate.current) return; // ya hay una actualización pendiente
+      try {
+        const update = await check();
+        if (!cancelled && update) {
           pendingUpdate.current = update;
           setUpdateVersion(update.version);
         }
-      })
-      .catch(() => {}); // sin conexión / sin endpoint: ignorar silenciosamente
+      } catch {
+        // sin conexión / sin endpoint: ignorar silenciosamente
+      }
+    };
+    run(); // al arrancar
+    const id = setInterval(run, 6 * 60 * 60 * 1000); // cada 6 horas
+    const onFocus = () => run(); // al volver el foco a la ventana
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
   async function handleUpdate() {
     const update = pendingUpdate.current;
