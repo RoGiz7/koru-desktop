@@ -1449,6 +1449,43 @@ h4 {
   align-self: flex-start;
 }
 
+.pj-warn {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  border: 1.5px solid var(--bg-surface-2);
+  pointer-events: none;
+}
+
+.pj-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border-accent);
+  color: var(--danger-text);
+  font-size: 0.78rem;
+}
+
+.pj-addscope {
+  font-size: 0.72rem;
+  padding: 0.22rem 0.55rem;
+  align-self: flex-start;
+  background: var(--accent);
+  border: 1px solid var(--accent-border);
+  color: #fff;
+}
+
 .tb-spacer {
   flex: 1;
 }
@@ -1561,6 +1598,25 @@ h4 {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+/* ===== Buscador de assets ===== */
+.asset-search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0.7rem;
+}
+
+.asset-search input {
+  flex: 1;
+  max-width: 380px;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-control);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-size: 0.9rem;
 }
 
 .tb-login {

@@ -9,6 +9,7 @@ import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColo
 import {
   FEATURES,
   SCOPE,
+  CAPS,
   KM_LIMIT,
   AUTO_SYNC_MS,
   TABS,
@@ -33,6 +34,7 @@ import type {
   SkillsSummary,
   GlobalSkills,
   AssetsSummary,
+  AssetDetail,
   JobView,
   MiningSummary,
   SysActivity,
@@ -97,6 +99,7 @@ function App() {
   // Datos del sujeto activo (unificados).
   const [stats, setStats] = useState<PvpStats | null>(null);
   const [pvpTrend, setPvpTrend] = useState<PvpTrendPoint[] | null>(null);
+  const [assetsDetail, setAssetsDetail] = useState<AssetDetail[] | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
@@ -163,6 +166,7 @@ function App() {
   function resetData() {
     setStats(null);
     setPvpTrend(null);
+    setAssetsDetail(null);
     setWalletData(null);
     setSkillsData(null);
     setGSkills(null);
@@ -269,7 +273,10 @@ function App() {
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth_global"));
         if (t === "wallet") setWalletData(await invoke<WalletView>("get_wallet_global"));
         if (t === "skills") setGSkills(await invoke<GlobalSkills>("get_skills_global"));
-        if (t === "assets") setAssetsData(await invoke<AssetsSummary>("get_assets_global"));
+        if (t === "assets") {
+          setAssetsData(await invoke<AssetsSummary>("get_assets_global"));
+          setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail_global"));
+        }
         if (t === "industria") {
           setJobsData(await invoke<JobView[]>("get_industry_global"));
           setMiningData(await invoke<MiningSummary>("get_mining_global"));
@@ -285,7 +292,10 @@ function App() {
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth", { characterId }));
         if (t === "wallet") setWalletData(await invoke<WalletView>("get_wallet", { characterId }));
         if (t === "skills") setSkillsData(await invoke<SkillsSummary>("get_skills", { characterId }));
-        if (t === "assets") setAssetsData(await invoke<AssetsSummary>("get_assets", { characterId }));
+        if (t === "assets") {
+          setAssetsData(await invoke<AssetsSummary>("get_assets", { characterId }));
+          setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail", { characterId }));
+        }
         if (t === "industria") {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
@@ -369,11 +379,12 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleLogin() {
+  async function handleLogin(feat?: string) {
+    const useFeat = typeof feat === "string" ? feat : feature;
     setBusy(true);
     setError(null);
     try {
-      await invoke<LoginOutcome>("login", { feature });
+      await invoke<LoginOutcome>("login", { feature: useFeat });
       await refresh();
       loadMap(subject);
       loadTab(subject, tab);
@@ -562,18 +573,20 @@ function App() {
           {characters.map((c) => {
             const card = cards[c.character_id];
             const sel = subject === c.character_id;
+            const missing = CAPS.filter((cap) => !c.scopes.includes(cap.scope));
             return (
               <div
                 key={c.character_id}
                 className={`pj-chip ${sel ? "selected" : ""}`}
                 onClick={() => changeSubject(c.character_id)}
-                title={c.name}
+                title={missing.length ? `${c.name} · falta acceso: ${missing.map((m) => m.label).join(", ")}` : c.name}
               >
                 <img
                   className="pj-portrait"
                   src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=64`}
                   alt={c.name}
                 />
+                {missing.length > 0 && <span className="pj-warn" title="Falta acceso a alguna sección">!</span>}
                 {/* tarjeta expandida en hover */}
                 <div className="pj-pop">
                   <img
@@ -605,6 +618,22 @@ function App() {
                     <div className="mini-sys muted">
                       {card?.system_name ? `📍 ${card.system_name}` : ""}
                     </div>
+                    {missing.length > 0 && (
+                      <div className="pj-missing">
+                        <span className="small">⚠️ Falta acceso: {missing.map((m) => m.label).join(", ")}</span>
+                        <button
+                          className="pj-addscope"
+                          disabled={busy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLogin("core");
+                          }}
+                          title="Volver a iniciar sesión con el set completo para conceder los scopes que faltan"
+                        >
+                          {busy ? "Esperando login…" : "Añadir acceso"}
+                        </button>
+                      </div>
+                    )}
                     <button
                       className="danger pj-logout"
                       onClick={(e) => {
@@ -777,7 +806,7 @@ function App() {
             ) : (
               <SkillsView data={skillsData} busy={sectionBusy} />
             ))}
-          {tab === "assets" && <AssetsView data={assetsData} busy={sectionBusy} />}
+          {tab === "assets" && <AssetsView data={assetsData} detail={assetsDetail} busy={sectionBusy} />}
           {tab === "industria" && (
             <IndustryView
               jobs={jobsData}
@@ -2789,8 +2818,17 @@ function GlobalSkillsView(props: { data: GlobalSkills | null; busy: boolean }) {
   );
 }
 
-function AssetsView(props: { data: AssetsSummary | null; busy: boolean }) {
-  const { data, busy } = props;
+function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] | null; busy: boolean }) {
+  const { data, detail, busy } = props;
+  const [q, setQ] = useState("");
+  const ql = q.trim().toLowerCase();
+  const filtered = (detail ?? []).filter(
+    (r) =>
+      ql === "" ||
+      (r.type_name ?? "").toLowerCase().includes(ql) ||
+      (r.system_name ?? "").toLowerCase().includes(ql)
+  );
+  const shown = filtered.slice(0, 300);
   return (
     <>
       {!data && busy && <p className="muted">Cargando… (puede tardar con muchos assets)</p>}
@@ -2802,16 +2840,53 @@ function AssetsView(props: { data: AssetsSummary | null; busy: boolean }) {
             <Kpi label="Unidades totales" value={fmtSp(data.total_units)} />
             {data.est_value > 0 && <Kpi label="Valor estimado" value={fmtIsk(data.est_value)} />}
           </div>
-          <h4>Top tipos por cantidad</h4>
-          {data.top_types.length === 0 && <p className="muted small">Sin datos.</p>}
-          <ol className="top-flat with-ico">
-            {data.top_types.map((t) => (
-              <li key={t.id}>
-                <img className="type-ico" src={typeIcon(t.id)} alt="" loading="lazy" />
-                {t.name ?? `#${t.id}`} <span className="muted">({fmtSp(t.count)})</span>
-              </li>
-            ))}
-          </ol>
+          <div className="asset-search">
+            <input
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar por item o sistema…"
+            />
+            {detail && (
+              <span className="muted small">
+                {filtered.length === detail.length
+                  ? `${detail.length} entradas`
+                  : `${filtered.length} de ${detail.length}`}
+              </span>
+            )}
+          </div>
+          {!detail ? (
+            <p className="muted small">Cargando inventario…</p>
+          ) : detail.length === 0 ? (
+            <p className="muted small">Sin assets.</p>
+          ) : (
+            <table className="km-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Cantidad</th>
+                  <th>Sistema</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r, i) => (
+                  <tr key={i}>
+                    <td className="ship-cell">
+                      <img className="type-ico" src={typeIcon(r.type_id)} alt="" loading="lazy" />
+                      <span>{r.type_name ?? `#${r.type_id}`}</span>
+                    </td>
+                    <td>{fmtSp(r.quantity)}</td>
+                    <td>{r.system_name ?? (r.system_id ? `#${r.system_id}` : "—")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {filtered.length > shown.length && (
+            <p className="muted small">
+              Mostrando {shown.length} de {filtered.length}. Afina la búsqueda para ver más.
+            </p>
+          )}
         </>
       )}
     </>

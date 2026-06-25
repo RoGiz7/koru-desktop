@@ -106,6 +106,72 @@ pub async fn summary(
     })
 }
 
+/// Fila de detalle de assets: un tipo en un sistema, con cantidad total.
+#[derive(Debug, Clone, Serialize)]
+pub struct AssetDetailRow {
+    pub type_id: i64,
+    pub quantity: i64,
+    pub system_id: i64, // 0 = ubicación desconocida (contenedor/nave/estructura sin acceso)
+}
+
+/// Lista de detalle agregada por (tipo, sistema), para el buscador de assets.
+pub async fn detail(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<Vec<AssetDetailRow>> {
+    use std::collections::HashMap as Map;
+    // 1) Agregar cantidad por (type_id, location_id).
+    let mut agg: Map<(i64, i64), i64> = Map::new();
+    for page in 1..=250u32 {
+        let path = format!("/characters/{character_id}/assets/?page={page}");
+        let items: Vec<AssetItem> = match esi.get_cached(db, character_id, &path, Some(token)).await {
+            Ok(v) => v,
+            Err(AppError::NotFound) => break,
+            Err(e) => {
+                eprintln!("assets(detail) página {page} falló: {e}");
+                break;
+            }
+        };
+        if items.is_empty() {
+            break;
+        }
+        let n = items.len();
+        for it in &items {
+            *agg.entry((it.type_id, it.location_id)).or_insert(0) += it.quantity.max(1);
+        }
+        if n < 1000 {
+            break;
+        }
+    }
+    // 2) Resolver location_id -> system_id (cacheado) y reagrupar por (type_id, system_id).
+    let mut sys_cache: Map<i64, Option<i64>> = Map::new();
+    let mut by_type_sys: Map<(i64, i64), i64> = Map::new();
+    for ((type_id, location_id), qty) in agg {
+        let sid = match sys_cache.get(&location_id) {
+            Some(s) => *s,
+            None => {
+                let r = resolve_location_system(esi, db, location_id, token).await;
+                sys_cache.insert(location_id, r);
+                r
+            }
+        }
+        .unwrap_or(0);
+        *by_type_sys.entry((type_id, sid)).or_insert(0) += qty;
+    }
+    let mut rows: Vec<AssetDetailRow> = by_type_sys
+        .into_iter()
+        .map(|((type_id, system_id), quantity)| AssetDetailRow {
+            type_id,
+            quantity,
+            system_id,
+        })
+        .collect();
+    rows.sort_by(|a, b| b.quantity.cmp(&a.quantity));
+    Ok(rows)
+}
+
 /// Agrega los assets por SISTEMA (nº de stacks). Resuelve la ubicación de cada asset:
 /// estaciones NPC (público), estructuras Upwell (con token, best-effort) y assets en el espacio.
 /// Los assets anidados en contenedores/naves se omiten (no se pueden resolver a sistema barato).

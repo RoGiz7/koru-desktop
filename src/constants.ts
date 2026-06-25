@@ -45,6 +45,17 @@ export const SCOPE = {
   mining: "esi-industry.read_character_mining.v1",
 };
 
+// Capacidades comprobables por personaje (scope representativo de cada sección).
+// Sirve para avisar en la tarjeta si a un personaje le falta acceso a algo.
+export const CAPS: { label: string; scope: string }[] = [
+  { label: "PvP", scope: "esi-killmails.read_killmails.v1" },
+  { label: "Wallet", scope: "esi-wallet.read_character_wallet.v1" },
+  { label: "Skills", scope: "esi-skills.read_skills.v1" },
+  { label: "Assets", scope: "esi-assets.read_assets.v1" },
+  { label: "Industria", scope: "esi-industry.read_character_jobs.v1" },
+  { label: "Ubicación", scope: "esi-location.read_location.v1" },
+];
+
 export const KM_LIMIT = 50;
 export const AUTO_SYNC_MS = 30 * 60 * 1000; // auto-sync cada 30 min
 

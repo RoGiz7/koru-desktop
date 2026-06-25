@@ -123,6 +123,13 @@ export type AssetsSummary = {
   est_value: number;
   top_types: NameCount[];
 };
+export type AssetDetail = {
+  type_id: number;
+  type_name: string | null;
+  quantity: number;
+  system_id: number;
+  system_name: string | null;
+};
 export type JobView = {
   job_id: number;
   activity: string;

@@ -1372,6 +1372,102 @@ pub async fn get_assets(character_id: i64, state: State<'_, AppState>) -> AppRes
     Ok(summary)
 }
 
+/// Vista de detalle de un asset (un tipo en un sistema) con nombres resueltos.
+#[derive(Debug, Serialize)]
+pub struct AssetDetailView {
+    pub type_id: i64,
+    pub type_name: Option<String>,
+    pub quantity: i64,
+    pub system_id: i64,
+    pub system_name: Option<String>,
+}
+
+/// Resuelve nombres de tipo y sistema para una lista de filas de detalle.
+async fn resolve_asset_detail(
+    esi: &EsiClient,
+    rows: Vec<crate::esi::assets::AssetDetailRow>,
+) -> AppResult<Vec<AssetDetailView>> {
+    let mut ids: HashSet<i64> = HashSet::new();
+    for r in &rows {
+        ids.insert(r.type_id);
+        if r.system_id != 0 {
+            ids.insert(r.system_id);
+        }
+    }
+    let names = esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+    Ok(rows
+        .into_iter()
+        .map(|r| AssetDetailView {
+            type_id: r.type_id,
+            type_name: names.get(&r.type_id).cloned(),
+            quantity: r.quantity,
+            system_id: r.system_id,
+            system_name: if r.system_id != 0 {
+                names.get(&r.system_id).cloned()
+            } else {
+                None
+            },
+        })
+        .collect())
+}
+
+/// Lista detallada de assets de un personaje (para el buscador).
+#[tauri::command]
+pub async fn get_assets_detail(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<AssetDetailView>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-assets.read_assets.v1",
+        "Assets / industria",
+    )
+    .await?;
+    let rows = assets::detail(&state.esi, &state.db, character_id, &token).await?;
+    resolve_asset_detail(&state.esi, rows).await
+}
+
+/// Lista detallada de assets global (todos los personajes con el scope).
+#[tauri::command]
+pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<Vec<AssetDetailView>> {
+    use std::collections::HashMap;
+    let mut agg: HashMap<(i64, i64), i64> = HashMap::new();
+    for c in state.db.list_characters()? {
+        if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Ok(rows) =
+            assets::detail(&state.esi, &state.db, c.character_id, &valid.access_token).await
+        {
+            for r in rows {
+                *agg.entry((r.type_id, r.system_id)).or_insert(0) += r.quantity;
+            }
+        }
+    }
+    let mut rows: Vec<crate::esi::assets::AssetDetailRow> = agg
+        .into_iter()
+        .map(|((type_id, system_id), quantity)| crate::esi::assets::AssetDetailRow {
+            type_id,
+            quantity,
+            system_id,
+        })
+        .collect();
+    rows.sort_by(|a, b| b.quantity.cmp(&a.quantity));
+    resolve_asset_detail(&state.esi, rows).await
+}
+
 /// Vista de un job de industria con nombres legibles.
 #[derive(Debug, Serialize)]
 pub struct JobView {
