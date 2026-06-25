@@ -132,6 +132,12 @@ a **grupos con subsecciones**. El **Mapa** sigue siendo el centro. Estructura ob
 > seguir metiendo charts en cada sección, para no duplicar trabajo. Varias subsecciones nuevas
 > (Comercio, Factional, Planetología, Rateo) requieren **comandos ESI nuevos** (backend).
 
+#### Robustez / a prueba de downtime
+- **Resolver nombres de región desde el SDE local**, no desde ESI. Hoy las "Top sistemas" piden región
+  vía `/universe/systems/{id}` → durante el **downtime de TQ** dan 504 ("Timeout contacting tranquility")
+  y son llamadas innecesarias. `neweden.json` ya tiene sistema→región: resolverlo en local es **más
+  rápido y a prueba de downtime**. (Detectado 2026-06-25 con el downtime real.)
+
 ### A. Pulido de base (≈ Fase 2 del plan EVE Carbon: barra de estado + design system)
 1. **Barra de estado / log inferior** (lo más visible): resuelve el problema UX del "Procesados 2520".
    Línea inferior persistente con actividad actual ("Sincronizando histórico… N killmails, página X.
