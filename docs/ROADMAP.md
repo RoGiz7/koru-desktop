@@ -130,6 +130,18 @@
 5. **Soberanía / upgrades Equinox** en el tooltip de sistema y/o overlay (vía ESI; ver `SPEC.md §9d`).
 6. **Vista 3D opcional** (Three.js sobre coords 3D del SDE) — aparcado, "explorar el cluster".
 
+### Inmersión / identidad (nuevos)
+- **Resolver estructuras privadas (citadels) en assets** — IMPORTANTE: ahora los assets en estructuras
+  de jugador salen con sistema "—". Sin esto el buscador de assets pierde mucho valor. Implementación
+  **ligera y correcta**: tabla persistente `location_system(location_id, system_id)` que resuelve cada
+  ubicación **una sola vez** (incl. estructuras vía `/universe/structures/{id}` con el token del dueño),
+  **cacheando también los fallos** (negative cache) para no reintentar y no agotar el error budget de ESI.
+- **Icono de la app (Koru)** — pendiente: icono propio (16/32/256…) que sustituya el placeholder de Tauri,
+  estética EVE (oscuro + acento). Generar el set con `npm run tauri icon <png 1024>`.
+- **Tematización / fondos por evento** — visión: temas visuales (p. ej. "Citadel War", eventos) que den
+  vida a la app, **cambiables por el usuario** y persistidos en local. Fase 1: selector + 2-3 temas
+  (tokens de color + fondo sutil). Fase 2: tema "evento actual". Se apoya en los design tokens ya creados.
+
 ### C. Análisis / narrativa
 0. **Personalización visual — Nivel 1 (gráficas + toggle Tabla/Gráfica)** — EN CURSO. Componentes
    reutilizables `Bars` (barras SVG/CSS), `TrendChart` (líneas) y `ViewToggle`. Hecho en **PvP** (top
