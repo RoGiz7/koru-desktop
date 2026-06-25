@@ -66,7 +66,9 @@
 - **Refactor (pasada 1)** ✅: `App.tsx` partido — extraídos `src/format.ts` (formateadores) y
   `src/constants.ts` (FEATURES, SCOPE, TABS, TAB_HEAD, OVERLAYS, FW_FACTIONS, POIS + tipos Tab/MapOverlay).
   Pasada 2 pendiente: extraer `MapView` y las vistas a sus propios archivos.
-- **Borrar los dos `.zip` del SDE** (~169 MB) de la carpeta del proyecto; `neweden.json` ya está extraído.
+- ✅ **`.zip` del SDE archivados** en `../documentacion/sde-source/` (no borrados: son la fuente
+  estática completa, útil para el jump planner/dogma más adelante). Fuera del repo. `neweden.json`
+  sigue extraído en `public/`.
 
 ### Fase 1 — Mercado + patrimonio (mayor diferenciador) ✅ HECHO — falta compilar/probar en Windows
 > Implementado 2026-06-24 (después de la última edición previa de este roadmap; por eso no figuraba).
