@@ -1,10 +1,17 @@
 name: Release
 
-# Se dispara al subir una etiqueta de versión, p. ej. v0.1.0
+# Se dispara al subir una etiqueta de versión, p. ej. v0.1.0.
+# También se puede lanzar a mano (workflow_dispatch) indicando el tag a publicar:
+# útil como red de seguridad si el push del tag no disparó el Action.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a publicar (p. ej. v0.1.5). Debe existir ya."
+        required: true
 
 jobs:
   release:
@@ -14,6 +21,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # En push de tag, github.ref ya es el tag. En manual, usa el input.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Node
         uses: actions/setup-node@v4
