@@ -18,6 +18,7 @@ export type MapOverlay =
   | "security"
   | "soberania"
   | "fw"
+  | "incursion"
   | "kills"
   | "jumps"
   | "assets"
@@ -127,6 +128,7 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "security", label: "Seguridad", short: "Seguridad", icon: "🛡️", group: "publico" },
   { key: "soberania", label: "Soberanía", short: "Soberanía", icon: "👑", group: "publico" },
   { key: "fw", label: "Guerra de facciones", short: "Facciones", icon: "◎", group: "publico" },
+  { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", group: "publico" },
   { key: "kills", label: "Kills última hora", short: "Kills 1h", icon: "💥", group: "publico" },
   { key: "jumps", label: "Jumps última hora", short: "Jumps 1h", icon: "➿", group: "publico" },
   { key: "pvp", label: "Tu PvP", short: "Tu PvP", icon: "⚔️", group: "tuyo" },

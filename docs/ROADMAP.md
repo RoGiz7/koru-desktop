@@ -107,7 +107,11 @@
    con las capas "tuyas" marcadas) + **panel de contexto derecho** con título/descripción/KPIs por capa.
    **Sub-filtros desplegables** ✅ HECHOS (frontend): Soberanía→Todos/Alianzas/Facciones,
    FW→por imperio, Lugares→por tipo (fila de pastillas sobre la barra, reset al cambiar de capa).
-   Pendiente sobre esta base: capa **Insurgencias** (a confirmar endpoint ESI).
+0e. ✅ **Capa Incursiones (Sansha)** — HECHA (backend + frontend): comando público `get_incursions`
+   (`/incursions`) + overlay `incursion` (sistemas infestados, staging destacado, color por estado,
+   KPI). Falta compilar (cargo + tsc) y probar en Windows.
+   **OJO**: la "Insurgencias" (Havoc/piratas) del mapa oficial **NO tiene endpoint ESI** → no es
+   construible; Incursiones (Sansha) es la capa pública equivalente que sí existe.
 0d. ✅ **Capa Guerra de facciones** — HECHA (backend + frontend): comando público `get_fw_systems`
    (`/fw/systems/`, sin token) + overlay `fw` coloreado por imperio (Caldari/Minmatar/Amarr/Gallente),
    radio/intensidad según `victory_points`/`contested`, KPI "sistemas disputados" y facción en el

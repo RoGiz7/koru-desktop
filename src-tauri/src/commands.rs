@@ -642,6 +642,38 @@ pub async fn get_fw_systems(state: State<'_, AppState>) -> AppResult<Vec<FwSyste
     Ok(systems)
 }
 
+/// Una incursión activa (de Sansha). Campos tal cual los devuelve ESI; el frontend usa
+/// `infested_solar_systems` (sistemas a resaltar), `staging_solar_system_id` y `state`/`influence`.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct Incursion {
+    #[serde(default)]
+    pub constellation_id: i64,
+    #[serde(default)]
+    pub faction_id: i64,
+    #[serde(default)]
+    pub has_boss: bool,
+    #[serde(default)]
+    pub infested_solar_systems: Vec<i64>,
+    #[serde(default)]
+    pub influence: f64,
+    #[serde(default)]
+    pub staging_solar_system_id: i64,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(rename = "type", default)]
+    pub kind: Option<String>,
+}
+
+/// Incursiones activas. Ruta PÚBLICA `/incursions` (sin token ni scopes).
+#[tauri::command]
+pub async fn get_incursions(state: State<'_, AppState>) -> AppResult<Vec<Incursion>> {
+    let inc: Vec<Incursion> = state
+        .esi
+        .get_cached(&state.db, 0, "/incursions", None)
+        .await?;
+    Ok(inc)
+}
+
 /// Mapa PvP de un personaje: actividad por sistema (k-space). Las coordenadas/seguridad/nombre
 /// los resuelve el frontend desde el SDE local (neweden.json) — sin llamadas a ESI.
 #[tauri::command]

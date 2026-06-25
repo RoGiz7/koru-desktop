@@ -73,6 +73,7 @@ pub fn run() {
             commands::get_system_jumps,
             commands::get_sov_systems,
             commands::get_fw_systems,
+            commands::get_incursions,
             commands::get_assets_map,
             commands::get_assets_map_global,
             commands::get_mining_map,

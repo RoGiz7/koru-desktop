@@ -44,6 +44,7 @@ import type {
   SovSystem,
   FwSystem,
   CharLoc,
+  Incursion,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -77,6 +78,7 @@ function App() {
   const [miningMap, setMiningMap] = useState<Map<number, number> | null>(null);
   const [sovMap, setSovMap] = useState<Map<number, SovSystem> | null>(null);
   const [fwMap, setFwMap] = useState<Map<number, FwSystem> | null>(null);
+  const [incursions, setIncursions] = useState<Incursion[] | null>(null);
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
 
@@ -192,12 +194,21 @@ function App() {
     }
   }
 
+  async function loadIncursions() {
+    try {
+      setIncursions(await invoke<Incursion[]>("get_incursions"));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   function handleOverlayChange(o: MapOverlay) {
     setMapOverlay(o);
     if (o === "assets" && !assetsMap) loadAssetsMap(subject);
     if (o === "mineria" && !miningMap) loadMiningMap(subject);
     if (o === "soberania" && !sovMap) loadSov();
     if (o === "fw" && !fwMap) loadFw();
+    if (o === "incursion" && !incursions) loadIncursions();
   }
 
   async function loadMap(subj: number | "global") {
@@ -624,6 +635,7 @@ function App() {
           miningBySystem={miningMap}
           sovBySystem={sovMap}
           fwBySystem={fwMap}
+          incursions={incursions}
           hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
           charLocations={(isGlobal
             ? Object.values(cards)
@@ -1358,6 +1370,7 @@ function MapView(props: {
   miningBySystem?: Map<number, number> | null;
   sovBySystem?: Map<number, SovSystem> | null;
   fwBySystem?: Map<number, FwSystem> | null;
+  incursions?: Incursion[] | null;
   hereSystemId?: number | null;
   charLocations?: CharLoc[];
 }) {
@@ -1369,6 +1382,7 @@ function MapView(props: {
     miningBySystem,
     sovBySystem,
     fwBySystem,
+    incursions,
     hereSystemId,
     charLocations,
   } = props;
@@ -1687,6 +1701,36 @@ function MapView(props: {
     });
   }, [geo, overlay, fwBySystem, subFilter]);
 
+  // Incursiones de Sansha: sistemas infestados; el de staging más grande. Color = estado.
+  const incursionCircles = useMemo(() => {
+    if (!geo || overlay !== "incursion" || !incursions) return null;
+    const stateColor = (st: string | null) =>
+      st === "withdrawing" ? "#e0c84a" : st === "mobilizing" ? "#e08a3a" : "#e05a5a";
+    return incursions.flatMap((inc) => {
+      const col = stateColor(inc.state);
+      return inc.infested_solar_systems.map((sid) => {
+        const s = geo.idx.get(sid);
+        if (!s) return null;
+        const p = geo.proj(s);
+        const staging = sid === inc.staging_solar_system_id;
+        return (
+          <circle
+            key={`inc-${sid}`}
+            cx={p.px}
+            cy={p.py}
+            r={staging ? 2.6 : 1.6}
+            fill={col}
+            fillOpacity={staging ? 1 : 0.7}
+            stroke={staging ? "#0a0d12" : undefined}
+            strokeWidth={staging ? 0.6 : undefined}
+          >
+            <title>{`${s.n}${staging ? " (staging)" : ""} — incursión ${inc.state ?? ""}`}</title>
+          </circle>
+        );
+      });
+    });
+  }, [geo, overlay, incursions]);
+
   // Sistemas alcanzables por salto de capital (low/null dentro del rango LY).
   const jumpReach = useMemo(() => {
     if (!geo || jumpOrigin == null) return null;
@@ -1758,6 +1802,8 @@ function MapView(props: {
       ? "Soberanía: cada color es una alianza/facción que controla el sistema."
       : overlay === "fw"
       ? "Guerra de facciones: color = imperio que controla; tamaño/intensidad = cuán disputado está el sistema."
+      : overlay === "incursion"
+      ? "Incursiones de Sansha: sistemas infestados (el más grande = staging). Color = estado (rojo establecida · naranja movilizando · amarillo retirándose)."
       : overlay === "kills"
       ? "Kills de jugadores en la última hora (datos en vivo de ESI)."
       : overlay === "jumps"
@@ -1780,6 +1826,8 @@ function MapView(props: {
           ),
           label: "Sistemas disputados",
         }
+      : overlay === "incursion" && incursions
+      ? { value: fmtSp(incursions.length), label: "Incursiones activas" }
       : overlay === "ubicacion"
       ? { value: fmtSp(charLocations?.length ?? 0), label: "Personajes situados" }
       : overlay === "poi"
@@ -2015,6 +2063,8 @@ function MapView(props: {
             {sovCircles}
             {/* overlay Guerra de facciones (memorizado) */}
             {fwCircles}
+            {/* overlay Incursiones (memorizado) */}
+            {incursionCircles}
             {/* overlay PvP */}
             {overlay === "pvp" &&
               pvp.map((d) => {
