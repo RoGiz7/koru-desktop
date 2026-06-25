@@ -9,7 +9,59 @@ export type Tab =
   | "wallet"
   | "skills"
   | "assets"
-  | "industria";
+  | "industria"
+  | "comercio"
+  | "rateo"
+  | "abyssals"
+  | "factional"
+  | "planetologia";
+
+// Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
+// `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
+export type NavSub = { key: Tab; label: string; scopes?: string[]; soon?: boolean };
+export const NAV: { group: string; icon: string; subs: NavSub[] }[] = [
+  {
+    group: "Patrimonio",
+    icon: "💰",
+    subs: [
+      { key: "patrimonio", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1", "esi-assets.read_assets.v1"] },
+      { key: "wallet", label: "Wallet", scopes: ["esi-wallet.read_character_wallet.v1"] },
+      { key: "assets", label: "Assets", scopes: ["esi-assets.read_assets.v1"] },
+      { key: "comercio", label: "Comercio", soon: true },
+    ],
+  },
+  {
+    group: "PvP",
+    icon: "⚔️",
+    subs: [
+      { key: "pvp", label: "PvP", scopes: ["esi-killmails.read_killmails.v1"] },
+      { key: "rivales", label: "Rivales", scopes: ["esi-killmails.read_killmails.v1"] },
+      { key: "batallas", label: "Batallas", scopes: ["esi-killmails.read_killmails.v1"] },
+    ],
+  },
+  {
+    group: "PvE",
+    icon: "🛡️",
+    subs: [
+      { key: "rateo", label: "Rateo", soon: true },
+      { key: "abyssals", label: "Abyssals", soon: true },
+      { key: "factional", label: "Factional", soon: true },
+    ],
+  },
+  {
+    group: "Industria",
+    icon: "🏭",
+    subs: [
+      { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1", "esi-industry.read_character_mining.v1"] },
+      { key: "planetologia", label: "Planetología", soon: true },
+    ],
+  },
+  {
+    group: "Personaje",
+    icon: "👤",
+    subs: [{ key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] }],
+  },
+];
 
 export type MapOverlay =
   | "ubicacion"
@@ -85,6 +137,11 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   skills: { title: "Skills", subtitle: "SP totales y cola de entrenamiento" },
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
+  comercio: { title: "Comercio", subtitle: "Tus órdenes de compra/venta en el mercado" },
+  rateo: { title: "Rateo", subtitle: "Ingresos por bounties (PvE)" },
+  abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
+  factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
+  planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
 };
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.

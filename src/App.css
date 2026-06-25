@@ -421,6 +421,49 @@ button.danger:hover {
   color: #fff;
 }
 
+/* ===== Navegación en grupos (reestructuración) ===== */
+.nav-groups {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.navg {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  padding: 0.4rem 0.85rem;
+}
+
+.navg.active {
+  background: var(--accent);
+  border-color: var(--accent-border);
+  color: #fff;
+}
+
+.navg-ico {
+  margin-right: 0.15rem;
+}
+
+.tab.soon {
+  opacity: 0.65;
+  font-style: italic;
+}
+
+.soon-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+.soon-emoji {
+  font-size: 2rem;
+}
+
 .pvp-panel {
   margin-top: 0.9rem;
   border-top: 1px solid #333;

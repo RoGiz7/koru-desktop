@@ -12,7 +12,7 @@ import {
   CAPS,
   KM_LIMIT,
   AUTO_SYNC_MS,
-  TABS,
+  NAV,
   TAB_HEAD,
   OVERLAYS,
   SUBFILTERS,
@@ -764,18 +764,39 @@ function App() {
               {!isGlobal && <span className="muted">#{subjectId}</span>}
             </div>
           </div>
-          <div className="tabs">
-            {TABS.map((meta) => {
-              const enabled = isGlobal ? true : meta.enabled(subjectScopes);
+          <div className="nav-groups">
+            {NAV.map((g) => {
+              const active = g.subs.some((s) => s.key === tab);
               return (
                 <button
-                  key={meta.key}
-                  className={`tab ${tab === meta.key ? "active" : ""}`}
-                  disabled={!enabled}
-                  title={enabled ? "" : "Falta el scope; inicia sesión con esa feature"}
-                  onClick={() => changeTab(meta.key)}
+                  key={g.group}
+                  className={`navg ${active ? "active" : ""}`}
+                  onClick={() => changeTab(g.subs[0].key)}
                 >
-                  {meta.label}
+                  <span className="navg-ico">{g.icon}</span> {g.group}
+                </button>
+              );
+            })}
+          </div>
+          <div className="tabs">
+            {(NAV.find((g) => g.subs.some((s) => s.key === tab)) ?? NAV[0]).subs.map((s) => {
+              const enabled =
+                isGlobal || s.soon || !s.scopes || s.scopes.some((sc) => subjectScopes.includes(sc));
+              return (
+                <button
+                  key={s.key}
+                  className={`tab ${tab === s.key ? "active" : ""} ${s.soon ? "soon" : ""}`}
+                  disabled={!enabled}
+                  title={
+                    s.soon
+                      ? "Próximamente"
+                      : enabled
+                      ? ""
+                      : "Falta el scope; inicia sesión con esa feature"
+                  }
+                  onClick={() => changeTab(s.key)}
+                >
+                  {s.label}
                 </button>
               );
             })}
@@ -834,6 +855,19 @@ function App() {
               global={isGlobal}
               onSyncMining={() => handleSyncMining(subjectId)}
             />
+          )}
+          {(tab === "comercio" ||
+            tab === "rateo" ||
+            tab === "abyssals" ||
+            tab === "factional" ||
+            tab === "planetologia") && (
+            <div className="soon-box">
+              <div className="soon-emoji">🚧</div>
+              <p className="muted">
+                <strong>{TAB_HEAD[tab].title}</strong> — próximamente. Esta sección está planificada en
+                el ROADMAP y la iremos rellenando.
+              </p>
+            </div>
           )}
         </div>
       </div>
