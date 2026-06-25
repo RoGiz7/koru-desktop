@@ -34,3 +34,22 @@ export function shipIcon(typeId: number | null): string | null {
 export function zkillUrl(killmailId: number): string {
   return `https://zkillboard.com/kill/${killmailId}/`;
 }
+
+// Color por seguridad del sistema (high verde · low naranja · null rojo).
+export function secColor(sec: number): string {
+  if (sec >= 0.45) return "#3fb950"; // high-sec verde
+  if (sec >= 0.05) return "#e3a13a"; // low-sec naranja
+  return "#e5534b"; // null/neg rojo
+}
+
+// Color estable por id de dueño (alianza/corp/facción) para la capa de soberanía.
+export function ownerColor(id: number): string {
+  return `hsl(${(id * 47) % 360} 65% 55%)`;
+}
+
+// Color de "calor" (t en 0..1 → amarillo → rojo) para overlays de actividad.
+export function heatColor(t: number): string {
+  if (t > 0.66) return "#ff5a3c";
+  if (t > 0.33) return "#ff9f40";
+  return "#ffd86b";
+}

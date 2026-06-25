@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
-import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl } from "./format";
+import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColor, heatColor } from "./format";
 import {
   FEATURES,
   SCOPE,
@@ -1233,12 +1233,6 @@ function SkillsView(props: { data: SkillsSummary | null; busy: boolean }) {
   );
 }
 
-function secColor(sec: number): string {
-  if (sec >= 0.45) return "#3fb950"; // high-sec verde
-  if (sec >= 0.05) return "#e3a13a"; // low-sec naranja
-  return "#e5534b"; // null/neg rojo
-}
-
 let nePromise: Promise<NewEden> | null = null;
 function loadNewEden(): Promise<NewEden> {
   if (!nePromise) nePromise = fetch("/neweden.json").then((r) => r.json());
@@ -1303,17 +1297,6 @@ function findRoute(
 }
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.
-function ownerColor(id: number): string {
-  return `hsl(${(id * 47) % 360} 65% 55%)`;
-}
-
-function heatColor(t: number): string {
-  // t en 0..1 → amarillo → rojo
-  if (t > 0.66) return "#ff5a3c";
-  if (t > 0.33) return "#ff9f40";
-  return "#ffd86b";
-}
-
 function SystemSearch(props: {
   systems: NeSystem[];
   value: number | null;
