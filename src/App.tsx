@@ -692,7 +692,7 @@ function App() {
                   ))}
                 </select>
               </label>
-              <button onClick={handleLogin} disabled={busy}>
+              <button onClick={() => handleLogin()} disabled={busy}>
                 {busy ? "Esperando login…" : "Iniciar sesión con EVE"}
               </button>
             </div>
