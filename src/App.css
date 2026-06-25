@@ -541,16 +541,23 @@ button.danger:hover {
 }
 
 .kpi {
-  background: #2f2f2f;
-  border: 1px solid #3a3a3a;
-  border-radius: 8px;
-  padding: 0.6rem 0.9rem;
-  min-width: 90px;
+  background: rgba(18, 24, 35, 0.6);
+  border: 1px solid var(--border, #2a3242);
+  border-top: 3px solid var(--border, #2a3242);
+  border-radius: var(--radius-md, 10px);
+  padding: 0.7rem 1rem;
+  min-width: 110px;
+}
+.kpi:has(.kpi-pos) {
+  border-top-color: #3fb950;
+}
+.kpi:has(.kpi-neg) {
+  border-top-color: #e5534b;
 }
 
 .kpi-value {
-  font-size: 1.2rem;
-  font-weight: 600;
+  font-size: 1.45rem;
+  font-weight: 700;
 }
 
 .kpi-value.kpi-pos {
@@ -2023,4 +2030,72 @@ h4 {
   .act-kpis {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- Interactividad de donuts y barras ---- */
+.donut-chart {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+}
+.donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  gap: 0.1rem;
+}
+.donut-center strong {
+  font-size: 1rem;
+  color: var(--text, #e6edf3);
+  line-height: 1.1;
+}
+.donut-center span {
+  font-size: 0.66rem;
+  color: var(--text-dim, #9aa4b2);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.donut-legend li {
+  cursor: pointer;
+  padding: 0.12rem 0.3rem;
+  border-radius: 5px;
+  transition: background 0.1s;
+}
+.donut-legend li:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.donut-legend li.is-off {
+  opacity: 0.45;
+}
+.donut-legend li.is-off .donut-leg-label {
+  text-decoration: line-through;
+}
+.donut-leg-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.donut-leg-val {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  color: var(--text, #e6edf3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bar-row {
+  border-radius: 5px;
+  transition: background 0.1s;
+}
+.bar-row:hover {
+  background: rgba(255, 255, 255, 0.05);
 }

@@ -16,6 +16,7 @@ export type Tab =
   | "rateo"
   | "abyssals"
   | "factional"
+  | "mineria"
   | "planetologia";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
@@ -67,6 +68,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     typeId: 34, // Tritanium (minerales)
     subs: [
       { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1", "esi-industry.read_character_mining.v1"] },
+      { key: "mineria", label: "Minería", scopes: ["esi-industry.read_character_mining.v1"] },
       { key: "planetologia", label: "Planetología", scopes: ["esi-planets.manage_planets.v1"] },
     ],
   },
@@ -155,6 +157,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   skills: { title: "Skills", subtitle: "SP totales y cola de entrenamiento" },
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
+  mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
   comercio: { title: "Comercio", subtitle: "Tus órdenes de compra/venta en el mercado" },
   rateo: { title: "Rateo", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },

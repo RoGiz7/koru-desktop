@@ -276,6 +276,76 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    /// Periodos (YYYY-MM) con minería (desc).
+    pub fn mining_periods(&self, character_id: Option<i64>) -> AppResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let w = Self::mining_where(character_id);
+        let join = if w.is_empty() { "WHERE" } else { "AND" };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT DISTINCT substr(date,1,7) ym FROM mining_ledger {w} {join} date IS NOT NULL ORDER BY ym DESC"
+        ))?;
+        let out = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(out)
+    }
+
+    /// (type_id, unidades) minados en un mes (YYYY-MM).
+    pub fn mining_by_type_period(
+        &self,
+        character_id: Option<i64>,
+        period: &str,
+    ) -> AppResult<Vec<(i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let w = Self::mining_where(character_id);
+        let join = if w.is_empty() { "WHERE" } else { "AND" };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT type_id, SUM(quantity) q FROM mining_ledger {w} {join} substr(date,1,7) = ?1
+             GROUP BY type_id ORDER BY q DESC"
+        ))?;
+        let rows = stmt
+            .query_map(rusqlite::params![period], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (system_id, unidades) minados en un mes (YYYY-MM).
+    pub fn mining_by_system_period(
+        &self,
+        character_id: Option<i64>,
+        period: &str,
+    ) -> AppResult<Vec<(i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let w = Self::mining_where(character_id);
+        let join = if w.is_empty() { "WHERE" } else { "AND" };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT system_id, SUM(quantity) q FROM mining_ledger {w} {join} substr(date,1,7) = ?1
+             GROUP BY system_id ORDER BY q DESC"
+        ))?;
+        let rows = stmt
+            .query_map(rusqlite::params![period], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (mes YYYY-MM, type_id, unidades) de todo el histórico, para la tendencia.
+    pub fn mining_monthly_by_type(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let w = Self::mining_where(character_id);
+        let join = if w.is_empty() { "WHERE" } else { "AND" };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT substr(date,1,7) ym, type_id, SUM(quantity) q FROM mining_ledger {w} {join} date IS NOT NULL
+             GROUP BY ym, type_id ORDER BY ym ASC"
+        ))?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 // --- Killmails ---

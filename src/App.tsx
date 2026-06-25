@@ -57,6 +57,7 @@ import type {
   FinancialSummary,
   CategorySum,
   PvpActivity,
+  MiningDetail,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -884,6 +885,7 @@ function App() {
           {tab === "rateo" && <RateoView data={ratting} busy={sectionBusy} />}
           {tab === "resumen" && <ResumenView subject={subject} />}
           {tab === "actividad" && <ActividadView subject={subject} />}
+          {tab === "mineria" && <MineriaView subject={subject} />}
           {(tab === "abyssals" || tab === "factional") && (
             <div className="soon-box">
               <div className="soon-emoji">🚧</div>
@@ -1034,22 +1036,28 @@ function Bars({
 }) {
   if (items.length === 0) return <p className="muted small">Sin datos.</p>;
   const max = Math.max(...items.map((i) => i.value), 1);
+  const total = items.reduce((s, i) => s + i.value, 0);
   return (
     <div className="bars">
-      {items.map((it, i) => (
-        <div className="bar-row" key={i}>
-          <span className="bar-label" title={it.label}>
-            {it.label}
-          </span>
-          <span className="bar-track">
-            <span
-              className="bar-fill"
-              style={{ width: `${Math.max((it.value / max) * 100, 1.5)}%`, background: color }}
-            />
-          </span>
-          <span className="bar-val">{fmt(it.value)}</span>
-        </div>
-      ))}
+      {items.map((it, i) => {
+        const pct = total > 0 ? (it.value / total) * 100 : 0;
+        return (
+          <div
+            className="bar-row"
+            key={i}
+            title={`${it.label}: ${fmt(it.value)} · ${pct.toFixed(1)}% del total`}
+          >
+            <span className="bar-label">{it.label}</span>
+            <span className="bar-track">
+              <span
+                className="bar-fill"
+                style={{ width: `${Math.max((it.value / max) * 100, 1.5)}%`, background: color }}
+              />
+            </span>
+            <span className="bar-val">{fmt(it.value)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1411,6 +1419,19 @@ function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
         <Kpi label="Snapshots" value={s.length} />
       </div>
 
+      {data.total > 0 && (
+        <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
+          <h4>Composición del patrimonio</h4>
+          <Donut
+            items={[
+              { label: "Líquido (wallet)", value: data.liquid },
+              { label: "Valor de assets", value: data.asset_value },
+            ]}
+            fmt={fmtIsk}
+          />
+        </div>
+      )}
+
       {data.prices_loaded === 0 && (
         <p className="muted" style={{ marginTop: 8 }}>
           Aún no hay precios de mercado en la BD, así que los assets no están valorados.
@@ -1545,19 +1566,15 @@ function WalletViewC(props: {
           <ViewToggle chart={chart} onChange={setChart} />
           {chart ? (
             <>
-              <div className="top-list">
-                <h4>Ingresos vs Gastos</h4>
-                <Bars
-                  items={[
-                    { label: "Ingresos", value: data.stats.income },
-                    { label: "Gastos", value: data.stats.expense },
-                  ]}
-                  color="#3fb950"
-                  fmt={fmtIsk}
-                />
-              </div>
-              <div className="tops">
-                <div className="top-list">
+              <div className="resumen-grid">
+                <div className="panel resumen-panel">
+                  <h4>Distribución de ingresos</h4>
+                  <Donut
+                    items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
+                    fmt={fmtIsk}
+                  />
+                </div>
+                <div className="panel resumen-panel">
                   <h4>Top ingresos</h4>
                   <Bars
                     items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
@@ -1565,7 +1582,14 @@ function WalletViewC(props: {
                     fmt={fmtIsk}
                   />
                 </div>
-                <div className="top-list">
+                <div className="panel resumen-panel">
+                  <h4>Distribución de gastos</h4>
+                  <Donut
+                    items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
+                    fmt={fmtIsk}
+                  />
+                </div>
+                <div className="panel resumen-panel">
                   <h4>Top gastos</h4>
                   <Bars
                     items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
@@ -3177,13 +3201,22 @@ function RateoView({
         />
       </div>
 
-      <div className="top-list">
-        <h4>ISK por sistema (histórico)</h4>
-        <Bars
-          items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
-          color="#4f9cff"
-          fmt={fmtIsk}
-        />
+      <div className="resumen-grid">
+        <div className="panel resumen-panel">
+          <h4>Distribución por sistema</h4>
+          <Donut
+            items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
+            fmt={fmtIsk}
+          />
+        </div>
+        <div className="panel resumen-panel">
+          <h4>ISK por sistema (histórico)</h4>
+          <Bars
+            items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
+            color="#4f9cff"
+            fmt={fmtIsk}
+          />
+        </div>
       </div>
 
       <div className="top-list">
@@ -3221,47 +3254,104 @@ const DONUT_COLORS = [
   "#e5534b", "#2dd4bf", "#f0883e", "#8b949e", "#6e7681",
 ];
 
-function Donut({ items }: { items: { label: string; value: number }[] }) {
-  const data = items.filter((i) => i.value > 0);
-  const total = data.reduce((s, i) => s + i.value, 0);
-  if (total <= 0) return <p className="muted small">Sin datos.</p>;
+function Donut({
+  items,
+  fmt = (n: number) => n.toLocaleString("es-ES"),
+}: {
+  items: { label: string; value: number }[];
+  fmt?: (n: number) => string;
+}) {
+  const [hidden, setHidden] = useState<Set<number>>(new Set());
+  const [hover, setHover] = useState<number | null>(null);
+  // Conserva el índice original (color estable) y descarta valores <= 0.
+  const all = items.map((it, i) => ({ ...it, i })).filter((it) => it.value > 0);
+  if (all.length === 0) return <p className="muted small">Sin datos.</p>;
+  const visible = all.filter((it) => !hidden.has(it.i));
+  const total = visible.reduce((s, it) => s + it.value, 0);
   const R = 60;
   const C = 2 * Math.PI * R;
   let acc = 0;
+  const hovered = hover != null ? items[hover] : null;
+  const hoveredPct =
+    hovered && total > 0 && !hidden.has(hover as number) ? (hovered.value / total) * 100 : null;
+
+  const toggle = (i: number) =>
+    setHidden((s) => {
+      const n = new Set(s);
+      if (n.has(i)) n.delete(i);
+      else n.add(i);
+      return n;
+    });
+
   return (
     <div className="donut-wrap">
-      <svg viewBox="0 0 160 160" className="donut-svg" aria-hidden="true">
-        <g transform="rotate(-90 80 80)">
-          {data.map((it, i) => {
-            const dash = (it.value / total) * C;
-            const seg = (
-              <circle
-                key={i}
-                cx="80"
-                cy="80"
-                r={R}
-                fill="none"
-                stroke={DONUT_COLORS[i % DONUT_COLORS.length]}
-                strokeWidth="22"
-                strokeDasharray={`${dash} ${C - dash}`}
-                strokeDashoffset={-acc}
-              />
-            );
-            acc += dash;
-            return seg;
-          })}
-        </g>
-      </svg>
+      <div className="donut-chart">
+        <svg viewBox="0 0 160 160" className="donut-svg">
+          <g transform="rotate(-90 80 80)">
+            {visible.map((it) => {
+              const frac = total > 0 ? it.value / total : 0;
+              const dash = frac * C;
+              const off = -acc;
+              acc += dash;
+              const dim = hover != null && hover !== it.i;
+              return (
+                <circle
+                  key={it.i}
+                  cx="80"
+                  cy="80"
+                  r={R}
+                  fill="none"
+                  stroke={DONUT_COLORS[it.i % DONUT_COLORS.length]}
+                  strokeWidth={hover === it.i ? 26 : 22}
+                  strokeDasharray={`${dash} ${C - dash}`}
+                  strokeDashoffset={off}
+                  opacity={dim ? 0.35 : 1}
+                  style={{ cursor: "pointer", transition: "stroke-width .1s, opacity .1s" }}
+                  onMouseEnter={() => setHover(it.i)}
+                  onMouseLeave={() => setHover(null)}
+                >
+                  <title>{`${it.label}: ${fmt(it.value)} (${((it.value / total) * 100).toFixed(1)}%)`}</title>
+                </circle>
+              );
+            })}
+          </g>
+        </svg>
+        <div className="donut-center">
+          {hovered && hoveredPct != null ? (
+            <>
+              <strong>{hoveredPct.toFixed(1)}%</strong>
+              <span>{hovered.label}</span>
+            </>
+          ) : (
+            <>
+              <strong>{fmt(total)}</strong>
+              <span>total</span>
+            </>
+          )}
+        </div>
+      </div>
       <ul className="donut-legend">
-        {data.map((it, i) => (
-          <li key={i}>
-            <span
-              className="donut-dot"
-              style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
-            />
-            {it.label}
-          </li>
-        ))}
+        {all.map((it) => {
+          const off = hidden.has(it.i);
+          const pct = total > 0 && !off ? (it.value / total) * 100 : 0;
+          return (
+            <li
+              key={it.i}
+              className={off ? "is-off" : ""}
+              title="Clic para ocultar/mostrar"
+              onClick={() => toggle(it.i)}
+              onMouseEnter={() => !off && setHover(it.i)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <span
+                className="donut-dot"
+                style={{ background: DONUT_COLORS[it.i % DONUT_COLORS.length] }}
+              />
+              <span className="donut-leg-label">{it.label}</span>
+              <span className="donut-leg-val">{off ? "oculto" : `${fmt(it.value)} · ${pct.toFixed(0)}%`}</span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -3434,7 +3524,7 @@ function ResumenView({ subject }: { subject: number | "global" }) {
           <div className="resumen-grid">
             <div className="panel resumen-panel">
               <h4>Distribución de ingresos</h4>
-              <Donut items={data.income_by_category.map((c) => ({ label: c.category, value: c.isk }))} />
+              <Donut items={data.income_by_category.map((c) => ({ label: c.category, value: c.isk }))} fmt={fmtIsk} />
             </div>
             <div className="panel resumen-panel">
               <h4>Ingresos por categoría</h4>
@@ -3442,7 +3532,7 @@ function ResumenView({ subject }: { subject: number | "global" }) {
             </div>
             <div className="panel resumen-panel">
               <h4>Distribución de gastos</h4>
-              <Donut items={data.expense_by_category.map((c) => ({ label: c.category, value: c.isk }))} />
+              <Donut items={data.expense_by_category.map((c) => ({ label: c.category, value: c.isk }))} fmt={fmtIsk} />
             </div>
             <div className="panel resumen-panel">
               <h4>Gastos por categoría</h4>
@@ -3635,6 +3725,187 @@ function KLLegend() {
   );
 }
 
+/* ---------- Minería pro ---------- */
+function MineriaView({ subject }: { subject: number | "global" }) {
+  const isGlobal = subject === "global";
+  const [periods, setPeriods] = useState<string[] | null>(null);
+  const [period, setPeriod] = useState<string>("");
+  const [data, setData] = useState<MiningDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [names, setNames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    loadNewEden()
+      .then((ne) => setNames(new Map(ne.systems.map((s) => [s.id, s.n]))))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const ps = isGlobal
+          ? await invoke<string[]>("get_mining_periods_global")
+          : await invoke<string[]>("get_mining_periods", { characterId: subject });
+        if (!alive) return;
+        setPeriods(ps);
+        setPeriod((p) => (p && ps.includes(p) ? p : ps[0] ?? ""));
+      } catch {
+        if (alive) setPeriods([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [subject]);
+
+  useEffect(() => {
+    if (!period) return;
+    let alive = true;
+    setBusy(true);
+    (async () => {
+      try {
+        const d = isGlobal
+          ? await invoke<MiningDetail>("get_mining_detail_global", { period })
+          : await invoke<MiningDetail>("get_mining_detail", { characterId: subject, period });
+        if (alive) setData(d);
+      } catch {
+        if (alive) setData(null);
+      } finally {
+        if (alive) setBusy(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [subject, period]);
+
+  if (periods === null) return <p className="muted">Cargando…</p>;
+  if (periods.length === 0)
+    return (
+      <p className="muted small">
+        Sin registro de minería. Sincroniza la minería de tus personajes (sección Industria) para
+        ver tu histórico.
+      </p>
+    );
+
+  const sysName = (id: number) => names.get(id) ?? `#${id}`;
+  const years = [...new Set(periods.map((p) => p.slice(0, 4)))];
+  const curYear = period.slice(0, 4);
+  const curMonth = period.slice(5, 7);
+  const monthsOfYear = periods.filter((p) => p.startsWith(curYear));
+
+  return (
+    <>
+      <div className="resumen-period">
+        <span className="rp-label">📅 Período</span>
+        <select
+          value={curYear}
+          onChange={(e) => {
+            const first = periods.find((p) => p.startsWith(e.target.value));
+            if (first) setPeriod(first);
+          }}
+        >
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+        <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+          {monthsOfYear.map((p) => (
+            <option key={p} value={p}>
+              {MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1]}
+            </option>
+          ))}
+        </select>
+        <span className="rp-show">
+          Mostrando {MONTH_NAMES[parseInt(curMonth, 10) - 1]} {curYear}
+          {busy ? " · actualizando…" : ""}
+        </span>
+      </div>
+
+      {data && (
+        <>
+          <div className="resumen-kpis act-kpis">
+            <div className="rk-card rk-net">
+              <span className="rk-label">ISK estimado</span>
+              <span className="rk-value pos">{fmtIsk(data.est_value)}</span>
+            </div>
+            <div className="rk-card rk-in">
+              <span className="rk-label">Unidades minadas</span>
+              <span className="rk-value">{fmtSp(data.units)}</span>
+            </div>
+            <div className="rk-card">
+              <span className="rk-label">Tipos de mineral</span>
+              <span className="rk-value">{fmtSp(data.ore_types)}</span>
+            </div>
+          </div>
+
+          <div className="resumen-grid">
+            <div className="panel resumen-panel">
+              <h4>Distribución de mineral (por ISK)</h4>
+              <Donut
+                items={data.by_ore.map((o) => ({
+                  label: o.type_name ?? `#${o.type_id}`,
+                  value: o.isk,
+                }))}
+                fmt={fmtIsk}
+              />
+            </div>
+            <div className="panel resumen-panel">
+              <h4>Mineral extraído</h4>
+              {data.by_ore.length === 0 ? (
+                <p className="muted small">Sin minería este mes.</p>
+              ) : (
+                <table className="km-table cat-table">
+                  <thead>
+                    <tr>
+                      <th>Mineral</th>
+                      <th style={{ textAlign: "right" }}>Unidades</th>
+                      <th style={{ textAlign: "right" }}>ISK estimado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.by_ore.map((o, i) => (
+                      <tr key={i}>
+                        <td>
+                          <img className="type-ico" src={typeIcon(o.type_id, 32)} alt="" loading="lazy" />
+                          {o.type_name ?? `#${o.type_id}`}
+                        </td>
+                        <td style={{ textAlign: "right" }}>{fmtSp(o.units)}</td>
+                        <td style={{ textAlign: "right" }}>{fmtIsk(o.isk)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          <div className="top-list">
+            <h4>Por sistema</h4>
+            <Bars
+              items={data.by_system.map((s) => ({ label: sysName(s.system_id), value: s.units }))}
+              color="#4f9cff"
+              fmt={fmtSp}
+            />
+          </div>
+
+          <div className="top-list">
+            <h4>Tendencia mensual (ISK estimado)</h4>
+            <Bars
+              items={data.monthly.map((m) => ({ label: m.month, value: m.isk }))}
+              color="#3fb950"
+              fmt={fmtIsk}
+            />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function PlanetologiaView({ planets, busy }: { planets: Planet[] | null; busy: boolean }) {
   if (!planets) return <p className="muted">{busy ? "Cargando colonias…" : "Sin datos."}</p>;
   if (planets.length === 0)
@@ -3697,12 +3968,20 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
     }
   });
   const buys = orders.filter((o) => o.is_buy).length;
+  const buyValue = orders
+    .filter((o) => o.is_buy)
+    .reduce((s, o) => s + o.price * o.volume_remain, 0);
+  const sellValue = orders
+    .filter((o) => !o.is_buy)
+    .reduce((s, o) => s + o.price * o.volume_remain, 0);
   return (
     <>
       <div className="kpis">
         <Kpi label="Órdenes" value={fmtSp(orders.length)} />
         <Kpi label="De compra" value={fmtSp(buys)} tone="pos" />
         <Kpi label="De venta" value={fmtSp(orders.length - buys)} tone="neg" />
+        <Kpi label="Valor compra" value={fmtIsk(buyValue)} tone="pos" />
+        <Kpi label="Valor venta" value={fmtIsk(sellValue)} tone="neg" />
       </div>
       <table className="km-table">
         <thead>
@@ -3774,6 +4053,22 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
             <Kpi label="Unidades totales" value={fmtSp(data.total_units)} />
             {data.est_value > 0 && <Kpi label="Valor estimado" value={fmtIsk(data.est_value)} />}
           </div>
+          {detail && detail.length > 0 && catList.length > 1 && (
+            <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
+              <h4>Distribución por categoría</h4>
+              <Donut
+                items={Object.entries(
+                  detail.reduce<Record<string, number>>((acc, r) => {
+                    acc[r.category] = (acc[r.category] ?? 0) + r.quantity;
+                    return acc;
+                  }, {})
+                )
+                  .map(([label, value]) => ({ label, value }))
+                  .sort((a, b) => b.value - a.value)}
+                fmt={fmtSp}
+              />
+            </div>
+          )}
           {detail && catList.length > 1 && (
             <div className="tabs" style={{ marginTop: "0.5rem" }}>
               <button className={`tab ${cat === "" ? "active" : ""}`} onClick={() => setCat("")}>

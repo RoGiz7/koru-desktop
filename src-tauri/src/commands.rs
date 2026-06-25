@@ -2184,3 +2184,131 @@ pub async fn get_industry_global(state: State<'_, AppState>) -> AppResult<Vec<Jo
 pub async fn get_mining_global(state: State<'_, AppState>) -> AppResult<MiningSummary> {
     build_mining(&state, None).await
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MiningOre {
+    pub type_id: i64,
+    pub type_name: Option<String>,
+    pub units: i64,
+    pub isk: f64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MiningSys {
+    pub system_id: i64,
+    pub units: i64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MiningMonth {
+    pub month: String,
+    pub units: i64,
+    pub isk: f64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MiningDetail {
+    pub units: i64,
+    pub est_value: f64,
+    pub ore_types: i64,
+    pub by_ore: Vec<MiningOre>,
+    pub by_system: Vec<MiningSys>,
+    pub monthly: Vec<MiningMonth>,
+}
+
+/// Periodos (YYYY-MM) con minería de un personaje.
+#[tauri::command]
+pub async fn get_mining_periods(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<String>> {
+    state.db.mining_periods(Some(character_id))
+}
+
+/// Periodos (YYYY-MM) con minería, global.
+#[tauri::command]
+pub async fn get_mining_periods_global(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    state.db.mining_periods(None)
+}
+
+async fn build_mining_detail(
+    state: &AppState,
+    filter: Option<i64>,
+    period: &str,
+) -> AppResult<MiningDetail> {
+    use std::collections::HashMap;
+    let prices = state.db.prices_map().unwrap_or_default();
+    let price_of = |tid: i64| prices.get(&tid).copied().unwrap_or(0.0);
+
+    let by_type = state.db.mining_by_type_period(filter, period)?;
+    let units: i64 = by_type.iter().map(|(_, q)| *q).sum();
+    let est_value: f64 = by_type
+        .iter()
+        .map(|(tid, q)| *q as f64 * price_of(*tid))
+        .sum();
+    let ore_types = by_type.len() as i64;
+
+    let mut by_ore: Vec<MiningOre> = by_type
+        .into_iter()
+        .map(|(type_id, q)| MiningOre {
+            type_id,
+            type_name: None,
+            units: q,
+            isk: q as f64 * price_of(type_id),
+        })
+        .collect();
+    by_ore.truncate(20);
+
+    // Nombres de los minerales (best-effort).
+    let ids: Vec<i64> = by_ore.iter().map(|o| o.type_id).collect();
+    if let Ok(names) = state.esi.resolve_names(&ids).await {
+        for o in by_ore.iter_mut() {
+            o.type_name = names.get(&o.type_id).cloned();
+        }
+    }
+
+    let by_system: Vec<MiningSys> = state
+        .db
+        .mining_by_system_period(filter, period)?
+        .into_iter()
+        .map(|(system_id, units)| MiningSys { system_id, units })
+        .collect();
+
+    // Tendencia mensual (histórica): agrega unidades e ISK por mes.
+    let mut months: HashMap<String, (i64, f64)> = HashMap::new();
+    for (ym, tid, q) in state.db.mining_monthly_by_type(filter)? {
+        let e = months.entry(ym).or_insert((0, 0.0));
+        e.0 += q;
+        e.1 += q as f64 * price_of(tid);
+    }
+    let mut monthly: Vec<MiningMonth> = months
+        .into_iter()
+        .map(|(month, (units, isk))| MiningMonth { month, units, isk })
+        .collect();
+    monthly.sort_by(|a, b| a.month.cmp(&b.month));
+
+    Ok(MiningDetail {
+        units,
+        est_value,
+        ore_types,
+        by_ore,
+        by_system,
+        monthly,
+    })
+}
+
+/// Detalle de minería de un mes (KPIs, ore breakdown, por sistema, tendencia) de un personaje.
+#[tauri::command]
+pub async fn get_mining_detail(
+    character_id: i64,
+    period: String,
+    state: State<'_, AppState>,
+) -> AppResult<MiningDetail> {
+    build_mining_detail(&state, Some(character_id), &period).await
+}
+
+/// Detalle de minería de un mes, global.
+#[tauri::command]
+pub async fn get_mining_detail_global(
+    period: String,
+    state: State<'_, AppState>,
+) -> AppResult<MiningDetail> {
+    build_mining_detail(&state, None, &period).await
+}

@@ -251,6 +251,17 @@ export type PvpActivity = {
   daily: DayKL[];
   hourly: HourKL[];
 };
+export type MiningOre = { type_id: number; type_name: string | null; units: number; isk: number };
+export type MiningSys = { system_id: number; units: number };
+export type MiningMonth = { month: string; units: number; isk: number };
+export type MiningDetail = {
+  units: number;
+  est_value: number;
+  ore_types: number;
+  by_ore: MiningOre[];
+  by_system: MiningSys[];
+  monthly: MiningMonth[];
+};
 export type CategorySum = { category: string; isk: number; prev_isk: number };
 export type FinancialSummary = {
   income_total: number;
