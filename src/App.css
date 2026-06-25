@@ -2148,3 +2148,93 @@ h4 {
 .tb-theme:hover {
   border-color: var(--accent-border, #4f9cff);
 }
+
+/* ---- Header rico de personaje ---- */
+.char-header {
+  background: rgba(18, 24, 35, 0.55);
+  border: 1px solid var(--border-accent, #2a3340);
+  border-radius: var(--radius-md, 10px);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.ch-top {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.ch-portrait {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-accent-2, #3a4654);
+}
+.ch-id h3 {
+  margin: 0 0 0.15rem;
+}
+.ch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--fg-muted-2, #9a9a9a);
+}
+.ch-attrs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.ch-attr {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border, #2a3242);
+  border-radius: 8px;
+  padding: 0.5rem;
+  text-align: center;
+}
+.ch-attr-v {
+  display: block;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent-text, #7fb0ff);
+}
+.ch-attr-l {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--fg-muted-2, #9a9a9a);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ch-implant-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.ch-implant {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border, #2a3242);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem 0.25rem 0.3rem;
+  font-size: 0.8rem;
+}
+.ch-implant img {
+  width: 26px;
+  height: 26px;
+}
+.ch-bio {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+}
+.ch-bio summary {
+  cursor: pointer;
+  color: var(--accent-text, #7fb0ff);
+}
+.ch-bio p {
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+  color: var(--fg-muted-2, #9a9a9a);
+}

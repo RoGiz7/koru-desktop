@@ -100,6 +100,27 @@ export type SkillsSummary = {
   skill_count: number;
   queue: QueueItem[];
 };
+export type AttrView = {
+  charisma: number;
+  intelligence: number;
+  memory: number;
+  perception: number;
+  willpower: number;
+  bonus_remaps: number | null;
+  last_remap_date: string | null;
+};
+export type ImplantView = { type_id: number; name: string | null };
+export type CharacterDetail = {
+  birthday: string | null;
+  gender: string | null;
+  security_status: number | null;
+  bio: string | null;
+  attributes: AttrView | null;
+  implants: ImplantView[];
+  jump_clones: number;
+  clone_implants: number;
+  home_location_id: number | null;
+};
 export type CharTraining = {
   character_id: number;
   character_name: string;

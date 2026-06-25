@@ -86,6 +86,7 @@ pub fn run() {
             commands::sync_wallet,
             commands::get_wallet,
             commands::get_skills,
+            commands::get_character_detail,
             commands::get_assets,
             commands::get_assets_detail,
             commands::get_assets_detail_global,

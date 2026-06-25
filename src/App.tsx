@@ -59,6 +59,7 @@ import type {
   CategorySum,
   PvpActivity,
   MiningDetail,
+  CharacterDetail,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -169,6 +170,7 @@ function App() {
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
+  const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null); // header rico
   const [gSkills, setGSkills] = useState<GlobalSkills | null>(null); // global (otra forma)
   const [assetsData, setAssetsData] = useState<AssetsSummary | null>(null);
   const [jobsData, setJobsData] = useState<JobView[] | null>(null);
@@ -238,6 +240,7 @@ function App() {
     setRatting(null);
     setWalletData(null);
     setSkillsData(null);
+    setCharDetail(null);
     setGSkills(null);
     setAssetsData(null);
     setJobsData(null);
@@ -363,7 +366,12 @@ function App() {
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth", { characterId }));
         if (t === "wallet") setWalletData(await invoke<WalletView>("get_wallet", { characterId }));
-        if (t === "skills") setSkillsData(await invoke<SkillsSummary>("get_skills", { characterId }));
+        if (t === "skills") {
+          setSkillsData(await invoke<SkillsSummary>("get_skills", { characterId }));
+          invoke<CharacterDetail>("get_character_detail", { characterId })
+            .then(setCharDetail)
+            .catch(() => setCharDetail(null));
+        }
         if (t === "assets") {
           setAssetsData(await invoke<AssetsSummary>("get_assets", { characterId }));
           setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail", { characterId }));
@@ -929,7 +937,10 @@ function App() {
             (isGlobal ? (
               <GlobalSkillsView data={gSkills} busy={sectionBusy} />
             ) : (
-              <SkillsView data={skillsData} busy={sectionBusy} />
+              <>
+                <CharHeader detail={charDetail} card={cards[subjectId]} />
+                <SkillsView data={skillsData} busy={sectionBusy} />
+              </>
             ))}
           {tab === "assets" && <AssetsView data={assetsData} detail={assetsDetail} busy={sectionBusy} />}
           {tab === "industria" && (
@@ -1710,6 +1721,89 @@ function WalletViewC(props: {
         </>
       )}
     </>
+  );
+}
+
+function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: CharacterCard }) {
+  if (!detail) return null;
+  const a = detail.attributes;
+  const sec = detail.security_status;
+  const portrait = card
+    ? `https://images.evetech.net/characters/${card.character_id}/portrait?size=128`
+    : null;
+  const bio = detail.bio ? detail.bio.replace(/<[^>]*>/g, "").trim() : "";
+  const attrs = a
+    ? [
+        { label: "Inteligencia", v: a.intelligence },
+        { label: "Memoria", v: a.memory },
+        { label: "Percepción", v: a.perception },
+        { label: "Carisma", v: a.charisma },
+        { label: "Voluntad", v: a.willpower },
+      ]
+    : [];
+  return (
+    <div className="char-header">
+      <div className="ch-top">
+        {portrait && <img className="ch-portrait" src={portrait} alt="" />}
+        <div className="ch-id">
+          <h3>{card?.name ?? "Personaje"}</h3>
+          <div className="ch-sub muted small">
+            {card?.corporation_name ?? ""}
+            {card?.alliance_name ? ` · ${card.alliance_name}` : ""}
+          </div>
+          <div className="ch-meta">
+            {sec != null && (
+              <span>
+                Sec:{" "}
+                <b style={{ color: secColor(sec) }}>{sec.toFixed(2)}</b>
+              </span>
+            )}
+            {detail.birthday && <span>Nacimiento: {detail.birthday.slice(0, 10)}</span>}
+            <span>
+              Jump clones: <b>{detail.jump_clones}</b>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {attrs.length > 0 && (
+        <div className="ch-attrs">
+          {attrs.map((at) => (
+            <div className="ch-attr" key={at.label}>
+              <span className="ch-attr-v">{at.v}</span>
+              <span className="ch-attr-l">{at.label}</span>
+            </div>
+          ))}
+          {a?.bonus_remaps != null && (
+            <div className="ch-attr">
+              <span className="ch-attr-v">{a.bonus_remaps}</span>
+              <span className="ch-attr-l">Remaps libres</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {detail.implants.length > 0 && (
+        <div className="top-list">
+          <h4>Implantes ({detail.implants.length})</h4>
+          <div className="ch-implant-list">
+            {detail.implants.map((im) => (
+              <span className="ch-implant" key={im.type_id} title={im.name ?? `#${im.type_id}`}>
+                <img src={typeIcon(im.type_id, 32)} alt="" loading="lazy" />
+                <span>{im.name ?? `#${im.type_id}`}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {bio && (
+        <details className="ch-bio">
+          <summary>Biografía</summary>
+          <p>{bio}</p>
+        </details>
+      )}
+    </div>
   );
 }
 

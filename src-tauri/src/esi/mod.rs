@@ -5,6 +5,7 @@
 //! cobrar `304` con el `ETag`, y respetar el error budget en vivo.
 
 pub mod assets;
+pub mod character;
 pub mod industry;
 pub mod killmails;
 pub mod market;

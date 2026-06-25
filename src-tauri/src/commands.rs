@@ -1405,6 +1405,117 @@ pub async fn get_skills(character_id: i64, state: State<'_, AppState>) -> AppRes
     })
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AttrView {
+    pub charisma: i64,
+    pub intelligence: i64,
+    pub memory: i64,
+    pub perception: i64,
+    pub willpower: i64,
+    pub bonus_remaps: Option<i64>,
+    pub last_remap_date: Option<String>,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ImplantView {
+    pub type_id: i64,
+    pub name: Option<String>,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CharacterDetail {
+    pub birthday: Option<String>,
+    pub gender: Option<String>,
+    pub security_status: Option<f64>,
+    pub bio: Option<String>,
+    pub attributes: Option<AttrView>,
+    pub implants: Vec<ImplantView>,
+    pub jump_clones: i64,
+    pub clone_implants: i64,
+    pub home_location_id: Option<i64>,
+}
+
+/// Header rico del personaje: info pública + atributos + implantes + jump clones.
+/// Best-effort: cada parte se omite si falta el scope o falla.
+#[tauri::command]
+pub async fn get_character_detail(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<CharacterDetail> {
+    use crate::esi::character as ch;
+
+    let public = ch::public_info(&state.esi, &state.db, character_id).await.ok();
+
+    let valid = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+        .ok();
+    let has = |scope: &str| {
+        valid
+            .as_ref()
+            .is_some_and(|v| v.claims.scp.iter().any(|s| s == scope))
+    };
+    let token = valid.as_ref().map(|v| v.access_token.clone()).unwrap_or_default();
+
+    let attributes = if has("esi-skills.read_skills.v1") {
+        ch::attributes(&state.esi, &state.db, character_id, &token)
+            .await
+            .ok()
+            .map(|a| AttrView {
+                charisma: a.charisma,
+                intelligence: a.intelligence,
+                memory: a.memory,
+                perception: a.perception,
+                willpower: a.willpower,
+                bonus_remaps: a.bonus_remaps,
+                last_remap_date: a.last_remap_date,
+            })
+    } else {
+        None
+    };
+
+    let mut implant_ids: Vec<i64> = Vec::new();
+    if has("esi-clones.read_implants.v1") {
+        if let Ok(v) = ch::implants(&state.esi, &state.db, character_id, &token).await {
+            implant_ids = v;
+        }
+    }
+
+    let mut jump_clones = 0i64;
+    let mut clone_implants = 0i64;
+    let mut home_location_id = None;
+    if has("esi-clones.read_clones.v1") {
+        if let Ok(c) = ch::clones(&state.esi, &state.db, character_id, &token).await {
+            jump_clones = c.jump_clones.len() as i64;
+            clone_implants = c.jump_clones.iter().map(|j| j.implants.len() as i64).sum();
+            home_location_id = c.home_location.and_then(|h| h.location_id);
+        }
+    }
+
+    let mut implants: Vec<ImplantView> = implant_ids
+        .iter()
+        .map(|&type_id| ImplantView { type_id, name: None })
+        .collect();
+    if !implant_ids.is_empty() {
+        if let Ok(names) = state.esi.resolve_names(&implant_ids).await {
+            for im in implants.iter_mut() {
+                im.name = names.get(&im.type_id).cloned();
+            }
+        }
+    }
+
+    Ok(CharacterDetail {
+        birthday: public.as_ref().and_then(|p| p.birthday.clone()),
+        gender: public.as_ref().and_then(|p| p.gender.clone()),
+        security_status: public.as_ref().and_then(|p| p.security_status),
+        bio: public.as_ref().and_then(|p| p.description.clone()),
+        attributes,
+        implants,
+        jump_clones,
+        clone_implants,
+        home_location_id,
+    })
+}
+
 /// PvP GLOBAL: agregado de todos los personajes (deduplicado por killmail).
 #[tauri::command]
 pub async fn get_pvp_stats_global(state: State<'_, AppState>) -> AppResult<PvpStats> {

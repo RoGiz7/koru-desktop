@@ -47,7 +47,12 @@ pub mod scopes {
         "esi-markets.read_character_orders.v1", // Comercio (órdenes de mercado), grupo Patrimonio
     ];
 
-    pub const SKILLS: &[&str] = &["esi-skills.read_skills.v1", "esi-skills.read_skillqueue.v1"];
+    pub const SKILLS: &[&str] = &[
+        "esi-skills.read_skills.v1",
+        "esi-skills.read_skillqueue.v1",
+        "esi-clones.read_clones.v1",   // jump clones + ubicación de origen (Personaje)
+        "esi-clones.read_implants.v1", // implantes activos (Personaje)
+    ];
 
     pub const ASSETS: &[&str] = &[
         "esi-assets.read_assets.v1",
