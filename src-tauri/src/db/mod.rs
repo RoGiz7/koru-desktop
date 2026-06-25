@@ -275,6 +275,15 @@ impl Db {
 // --- Killmails ---
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct PvpTrendPoint {
+    pub date: String, // primer día de la semana del bucket (YYYY-MM-DD)
+    pub kills: i64,
+    pub losses: i64,
+    pub isk_destroyed: f64,
+    pub isk_lost: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PvpStats {
     pub kills: i64,
     pub losses: i64,
@@ -598,6 +607,62 @@ impl Db {
                     victim_ship_id: None,
                     victim_ship_name: None,
                     killed_at: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Tendencia temporal: kills/losses/ISK agrupados por semana. Para el gráfico de líneas.
+    pub fn pvp_trend(&self, character_id: i64) -> AppResult<Vec<PvpTrendPoint>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT MIN(substr(killed_at,1,10)) AS d,
+                    COALESCE(SUM(CASE WHEN is_loss = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_loss = 1 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_loss = 0 THEN isk_value ELSE 0.0 END), 0.0),
+                    COALESCE(SUM(CASE WHEN is_loss = 1 THEN isk_value ELSE 0.0 END), 0.0)
+             FROM killmails
+             WHERE character_id = ?1 AND killed_at IS NOT NULL
+             GROUP BY strftime('%Y-%W', killed_at)
+             ORDER BY d ASC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok(PvpTrendPoint {
+                    date: r.get(0)?,
+                    kills: r.get(1)?,
+                    losses: r.get(2)?,
+                    isk_destroyed: r.get(3)?,
+                    isk_lost: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Tendencia temporal global (todos los personajes), consistente con `pvp_stats_global`.
+    pub fn pvp_trend_global(&self) -> AppResult<Vec<PvpTrendPoint>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT MIN(substr(killed_at,1,10)) AS d,
+                    COALESCE(SUM(CASE WHEN is_loss = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_loss = 1 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_loss = 0 THEN isk_value ELSE 0.0 END), 0.0),
+                    COALESCE(SUM(CASE WHEN is_loss = 1 THEN isk_value ELSE 0.0 END), 0.0)
+             FROM killmails
+             WHERE killed_at IS NOT NULL
+             GROUP BY strftime('%Y-%W', killed_at)
+             ORDER BY d ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(PvpTrendPoint {
+                    date: r.get(0)?,
+                    kills: r.get(1)?,
+                    losses: r.get(2)?,
+                    isk_destroyed: r.get(3)?,
+                    isk_lost: r.get(4)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

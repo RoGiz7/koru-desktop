@@ -26,6 +26,7 @@ import type {
   NameCount,
   KillmailRow,
   PvpStats,
+  PvpTrendPoint,
   WalletView,
   NetworthPoint,
   NetworthView,
@@ -95,6 +96,7 @@ function App() {
 
   // Datos del sujeto activo (unificados).
   const [stats, setStats] = useState<PvpStats | null>(null);
+  const [pvpTrend, setPvpTrend] = useState<PvpTrendPoint[] | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
@@ -160,6 +162,7 @@ function App() {
 
   function resetData() {
     setStats(null);
+    setPvpTrend(null);
     setWalletData(null);
     setSkillsData(null);
     setGSkills(null);
@@ -257,7 +260,10 @@ function App() {
     setSectionBusy(true);
     try {
       if (subj === "global") {
-        if (t === "pvp") setStats(await invoke<PvpStats>("get_pvp_stats_global"));
+        if (t === "pvp") {
+          setStats(await invoke<PvpStats>("get_pvp_stats_global"));
+          setPvpTrend(await invoke<PvpTrendPoint[]>("get_pvp_trend_global"));
+        }
         if (t === "rivales") setRivalsData(await invoke<Rivals>("get_rivals", { characterId: null }));
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId: null }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth_global"));
@@ -270,7 +276,10 @@ function App() {
         }
       } else {
         const characterId = subj;
-        if (t === "pvp") setStats(await invoke<PvpStats>("get_pvp_stats", { characterId }));
+        if (t === "pvp") {
+          setStats(await invoke<PvpStats>("get_pvp_stats", { characterId }));
+          setPvpTrend(await invoke<PvpTrendPoint[]>("get_pvp_trend", { characterId }));
+        }
         if (t === "rivales") setRivalsData(await invoke<Rivals>("get_rivals", { characterId }));
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth", { characterId }));
@@ -732,6 +741,7 @@ function App() {
           {tab === "pvp" && (
             <PvpView
               stats={stats}
+              trend={pvpTrend}
               busy={sectionBusy}
               progress={progress}
               elapsed={elapsed}
@@ -811,6 +821,14 @@ function App() {
               ? `Sync ${fmtAgo(now - lastSync)} · próxima ${fmtMMSS(lastSync + AUTO_SYNC_MS - now)}`
               : "Sin sincronizar"}
           </span>
+          <span className="sb-sep" />
+          <button
+            className="sb-kofi"
+            onClick={() => openUrl("https://ko-fi.com/rogiz7")}
+            title="Apoyar el proyecto en Ko-fi (totalmente voluntario)"
+          >
+            ☕ Apoyar
+          </button>
         </div>
       </footer>
     </main>
@@ -843,8 +861,96 @@ function TopList({ title, items }: { title: string; items: NameCount[] }) {
   );
 }
 
+// Gráfica de barras horizontales reutilizable (SVG/CSS propio, sin dependencias).
+function Bars({
+  items,
+  color = "#4f9cff",
+  fmt = fmtSp,
+}: {
+  items: { label: string; value: number }[];
+  color?: string;
+  fmt?: (n: number) => string;
+}) {
+  if (items.length === 0) return <p className="muted small">Sin datos.</p>;
+  const max = Math.max(...items.map((i) => i.value), 1);
+  return (
+    <div className="bars">
+      {items.map((it, i) => (
+        <div className="bar-row" key={i}>
+          <span className="bar-label" title={it.label}>
+            {it.label}
+          </span>
+          <span className="bar-track">
+            <span
+              className="bar-fill"
+              style={{ width: `${Math.max((it.value / max) * 100, 1.5)}%`, background: color }}
+            />
+          </span>
+          <span className="bar-val">{fmt(it.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Gráfica de líneas de tendencia temporal (kills/losses por semana).
+function TrendChart({ points }: { points: PvpTrendPoint[] }) {
+  if (points.length < 2)
+    return <p className="muted small">Hace falta historial de varias semanas para ver la tendencia.</p>;
+  const W = 600;
+  const H = 190;
+  const PAD = 30;
+  const maxY = Math.max(...points.flatMap((p) => [p.kills, p.losses]), 1);
+  const n = points.length;
+  const x = (i: number) => PAD + (i / (n - 1)) * (W - 2 * PAD);
+  const y = (v: number) => H - PAD - (v / maxY) * (H - 2 * PAD);
+  const path = (key: "kills" | "losses") =>
+    points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p[key]).toFixed(1)}`).join(" ");
+  const labels = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+  return (
+    <div className="trend-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} className="trend-svg" preserveAspectRatio="none">
+        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#2a3340" strokeWidth={1} />
+        <path d={path("losses")} fill="none" stroke="#e5534b" strokeWidth={2} />
+        <path d={path("kills")} fill="none" stroke="#3fb950" strokeWidth={2} />
+        {labels.map((i) => (
+          <text key={i} x={x(i)} y={H - PAD + 16} textAnchor="middle" className="trend-x">
+            {points[i].date}
+          </text>
+        ))}
+        <text x={PAD} y={PAD - 10} className="trend-x">{`máx ${maxY}/sem`}</text>
+      </svg>
+      <div className="trend-legend">
+        <span>
+          <span className="ldot" style={{ background: "#3fb950" }} /> Kills
+        </span>
+        <span>
+          <span className="ldot" style={{ background: "#e5534b" }} /> Losses
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Conmutador Tabla / Gráfica reutilizable.
+function ViewToggle({ chart, onChange }: { chart: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="view-toggle">
+      <div className="seg">
+        <button className={!chart ? "active" : ""} onClick={() => onChange(false)}>
+          Tabla
+        </button>
+        <button className={chart ? "active" : ""} onClick={() => onChange(true)}>
+          Gráfica
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PvpView(props: {
   stats: PvpStats | null;
+  trend?: PvpTrendPoint[] | null;
   busy: boolean;
   progress: { processed: number; page: number } | null;
   elapsed: number;
@@ -864,6 +970,7 @@ function PvpView(props: {
 }) {
   const {
     stats,
+    trend,
     busy,
     progress,
     elapsed,
@@ -881,6 +988,7 @@ function PvpView(props: {
     onKmKind,
     onKmPage,
   } = props;
+  const [chart, setChart] = useState(false);
   return (
     <>
       {!global && (
@@ -923,21 +1031,67 @@ function PvpView(props: {
             <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} />
             <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} />
           </div>
-          <div className="tops">
-            <TopList title="Top naves" items={stats.top_ships} />
-            <div className="top-list">
-              <h4>Top sistemas</h4>
-              {stats.top_systems.length === 0 && <p className="muted small">Sin datos.</p>}
-              <ol>
-                {stats.top_systems.map((it) => (
-                  <li key={it.id}>
-                    {it.name ?? `#${it.id}`} <span className="muted">({it.count})</span>
-                    {it.region && <span className="region"> · {it.region}</span>}
-                  </li>
-                ))}
-              </ol>
+          <ViewToggle chart={chart} onChange={setChart} />
+          {chart ? (
+            <>
+              <div className="top-list">
+                <h4>Tendencia (kills/losses por semana)</h4>
+                {trend ? <TrendChart points={trend} /> : <p className="muted small">Cargando…</p>}
+              </div>
+              <div className="tops">
+                <div className="top-list">
+                  <h4>Top naves</h4>
+                  <Bars items={stats.top_ships.map((s) => ({ label: s.name ?? `#${s.id}`, value: s.count }))} />
+                </div>
+                <div className="top-list">
+                  <h4>Top sistemas</h4>
+                  <Bars
+                    items={stats.top_systems.map((s) => ({ label: s.name ?? `#${s.id}`, value: s.count }))}
+                    color="#e3a13a"
+                  />
+                </div>
+              </div>
+              <div className="tops">
+                <div className="top-list">
+                  <h4>Kills vs Losses</h4>
+                  <Bars
+                    items={[
+                      { label: "Kills", value: stats.kills },
+                      { label: "Losses", value: stats.losses },
+                    ]}
+                    color="#3fb950"
+                  />
+                </div>
+                <div className="top-list">
+                  <h4>ISK destruido vs perdido</h4>
+                  <Bars
+                    items={[
+                      { label: "Destruido", value: stats.isk_destroyed },
+                      { label: "Perdido", value: stats.isk_lost },
+                    ]}
+                    color="#e5534b"
+                    fmt={fmtIsk}
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="tops">
+              <TopList title="Top naves" items={stats.top_ships} />
+              <div className="top-list">
+                <h4>Top sistemas</h4>
+                {stats.top_systems.length === 0 && <p className="muted small">Sin datos.</p>}
+                <ol>
+                  {stats.top_systems.map((it) => (
+                    <li key={it.id}>
+                      {it.name ?? `#${it.id}`} <span className="muted">({it.count})</span>
+                      {it.region && <span className="region"> · {it.region}</span>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
             </div>
-          </div>
+          )}
 
           {stats.top_expensive.length > 0 && (
             <>

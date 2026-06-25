@@ -131,6 +131,11 @@
 6. **Vista 3D opcional** (Three.js sobre coords 3D del SDE) — aparcado, "explorar el cluster".
 
 ### C. Análisis / narrativa
+0. **Personalización visual — Nivel 1 (gráficas + toggle Tabla/Gráfica)** — EN CURSO. Componentes
+   reutilizables `Bars` (barras SVG/CSS) y `ViewToggle`. Hecho en **PvP** (top naves/sistemas, kills vs
+   losses, ISK). Pendiente extender a Wallet, Assets, Rivales, Skills, Industria. Niveles 2 (ajustes
+   guardados: vista por defecto, KPIs, tema) y 3 (dashboard de widgets configurable estilo Metabase-lite)
+   quedan como fases futuras.
 7. **Batallas detectadas**: clustering de killmails por sistema+tiempo, marcadas en el mapa +
    enlace a **br.evetools** (usa el `raw` ya guardado).
 8. **Feed de noticias** (RSS CCP/comunidad) + curado de hitos históricos.

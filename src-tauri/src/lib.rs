@@ -57,6 +57,8 @@ pub fn run() {
             commands::get_networth_global,
             commands::reprocess_killmails,
             commands::get_pvp_stats,
+            commands::get_pvp_trend,
+            commands::get_pvp_trend_global,
             commands::get_killmails,
             commands::get_rivals,
             commands::get_battles,

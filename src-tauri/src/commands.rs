@@ -1,7 +1,7 @@
 //! Comandos Tauri expuestos al frontend.
 
 use crate::config;
-use crate::db::{CharacterRow, Db, NetworthPoint, PvpStats, WalletStats};
+use crate::db::{CharacterRow, Db, NetworthPoint, PvpStats, PvpTrendPoint, WalletStats};
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
 use crate::esi::assets::AssetsSummary;
@@ -747,6 +747,18 @@ pub async fn reprocess_killmails(window: Window, state: State<'_, AppState>) -> 
     killmails::reprocess(&state.db, move |d| {
         let _ = win.emit("reprocess_progress", d);
     })
+}
+
+/// Tendencia temporal PvP (por semana) de un personaje, para el gráfico de líneas.
+#[tauri::command]
+pub async fn get_pvp_trend(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<PvpTrendPoint>> {
+    state.db.pvp_trend(character_id)
+}
+
+/// Tendencia temporal PvP global (todos los personajes).
+#[tauri::command]
+pub async fn get_pvp_trend_global(state: State<'_, AppState>) -> AppResult<Vec<PvpTrendPoint>> {
+    state.db.pvp_trend_global()
 }
 
 /// Devuelve las stats PvP del personaje, con nombres de naves/sistemas resueltos.

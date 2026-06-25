@@ -162,6 +162,13 @@ export type Battle = {
   isk: number;
   total: number;
 };
+export type PvpTrendPoint = {
+  date: string;
+  kills: number;
+  losses: number;
+  isk_destroyed: number;
+  isk_lost: number;
+};
 export type RivalEntry = { id: number; name: string | null; count: number };
 export type Rivals = {
   you_kill_chars: RivalEntry[];
