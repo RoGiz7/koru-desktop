@@ -319,7 +319,7 @@ async fn resolve_location_system(
 /// Resolución con CACHÉ PERSISTENTE. Resuelve espacio, estaciones NPC (público) y estructuras de
 /// jugador (con el token del dueño), y guarda el resultado —incluido el fallo (system_id=0)— para
 /// no reintentar y no agotar el error budget de ESI. Cada ubicación se resuelve como mucho una vez.
-async fn resolve_location_system_cached(
+pub async fn resolve_location_system_cached(
     esi: &EsiClient,
     db: &Db,
     loc_id: i64,

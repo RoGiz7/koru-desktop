@@ -1497,6 +1497,152 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
     resolve_asset_detail(&state.esi, &state.db, rows).await
 }
 
+/// Una orden de mercado tal cual la devuelve ESI (campos que usamos).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct OrderRaw {
+    type_id: i64,
+    #[serde(default)]
+    is_buy_order: bool,
+    #[serde(default)]
+    price: f64,
+    #[serde(default)]
+    volume_remain: i64,
+    #[serde(default)]
+    volume_total: i64,
+    #[serde(default)]
+    location_id: i64,
+    #[serde(default)]
+    issued: Option<String>,
+}
+
+/// Vista de una orden de mercado con nombres resueltos.
+#[derive(Debug, Serialize)]
+pub struct MarketOrderView {
+    pub type_id: i64,
+    pub type_name: Option<String>,
+    pub is_buy: bool,
+    pub price: f64,
+    pub volume_remain: i64,
+    pub volume_total: i64,
+    pub system_id: i64,
+    pub system_name: Option<String>,
+    pub issued: Option<String>,
+}
+
+/// Resuelve sistema (caché) y nombres para una lista de órdenes.
+async fn resolve_orders(
+    esi: &EsiClient,
+    db: &Db,
+    token: &str,
+    orders: Vec<OrderRaw>,
+) -> AppResult<Vec<MarketOrderView>> {
+    let mut sys_of: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    for o in &orders {
+        if !sys_of.contains_key(&o.location_id) {
+            let s = crate::esi::assets::resolve_location_system_cached(esi, db, o.location_id, token)
+                .await
+                .unwrap_or(0);
+            sys_of.insert(o.location_id, s);
+        }
+    }
+    let mut ids: HashSet<i64> = HashSet::new();
+    for o in &orders {
+        ids.insert(o.type_id);
+    }
+    for s in sys_of.values() {
+        if *s != 0 {
+            ids.insert(*s);
+        }
+    }
+    let names = esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+    Ok(orders
+        .into_iter()
+        .map(|o| {
+            let sid = *sys_of.get(&o.location_id).unwrap_or(&0);
+            MarketOrderView {
+                type_id: o.type_id,
+                type_name: names.get(&o.type_id).cloned(),
+                is_buy: o.is_buy_order,
+                price: o.price,
+                volume_remain: o.volume_remain,
+                volume_total: o.volume_total,
+                system_id: sid,
+                system_name: if sid != 0 { names.get(&sid).cloned() } else { None },
+                issued: o.issued,
+            }
+        })
+        .collect())
+}
+
+/// Órdenes de mercado abiertas de un personaje (Comercio).
+#[tauri::command]
+pub async fn get_market_orders(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<MarketOrderView>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-markets.read_character_orders.v1",
+        "Wallet",
+    )
+    .await?;
+    let orders: Vec<OrderRaw> = state
+        .esi
+        .get_cached(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/orders/"),
+            Some(&token),
+        )
+        .await?;
+    resolve_orders(&state.esi, &state.db, &token, orders).await
+}
+
+/// Órdenes de mercado global (todos los personajes con el scope).
+#[tauri::command]
+pub async fn get_market_orders_global(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<MarketOrderView>> {
+    let mut all: Vec<MarketOrderView> = Vec::new();
+    for c in state.db.list_characters()? {
+        if !c
+            .scopes
+            .iter()
+            .any(|s| s == "esi-markets.read_character_orders.v1")
+        {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let cid = c.character_id;
+        if let Ok(orders) = state
+            .esi
+            .get_cached::<Vec<OrderRaw>>(
+                &state.db,
+                cid,
+                &format!("/characters/{cid}/orders/"),
+                Some(&valid.access_token),
+            )
+            .await
+        {
+            if let Ok(mut v) = resolve_orders(&state.esi, &state.db, &valid.access_token, orders).await {
+                all.append(&mut v);
+            }
+        }
+    }
+    Ok(all)
+}
+
 /// Vista de un job de industria con nombres legibles.
 #[derive(Debug, Serialize)]
 pub struct JobView {

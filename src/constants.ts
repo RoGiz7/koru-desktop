@@ -29,7 +29,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
       { key: "patrimonio", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1", "esi-assets.read_assets.v1"] },
       { key: "wallet", label: "Wallet", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "assets", label: "Assets", scopes: ["esi-assets.read_assets.v1"] },
-      { key: "comercio", label: "Comercio", soon: true },
+      { key: "comercio", label: "Comercio", scopes: ["esi-markets.read_character_orders.v1"] },
     ],
   },
   {
@@ -108,6 +108,7 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Wallet", scope: "esi-wallet.read_character_wallet.v1" },
   { label: "Skills", scope: "esi-skills.read_skills.v1" },
   { label: "Assets", scope: "esi-assets.read_assets.v1" },
+  { label: "Comercio", scope: "esi-markets.read_character_orders.v1" },
   { label: "Industria", scope: "esi-industry.read_character_jobs.v1" },
   { label: "Ubicación", scope: "esi-location.read_location.v1" },
 ];

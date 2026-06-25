@@ -216,6 +216,17 @@ export type FwSystem = {
   victory_points_threshold: number;
 };
 export type CharLoc = { id: number; name: string; system_id: number };
+export type MarketOrder = {
+  type_id: number;
+  type_name: string | null;
+  is_buy: boolean;
+  price: number;
+  volume_remain: number;
+  volume_total: number;
+  system_id: number;
+  system_name: string | null;
+  issued: string | null;
+};
 export type ServerStatus = {
   players: number;
   server_version: string;

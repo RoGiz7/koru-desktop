@@ -69,6 +69,8 @@ pub fn run() {
             commands::get_assets,
             commands::get_assets_detail,
             commands::get_assets_detail_global,
+            commands::get_market_orders,
+            commands::get_market_orders_global,
             commands::get_industry,
             commands::get_mining,
             commands::sync_mining,

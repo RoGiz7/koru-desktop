@@ -42,7 +42,10 @@ pub const KEYRING_SERVICE: &str = "koru-desktop";
 pub mod scopes {
     pub const PVP: &[&str] = &["esi-killmails.read_killmails.v1"];
 
-    pub const WALLET: &[&str] = &["esi-wallet.read_character_wallet.v1"];
+    pub const WALLET: &[&str] = &[
+        "esi-wallet.read_character_wallet.v1",
+        "esi-markets.read_character_orders.v1", // Comercio (órdenes de mercado), grupo Patrimonio
+    ];
 
     pub const SKILLS: &[&str] = &["esi-skills.read_skills.v1", "esi-skills.read_skillqueue.v1"];
 

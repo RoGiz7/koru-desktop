@@ -51,6 +51,7 @@ import type {
   CharLoc,
   Incursion,
   ServerStatus,
+  MarketOrder,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -119,6 +120,7 @@ function App() {
   const [stats, setStats] = useState<PvpStats | null>(null);
   const [pvpTrend, setPvpTrend] = useState<PvpTrendPoint[] | null>(null);
   const [assetsDetail, setAssetsDetail] = useState<AssetDetail[] | null>(null);
+  const [marketOrders, setMarketOrders] = useState<MarketOrder[] | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
@@ -186,6 +188,7 @@ function App() {
     setStats(null);
     setPvpTrend(null);
     setAssetsDetail(null);
+    setMarketOrders(null);
     setWalletData(null);
     setSkillsData(null);
     setGSkills(null);
@@ -296,6 +299,7 @@ function App() {
           setAssetsData(await invoke<AssetsSummary>("get_assets_global"));
           setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail_global"));
         }
+        if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders_global"));
         if (t === "industria") {
           setJobsData(await invoke<JobView[]>("get_industry_global"));
           setMiningData(await invoke<MiningSummary>("get_mining_global"));
@@ -315,6 +319,7 @@ function App() {
           setAssetsData(await invoke<AssetsSummary>("get_assets", { characterId }));
           setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail", { characterId }));
         }
+        if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
         if (t === "industria") {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
@@ -861,8 +866,8 @@ function App() {
               onSyncMining={() => handleSyncMining(subjectId)}
             />
           )}
-          {(tab === "comercio" ||
-            tab === "rateo" ||
+          {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
+          {(tab === "rateo" ||
             tab === "abyssals" ||
             tab === "factional" ||
             tab === "planetologia") && (
@@ -2979,6 +2984,73 @@ function Th({
     <th className="th-sort" onClick={() => onSort(col)} title="Ordenar">
       {label} <span className="th-arrow">{active ? (sort.dir === 1 ? "▲" : "▼") : "↕"}</span>
     </th>
+  );
+}
+
+function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: boolean }) {
+  const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "issued", dir: -1 });
+  const onSort = (col: string) =>
+    setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
+  if (!orders) return <p className="muted">{busy ? "Cargando órdenes…" : "Sin datos."}</p>;
+  if (orders.length === 0)
+    return <p className="muted small">No tienes órdenes de mercado abiertas.</p>;
+  const sorted = [...orders].sort((a, b) => {
+    const d = sort.dir;
+    switch (sort.col) {
+      case "item":
+        return (a.type_name ?? "").localeCompare(b.type_name ?? "") * d;
+      case "type":
+        return ((a.is_buy ? 1 : 0) - (b.is_buy ? 1 : 0)) * d;
+      case "price":
+        return (a.price - b.price) * d;
+      case "qty":
+        return (a.volume_remain - b.volume_remain) * d;
+      case "sys":
+        return (a.system_name ?? "").localeCompare(b.system_name ?? "") * d;
+      default:
+        return (a.issued ?? "").localeCompare(b.issued ?? "") * d;
+    }
+  });
+  const buys = orders.filter((o) => o.is_buy).length;
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="Órdenes" value={fmtSp(orders.length)} />
+        <Kpi label="De compra" value={fmtSp(buys)} tone="pos" />
+        <Kpi label="De venta" value={fmtSp(orders.length - buys)} tone="neg" />
+      </div>
+      <table className="km-table">
+        <thead>
+          <tr>
+            <Th label="Item" col="item" sort={sort} onSort={onSort} />
+            <Th label="Tipo" col="type" sort={sort} onSort={onSort} />
+            <Th label="Precio" col="price" sort={sort} onSort={onSort} />
+            <Th label="Cantidad" col="qty" sort={sort} onSort={onSort} />
+            <Th label="Sistema" col="sys" sort={sort} onSort={onSort} />
+            <Th label="Emitida" col="issued" sort={sort} onSort={onSort} />
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((o, i) => (
+            <tr key={i}>
+              <td className="ship-cell">
+                <img className="type-ico" src={typeIcon(o.type_id)} alt="" loading="lazy" />
+                <span>{o.type_name ?? `#${o.type_id}`}</span>
+              </td>
+              <td style={{ color: o.is_buy ? "#3fb950" : "#e5534b" }}>
+                {o.is_buy ? "Compra" : "Venta"}
+              </td>
+              <td>{fmtIsk(o.price)}</td>
+              <td>
+                {fmtSp(o.volume_remain)} / {fmtSp(o.volume_total)}
+              </td>
+              <td>{o.system_name ?? (o.system_id ? `#${o.system_id}` : "—")}</td>
+              <td>{o.issued?.replace("T", " ").slice(0, 16) ?? "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 
