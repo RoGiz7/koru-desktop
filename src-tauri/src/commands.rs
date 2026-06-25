@@ -818,8 +818,8 @@ pub async fn get_battles(
         list.sort_by_key(|x| x.0);
         let mut cluster: Vec<(chrono::DateTime<chrono::Utc>, f64, bool)> = Vec::new();
         let mut last: Option<chrono::DateTime<chrono::Utc>> = None;
-        let mut flush = |cluster: &Vec<(chrono::DateTime<chrono::Utc>, f64, bool)>,
-                         out: &mut Vec<Battle>| {
+        let flush = |cluster: &Vec<(chrono::DateTime<chrono::Utc>, f64, bool)>,
+                     out: &mut Vec<Battle>| {
             if cluster.len() >= MIN_KM {
                 let start = cluster[0].0;
                 out.push(Battle {

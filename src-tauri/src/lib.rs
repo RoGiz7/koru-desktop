@@ -1,3 +1,8 @@
+// Structs que mapean respuestas de ESI/JWT y helpers de reserva (p. ej. get_cached_paged):
+// se conservan a propósito aunque ahora no se lean todos los campos. Silenciamos el aviso
+// mientras el proyecto está en desarrollo.
+#![allow(dead_code)]
+
 mod commands;
 mod config;
 mod db;
