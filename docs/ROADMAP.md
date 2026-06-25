@@ -140,6 +140,15 @@
 10. **git + `.gitignore`** → movido a **sección 0** (ya no es "cuando madure": hace falta ya).
 11. **Firma de binario Windows** (SmartScreen) y **auto-update** de Tauri.
 
+#### Open source (decidido)
+
+El proyecto se publica **open source bajo licencia MIT** (`LICENSE`) como aporte a la comunidad de EVE,
+sin ánimo de lucro. `README.md` con filosofía, privacidad, build y créditos. **Donativos voluntarios**
+vía Ko-fi (`ko-fi.com/rogiz7`) — permitido por la Developer License de CCP siempre que **no se restrinja
+la app según donaciones**. Revisado: **no hay secretos** en el repo (PKCE → `client_id` no es secreto;
+refresh tokens en keychain). Pendiente: hacer el repo **público** en GitHub. Bonus: si es OSS,
+**SignPath Foundation** firma gratis (mitiga SmartScreen).
+
 #### Guía de distribución v1 (cómo repartir el .exe)
 
 Clave: **el código va al repo; el instalador (.exe) NO** (la carpeta de compilado está en `.gitignore`).
