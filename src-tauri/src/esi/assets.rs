@@ -149,10 +149,12 @@ pub async fn detail(
     let mut sys_cache: Map<i64, Option<i64>> = Map::new();
     let mut by_type_sys: Map<(i64, i64), i64> = Map::new();
     for ((type_id, location_id), qty) in agg {
+        // Resolución LIGERA: solo espacio + estaciones NPC (públicas). Las estructuras NO se
+        // consultan aquí porque muchas devuelven 403 y agotan el error budget de ESI.
         let sid = match sys_cache.get(&location_id) {
             Some(s) => *s,
             None => {
-                let r = resolve_location_system(esi, db, location_id, token).await;
+                let r = resolve_location_system_light(esi, db, location_id).await;
                 sys_cache.insert(location_id, r);
                 r
             }
@@ -213,7 +215,7 @@ pub async fn by_system(
         let sid = match resolved.get(&loc_id) {
             Some(c) => *c,
             None => {
-                let r = resolve_location_system(esi, db, loc_id, token).await;
+                let r = resolve_location_system_light(esi, db, loc_id).await;
                 resolved.insert(loc_id, r);
                 r
             }
@@ -256,6 +258,22 @@ async fn resolve_location_system(
             .await
             .ok()?;
         return (geo.solar_system_id != 0).then_some(geo.solar_system_id);
+    }
+    None
+}
+
+/// Resolución LIGERA de location_id -> system_id: solo espacio y estaciones NPC (públicas).
+/// NO consulta estructuras (evita los 403 que agotan el error budget de ESI). None si no aplica.
+async fn resolve_location_system_light(esi: &EsiClient, db: &Db, loc_id: i64) -> Option<i64> {
+    if (30_000_000..=30_999_999).contains(&loc_id) {
+        return Some(loc_id);
+    }
+    if (60_000_000..=64_000_000).contains(&loc_id) {
+        let geo: StationGeo = esi
+            .get_cached(db, 0, &format!("/universe/stations/{loc_id}/"), None)
+            .await
+            .ok()?;
+        return (geo.system_id != 0).then_some(geo.system_id);
     }
     None
 }
