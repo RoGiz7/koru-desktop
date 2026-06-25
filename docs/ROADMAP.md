@@ -131,6 +131,14 @@
 6. **Vista 3D opcional** (Three.js sobre coords 3D del SDE) — aparcado, "explorar el cluster".
 
 ### Inmersión / identidad (nuevos)
+- ✅ **Buscador de Assets (Fase A)** — HECHO: quitado "Top tipos"; comandos `get_assets_detail`(+global)
+  con resolución LIGERA (espacio + estaciones NPC, sin estructuras → no agota el error budget); UI con
+  buscador que filtra por item/sistema, con iconos reales. Pendiente Fase B (abajo).
+- ✅ **Aviso de scopes por personaje** — HECHO: punto rojo "!" en la foto si falta acceso, popover lista
+  qué falta + botón "Añadir acceso" (relogin con set completo). `CAPS` en constants.
+- ✅ **Icono de la app (Koru)** — HECHO: icono propio (cúmulo estelar cian sobre fondo oscuro) en
+  `branding/koru-icon.svg/png`, aplicado con `npm run tauri icon`. Reemplaza el placeholder de Tauri.
+- ✅ **v0.1.1 publicada y auto-update VERIFICADO** end-to-end (la app instalada se actualizó sola).
 - **Resolver estructuras privadas (citadels) en assets** — IMPORTANTE: ahora los assets en estructuras
   de jugador salen con sistema "—". Sin esto el buscador de assets pierde mucho valor. Implementación
   **ligera y correcta**: tabla persistente `location_system(location_id, system_id)` que resuelve cada
