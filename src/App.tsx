@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
-import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColor, heatColor } from "./format";
+import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
 import {
   FEATURES,
   SCOPE,
@@ -845,14 +845,30 @@ function Kpi({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function TopList({ title, items }: { title: string; items: NameCount[] }) {
+function TopList({
+  title,
+  items,
+  icon,
+}: {
+  title: string;
+  items: NameCount[];
+  icon?: "icon" | "render";
+}) {
   return (
     <div className="top-list">
       <h4>{title}</h4>
       {items.length === 0 && <p className="muted small">Sin datos.</p>}
-      <ol>
+      <ol className={icon ? "with-ico" : ""}>
         {items.map((it) => (
           <li key={it.id}>
+            {icon && (
+              <img
+                className="type-ico"
+                src={icon === "render" ? typeRender(it.id) : typeIcon(it.id)}
+                alt=""
+                loading="lazy"
+              />
+            )}
             {it.name ?? `#${it.id}`} <span className="muted">({it.count})</span>
           </li>
         ))}
@@ -1077,7 +1093,7 @@ function PvpView(props: {
             </>
           ) : (
             <div className="tops">
-              <TopList title="Top naves" items={stats.top_ships} />
+              <TopList title="Top naves" items={stats.top_ships} icon="render" />
               <div className="top-list">
                 <h4>Top sistemas</h4>
                 {stats.top_systems.length === 0 && <p className="muted small">Sin datos.</p>}
@@ -2788,9 +2804,10 @@ function AssetsView(props: { data: AssetsSummary | null; busy: boolean }) {
           </div>
           <h4>Top tipos por cantidad</h4>
           {data.top_types.length === 0 && <p className="muted small">Sin datos.</p>}
-          <ol className="top-flat">
+          <ol className="top-flat with-ico">
             {data.top_types.map((t) => (
               <li key={t.id}>
+                <img className="type-ico" src={typeIcon(t.id)} alt="" loading="lazy" />
                 {t.name ?? `#${t.id}`} <span className="muted">({fmtSp(t.count)})</span>
               </li>
             ))}
@@ -2859,9 +2876,10 @@ function IndustryView(props: {
           <div className="top-list">
             <h4>Top minerales</h4>
             {mining.top_ores.length === 0 && <p className="muted small">Sin datos.</p>}
-            <ol>
+            <ol className="with-ico">
               {mining.top_ores.map((o) => (
                 <li key={o.id}>
+                  <img className="type-ico" src={typeIcon(o.id)} alt="" loading="lazy" />
                   {o.name ?? `#${o.id}`} <span className="muted">({fmtSp(o.count)})</span>
                 </li>
               ))}

@@ -132,10 +132,18 @@
 
 ### C. Análisis / narrativa
 0. **Personalización visual — Nivel 1 (gráficas + toggle Tabla/Gráfica)** — EN CURSO. Componentes
-   reutilizables `Bars` (barras SVG/CSS) y `ViewToggle`. Hecho en **PvP** (top naves/sistemas, kills vs
-   losses, ISK). Pendiente extender a Wallet, Assets, Rivales, Skills, Industria. Niveles 2 (ajustes
-   guardados: vista por defecto, KPIs, tema) y 3 (dashboard de widgets configurable estilo Metabase-lite)
-   quedan como fases futuras.
+   reutilizables `Bars` (barras SVG/CSS), `TrendChart` (líneas) y `ViewToggle`. Hecho en **PvP** (top
+   naves/sistemas, kills vs losses, ISK, **tendencia por semana** vía `get_pvp_trend`). Pendiente
+   extender a Wallet, Assets, Rivales, Skills, Industria. Niveles 2 (ajustes guardados) y 3 (dashboard
+   de widgets configurable estilo Metabase-lite) quedan como fases futuras.
+0b. **Inmersión EVE — iconos reales** — EN CURSO. Helper `typeIcon`/`typeRender` (images.evetech.net).
+   Hecho: render de nave en "Top naves", icono de item en Assets y ore en Minería. Pendiente: iconos en
+   más listas, killmails, e iconos reales de estación/estructura/ore en el mapa.
+0c. **Idioma ES/EN** — pendiente. i18n: selector + diccionario de textos guardado local. Valioso si la
+   app sale de la corp.
+0d. **BUG Assets** — la sección y el overlay del mapa no muestran assets. Código `assets::summary`/
+   `by_system` revisado y correcto → probable causa: falta el scope `esi-assets.read_assets.v1` en el
+   login de ese personaje. Verificar relogueando con "Set completo v1"; si persiste, añadir logging.
 7. **Batallas detectadas**: clustering de killmails por sistema+tiempo, marcadas en el mapa +
    enlace a **br.evetools** (usa el `raw` ya guardado).
 8. **Feed de noticias** (RSS CCP/comunidad) + curado de hitos históricos.

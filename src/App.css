@@ -1548,6 +1548,21 @@ h4 {
   margin-right: 0.3rem;
 }
 
+/* ===== Iconos de tipo (EVE image server) en listas ===== */
+.type-ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.with-ico li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .tb-login {
   position: relative;
 }

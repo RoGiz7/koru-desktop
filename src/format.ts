@@ -35,6 +35,16 @@ export function zkillUrl(killmailId: number): string {
   return `https://zkillboard.com/kill/${killmailId}/`;
 }
 
+// Icono de inventario de cualquier tipo (item, ore, módulo…) desde el servidor oficial de EVE.
+export function typeIcon(typeId: number, size = 32): string {
+  return `https://images.evetech.net/types/${typeId}/icon?size=${size}`;
+}
+
+// Render 3D de un tipo (naves, estructuras) desde el servidor oficial de EVE.
+export function typeRender(typeId: number, size = 32): string {
+  return `https://images.evetech.net/types/${typeId}/render?size=${size}`;
+}
+
 // Color por seguridad del sistema (high verde · low naranja · null rojo).
 export function secColor(sec: number): string {
   if (sec >= 0.45) return "#3fb950"; // high-sec verde
