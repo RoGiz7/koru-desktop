@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<image href="space-bg.png" width="1600" height="1000"/>
+<!-- barra superior -->
+<rect x="40" y="30" width="1520" height="64" rx="12" fill="#0e1620" fill-opacity="0.82" stroke="#2a3a4f" stroke-width="1"/>
+<text x="64" y="70" fill="#eaf4ff" font-family="Inter,Arial" font-size="26" font-weight="700">Koru</text>
+<text x="150" y="70" fill="#7fb0ff" font-family="Inter,Arial" font-size="14">EVE · stats</text>
+<rect x="240" y="46" width="120" height="32" rx="8" fill="#34507a" stroke="#4f9cff"/>
+<text x="262" y="68" fill="#fff" font-family="Inter,Arial" font-size="14">🌌 Global</text>
+<!-- grupos de navegación -->
+<g font-family="Inter,Arial" font-size="15" font-weight="600">
+<rect x="40" y="120" width="150" height="40" rx="8" fill="#34507a" stroke="#4f9cff"/><text x="60" y="146" fill="#fff">Patrimonio</text>
+<rect x="200" y="120" width="90" height="40" rx="8" fill="#1c2836" stroke="#2a3a4f"/><text x="220" y="146" fill="#cfe0f0">PvP</text>
+<rect x="300" y="120" width="90" height="40" rx="8" fill="#1c2836" stroke="#2a3a4f"/><text x="320" y="146" fill="#cfe0f0">PvE</text>
+<rect x="400" y="120" width="120" height="40" rx="8" fill="#1c2836" stroke="#2a3a4f"/><text x="420" y="146" fill="#cfe0f0">Industria</text>
+</g>
+<!-- KPIs -->
+<rect x="40" y="185" width="150" height="70" rx="8" fill="#0c1622" fill-opacity="0.9" stroke="#24344a"/><text x="54" y="219" fill="#3fb950" font-family="Inter,Arial" font-size="22" font-weight="700">6.059</text><text x="54" y="239" fill="#8aa0b8" font-family="Inter,Arial" font-size="12">Kills</text>
+<rect x="202" y="185" width="150" height="70" rx="8" fill="#0c1622" fill-opacity="0.9" stroke="#24344a"/><text x="216" y="219" fill="#e5534b" font-family="Inter,Arial" font-size="22" font-weight="700">817</text><text x="216" y="239" fill="#8aa0b8" font-family="Inter,Arial" font-size="12">Losses</text>
+<rect x="364" y="185" width="150" height="70" rx="8" fill="#0c1622" fill-opacity="0.9" stroke="#24344a"/><text x="378" y="219" fill="#3fb950" font-family="Inter,Arial" font-size="22" font-weight="700">98%</text><text x="378" y="239" fill="#8aa0b8" font-family="Inter,Arial" font-size="12">Eficacia</text>
+<rect x="526" y="185" width="150" height="70" rx="8" fill="#0c1622" fill-opacity="0.9" stroke="#24344a"/><text x="540" y="219" fill="#3fb950" font-family="Inter,Arial" font-size="22" font-weight="700">3.65 B</text><text x="540" y="239" fill="#8aa0b8" font-family="Inter,Arial" font-size="12">ISK destruido</text>
+<rect x="688" y="185" width="150" height="70" rx="8" fill="#0c1622" fill-opacity="0.9" stroke="#24344a"/><text x="702" y="219" fill="#e5534b" font-family="Inter,Arial" font-size="22" font-weight="700">67 B</text><text x="702" y="239" fill="#8aa0b8" font-family="Inter,Arial" font-size="12">ISK perdido</text>
+<!-- panel grande (mapa/sección) -->
+<rect x="40" y="275" width="1520" height="680" rx="16" fill="#0e1620" fill-opacity="0.82" stroke="#2a3a4f" stroke-width="1"/>
+<text x="70" y="320" fill="#eaf4ff" font-family="Inter,Arial" font-size="20" font-weight="700">New Eden</text>
+<text x="190" y="320" fill="#8aa0b8" font-family="Inter,Arial" font-size="14">· mapa con overlays</text>
+<text x="70" y="900" fill="#6f8aa3" font-family="Inter,Arial" font-size="13">🕓 13:18 EVE · ● TQ · 24.531 · ● SDE local · ☕ Apoyar</text>
+</svg>
