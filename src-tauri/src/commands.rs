@@ -1516,6 +1516,128 @@ pub async fn get_character_detail(
     })
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FwCountsView {
+    pub yesterday: i64,
+    pub last_week: i64,
+    pub total: i64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FactionalView {
+    pub enlisted: bool,
+    pub enlisted_on: Option<String>,
+    pub faction_id: Option<i64>,
+    pub current_rank: Option<i64>,
+    pub highest_rank: Option<i64>,
+    pub kills: FwCountsView,
+    pub victory_points: FwCountsView,
+}
+
+/// Stats de Guerra de Facciones (PvE → Factional).
+#[tauri::command]
+pub async fn get_factional(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<FactionalView> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-characters.read_fw_stats.v1",
+        "Factional",
+    )
+    .await?;
+    let s = crate::esi::character::fw_stats(&state.esi, &state.db, character_id, &token).await?;
+    let conv = |c: Option<crate::esi::character::FwCounts>| {
+        let c = c.unwrap_or(crate::esi::character::FwCounts {
+            yesterday: 0,
+            last_week: 0,
+            total: 0,
+        });
+        FwCountsView {
+            yesterday: c.yesterday,
+            last_week: c.last_week,
+            total: c.total,
+        }
+    };
+    Ok(FactionalView {
+        enlisted: s.enlisted_on.is_some() || s.faction_id.is_some(),
+        enlisted_on: s.enlisted_on,
+        faction_id: s.faction_id,
+        current_rank: s.current_rank,
+        highest_rank: s.highest_rank,
+        kills: conv(s.kills),
+        victory_points: conv(s.victory_points),
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FilamentRow {
+    pub name: String,
+    pub count: i64,
+    pub isk: f64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AbyssalsView {
+    pub runs_est: i64,
+    pub isk_spent: f64,
+    pub by_filament: Vec<FilamentRow>,
+}
+
+/// Abyssals ESTIMADO por compras de filamentos en las transacciones de wallet.
+/// ESI no expone runs abisales; esto es una aproximación (1 filamento ≈ 1 run).
+#[tauri::command]
+pub async fn get_abyssals(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<AbyssalsView> {
+    use std::collections::{HashMap, HashSet};
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-wallet.read_character_wallet.v1",
+        "Wallet",
+    )
+    .await?;
+    let txs = crate::esi::wallet::transactions(&state.esi, &state.db, character_id, &token)
+        .await
+        .unwrap_or_default();
+
+    let buys: Vec<&crate::esi::wallet::Transaction> = txs.iter().filter(|t| t.is_buy).collect();
+    let ids: Vec<i64> = buys
+        .iter()
+        .map(|t| t.type_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+
+    // Agrega solo los items cuyo nombre contiene "Filament" (ESI devuelve nombres en inglés).
+    let mut by: HashMap<String, (i64, f64)> = HashMap::new();
+    for t in &buys {
+        let name = match names.get(&t.type_id) {
+            Some(n) if n.to_lowercase().contains("filament") => n.clone(),
+            _ => continue,
+        };
+        let e = by.entry(name).or_insert((0, 0.0));
+        e.0 += t.quantity;
+        e.1 += t.unit_price * t.quantity as f64;
+    }
+
+    let mut by_filament: Vec<FilamentRow> = by
+        .into_iter()
+        .map(|(name, (count, isk))| FilamentRow { name, count, isk })
+        .collect();
+    by_filament.sort_by(|a, b| b.count.cmp(&a.count));
+    let runs_est = by_filament.iter().map(|f| f.count).sum();
+    let isk_spent = by_filament.iter().map(|f| f.isk).sum();
+
+    Ok(AbyssalsView {
+        runs_est,
+        isk_spent,
+        by_filament,
+    })
+}
+
 /// PvP GLOBAL: agregado de todos los personajes (deduplicado por killmail).
 #[tauri::command]
 pub async fn get_pvp_stats_global(state: State<'_, AppState>) -> AppResult<PvpStats> {

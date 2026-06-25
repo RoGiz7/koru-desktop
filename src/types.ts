@@ -283,6 +283,18 @@ export type MiningDetail = {
   by_system: MiningSys[];
   monthly: MiningMonth[];
 };
+export type FwCountsView = { yesterday: number; last_week: number; total: number };
+export type FactionalView = {
+  enlisted: boolean;
+  enlisted_on: string | null;
+  faction_id: number | null;
+  current_rank: number | null;
+  highest_rank: number | null;
+  kills: FwCountsView;
+  victory_points: FwCountsView;
+};
+export type FilamentRow = { name: string; count: number; isk: number };
+export type AbyssalsData = { runs_est: number; isk_spent: number; by_filament: FilamentRow[] };
 export type CategorySum = { category: string; isk: number; prev_isk: number };
 export type FinancialSummary = {
   income_total: number;

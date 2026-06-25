@@ -30,6 +30,35 @@ pub struct JournalEntry {
     pub second_party_id: Option<i64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct Transaction {
+    #[serde(default)]
+    pub transaction_id: i64,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub type_id: i64,
+    #[serde(default)]
+    pub quantity: i64,
+    #[serde(default)]
+    pub unit_price: f64,
+    #[serde(default)]
+    pub is_buy: bool,
+}
+
+/// Transacciones de mercado recientes del personaje (ventana limitada de ESI).
+/// Mismo scope que el journal (esi-wallet.read_character_wallet.v1).
+pub async fn transactions(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<Vec<Transaction>> {
+    let path = format!("/characters/{character_id}/wallet/transactions/");
+    esi.get_cached::<Vec<Transaction>>(db, character_id, &path, Some(token))
+        .await
+}
+
 /// Balance actual de la cartera (ESI devuelve un número suelto). Cacheado por el cliente.
 pub async fn balance(esi: &EsiClient, db: &Db, character_id: i64, token: &str) -> AppResult<f64> {
     let path = format!("/characters/{character_id}/wallet/");

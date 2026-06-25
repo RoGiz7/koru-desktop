@@ -60,6 +60,8 @@ import type {
   PvpActivity,
   MiningDetail,
   CharacterDetail,
+  FactionalView as FactionalData,
+  AbyssalsData,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -171,6 +173,8 @@ function App() {
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null); // header rico
+  const [factionalData, setFactionalData] = useState<FactionalData | null>(null);
+  const [abyssalsData, setAbyssalsData] = useState<AbyssalsData | null>(null);
   const [gSkills, setGSkills] = useState<GlobalSkills | null>(null); // global (otra forma)
   const [assetsData, setAssetsData] = useState<AssetsSummary | null>(null);
   const [jobsData, setJobsData] = useState<JobView[] | null>(null);
@@ -241,6 +245,8 @@ function App() {
     setWalletData(null);
     setSkillsData(null);
     setCharDetail(null);
+    setFactionalData(null);
+    setAbyssalsData(null);
     setGSkills(null);
     setAssetsData(null);
     setJobsData(null);
@@ -379,6 +385,10 @@ function App() {
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets", { characterId }));
         if (t === "rateo") setRatting(await invoke<RattingDetail>("get_ratting", { characterId }));
+        if (t === "factional")
+          setFactionalData(await invoke<FactionalData>("get_factional", { characterId }));
+        if (t === "abyssals")
+          setAbyssalsData(await invoke<AbyssalsData>("get_abyssals", { characterId }));
         if (t === "industria") {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
@@ -958,15 +968,18 @@ function App() {
           {tab === "resumen" && <ResumenView subject={subject} />}
           {tab === "actividad" && <ActividadView subject={subject} />}
           {tab === "mineria" && <MineriaView subject={subject} />}
-          {(tab === "abyssals" || tab === "factional") && (
-            <div className="soon-box">
-              <div className="soon-emoji">🚧</div>
-              <p className="muted">
-                <strong>{TAB_HEAD[tab].title}</strong> — próximamente. Esta sección está planificada en
-                el ROADMAP y la iremos rellenando.
-              </p>
-            </div>
-          )}
+          {tab === "factional" &&
+            (isGlobal ? (
+              <p className="muted small">Selecciona un personaje para ver sus stats de Guerra de Facciones.</p>
+            ) : (
+              <FactionalSection data={factionalData} busy={sectionBusy} />
+            ))}
+          {tab === "abyssals" &&
+            (isGlobal ? (
+              <p className="muted small">Selecciona un personaje para ver la estimación de Abyssals.</p>
+            ) : (
+              <AbyssalsSection data={abyssalsData} busy={sectionBusy} />
+            ))}
         </div>
       </div>
 
@@ -4054,6 +4067,107 @@ function MineriaView({ subject }: { subject: number | "global" }) {
               color="#3fb950"
               fmt={fmtIsk}
             />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/* ---------- PvE: Factional + Abyssals ---------- */
+function FactionalSection({ data, busy }: { data: FactionalData | null; busy: boolean }) {
+  if (!data) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  if (!data.enlisted)
+    return (
+      <p className="muted small">
+        Este personaje no está enlistado en la Guerra de Facciones.
+      </p>
+    );
+  const fac = data.faction_id ? FW_FACTIONS[data.faction_id] : null;
+  const counts = (c: FactionalData["kills"]) => (
+    <table className="km-table cat-table">
+      <tbody>
+        <tr>
+          <td>Ayer</td>
+          <td style={{ textAlign: "right" }}>{fmtSp(c.yesterday)}</td>
+        </tr>
+        <tr>
+          <td>Última semana</td>
+          <td style={{ textAlign: "right" }}>{fmtSp(c.last_week)}</td>
+        </tr>
+        <tr>
+          <td>Total</td>
+          <td style={{ textAlign: "right" }}>{fmtSp(c.total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  );
+  return (
+    <>
+      <div className="kpis">
+        <div className="kpi" style={fac ? { borderTopColor: fac.color } : undefined}>
+          <div className="kpi-value">
+            {fac?.name ?? (data.faction_id ? `#${data.faction_id}` : "—")}
+          </div>
+          <div className="kpi-label">Facción</div>
+        </div>
+        {data.current_rank != null && <Kpi label="Rango actual" value={data.current_rank} />}
+        {data.highest_rank != null && <Kpi label="Rango máximo" value={data.highest_rank} />}
+        {data.enlisted_on && <Kpi label="Enlistado" value={data.enlisted_on.slice(0, 10)} />}
+      </div>
+      <div className="resumen-grid">
+        <div className="panel resumen-panel">
+          <h4>Kills</h4>
+          {counts(data.kills)}
+        </div>
+        <div className="panel resumen-panel">
+          <h4>Victory Points</h4>
+          {counts(data.victory_points)}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AbyssalsSection({ data, busy }: { data: AbyssalsData | null; busy: boolean }) {
+  if (!data) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  return (
+    <>
+      <p className="muted small">
+        ⚠️ ESI no expone las runs abisales. Esto es una <b>estimación</b> a partir de tus compras de
+        filamentos en las transacciones de wallet (ventana reciente de ESI; 1 filamento ≈ 1 run).
+      </p>
+      {data.by_filament.length === 0 ? (
+        <p className="muted small">
+          No se han detectado compras de filamentos en la ventana de transacciones.
+        </p>
+      ) : (
+        <>
+          <div className="kpis">
+            <Kpi label="Runs estimadas" value={fmtSp(data.runs_est)} />
+            <Kpi label="ISK en filamentos" value={fmtIsk(data.isk_spent)} tone="neg" />
+            <Kpi label="Tipos de filamento" value={fmtSp(data.by_filament.length)} />
+          </div>
+          <div className="top-list">
+            <h4>Por filamento</h4>
+            <table className="km-table cat-table">
+              <thead>
+                <tr>
+                  <th>Filamento</th>
+                  <th style={{ textAlign: "right" }}>Cantidad</th>
+                  <th style={{ textAlign: "right" }}>ISK</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.by_filament.map((f, i) => (
+                  <tr key={i}>
+                    <td>{f.name}</td>
+                    <td style={{ textAlign: "right" }}>{fmtSp(f.count)}</td>
+                    <td style={{ textAlign: "right" }}>{fmtIsk(f.isk)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}

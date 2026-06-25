@@ -42,6 +42,9 @@ pub const KEYRING_SERVICE: &str = "koru-desktop";
 pub mod scopes {
     pub const PVP: &[&str] = &["esi-killmails.read_killmails.v1"];
 
+    /// Guerra de Facciones (stats personales) — grupo PvE.
+    pub const FW: &[&str] = &["esi-characters.read_fw_stats.v1"];
+
     pub const WALLET: &[&str] = &[
         "esi-wallet.read_character_wallet.v1",
         "esi-markets.read_character_orders.v1", // Comercio (órdenes de mercado), grupo Patrimonio
@@ -72,6 +75,7 @@ pub mod scopes {
     pub fn core_v1() -> Vec<&'static str> {
         let mut v = Vec::new();
         v.extend_from_slice(PVP);
+        v.extend_from_slice(FW);
         v.extend_from_slice(WALLET);
         v.extend_from_slice(SKILLS);
         v.extend_from_slice(ASSETS);

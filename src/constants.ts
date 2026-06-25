@@ -58,8 +58,8 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     icon: "🛡️",
     subs: [
       { key: "rateo", label: "Rateo", scopes: ["esi-wallet.read_character_wallet.v1"] },
-      { key: "abyssals", label: "Abyssals", soon: true },
-      { key: "factional", label: "Factional", soon: true },
+      { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
+      { key: "factional", label: "Factional", scopes: ["esi-characters.read_fw_stats.v1"] },
     ],
   },
   {

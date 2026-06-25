@@ -118,3 +118,45 @@ pub async fn clones(
     )
     .await
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FwCounts {
+    #[serde(default)]
+    pub yesterday: i64,
+    #[serde(default)]
+    pub last_week: i64,
+    #[serde(default)]
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FwStats {
+    #[serde(default)]
+    pub faction_id: Option<i64>,
+    #[serde(default)]
+    pub enlisted_on: Option<String>,
+    #[serde(default)]
+    pub current_rank: Option<i64>,
+    #[serde(default)]
+    pub highest_rank: Option<i64>,
+    #[serde(default)]
+    pub kills: Option<FwCounts>,
+    #[serde(default)]
+    pub victory_points: Option<FwCounts>,
+}
+
+/// Stats de Guerra de Facciones del personaje (scope esi-characters.read_fw_stats.v1).
+pub async fn fw_stats(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<FwStats> {
+    esi.get_cached::<FwStats>(
+        db,
+        character_id,
+        &format!("/characters/{character_id}/fw/stats/"),
+        Some(token),
+    )
+    .await
+}

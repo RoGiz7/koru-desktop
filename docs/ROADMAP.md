@@ -1,15 +1,15 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-25 (v0.1.7) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-06-25 (v0.1.10) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.1.7 · 2026-06-25)
+## 📌 Estado actual (v0.1.10 · 2026-06-25)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
 
-### Aplicado recientemente (v0.1.2 → v0.1.7)
+### Aplicado recientemente (v0.1.2 → v0.1.10)
 - **Comercio** (órdenes de mercado), **Planetología** (PI), **Assets Fase B** (resuelve estructuras
   privadas con caché persistente + tabs por categoría).
 - **Reestructura de navegación en grupos** (Resumen·Patrimonio·PvP·PvE·Industria·Personaje + Mapa
@@ -36,24 +36,38 @@
 - **Selector de tema** persistido (Nebulosa/Amarr/Caldari/Gallente/Minmatar/Abismo).
 - **i18n ES/EN** — framework (`src/i18n.ts` + `t()` + selector persistido) y **chrome traducida**
   (navegación, cabeceras, pie, botones). Cuerpos de cada vista: pendiente (incremental).
-- **Releases v0.1.2 → v0.1.7** publicadas; auto-update verificado; `workflow_dispatch` (botón manual)
-  añadido al workflow como red de seguridad.
+- **Selector de tema** persistido (Nebulosa/Amarr/Caldari/Gallente/Minmatar/Abismo; `data-theme` + localStorage).
+- **i18n ES/EN** — framework `src/i18n.ts` (`t()` por string-fuente + selector persistido) y **chrome traducida**
+  (navegación, cabeceras, pie, botones). Cuerpos de vista: pendiente (incremental).
+- **Personaje "header rico"** — atributos (5 + remaps), implantes (con icono/nombre), jump clones,
+  sec status, fecha de nacimiento y bio. `esi/character.rs` + `get_character_detail`. Scopes de
+  clones/implantes añadidos.
+- **PvE — Factional** (`/fw/stats`, scope `esi-characters.read_fw_stats.v1`): facción, rango, enlistado,
+  kills y victory points (ayer/semana/total). **PvE — Abyssals** (estimación honesta): runs e ISK por
+  **compras de filamentos** en las transacciones de wallet (`wallet/transactions/` + match por nombre).
+- **Releases v0.1.2 → v0.1.10** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
+  **instancia única**; `workflow_dispatch` (botón manual) en el workflow como red de seguridad.
 
-### Pendiente (orden acordado: pulido → resto por prioridad)
+### Pendiente (orden por prioridad)
 1. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
-2. **Personaje "header rico"**: implantes (`/characters/{id}/implants/`), jump clones
-   (`/characters/{id}/clones/`), atributos y bio. (Hoy el grupo Personaje solo tiene Skills.)
-3. **PvE — Factional** (`/characters/{id}/fw/stats`, scope `esi-characters.read_fw_stats.v1`) y
-   **Abyssals** (estimado por loot + journal). Rellenan los dos "Próximamente".
-4. **Friends & Foes**: overlay de **standings** (contactos) azul/rojo en el mapa.
-5. **Fabricación**: separar de "Industria" con su propia vista (jobs) — split del grupo Industria.
-6. **Scrub temporal** en PvP/Wallet (moverse en el tiempo) y orden por defecto Gráfica en PvP.
-7. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`) + rango/fuel automático por skills.
-8. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
-9. **Tematización por evento** (sobre el selector de temas ya hecho).
-10. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
-11. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
-12. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
+2. **Friends & Foes**: overlay de **standings** (contactos) azul/rojo en el mapa.
+3. **Fabricación**: separar de "Industria" con su propia vista (jobs) — split del grupo Industria.
+4. **Scrub temporal** en PvP/Wallet (moverse en el tiempo) y orden por defecto Gráfica en PvP.
+5. **Persistir histórico de transacciones** (para Abyssals/Comercio fiables más allá de la ventana
+   de ESI) — hoy Abyssals usa solo la ventana reciente de `wallet/transactions/`.
+6. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`) + rango/fuel automático por skills.
+7. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
+8. **Tematización por evento** (sobre el selector de temas ya hecho).
+9. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
+10. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
+11. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
+
+#### Apuntes / ideas surgidas
+- **Rangos de FW por facción**: hoy se muestra el rango como número; mapear a nombre por facción (cosmético).
+- **Abyssals fiable** necesita persistir transacciones (ventana ESI es corta); además distinguir tier/clima
+  por el nombre del filamento daría desglose por dificultad.
+- **Resolver nombres de ubicación** (home clone, estaciones) reutilizando el patrón de Assets Fase B.
+- **i18n incremental**: ir traduciendo vista por vista; el diccionario `i18n.ts` ya admite añadir claves.
 
 ### Ideas / visión recogidas
 - **Norte de diseño = dashboard "Koru Alliance Auth"** (capturas en `../documentacion/koru alliance auth/`):
