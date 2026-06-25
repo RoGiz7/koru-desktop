@@ -106,3 +106,11 @@ CREATE TABLE IF NOT EXISTS type_category (
     category   TEXT NOT NULL,
     updated_at TEXT
 );
+
+-- Caché persistente sistema → región (nombre). Resuelta una vez vía ESI; luego a prueba de
+-- downtime (durante el downtime de TQ, /universe/systems da 504 — con esto no se reintenta).
+CREATE TABLE IF NOT EXISTS system_region (
+    system_id  INTEGER PRIMARY KEY,
+    region     TEXT NOT NULL,
+    updated_at TEXT
+);

@@ -1224,6 +1224,27 @@ impl Db {
     }
 
     /// Caché tipo→categoría. None si no está cacheada.
+    /// Caché sistema→región (nombre). None si no está cacheada.
+    pub fn system_region_get(&self, system_id: i64) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT region FROM system_region WHERE system_id = ?1",
+            rusqlite::params![system_id],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+    }
+
+    pub fn system_region_put(&self, system_id: i64, region: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO system_region (system_id, region, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(system_id) DO UPDATE SET region = excluded.region, updated_at = excluded.updated_at",
+            rusqlite::params![system_id, region, now],
+        );
+    }
+
     pub fn type_category_get(&self, type_id: i64) -> Option<String> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(

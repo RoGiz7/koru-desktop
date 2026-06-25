@@ -52,6 +52,7 @@ import type {
   Incursion,
   ServerStatus,
   MarketOrder,
+  Planet,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -121,6 +122,7 @@ function App() {
   const [pvpTrend, setPvpTrend] = useState<PvpTrendPoint[] | null>(null);
   const [assetsDetail, setAssetsDetail] = useState<AssetDetail[] | null>(null);
   const [marketOrders, setMarketOrders] = useState<MarketOrder[] | null>(null);
+  const [planets, setPlanets] = useState<Planet[] | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
@@ -189,6 +191,7 @@ function App() {
     setPvpTrend(null);
     setAssetsDetail(null);
     setMarketOrders(null);
+    setPlanets(null);
     setWalletData(null);
     setSkillsData(null);
     setGSkills(null);
@@ -300,6 +303,7 @@ function App() {
           setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail_global"));
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders_global"));
+        if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets_global"));
         if (t === "industria") {
           setJobsData(await invoke<JobView[]>("get_industry_global"));
           setMiningData(await invoke<MiningSummary>("get_mining_global"));
@@ -320,6 +324,7 @@ function App() {
           setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail", { characterId }));
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
+        if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets", { characterId }));
         if (t === "industria") {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
@@ -867,10 +872,8 @@ function App() {
             />
           )}
           {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
-          {(tab === "rateo" ||
-            tab === "abyssals" ||
-            tab === "factional" ||
-            tab === "planetologia") && (
+          {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
+          {(tab === "rateo" || tab === "abyssals" || tab === "factional") && (
             <div className="soon-box">
               <div className="soon-emoji">🚧</div>
               <p className="muted">
@@ -1492,6 +1495,7 @@ function WalletViewC(props: {
   onSync?: () => void;
 }) {
   const { data, busy, global, onSync } = props;
+  const [chart, setChart] = useState(false);
   const [wSort, setWSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
   const onWSort = (col: string) =>
     setWSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
@@ -1527,30 +1531,65 @@ function WalletViewC(props: {
             <Kpi label="Neto" value={fmtIsk(data.stats.net)} tone={data.stats.net >= 0 ? "pos" : "neg"} />
             <Kpi label="Movimientos" value={data.stats.entries} />
           </div>
-          <div className="tops">
-            <div className="top-list">
-              <h4>Top ingresos</h4>
-              {data.stats.top_income.length === 0 && <p className="muted small">Sin datos.</p>}
-              <ol>
-                {data.stats.top_income.map((r, i) => (
-                  <li key={i}>
-                    {r.ref_type} <span className="muted">({fmtIsk(r.total)})</span>
-                  </li>
-                ))}
-              </ol>
+          <ViewToggle chart={chart} onChange={setChart} />
+          {chart ? (
+            <>
+              <div className="top-list">
+                <h4>Ingresos vs Gastos</h4>
+                <Bars
+                  items={[
+                    { label: "Ingresos", value: data.stats.income },
+                    { label: "Gastos", value: data.stats.expense },
+                  ]}
+                  color="#3fb950"
+                  fmt={fmtIsk}
+                />
+              </div>
+              <div className="tops">
+                <div className="top-list">
+                  <h4>Top ingresos</h4>
+                  <Bars
+                    items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
+                    color="#3fb950"
+                    fmt={fmtIsk}
+                  />
+                </div>
+                <div className="top-list">
+                  <h4>Top gastos</h4>
+                  <Bars
+                    items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
+                    color="#e5534b"
+                    fmt={fmtIsk}
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="tops">
+              <div className="top-list">
+                <h4>Top ingresos</h4>
+                {data.stats.top_income.length === 0 && <p className="muted small">Sin datos.</p>}
+                <ol>
+                  {data.stats.top_income.map((r, i) => (
+                    <li key={i}>
+                      {r.ref_type} <span className="muted">({fmtIsk(r.total)})</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              <div className="top-list">
+                <h4>Top gastos</h4>
+                {data.stats.top_expense.length === 0 && <p className="muted small">Sin datos.</p>}
+                <ol>
+                  {data.stats.top_expense.map((r, i) => (
+                    <li key={i}>
+                      {r.ref_type} <span className="muted">({fmtIsk(r.total)})</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             </div>
-            <div className="top-list">
-              <h4>Top gastos</h4>
-              {data.stats.top_expense.length === 0 && <p className="muted small">Sin datos.</p>}
-              <ol>
-                {data.stats.top_expense.map((r, i) => (
-                  <li key={i}>
-                    {r.ref_type} <span className="muted">({fmtIsk(r.total)})</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
+          )}
           <h4>Movimientos recientes</h4>
           <table className="km-table">
             <thead>
@@ -2984,6 +3023,43 @@ function Th({
     <th className="th-sort" onClick={() => onSort(col)} title="Ordenar">
       {label} <span className="th-arrow">{active ? (sort.dir === 1 ? "▲" : "▼") : "↕"}</span>
     </th>
+  );
+}
+
+function PlanetologiaView({ planets, busy }: { planets: Planet[] | null; busy: boolean }) {
+  if (!planets) return <p className="muted">{busy ? "Cargando colonias…" : "Sin datos."}</p>;
+  if (planets.length === 0)
+    return <p className="muted small">No tienes colonias de Planetary Interaction.</p>;
+  const totalPins = planets.reduce((s, p) => s + p.num_pins, 0);
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="Colonias" value={fmtSp(planets.length)} />
+        <Kpi label="Estructuras (pins)" value={fmtSp(totalPins)} />
+      </div>
+      <table className="km-table">
+        <thead>
+          <tr>
+            <th>Sistema</th>
+            <th>Tipo de planeta</th>
+            <th>Nivel</th>
+            <th>Estructuras</th>
+            <th>Última actualización</th>
+          </tr>
+        </thead>
+        <tbody>
+          {planets.map((p, i) => (
+            <tr key={i}>
+              <td>{p.system_name ?? (p.system_id ? `#${p.system_id}` : "—")}</td>
+              <td style={{ textTransform: "capitalize" }}>{p.planet_type}</td>
+              <td>{p.upgrade_level}</td>
+              <td>{p.num_pins}</td>
+              <td>{p.last_update?.replace("T", " ").slice(0, 16) ?? "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 

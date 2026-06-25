@@ -57,7 +57,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     typeId: 34, // Tritanium (minerales)
     subs: [
       { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1", "esi-industry.read_character_mining.v1"] },
-      { key: "planetologia", label: "Planetología", soon: true },
+      { key: "planetologia", label: "Planetología", scopes: ["esi-planets.manage_planets.v1"] },
     ],
   },
   {
@@ -109,6 +109,7 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Skills", scope: "esi-skills.read_skills.v1" },
   { label: "Assets", scope: "esi-assets.read_assets.v1" },
   { label: "Comercio", scope: "esi-markets.read_character_orders.v1" },
+  { label: "Planetología", scope: "esi-planets.manage_planets.v1" },
   { label: "Industria", scope: "esi-industry.read_character_jobs.v1" },
   { label: "Ubicación", scope: "esi-location.read_location.v1" },
 ];

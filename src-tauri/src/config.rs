@@ -53,6 +53,7 @@ pub mod scopes {
         "esi-assets.read_assets.v1",
         "esi-industry.read_character_jobs.v1",
         "esi-industry.read_character_mining.v1",
+        "esi-planets.manage_planets.v1", // Planetología (PI)
     ];
 
     /// Estado en vivo (opcional, baja sensibilidad).

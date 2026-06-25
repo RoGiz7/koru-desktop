@@ -216,6 +216,14 @@ export type FwSystem = {
   victory_points_threshold: number;
 };
 export type CharLoc = { id: number; name: string; system_id: number };
+export type Planet = {
+  system_id: number;
+  system_name: string | null;
+  planet_type: string;
+  upgrade_level: number;
+  num_pins: number;
+  last_update: string | null;
+};
 export type MarketOrder = {
   type_id: number;
   type_name: string | null;

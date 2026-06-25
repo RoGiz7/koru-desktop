@@ -1643,6 +1643,113 @@ pub async fn get_market_orders_global(
     Ok(all)
 }
 
+/// Una colonia de Planetary Interaction tal cual la devuelve ESI.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PlanetRaw {
+    #[serde(default)]
+    solar_system_id: i64,
+    #[serde(default)]
+    planet_type: String,
+    #[serde(default)]
+    upgrade_level: i64,
+    #[serde(default)]
+    num_pins: i64,
+    #[serde(default)]
+    last_update: Option<String>,
+}
+
+/// Vista de una colonia con el nombre del sistema resuelto.
+#[derive(Debug, Serialize)]
+pub struct PlanetView {
+    pub system_id: i64,
+    pub system_name: Option<String>,
+    pub planet_type: String,
+    pub upgrade_level: i64,
+    pub num_pins: i64,
+    pub last_update: Option<String>,
+}
+
+async fn resolve_planets(esi: &EsiClient, rows: Vec<PlanetRaw>) -> AppResult<Vec<PlanetView>> {
+    let mut ids: HashSet<i64> = HashSet::new();
+    for p in &rows {
+        if p.solar_system_id != 0 {
+            ids.insert(p.solar_system_id);
+        }
+    }
+    let names = esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+    Ok(rows
+        .into_iter()
+        .map(|p| PlanetView {
+            system_id: p.solar_system_id,
+            system_name: names.get(&p.solar_system_id).cloned(),
+            planet_type: p.planet_type,
+            upgrade_level: p.upgrade_level,
+            num_pins: p.num_pins,
+            last_update: p.last_update,
+        })
+        .collect())
+}
+
+/// Colonias de Planetary Interaction de un personaje (Planetología).
+#[tauri::command]
+pub async fn get_planets(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<PlanetView>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-planets.manage_planets.v1",
+        "Assets / industria",
+    )
+    .await?;
+    let rows: Vec<PlanetRaw> = state
+        .esi
+        .get_cached(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/planets/"),
+            Some(&token),
+        )
+        .await?;
+    resolve_planets(&state.esi, rows).await
+}
+
+/// Colonias PI global (todos los personajes con el scope).
+#[tauri::command]
+pub async fn get_planets_global(state: State<'_, AppState>) -> AppResult<Vec<PlanetView>> {
+    let mut all: Vec<PlanetView> = Vec::new();
+    for c in state.db.list_characters()? {
+        if !c.scopes.iter().any(|s| s == "esi-planets.manage_planets.v1") {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let cid = c.character_id;
+        if let Ok(rows) = state
+            .esi
+            .get_cached::<Vec<PlanetRaw>>(
+                &state.db,
+                cid,
+                &format!("/characters/{cid}/planets/"),
+                Some(&valid.access_token),
+            )
+            .await
+        {
+            if let Ok(mut v) = resolve_planets(&state.esi, rows).await {
+                all.append(&mut v);
+            }
+        }
+    }
+    Ok(all)
+}
+
 /// Vista de un job de industria con nombres legibles.
 #[derive(Debug, Serialize)]
 pub struct JobView {

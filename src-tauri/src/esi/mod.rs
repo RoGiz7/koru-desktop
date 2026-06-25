@@ -278,6 +278,12 @@ impl EsiClient {
         unique.dedup();
 
         for sid in unique {
+            // Caché persistente: si ya resolvimos esta región alguna vez, no llamamos a ESI
+            // (a prueba de downtime).
+            if let Some(r) = db.system_region_get(sid) {
+                out.insert(sid, r);
+                continue;
+            }
             let sys: SystemInfo = match self
                 .get_cached(db, 0, &format!("/universe/systems/{sid}/"), None)
                 .await
@@ -301,6 +307,7 @@ impl EsiClient {
                 Err(_) => continue,
             };
             if let Some(name) = region_cache.get(&cons.region_id) {
+                db.system_region_put(sid, name);
                 out.insert(sid, name.clone());
                 continue;
             }
@@ -314,6 +321,7 @@ impl EsiClient {
                 .await
             {
                 region_cache.insert(cons.region_id, region.name.clone());
+                db.system_region_put(sid, &region.name);
                 out.insert(sid, region.name);
             }
         }
