@@ -44,10 +44,7 @@ pub mod scopes {
 
     pub const WALLET: &[&str] = &["esi-wallet.read_character_wallet.v1"];
 
-    pub const SKILLS: &[&str] = &[
-        "esi-skills.read_skills.v1",
-        "esi-skills.read_skillqueue.v1",
-    ];
+    pub const SKILLS: &[&str] = &["esi-skills.read_skills.v1", "esi-skills.read_skillqueue.v1"];
 
     pub const ASSETS: &[&str] = &[
         "esi-assets.read_assets.v1",

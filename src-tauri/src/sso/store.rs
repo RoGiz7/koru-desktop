@@ -6,7 +6,10 @@ use crate::error::AppResult;
 use keyring::Entry;
 
 fn entry(character_id: i64) -> AppResult<Entry> {
-    Ok(Entry::new(config::KEYRING_SERVICE, &character_id.to_string())?)
+    Ok(Entry::new(
+        config::KEYRING_SERVICE,
+        &character_id.to_string(),
+    )?)
 }
 
 pub fn save_refresh_token(character_id: i64, refresh_token: &str) -> AppResult<()> {

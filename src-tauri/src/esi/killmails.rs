@@ -86,7 +86,9 @@ pub fn derive(detail: &KillmailDetail, character_id: i64) -> Derived {
         .map(|a| a.damage_done)
         .max()
         .unwrap_or(0);
-    let top_damage = char_damage.map(|d| d > 0 && d >= max_damage).unwrap_or(false);
+    let top_damage = char_damage
+        .map(|d| d > 0 && d >= max_damage)
+        .unwrap_or(false);
 
     Derived {
         is_loss,
@@ -231,11 +233,7 @@ struct ZkbInfo {
 
 /// Descarga una página del historial de un personaje en zKillboard.
 /// Devuelve vacío si no hay más páginas o si falla (best-effort).
-async fn fetch_zkb_page(
-    esi: &EsiClient,
-    character_id: i64,
-    page: u32,
-) -> AppResult<Vec<ZkbKill>> {
+async fn fetch_zkb_page(esi: &EsiClient, character_id: i64, page: u32) -> AppResult<Vec<ZkbKill>> {
     let url = format!("https://zkillboard.com/api/characterID/{character_id}/page/{page}/");
     for attempt in 1..=5u32 {
         let resp = esi.http().get(&url).send().await?;

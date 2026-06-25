@@ -1443,6 +1443,19 @@ h4 {
   padding: 0.25rem 0.55rem;
 }
 
+.tb-update {
+  padding: 0.3rem 0.7rem;
+  background: var(--accent);
+  border: 1px solid var(--accent-border);
+  color: #fff;
+  font-weight: 600;
+  animation: sb-pulse 1.6s ease-in-out infinite;
+}
+
+.tb-update:hover:not(:disabled) {
+  background: var(--accent-border);
+}
+
 .tb-login {
   position: relative;
 }

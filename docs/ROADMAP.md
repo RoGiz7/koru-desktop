@@ -138,7 +138,12 @@
 ### D. Distribución (cuando la base esté madura)
 9. **Empaquetar el .exe** (instalador Tauri) para repartir por Rekium.
 10. **git + `.gitignore`** → movido a **sección 0** (ya no es "cuando madure": hace falta ya).
-11. **Firma de binario Windows** (SmartScreen) y **auto-update** de Tauri.
+11. **Firma de binario Windows** (SmartScreen) pendiente. **Auto-update de Tauri** ✅ IMPLEMENTADO:
+    plugins `updater`+`process`, `tauri.conf.json` con pubkey y endpoint a Releases, botón "Actualizar"
+    en la barra superior (check al arrancar), y workflow `.github/workflows/release.yml` (tauri-action)
+    que compila/firma/publica y genera `latest.json`. Requiere 2 secrets en GitHub
+    (`TAURI_SIGNING_PRIVATE_KEY` = contenido de `koru.key`, y `..._PASSWORD`). Release = subir tag `vX.Y.Z`.
+    La clave privada `koru.key` vive fuera del repo (en `~/.tauri/`) — NUNCA commitearla.
 
 #### Open source (decidido)
 

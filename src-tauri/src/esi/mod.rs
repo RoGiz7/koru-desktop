@@ -189,7 +189,9 @@ impl EsiClient {
         // Para simplificar, la primera página decide el total de páginas.
         // (Implementación: reusamos get_cached y, por ahora, ESI killmails/recent rara vez
         //  excede 1 página para un personaje normal; si hace falta, se amplía.)
-        let value = self.get_cached::<T>(db, character_id, path, access_token).await?;
+        let value = self
+            .get_cached::<T>(db, character_id, path, access_token)
+            .await?;
         Ok((value, 1))
     }
 

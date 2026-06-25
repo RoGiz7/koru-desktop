@@ -21,14 +21,10 @@ pub struct JournalEntry {
 }
 
 /// Balance actual de la cartera (ESI devuelve un número suelto). Cacheado por el cliente.
-pub async fn balance(
-    esi: &EsiClient,
-    db: &Db,
-    character_id: i64,
-    token: &str,
-) -> AppResult<f64> {
+pub async fn balance(esi: &EsiClient, db: &Db, character_id: i64, token: &str) -> AppResult<f64> {
     let path = format!("/characters/{character_id}/wallet/");
-    esi.get_cached::<f64>(db, character_id, &path, Some(token)).await
+    esi.get_cached::<f64>(db, character_id, &path, Some(token))
+        .await
 }
 
 /// Sincroniza el journal de cartera, paginando hasta agotar o `max_pages`.

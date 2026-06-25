@@ -22,11 +22,23 @@ impl Db {
         conn.execute_batch(include_str!("schema.sql"))?;
         // Micro-migración defensiva: si la BD se creó antes de añadir `solo`, la añadimos.
         // Ignoramos el error "duplicate column name" si ya existe.
-        let _ = conn.execute("ALTER TABLE killmails ADD COLUMN solo INTEGER NOT NULL DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE killmails ADD COLUMN victim_ship_type_id INTEGER", []);
+        let _ = conn.execute(
+            "ALTER TABLE killmails ADD COLUMN solo INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE killmails ADD COLUMN victim_ship_type_id INTEGER",
+            [],
+        );
         let _ = conn.execute("ALTER TABLE killmails ADD COLUMN char_damage INTEGER", []);
-        let _ = conn.execute("ALTER TABLE killmails ADD COLUMN final_blow INTEGER NOT NULL DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE killmails ADD COLUMN top_damage INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute(
+            "ALTER TABLE killmails ADD COLUMN final_blow INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE killmails ADD COLUMN top_damage INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         Ok(Db {
             conn: Mutex::new(conn),
         })
@@ -75,10 +87,7 @@ impl Db {
                 Ok(CharacterRow {
                     character_id: r.get(0)?,
                     name: r.get(1)?,
-                    scopes: scopes
-                        .split_whitespace()
-                        .map(|s| s.to_string())
-                        .collect(),
+                    scopes: scopes.split_whitespace().map(|s| s.to_string()).collect(),
                     last_sync: r.get(3)?,
                 })
             })?
@@ -213,7 +222,11 @@ impl Db {
     }
 
     /// Top minerales por cantidad (type_id, sum).
-    pub fn mining_by_type(&self, character_id: Option<i64>, limit: i64) -> AppResult<Vec<(i64, i64)>> {
+    pub fn mining_by_type(
+        &self,
+        character_id: Option<i64>,
+        limit: i64,
+    ) -> AppResult<Vec<(i64, i64)>> {
         let conn = self.conn.lock().unwrap();
         let w = Self::mining_where(character_id);
         let mut stmt = conn.prepare(&format!(
@@ -351,10 +364,12 @@ pub struct KmInsert<'a> {
 
 impl Db {
     /// Devuelve los killmail_id ya almacenados para un personaje (para no re-bajar detalle).
-    pub fn existing_killmail_ids(&self, character_id: i64) -> AppResult<std::collections::HashSet<i64>> {
+    pub fn existing_killmail_ids(
+        &self,
+        character_id: i64,
+    ) -> AppResult<std::collections::HashSet<i64>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT killmail_id FROM killmails WHERE character_id = ?1")?;
+        let mut stmt = conn.prepare("SELECT killmail_id FROM killmails WHERE character_id = ?1")?;
         let ids = stmt
             .query_map(rusqlite::params![character_id], |r| r.get::<_, i64>(0))?
             .collect::<Result<std::collections::HashSet<_>, _>>()?;
@@ -371,9 +386,20 @@ impl Db {
              ON CONFLICT(killmail_id) DO UPDATE SET
                 isk_value = COALESCE(excluded.isk_value, killmails.isk_value)",
             rusqlite::params![
-                k.killmail_id, k.hash, k.character_id, k.is_loss as i64, k.ship_type_id,
-                k.victim_ship_type_id, k.system_id, k.isk_value, k.killed_at, k.solo as i64,
-                k.char_damage, k.final_blow as i64, k.top_damage as i64, k.raw
+                k.killmail_id,
+                k.hash,
+                k.character_id,
+                k.is_loss as i64,
+                k.ship_type_id,
+                k.victim_ship_type_id,
+                k.system_id,
+                k.isk_value,
+                k.killed_at,
+                k.solo as i64,
+                k.char_damage,
+                k.final_blow as i64,
+                k.top_damage as i64,
+                k.raw
             ],
         )?;
         Ok(())
@@ -519,11 +545,7 @@ impl Db {
         })
     }
 
-    fn top_counts(
-        conn: &Connection,
-        sql: &str,
-        character_id: i64,
-    ) -> AppResult<Vec<NameCount>> {
+    fn top_counts(conn: &Connection, sql: &str, character_id: i64) -> AppResult<Vec<NameCount>> {
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt
             .query_map(rusqlite::params![character_id], |r| {
@@ -620,7 +642,9 @@ impl Db {
         };
         let mut stmt = conn.prepare(&format!("SELECT is_loss, raw FROM killmails {where_sql}"))?;
         let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, i64>(0)? != 0, r.get::<_, String>(1)?)))?
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)? != 0, r.get::<_, String>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
@@ -750,8 +774,7 @@ impl Db {
         character_id: i64,
     ) -> AppResult<std::collections::HashSet<i64>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT id FROM wallet_journal WHERE character_id = ?1")?;
+        let mut stmt = conn.prepare("SELECT id FROM wallet_journal WHERE character_id = ?1")?;
         let ids = stmt
             .query_map(rusqlite::params![character_id], |r| r.get::<_, i64>(0))?
             .collect::<Result<std::collections::HashSet<_>, _>>()?;

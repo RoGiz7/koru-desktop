@@ -46,7 +46,8 @@ pub fn wait_for_callback(timeout: Duration) -> AppResult<CallbackResult> {
     let body = "<html><body style=\"font-family:sans-serif;background:#1c1c1c;color:#eee;text-align:center;padding-top:80px\">\
         <h2>Koru Desktop</h2><p>Autenticacion completada. Puedes cerrar esta pestana y volver a la app.</p></body></html>";
     let response = tiny_http::Response::from_string(body).with_header(
-        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap(),
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+            .unwrap(),
     );
     let _ = request.respond(response);
 
@@ -55,9 +56,7 @@ pub fn wait_for_callback(timeout: Duration) -> AppResult<CallbackResult> {
     }
     match (code, state) {
         (Some(code), Some(state)) => Ok(CallbackResult { code, state }),
-        _ => Err(AppError::OAuth(
-            "callback sin code/state".to_string(),
-        )),
+        _ => Err(AppError::OAuth("callback sin code/state".to_string())),
     }
 }
 

@@ -2,16 +2,16 @@
 
 use crate::config;
 use crate::db::{CharacterRow, Db, NetworthPoint, PvpStats, WalletStats};
-use crate::error::{AppError, AppResult};
 use crate::db::{NameCount, SystemActivity, TopKill};
+use crate::error::{AppError, AppResult};
 use crate::esi::assets::AssetsSummary;
 use crate::esi::industry::{JobRaw, MiningRow, MiningSummary};
 use crate::esi::killmails::KillmailDetail;
 use crate::esi::skills::SkillsSummary;
 use crate::esi::{assets, industry, killmails, market, skills, wallet, EsiClient};
 use crate::sso::{self, LoginOutcome, TokenManager};
-use std::collections::HashSet;
 use serde::Serialize;
+use std::collections::HashSet;
 use tauri::{Emitter, State, Window};
 
 /// Estado global de la app, gestionado por Tauri.
@@ -46,7 +46,13 @@ pub struct AutoSyncResult {
 /// seguro llamarla al abrir y periódicamente. Para histórico completo de PvP, usar el botón.
 #[tauri::command]
 pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> {
-    let mut res = AutoSyncResult { killmails: 0, wallet: 0, mining: 0, prices: 0, snapshots: 0 };
+    let mut res = AutoSyncResult {
+        killmails: 0,
+        wallet: 0,
+        mining: 0,
+        prices: 0,
+        snapshots: 0,
+    };
 
     // Precios de mercado primero (público, cacheado ≈1h) para valorar assets en los snapshots.
     if let Ok(n) = market::sync_prices(&state.esi, &state.db).await {
@@ -55,7 +61,11 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
 
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     for c in state.db.list_characters()? {
-        let valid = match state.tokens.access_token(state.esi.http(), c.character_id).await {
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -68,9 +78,14 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
             }
         }
         if has("esi-wallet.read_character_wallet.v1") {
-            if let Ok(n) =
-                wallet::sync_journal(&state.esi, &state.db, c.character_id, &valid.access_token, 50)
-                    .await
+            if let Ok(n) = wallet::sync_journal(
+                &state.esi,
+                &state.db,
+                c.character_id,
+                &valid.access_token,
+                50,
+            )
+            .await
             {
                 res.wallet += n;
             }
@@ -168,7 +183,12 @@ fn scopes_for_feature(feature: &str) -> Vec<String> {
         "skills" => config::scopes::SKILLS,
         "assets" => config::scopes::ASSETS,
         "location" => config::scopes::LOCATION,
-        "core" => return config::scopes::core_v1().iter().map(|s| s.to_string()).collect(),
+        "core" => {
+            return config::scopes::core_v1()
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        }
         _ => &[],
     };
     list.iter().map(|s| s.to_string()).collect()
@@ -184,9 +204,11 @@ pub async fn login(feature: String, state: State<'_, AppState>) -> AppResult<Log
     };
 
     let outcome = sso::login(scopes).await?;
-    state
-        .db
-        .upsert_character(outcome.character_id, &outcome.character_name, &outcome.scopes)?;
+    state.db.upsert_character(
+        outcome.character_id,
+        &outcome.character_name,
+        &outcome.scopes,
+    )?;
     Ok(outcome)
 }
 
@@ -248,7 +270,10 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
 
         // Sistema actual (requiere scope de localización). Best-effort.
         let mut system_id = None;
-        if c.scopes.iter().any(|s| s == "esi-location.read_location.v1") {
+        if c.scopes
+            .iter()
+            .any(|s| s == "esi-location.read_location.v1")
+        {
             if let Ok(valid) = state
                 .tokens
                 .access_token(state.esi.http(), c.character_id)
@@ -269,7 +294,10 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
             }
         }
 
-        for x in [corporation_id, alliance_id, system_id].into_iter().flatten() {
+        for x in [corporation_id, alliance_id, system_id]
+            .into_iter()
+            .flatten()
+        {
             ids.insert(x);
         }
 
@@ -286,7 +314,11 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
         });
     }
 
-    if let Ok(names) = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await {
+    if let Ok(names) = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+    {
         for card in cards.iter_mut() {
             card.corporation_name = card.corporation_id.and_then(|x| names.get(&x).cloned());
             card.alliance_name = card.alliance_id.and_then(|x| names.get(&x).cloned());
@@ -398,11 +430,17 @@ pub async fn get_assets_map_global(state: State<'_, AppState>) -> AppResult<Vec<
         if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
             continue;
         }
-        let valid = match state.tokens.access_token(state.esi.http(), c.character_id).await {
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
             Ok(v) => v,
             Err(_) => continue,
         };
-        if let Ok(m) = assets::by_system(&state.esi, &state.db, c.character_id, &valid.access_token).await {
+        if let Ok(m) =
+            assets::by_system(&state.esi, &state.db, c.character_id, &valid.access_token).await
+        {
             for (sid, n) in m {
                 *acc.entry(sid).or_insert(0) += n;
             }
@@ -429,7 +467,10 @@ pub async fn sync_mining(character_id: i64, state: State<'_, AppState>) -> AppRe
 
 /// Minería por sistema (desde la BD acumulada), para el overlay "Tu minería".
 #[tauri::command]
-pub fn get_mining_map(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<AssetSystem>> {
+pub fn get_mining_map(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<AssetSystem>> {
     Ok(state
         .db
         .mining_by_system(Some(character_id))?
@@ -677,7 +718,10 @@ pub async fn get_incursions(state: State<'_, AppState>) -> AppResult<Vec<Incursi
 /// Mapa PvP de un personaje: actividad por sistema (k-space). Las coordenadas/seguridad/nombre
 /// los resuelve el frontend desde el SDE local (neweden.json) — sin llamadas a ESI.
 #[tauri::command]
-pub async fn get_pvp_map(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<SystemActivity>> {
+pub async fn get_pvp_map(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<SystemActivity>> {
     let activity = state.db.systems_activity(character_id)?;
     Ok(activity
         .into_iter()
@@ -698,10 +742,7 @@ pub async fn get_pvp_map_global(state: State<'_, AppState>) -> AppResult<Vec<Sys
 /// Reprocesa los killmails ya guardados para rellenar daño/final blow/top damage/nave víctima
 /// desde el detalle cacheado (sin red). Emite `reprocess_progress`.
 #[tauri::command]
-pub async fn reprocess_killmails(
-    window: Window,
-    state: State<'_, AppState>,
-) -> AppResult<usize> {
+pub async fn reprocess_killmails(window: Window, state: State<'_, AppState>) -> AppResult<usize> {
     let win = window.clone();
     killmails::reprocess(&state.db, move |d| {
         let _ = win.emit("reprocess_progress", d);
@@ -729,7 +770,11 @@ pub async fn get_pvp_stats(character_id: i64, state: State<'_, AppState>) -> App
 
     let id_vec: Vec<i64> = ids.into_iter().collect();
     if let Ok(names) = state.esi.resolve_names(&id_vec).await {
-        for nc in stats.top_ships.iter_mut().chain(stats.top_systems.iter_mut()) {
+        for nc in stats
+            .top_ships
+            .iter_mut()
+            .chain(stats.top_systems.iter_mut())
+        {
             nc.name = names.get(&nc.id).cloned();
         }
         for r in stats.recent.iter_mut() {
@@ -768,7 +813,11 @@ async fn enrich_pvp(state: &AppState, stats: &mut PvpStats, mut top: Vec<TopKill
             ids.insert(s);
         }
     }
-    if let Ok(names) = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await {
+    if let Ok(names) = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+    {
         for tk in top.iter_mut() {
             tk.victim_ship_name = tk.victim_ship_id.and_then(|s| names.get(&s).cloned());
             tk.system_name = tk.system_id.and_then(|s| names.get(&s).cloned());
@@ -782,8 +831,8 @@ async fn enrich_pvp(state: &AppState, stats: &mut PvpStats, mut top: Vec<TopKill
 pub struct Battle {
     pub system_id: i64,
     pub system_name: Option<String>,
-    pub start: String,    // RFC3339 del primer kill
-    pub slug: String,     // YYYYMMDDHH00 para enlazar a zKillboard related
+    pub start: String, // RFC3339 del primer kill
+    pub slug: String,  // YYYYMMDDHH00 para enlazar a zKillboard related
     pub kills: i64,
     pub losses: i64,
     pub isk: f64,
@@ -895,7 +944,11 @@ fn top_entries(map: &std::collections::HashMap<i64, i64>, n: usize) -> Vec<Rival
     v.sort_by(|a, b| b.1.cmp(&a.1));
     v.truncate(n);
     v.into_iter()
-        .map(|(id, count)| RivalEntry { id, name: None, count })
+        .map(|(id, count)| RivalEntry {
+            id,
+            name: None,
+            count,
+        })
         .collect()
 }
 
@@ -971,7 +1024,11 @@ pub async fn get_rivals(
     {
         ids.insert(e.id);
     }
-    if let Ok(names) = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await {
+    if let Ok(names) = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+    {
         for e in rivals
             .you_kill_chars
             .iter_mut()
@@ -1000,7 +1057,9 @@ pub async fn get_killmails(
     limit: i64,
     state: State<'_, AppState>,
 ) -> AppResult<KillmailPage> {
-    let (mut rows, total) = state.db.killmails_page(character_id, &kind, offset, limit)?;
+    let (mut rows, total) = state
+        .db
+        .killmails_page(character_id, &kind, offset, limit)?;
 
     let mut ids: HashSet<i64> = HashSet::new();
     for r in &rows {
@@ -1011,7 +1070,11 @@ pub async fn get_killmails(
             ids.insert(s);
         }
     }
-    if let Ok(names) = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await {
+    if let Ok(names) = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+    {
         for r in rows.iter_mut() {
             r.ship_name = r.ship_type_id.and_then(|s| names.get(&s).cloned());
             r.system_name = r.system_id.and_then(|s| names.get(&s).cloned());
@@ -1024,7 +1087,8 @@ pub async fn get_killmails(
 #[tauri::command]
 pub fn export_pvp_csv(character_id: i64, state: State<'_, AppState>) -> AppResult<String> {
     let rows = state.db.all_killmails(character_id)?;
-    let mut out = String::from("killmail_id,tipo,ship_type_id,system_id,isk_value,killed_at,solo\n");
+    let mut out =
+        String::from("killmail_id,tipo,ship_type_id,system_id,isk_value,killed_at,solo\n");
     for r in rows {
         out.push_str(&format!(
             "{},{},{},{},{},{},{}\n",
@@ -1096,13 +1160,8 @@ pub async fn get_wallet(character_id: i64, state: State<'_, AppState>) -> AppRes
 /// Devuelve resumen de skills: SP total, sin asignar, nº de skills y cola (con nombres).
 #[tauri::command]
 pub async fn get_skills(character_id: i64, state: State<'_, AppState>) -> AppResult<SkillsSummary> {
-    let token = token_with_scope(
-        &state,
-        character_id,
-        "esi-skills.read_skills.v1",
-        "Skills",
-    )
-    .await?;
+    let token =
+        token_with_scope(&state, character_id, "esi-skills.read_skills.v1", "Skills").await?;
 
     let s = skills::skills(&state.esi, &state.db, character_id, &token).await?;
     let mut queue = skills::skillqueue(&state.esi, &state.db, character_id, &token)
@@ -1141,8 +1200,16 @@ pub async fn get_pvp_stats_global(state: State<'_, AppState>) -> AppResult<PvpSt
             ids.insert(s);
         }
     }
-    if let Ok(names) = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await {
-        for nc in stats.top_ships.iter_mut().chain(stats.top_systems.iter_mut()) {
+    if let Ok(names) = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+    {
+        for nc in stats
+            .top_ships
+            .iter_mut()
+            .chain(stats.top_systems.iter_mut())
+        {
             nc.name = names.get(&nc.id).cloned();
         }
         for r in stats.recent.iter_mut() {
@@ -1236,14 +1303,15 @@ pub async fn get_skills_global(state: State<'_, AppState>) -> AppResult<GlobalSk
         }
 
         // Skill que entrena ahora = la de menor fecha de fin (la próxima en terminar).
-        let current = skills::skillqueue(&state.esi, &state.db, c.character_id, &valid.access_token)
-            .await
-            .ok()
-            .and_then(|q| {
-                q.into_iter()
-                    .filter(|i| i.finish_date.is_some())
-                    .min_by(|a, b| a.finish_date.cmp(&b.finish_date))
-            });
+        let current =
+            skills::skillqueue(&state.esi, &state.db, c.character_id, &valid.access_token)
+                .await
+                .ok()
+                .and_then(|q| {
+                    q.into_iter()
+                        .filter(|i| i.finish_date.is_some())
+                        .min_by(|a, b| a.finish_date.cmp(&b.finish_date))
+                });
 
         training.push(CharTraining {
             character_id: c.character_id,
@@ -1308,7 +1376,10 @@ pub struct JobView {
 
 /// Jobs de industria activos del personaje, con nombres resueltos.
 #[tauri::command]
-pub async fn get_industry(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<JobView>> {
+pub async fn get_industry(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<JobView>> {
     let token = token_with_scope(
         &state,
         character_id,
@@ -1316,7 +1387,8 @@ pub async fn get_industry(character_id: i64, state: State<'_, AppState>) -> AppR
         "Assets / industria",
     )
     .await?;
-    let jobs: Vec<JobRaw> = industry::fetch_jobs(&state.esi, &state.db, character_id, &token).await?;
+    let jobs: Vec<JobRaw> =
+        industry::fetch_jobs(&state.esi, &state.db, character_id, &token).await?;
 
     // IDs a resolver: blueprints y productos.
     let mut ids: HashSet<i64> = HashSet::new();
@@ -1355,7 +1427,12 @@ async fn build_mining(state: &AppState, filter: Option<i64>) -> AppResult<Mining
         .db
         .mining_by_type(filter, 15)?
         .into_iter()
-        .map(|(id, count)| NameCount { id, count, name: None, region: None })
+        .map(|(id, count)| NameCount {
+            id,
+            count,
+            name: None,
+            region: None,
+        })
         .collect();
     let mut recent: Vec<MiningRow> = state
         .db
@@ -1380,7 +1457,11 @@ async fn build_mining(state: &AppState, filter: Option<i64>) -> AppResult<Mining
             ids.insert(s);
         }
     }
-    if let Ok(names) = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await {
+    if let Ok(names) = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+    {
         for o in top_ores.iter_mut() {
             o.name = names.get(&o.id).cloned();
         }
@@ -1388,7 +1469,12 @@ async fn build_mining(state: &AppState, filter: Option<i64>) -> AppResult<Mining
             r.type_name = names.get(&r.type_id).cloned();
         }
     }
-    Ok(MiningSummary { total_units, entries, top_ores, recent })
+    Ok(MiningSummary {
+        total_units,
+        entries,
+        top_ores,
+        recent,
+    })
 }
 
 #[tauri::command]
@@ -1409,11 +1495,17 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
         if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
             continue;
         }
-        let valid = match state.tokens.access_token(state.esi.http(), c.character_id).await {
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
             Ok(v) => v,
             Err(_) => continue,
         };
-        if let Ok(s) = assets::summary(&state.esi, &state.db, c.character_id, &valid.access_token).await {
+        if let Ok(s) =
+            assets::summary(&state.esi, &state.db, c.character_id, &valid.access_token).await
+        {
             stacks += s.stacks;
             total_units += s.total_units;
             est_value += s.est_value;
@@ -1425,7 +1517,12 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
 
     let mut top: Vec<crate::db::NameCount> = by_type
         .into_iter()
-        .map(|(id, count)| crate::db::NameCount { id, count, name: None, region: None })
+        .map(|(id, count)| crate::db::NameCount {
+            id,
+            count,
+            name: None,
+            region: None,
+        })
         .collect();
     top.sort_by(|a, b| b.count.cmp(&a.count));
     let distinct_types = top.len() as i64;
@@ -1438,7 +1535,13 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
         }
     }
 
-    Ok(AssetsSummary { stacks, distinct_types, total_units, est_value, top_types: top })
+    Ok(AssetsSummary {
+        stacks,
+        distinct_types,
+        total_units,
+        est_value,
+        top_types: top,
+    })
 }
 
 /// Industria GLOBAL: jobs de todos los personajes, con el nombre de cada personaje.
@@ -1448,14 +1551,24 @@ pub async fn get_industry_global(state: State<'_, AppState>) -> AppResult<Vec<Jo
     let mut ids: HashSet<i64> = HashSet::new();
 
     for c in state.db.list_characters()? {
-        if !c.scopes.iter().any(|s| s == "esi-industry.read_character_jobs.v1") {
+        if !c
+            .scopes
+            .iter()
+            .any(|s| s == "esi-industry.read_character_jobs.v1")
+        {
             continue;
         }
-        let valid = match state.tokens.access_token(state.esi.http(), c.character_id).await {
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
             Ok(v) => v,
             Err(_) => continue,
         };
-        if let Ok(jobs) = industry::fetch_jobs(&state.esi, &state.db, c.character_id, &valid.access_token).await {
+        if let Ok(jobs) =
+            industry::fetch_jobs(&state.esi, &state.db, c.character_id, &valid.access_token).await
+        {
             for j in jobs {
                 ids.insert(j.blueprint_type_id);
                 if let Some(p) = j.product_type_id {
@@ -1466,7 +1579,11 @@ pub async fn get_industry_global(state: State<'_, AppState>) -> AppResult<Vec<Jo
         }
     }
 
-    let names = state.esi.resolve_names(&ids.into_iter().collect::<Vec<_>>()).await.unwrap_or_default();
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
     let views = raw
         .into_iter()
         .map(|(cname, j)| JobView {

@@ -60,18 +60,20 @@ pub async fn login(scopes: Vec<String>) -> AppResult<LoginOutcome> {
 
     let pkce = pkce::Pkce::generate();
     let state = pkce::random_state();
-    let authorize_url =
-        build_authorize_url(&meta.authorization_endpoint, &scopes, &state, &pkce.challenge)?;
+    let authorize_url = build_authorize_url(
+        &meta.authorization_endpoint,
+        &scopes,
+        &state,
+        &pkce.challenge,
+    )?;
 
     // 1) Arrancamos el listener loopback ANTES de abrir el navegador.
-    let callback_handle = tokio::task::spawn_blocking(|| {
-        callback::wait_for_callback(Duration::from_secs(300))
-    });
+    let callback_handle =
+        tokio::task::spawn_blocking(|| callback::wait_for_callback(Duration::from_secs(300)));
 
     // 2) Abrimos el navegador del sistema en la URL de autorización.
-    open::that(&authorize_url).map_err(|e| {
-        AppError::Other(format!("no se pudo abrir el navegador: {e}"))
-    })?;
+    open::that(&authorize_url)
+        .map_err(|e| AppError::Other(format!("no se pudo abrir el navegador: {e}")))?;
 
     // 3) Esperamos el callback.
     let cb = callback_handle

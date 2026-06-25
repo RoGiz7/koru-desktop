@@ -19,7 +19,10 @@ impl Pkce {
         rand::thread_rng().fill_bytes(&mut bytes);
         let verifier = URL_SAFE_NO_PAD.encode(bytes);
         let challenge = challenge_from_verifier(&verifier);
-        Pkce { verifier, challenge }
+        Pkce {
+            verifier,
+            challenge,
+        }
     }
 }
 

@@ -48,7 +48,10 @@ pub async fn fetch_jobs(
     token: &str,
 ) -> AppResult<Vec<JobRaw>> {
     let path = format!("/characters/{character_id}/industry/jobs/?include_completed=false");
-    match esi.get_cached::<Vec<JobRaw>>(db, character_id, &path, Some(token)).await {
+    match esi
+        .get_cached::<Vec<JobRaw>>(db, character_id, &path, Some(token))
+        .await
+    {
         Ok(v) => Ok(v),
         Err(AppError::NotFound) => Ok(Vec::new()),
         Err(e) => Err(e),

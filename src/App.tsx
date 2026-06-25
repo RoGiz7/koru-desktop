@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColor, heatColor } from "./format";
 import {
@@ -55,6 +57,33 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [feature, setFeature] = useState("identity");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
+  // Auto-actualización
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const pendingUpdate = useRef<Update | null>(null);
+  useEffect(() => {
+    // Al arrancar, comprobar si hay una versión más nueva publicada en Releases.
+    check()
+      .then((update) => {
+        if (update) {
+          pendingUpdate.current = update;
+          setUpdateVersion(update.version);
+        }
+      })
+      .catch(() => {}); // sin conexión / sin endpoint: ignorar silenciosamente
+  }, []);
+  async function handleUpdate() {
+    const update = pendingUpdate.current;
+    if (!update) return;
+    setUpdating(true);
+    try {
+      await update.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      setError(String(e));
+      setUpdating(false);
+    }
+  }
 
   // Sujeto activo: "global" (por defecto) o el id de un personaje. Filtro central.
   const [subject, setSubject] = useState<number | "global">("global");
@@ -584,6 +613,17 @@ function App() {
         </div>
 
         <div className="tb-spacer" />
+
+        {updateVersion && (
+          <button
+            className="tb-update"
+            onClick={handleUpdate}
+            disabled={updating}
+            title="Descargar e instalar la actualización y reiniciar"
+          >
+            {updating ? "Actualizando…" : `⬇️ Actualizar a v${updateVersion}`}
+          </button>
+        )}
 
         <button
           className="sync-now tb-sync"

@@ -181,7 +181,12 @@ async fn resolve_location_system(
     // Estructura Upwell (requiere token y acceso; best-effort).
     if loc_id >= 1_000_000_000_000 {
         let geo: StructureGeo = esi
-            .get_cached(db, 0, &format!("/universe/structures/{loc_id}/"), Some(token))
+            .get_cached(
+                db,
+                0,
+                &format!("/universe/structures/{loc_id}/"),
+                Some(token),
+            )
             .await
             .ok()?;
         return (geo.solar_system_id != 0).then_some(geo.solar_system_id);
