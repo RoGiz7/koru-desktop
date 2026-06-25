@@ -50,10 +50,45 @@
   padding: 2rem 1.5rem;
 }
 
+/* ----- Temas seleccionables (override de acento + tinte de fondo) ----- */
+/* El tema se aplica con data-theme en <html>; "nebula" = por defecto (:root). */
+html[data-theme="amarr"] {
+  --accent: #6b5418;
+  --accent-border: #d4af37;
+  --accent-text: #e8c66a;
+  --bg-tint: rgba(212, 175, 55, 0.07);
+}
+html[data-theme="minmatar"] {
+  --accent: #6e2f25;
+  --accent-border: #c0392b;
+  --accent-text: #e8897e;
+  --bg-tint: rgba(192, 57, 43, 0.07);
+}
+html[data-theme="gallente"] {
+  --accent: #1d5b43;
+  --accent-border: #2ecc71;
+  --accent-text: #7fe0a8;
+  --bg-tint: rgba(46, 204, 113, 0.06);
+}
+html[data-theme="caldari"] {
+  --accent: #2a4a6b;
+  --accent-border: #4a90d9;
+  --accent-text: #8fc0f0;
+  --bg-tint: rgba(74, 144, 217, 0.06);
+}
+html[data-theme="abismo"] {
+  --accent: #432a6b;
+  --accent-border: #a371f7;
+  --accent-text: #c9adf9;
+  --bg-tint: rgba(163, 113, 247, 0.08);
+}
+
 /* ----- Armazón mapa-céntrico ----- */
-/* Fondo inmersivo: nebulosa de New Eden detrás de toda la app. */
+/* Fondo inmersivo: nebulosa de New Eden detrás de toda la app, con tinte por tema. */
 body {
-  background: #05070c url("/space-bg.png") no-repeat center center fixed;
+  background:
+    linear-gradient(var(--bg-tint, transparent), var(--bg-tint, transparent)),
+    #05070c url("/space-bg.png") no-repeat center center fixed;
   background-size: cover;
 }
 
@@ -2098,4 +2133,18 @@ h4 {
 }
 .bar-row:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* ---- Selector de tema en la topbar ---- */
+.tb-theme {
+  background: rgba(20, 26, 38, 0.7);
+  border: 1px solid var(--border-accent-2, #3a4654);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--fg, #e6edf3);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.tb-theme:hover {
+  border-color: var(--accent-border, #4f9cff);
 }

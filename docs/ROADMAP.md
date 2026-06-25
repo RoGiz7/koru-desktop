@@ -1,6 +1,68 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
+**Actualizado:** 2026-06-25 (v0.1.7) — ver "Estado actual" justo abajo.
+
+---
+
+## 📌 Estado actual (v0.1.7 · 2026-06-25)
+
+> Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
+
+### Aplicado recientemente (v0.1.2 → v0.1.7)
+- **Comercio** (órdenes de mercado), **Planetología** (PI), **Assets Fase B** (resuelve estructuras
+  privadas con caché persistente + tabs por categoría).
+- **Reestructura de navegación en grupos** (Resumen·Patrimonio·PvP·PvE·Industria·Personaje + Mapa
+  central) con **iconos EVE** por grupo/categoría, **KPI cards con color** pos/neg, **tablas ordenables**
+  e **icono Dotlan** en top sistemas.
+- **Tema EVE inmersivo** (fondo nebulosa + paneles translúcidos) y **footer con hora EVE (UTC) +
+  estado de Tranquility**.
+- **Caché de regiones desde el SDE local** (a prueba de downtime).
+- **Histórico local que supera la ventana de ESI** (journal ~30d / mining 90d): se acumula en SQLite.
+  El journal ahora persiste `reason`/`context_id`/`context_id_type`/`first/second_party_id`.
+- **Rateo pro** (PvE): ISK por sistema (context_id), nº de ratas (parseo de `reason`), gráficas
+  día/semana/mes/año/acumulado, rango de fechas, ISK/hora.
+- **Resumen** (home/dashboard): selector **Año/Mes**, ingresos y gastos **por categoría** con **donut**
+  y comparativa **vs mes anterior**.
+- **PvP → Actividad**: actividad diaria kills/losses + **horas calientes (UTC EVE)**, con selector de periodo.
+- **Minería pro**: ore breakdown (donut), ISK estimado (precios de mercado), por sistema, tendencia mensual.
+- **Pase de estilo global**: KPI cards con borde coloreado en todas las secciones; **donuts** en
+  Wallet, Assets, Patrimonio, Rateo y Minería.
+- **Gráficas interactivas**: donut con **hover** (resalta + centro informativo con % ) y **leyenda
+  clicable para filtrar** porciones; barras con **tooltip** (valor + % del total) y resaltado.
+- **Auto-update multicapa**: comprueba al arrancar **+ cada 6 h + al recuperar el foco** de la ventana.
+- **Instancia única**: un 2º lanzamiento **enfoca la ventana existente** (evita conflictos de BD y
+  carreras de refresh token).
+- **Selector de tema** persistido (Nebulosa/Amarr/Caldari/Gallente/Minmatar/Abismo).
+- **i18n ES/EN** — framework (`src/i18n.ts` + `t()` + selector persistido) y **chrome traducida**
+  (navegación, cabeceras, pie, botones). Cuerpos de cada vista: pendiente (incremental).
+- **Releases v0.1.2 → v0.1.7** publicadas; auto-update verificado; `workflow_dispatch` (botón manual)
+  añadido al workflow como red de seguridad.
+
+### Pendiente (orden acordado: pulido → resto por prioridad)
+1. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
+2. **Personaje "header rico"**: implantes (`/characters/{id}/implants/`), jump clones
+   (`/characters/{id}/clones/`), atributos y bio. (Hoy el grupo Personaje solo tiene Skills.)
+3. **PvE — Factional** (`/characters/{id}/fw/stats`, scope `esi-characters.read_fw_stats.v1`) y
+   **Abyssals** (estimado por loot + journal). Rellenan los dos "Próximamente".
+4. **Friends & Foes**: overlay de **standings** (contactos) azul/rojo en el mapa.
+5. **Fabricación**: separar de "Industria" con su propia vista (jobs) — split del grupo Industria.
+6. **Scrub temporal** en PvP/Wallet (moverse en el tiempo) y orden por defecto Gráfica en PvP.
+7. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`) + rango/fuel automático por skills.
+8. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
+9. **Tematización por evento** (sobre el selector de temas ya hecho).
+10. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
+11. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
+12. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
+
+### Ideas / visión recogidas
+- **Norte de diseño = dashboard "Koru Alliance Auth"** (capturas en `../documentacion/koru alliance auth/`):
+  lo **personal** se replica en local (Resumen/Ingresos/Gastos/PvP/Actividad/Minería con periodo y vs
+  anterior). Lo **de corp** (leaderboards de alianza, Kill Feed, top enemigos) **NO es local-first** →
+  queda para el tool web (ecosistema koru_stats/Baserow), no para Koru Desktop.
+- **Filosofía local-first reforzada**: conservar en el PC lo que ESI olvida (sincronizar con frecuencia).
+
+---
 
 ## Visión / decisiones tomadas
 - **App mapa-céntrica**: el mapa de New Eden es el centro; todo orbita alrededor.

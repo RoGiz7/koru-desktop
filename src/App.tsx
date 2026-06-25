@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { t, type Lang } from "./i18n";
 import "./App.css";
 import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
 import {
@@ -129,6 +130,26 @@ function App() {
       setUpdating(false);
     }
   }
+
+  // Tema visual seleccionable (persistido en local). "nebula" = por defecto.
+  const [theme, setTheme] = useState<string>(
+    () => localStorage.getItem("koru-theme") || "nebula"
+  );
+  useEffect(() => {
+    if (theme === "nebula") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("koru-theme", theme);
+  }, [theme]);
+
+  // Idioma (ES por defecto), persistido en local. tr() traduce textos de "chrome".
+  const [lang, setLang] = useState<Lang>(
+    () => (localStorage.getItem("koru-lang") as Lang) || "es"
+  );
+  useEffect(() => {
+    localStorage.setItem("koru-lang", lang);
+    document.documentElement.lang = lang;
+  }, [lang]);
+  const tr = (s: string) => t(s, lang);
 
   // Sujeto activo: "global" (por defecto) o el id de un personaje. Filtro central.
   const [subject, setSubject] = useState<number | "global">("global");
@@ -684,7 +705,7 @@ function App() {
                           }}
                           title="Volver a iniciar sesión con el set completo para conceder los scopes que faltan"
                         >
-                          {busy ? "Esperando login…" : "Añadir acceso"}
+                          {busy ? "Esperando login…" : tr("Añadir acceso")}
                         </button>
                       </div>
                     )}
@@ -706,6 +727,30 @@ function App() {
 
         <div className="tb-spacer" />
 
+        <select
+          className="tb-theme"
+          value={lang}
+          onChange={(e) => setLang(e.target.value as Lang)}
+          title={tr("Idioma")}
+        >
+          <option value="es">🇪🇸 ES</option>
+          <option value="en">🇬🇧 EN</option>
+        </select>
+
+        <select
+          className="tb-theme"
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+          title={tr("Tema visual")}
+        >
+          <option value="nebula">🌌 Nebulosa</option>
+          <option value="amarr">👑 Amarr</option>
+          <option value="caldari">❄️ Caldari</option>
+          <option value="gallente">🌿 Gallente</option>
+          <option value="minmatar">🔥 Minmatar</option>
+          <option value="abismo">🌀 Abismo</option>
+        </select>
+
         {updateVersion && (
           <button
             className="tb-update"
@@ -721,7 +766,7 @@ function App() {
           className="sync-now tb-sync"
           onClick={runAutoSync}
           disabled={autoBusy}
-          title="Sincronizar ahora"
+          title={tr("Sincronizar ahora")}
         >
           ⟳
         </button>
@@ -732,7 +777,7 @@ function App() {
             onClick={() => setLoginOpen((v) => !v)}
             disabled={busy}
           >
-            ＋ Conceder acceso
+            ＋ {tr("Conceder acceso")}
           </button>
           {loginOpen && (
             <div className="tb-login-pop">
@@ -813,7 +858,7 @@ function App() {
                   ) : (
                     <span className="navg-ico">{g.icon}</span>
                   )}{" "}
-                  {g.group}
+                  {tr(g.group)}
                 </button>
               );
             })}
@@ -836,15 +881,15 @@ function App() {
                   }
                   onClick={() => changeTab(s.key)}
                 >
-                  {s.label}
+                  {tr(s.label)}
                 </button>
               );
             })}
           </div>
 
           <div className="section-header">
-            <h2 className="sh-title">{TAB_HEAD[tab].title}</h2>
-            <span className="sh-subtitle">· {TAB_HEAD[tab].subtitle}</span>
+            <h2 className="sh-title">{tr(TAB_HEAD[tab].title)}</h2>
+            <span className="sh-subtitle">· {tr(TAB_HEAD[tab].subtitle)}</span>
           </div>
 
           {tab === "pvp" && (
