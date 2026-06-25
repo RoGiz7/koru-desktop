@@ -240,6 +240,17 @@ export type RattingDetail = {
   by_system: RattingSystem[];
   daily: RattingDay[];
 };
+export type DayKL = { date: string; kills: number; losses: number };
+export type HourKL = { hour: number; kills: number; losses: number };
+export type PvpActivity = {
+  kills: number;
+  losses: number;
+  isk_destroyed: number;
+  isk_lost: number;
+  efficiency: number;
+  daily: DayKL[];
+  hourly: HourKL[];
+};
 export type CategorySum = { category: string; isk: number; prev_isk: number };
 export type FinancialSummary = {
   income_total: number;

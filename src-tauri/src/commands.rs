@@ -2,8 +2,8 @@
 
 use crate::config;
 use crate::db::{
-    CharacterRow, Db, FinancialSummary, NetworthPoint, PvpStats, PvpTrendPoint, RattingDetail,
-    WalletStats,
+    CharacterRow, Db, FinancialSummary, NetworthPoint, PvpActivity, PvpStats, PvpTrendPoint,
+    RattingDetail, WalletStats,
 };
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
@@ -934,6 +934,40 @@ pub async fn get_pvp_trend(character_id: i64, state: State<'_, AppState>) -> App
 #[tauri::command]
 pub async fn get_pvp_trend_global(state: State<'_, AppState>) -> AppResult<Vec<PvpTrendPoint>> {
     state.db.pvp_trend_global()
+}
+
+/// Periodos (YYYY-MM) con killmails de un personaje.
+#[tauri::command]
+pub async fn get_pvp_periods(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<String>> {
+    state.db.pvp_periods(Some(character_id))
+}
+
+/// Periodos (YYYY-MM) con killmails, global.
+#[tauri::command]
+pub async fn get_pvp_periods_global(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    state.db.pvp_periods(None)
+}
+
+/// Actividad PvP de un mes (totales, por día y horas calientes UTC) de un personaje.
+#[tauri::command]
+pub async fn get_pvp_activity(
+    character_id: i64,
+    period: String,
+    state: State<'_, AppState>,
+) -> AppResult<PvpActivity> {
+    state.db.pvp_activity(Some(character_id), &period)
+}
+
+/// Actividad PvP de un mes, global.
+#[tauri::command]
+pub async fn get_pvp_activity_global(
+    period: String,
+    state: State<'_, AppState>,
+) -> AppResult<PvpActivity> {
+    state.db.pvp_activity(None, &period)
 }
 
 /// Devuelve las stats PvP del personaje, con nombres de naves/sistemas resueltos.

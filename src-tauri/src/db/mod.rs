@@ -392,6 +392,31 @@ pub struct PvpTrendPoint {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct DayKL {
+    pub date: String, // YYYY-MM-DD
+    pub kills: i64,
+    pub losses: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HourKL {
+    pub hour: i64, // 0..23 (UTC EVE)
+    pub kills: i64,
+    pub losses: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PvpActivity {
+    pub kills: i64,
+    pub losses: i64,
+    pub isk_destroyed: f64,
+    pub isk_lost: f64,
+    pub efficiency: f64,
+    pub daily: Vec<DayKL>,
+    pub hourly: Vec<HourKL>, // 24 entradas, 0..23
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PvpStats {
     pub kills: i64,
     pub losses: i64,
@@ -1006,6 +1031,106 @@ impl Db {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Periodos (YYYY-MM) con killmails (desc). None = global.
+    pub fn pvp_periods(&self, character_id: Option<i64>) -> AppResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT substr(killed_at, 1, 7) AS ym
+             FROM killmails
+             WHERE (?1 IS NULL OR character_id = ?1) AND killed_at IS NOT NULL
+             ORDER BY ym DESC",
+        )?;
+        let out = stmt
+            .query_map(rusqlite::params![character_id], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(out)
+    }
+
+    /// Actividad PvP de un mes (YYYY-MM): totales, por día y por hora (UTC EVE). None = global.
+    pub fn pvp_activity(
+        &self,
+        character_id: Option<i64>,
+        period: &str,
+    ) -> AppResult<PvpActivity> {
+        let conn = self.conn.lock().unwrap();
+
+        let (kills, losses, isk_destroyed, isk_lost): (i64, i64, f64, f64) = conn.query_row(
+            "SELECT
+                COALESCE(SUM(CASE WHEN is_loss = 0 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN is_loss = 1 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN is_loss = 0 THEN isk_value ELSE 0.0 END), 0.0),
+                COALESCE(SUM(CASE WHEN is_loss = 1 THEN isk_value ELSE 0.0 END), 0.0)
+             FROM killmails
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND killed_at IS NOT NULL AND substr(killed_at, 1, 7) = ?2",
+            rusqlite::params![character_id, period],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )?;
+
+        let mut daily_stmt = conn.prepare(
+            "SELECT substr(killed_at, 1, 10) AS d,
+                    COALESCE(SUM(CASE WHEN is_loss = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_loss = 1 THEN 1 ELSE 0 END), 0)
+             FROM killmails
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND killed_at IS NOT NULL AND substr(killed_at, 1, 7) = ?2
+             GROUP BY d ORDER BY d ASC",
+        )?;
+        let daily = daily_stmt
+            .query_map(rusqlite::params![character_id, period], |r| {
+                Ok(DayKL {
+                    date: r.get(0)?,
+                    kills: r.get(1)?,
+                    losses: r.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut hour_stmt = conn.prepare(
+            "SELECT CAST(substr(killed_at, 12, 2) AS INTEGER) AS h,
+                    COALESCE(SUM(CASE WHEN is_loss = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_loss = 1 THEN 1 ELSE 0 END), 0)
+             FROM killmails
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND killed_at IS NOT NULL AND substr(killed_at, 1, 7) = ?2
+             GROUP BY h",
+        )?;
+        let mut hourly: Vec<HourKL> = (0..24)
+            .map(|hour| HourKL {
+                hour,
+                kills: 0,
+                losses: 0,
+            })
+            .collect();
+        let rows = hour_stmt.query_map(rusqlite::params![character_id, period], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        })?;
+        for row in rows {
+            let (h, k, l) = row?;
+            if (0..24).contains(&h) {
+                hourly[h as usize].kills = k;
+                hourly[h as usize].losses = l;
+            }
+        }
+
+        let denom = isk_destroyed + isk_lost;
+        let efficiency = if denom > 0.0 {
+            isk_destroyed / denom * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(PvpActivity {
+            kills,
+            losses,
+            isk_destroyed,
+            isk_lost,
+            efficiency,
+            daily,
+            hourly,
+        })
     }
 
     /// (system_id, killed_at, isk, is_loss) para detectar batallas. None = global.

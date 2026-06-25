@@ -3,6 +3,7 @@
 export type Tab =
   | "resumen"
   | "pvp"
+  | "actividad"
   | "rivales"
   | "batallas"
   | "mapa"
@@ -46,6 +47,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     typeId: 587, // Rifter
     subs: [
       { key: "pvp", label: "PvP", scopes: ["esi-killmails.read_killmails.v1"] },
+      { key: "actividad", label: "Actividad", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "rivales", label: "Rivales", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "batallas", label: "Batallas", scopes: ["esi-killmails.read_killmails.v1"] },
     ],
@@ -145,6 +147,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   resumen: { title: "Resumen", subtitle: "Balance del mes, ingresos y gastos por categoría" },
   mapa: { title: "Mapa", subtitle: "New Eden con overlays de actividad, assets y soberanía" },
   pvp: { title: "PvP", subtitle: "Killmails, eficacia ISK y actividad de combate" },
+  actividad: { title: "Actividad", subtitle: "Actividad diaria y horas calientes (UTC EVE)" },
   rivales: { title: "Rivales", subtitle: "A quién matas y quién te mata (por personaje y corp)" },
   batallas: { title: "Batallas", subtitle: "Concentraciones de killmails por sistema y momento" },
   patrimonio: { title: "Patrimonio", subtitle: "Líquido + valor de assets y su evolución en el tiempo" },
