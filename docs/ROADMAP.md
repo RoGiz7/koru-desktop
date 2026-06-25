@@ -91,6 +91,47 @@
 - **Incursions** — overlay público trivial (1 endpoint).
 - **Header de personaje rico** — implantes / jump clones / bio (Clones 2 + Character 14).
 
+### ★ Reestructuración de navegación (propuesta Zigor, 2026-06-25)
+
+Pasar de las pestañas planas actuales (PvP·Rivales·Batallas·Patrimonio·Wallet·Skills·Assets·Industria)
+a **grupos con subsecciones**. El **Mapa** sigue siendo el centro. Estructura objetivo:
+
+- **Patrimonio** (grupo; overview = gráfica de patrimonio ya hecha)
+  - **Wallet** — gráfica de tendencia con **filtro de tiempo**.
+  - **Assets** — buscador (Fase A hecho) + tabs por categoría (Fase B).
+  - **Comercio** — compra/venta: visor de **órdenes propias** de compra/venta. ESI
+    `/characters/{id}/orders/` (scope `esi-markets.read_character_orders.v1`). _Sección nueva._
+- **PvP** — vista **por defecto Gráfica**, luego **Tabla**, luego **Tendencia con scrub temporal**
+  (moverse en el tiempo). (Charts Nivel 1 ya hechos; falta el orden por defecto y el scrub.)
+  - **Rivales**, **Batallas**.
+- **PvE** (grupo; gráfica de tendencia con filtro de tiempo) — _todo nuevo:_
+  - **Rateo** — bounties, derivable del wallet journal (`bounty_prizes`).
+  - **Abyssals** — ESI **no** expone runs abisales directamente → se infiere de **loot + journal**
+    (única vía posible; precisión limitada, se asume).
+  - **Factional** — participación en FW: `/characters/{id}/fw/stats` (scope
+    `esi-characters.read_fw_stats.v1`).
+  - _(Incursiones personales en PvE: **descartado por ahora** — la capa Incursiones del mapa sí está.)_
+- **Industria** (grupo; gráfica de tendencia con filtro de tiempo)
+  - **Mining Ledger** (ya hay datos), **Planetología** (`/characters/{id}/planets/`, scope
+    `esi-planets.manage_planets.v1`), **Fabricación** (jobs de industria, ya hay datos).
+- **Personaje** (grupo nuevo)
+  - **Skills** (ya hechas) + **header rico**: implantes (`/characters/{id}/implants/`),
+    jump clones (`/characters/{id}/clones/`), bio. (Inspiración EVE Carbon.)
+
+#### Mejoras transversales (de la misma propuesta)
+- **Iconos EVE por categoría y subcategoría** (no solo en las listas internas). Para grupos/secciones
+  habrá que elegir iconos representativos (algunos por type/group del SDE, otros de set propio).
+- **KPI cards con color positivo/negativo** (verde/rojo) para que se lean de un vistazo: ISK destruido
+  vs perdido, neto de wallet, eficacia, etc.
+- **Tablas ordenables por columna** (flechas asc/desc: A→Z, 0→9) en kills, losses, wallet, assets…
+- **Top sistemas**: añadir **icono → Dotlan** para revisar el sistema.
+- **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore, naves) — consolidar con el punto
+  de "iconos reales" de la sección C.
+
+> Nota: esta reestructuración toca el armazón de pestañas del `stage`; conviene hacerla **antes** de
+> seguir metiendo charts en cada sección, para no duplicar trabajo. Varias subsecciones nuevas
+> (Comercio, Factional, Planetología, Rateo) requieren **comandos ESI nuevos** (backend).
+
 ### A. Pulido de base (≈ Fase 2 del plan EVE Carbon: barra de estado + design system)
 1. **Barra de estado / log inferior** (lo más visible): resuelve el problema UX del "Procesados 2520".
    Línea inferior persistente con actividad actual ("Sincronizando histórico… N killmails, página X.
@@ -144,8 +185,6 @@
   **ligera y correcta**: tabla persistente `location_system(location_id, system_id)` que resuelve cada
   ubicación **una sola vez** (incl. estructuras vía `/universe/structures/{id}` con el token del dueño),
   **cacheando también los fallos** (negative cache) para no reintentar y no agotar el error budget de ESI.
-- **Icono de la app (Koru)** — pendiente: icono propio (16/32/256…) que sustituya el placeholder de Tauri,
-  estética EVE (oscuro + acento). Generar el set con `npm run tauri icon <png 1024>`.
 - **Tematización / fondos por evento** — visión: temas visuales (p. ej. "Citadel War", eventos) que den
   vida a la app, **cambiables por el usuario** y persistidos en local. Fase 1: selector + 2-3 temas
   (tokens de color + fondo sutil). Fase 2: tema "evento actual". Se apoya en los design tokens ya creados.
@@ -161,9 +200,9 @@
    más listas, killmails, e iconos reales de estación/estructura/ore en el mapa.
 0c. **Idioma ES/EN** — pendiente. i18n: selector + diccionario de textos guardado local. Valioso si la
    app sale de la corp.
-0d. **BUG Assets** — la sección y el overlay del mapa no muestran assets. Código `assets::summary`/
-   `by_system` revisado y correcto → probable causa: falta el scope `esi-assets.read_assets.v1` en el
-   login de ese personaje. Verificar relogueando con "Set completo v1"; si persiste, añadir logging.
+0d. ✅ **BUG Assets — RESUELTO**: era el scope `esi-assets.read_assets.v1` faltante en ese personaje
+   (no un bug de código). Reconfirmado al reloguear con set completo. De ahí nació el **aviso de scopes
+   por personaje** (sección Inmersión).
 7. **Batallas detectadas**: clustering de killmails por sistema+tiempo, marcadas en el mapa +
    enlace a **br.evetools** (usa el `raw` ya guardado).
 8. **Feed de noticias** (RSS CCP/comunidad) + curado de hitos históricos.
