@@ -1,15 +1,15 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-25 (v0.1.10) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-06-25 (v0.2.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.1.10 · 2026-06-25)
+## 📌 Estado actual (v0.2.0 · 2026-06-25)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
 
-### Aplicado recientemente (v0.1.2 → v0.1.10)
+### Aplicado recientemente (v0.1.2 → v0.2.0)
 - **Comercio** (órdenes de mercado), **Planetología** (PI), **Assets Fase B** (resuelve estructuras
   privadas con caché persistente + tabs por categoría).
 - **Reestructura de navegación en grupos** (Resumen·Patrimonio·PvP·PvE·Industria·Personaje + Mapa
@@ -45,7 +45,7 @@
 - **PvE — Factional** (`/fw/stats`, scope `esi-characters.read_fw_stats.v1`): facción, rango, enlistado,
   kills y victory points (ayer/semana/total). **PvE — Abyssals** (estimación honesta): runs e ISK por
   **compras de filamentos** en las transacciones de wallet (`wallet/transactions/` + match por nombre).
-- **Releases v0.1.2 → v0.1.10** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
+- **Releases v0.1.2 → v0.2.0** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
   **instancia única**; `workflow_dispatch` (botón manual) en el workflow como red de seguridad.
 
 ### Pendiente (orden por prioridad)
