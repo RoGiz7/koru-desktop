@@ -1200,6 +1200,50 @@ impl Db {
     }
 
     /// Mapa type_id -> precio medio (average_price). Para valorar assets.
+    /// Caché ubicación→sistema. Devuelve Some(system_id) si está cacheada (0 = no resuelta),
+    /// None si nunca se ha resuelto.
+    pub fn location_system_get(&self, location_id: i64) -> Option<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT system_id FROM location_system WHERE location_id = ?1",
+            rusqlite::params![location_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .ok()
+    }
+
+    /// Guarda en caché la resolución de una ubicación (system_id = 0 → no resuelta / negative cache).
+    pub fn location_system_put(&self, location_id: i64, system_id: i64) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO location_system (location_id, system_id, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(location_id) DO UPDATE SET system_id = excluded.system_id, updated_at = excluded.updated_at",
+            rusqlite::params![location_id, system_id, now],
+        );
+    }
+
+    /// Caché tipo→categoría. None si no está cacheada.
+    pub fn type_category_get(&self, type_id: i64) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT category FROM type_category WHERE type_id = ?1",
+            rusqlite::params![type_id],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+    }
+
+    pub fn type_category_put(&self, type_id: i64, category: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO type_category (type_id, category, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(type_id) DO UPDATE SET category = excluded.category, updated_at = excluded.updated_at",
+            rusqlite::params![type_id, category, now],
+        );
+    }
+
     pub fn prices_map(&self) -> AppResult<std::collections::HashMap<i64, f64>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

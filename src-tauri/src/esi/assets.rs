@@ -114,6 +114,61 @@ pub struct AssetDetailRow {
     pub system_id: i64, // 0 = ubicación desconocida (contenedor/nave/estructura sin acceso)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct TypeInfo {
+    #[serde(default)]
+    group_id: i64,
+}
+#[derive(Debug, Clone, Deserialize)]
+struct GroupInfo {
+    #[serde(default)]
+    category_id: i64,
+}
+
+/// Nombre de categoría legible a partir del categoryID de EVE (estables; fallback "Otros").
+fn category_name(cat: i64) -> &'static str {
+    match cat {
+        6 => "Naves",
+        7 => "Módulos",
+        8 => "Cargas",
+        9 => "Blueprints",
+        18 => "Drones",
+        87 => "Cazas",
+        4 => "Materiales",
+        25 => "Ore / Asteroides",
+        17 => "Comercio",
+        65 => "Estructuras",
+        22 => "Desplegables",
+        23 => "Starbase",
+        32 => "Subsistemas",
+        20 => "Implantes",
+        _ => "Otros",
+    }
+}
+
+/// Resuelve la categoría de un tipo (tipo→grupo→categoría) con caché persistente en DB.
+/// Solo hace llamadas a ESI la primera vez por tipo; públicas y cacheadas (sin agotar error budget).
+pub async fn resolve_category(esi: &EsiClient, db: &Db, type_id: i64) -> String {
+    if let Some(c) = db.type_category_get(type_id) {
+        return c;
+    }
+    let cat = async {
+        let t: TypeInfo = esi
+            .get_cached(db, 0, &format!("/universe/types/{type_id}/"), None)
+            .await
+            .ok()?;
+        let g: GroupInfo = esi
+            .get_cached(db, 0, &format!("/universe/groups/{}/", t.group_id), None)
+            .await
+            .ok()?;
+        Some(category_name(g.category_id).to_string())
+    }
+    .await
+    .unwrap_or_else(|| "Otros".to_string());
+    db.type_category_put(type_id, &cat);
+    cat
+}
+
 /// Lista de detalle agregada por (tipo, sistema), para el buscador de assets.
 pub async fn detail(
     esi: &EsiClient,
@@ -149,12 +204,11 @@ pub async fn detail(
     let mut sys_cache: Map<i64, Option<i64>> = Map::new();
     let mut by_type_sys: Map<(i64, i64), i64> = Map::new();
     for ((type_id, location_id), qty) in agg {
-        // Resolución LIGERA: solo espacio + estaciones NPC (públicas). Las estructuras NO se
-        // consultan aquí porque muchas devuelven 403 y agotan el error budget de ESI.
+        // Resolución con caché persistente (incluye estructuras, una sola vez por ubicación).
         let sid = match sys_cache.get(&location_id) {
             Some(s) => *s,
             None => {
-                let r = resolve_location_system_light(esi, db, location_id).await;
+                let r = resolve_location_system_cached(esi, db, location_id, token).await;
                 sys_cache.insert(location_id, r);
                 r
             }
@@ -215,7 +269,7 @@ pub async fn by_system(
         let sid = match resolved.get(&loc_id) {
             Some(c) => *c,
             None => {
-                let r = resolve_location_system_light(esi, db, loc_id).await;
+                let r = resolve_location_system_cached(esi, db, loc_id, token).await;
                 resolved.insert(loc_id, r);
                 r
             }
@@ -260,6 +314,23 @@ async fn resolve_location_system(
         return (geo.solar_system_id != 0).then_some(geo.solar_system_id);
     }
     None
+}
+
+/// Resolución con CACHÉ PERSISTENTE. Resuelve espacio, estaciones NPC (público) y estructuras de
+/// jugador (con el token del dueño), y guarda el resultado —incluido el fallo (system_id=0)— para
+/// no reintentar y no agotar el error budget de ESI. Cada ubicación se resuelve como mucho una vez.
+async fn resolve_location_system_cached(
+    esi: &EsiClient,
+    db: &Db,
+    loc_id: i64,
+    token: &str,
+) -> Option<i64> {
+    if let Some(s) = db.location_system_get(loc_id) {
+        return if s != 0 { Some(s) } else { None };
+    }
+    let sid = resolve_location_system(esi, db, loc_id, token).await;
+    db.location_system_put(loc_id, sid.unwrap_or(0));
+    sid
 }
 
 /// Resolución LIGERA de location_id -> system_id: solo espacio y estaciones NPC (públicas).

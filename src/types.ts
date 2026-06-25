@@ -129,6 +129,7 @@ export type AssetDetail = {
   quantity: number;
   system_id: number;
   system_name: string | null;
+  category: string;
 };
 export type JobView = {
   job_id: number;

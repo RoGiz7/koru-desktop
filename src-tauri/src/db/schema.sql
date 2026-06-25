@@ -90,3 +90,19 @@ CREATE TABLE IF NOT EXISTS networth_snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nw_date ON networth_snapshots(date);
+
+-- Caché persistente de resolución ubicación → sistema (estaciones NPC y estructuras de jugador).
+-- system_id = 0 = "no resuelta" (negative cache): evita reintentar estructuras sin acceso (403) que
+-- agotarían el error budget de ESI. Cada location_id se resuelve como mucho una vez.
+CREATE TABLE IF NOT EXISTS location_system (
+    location_id   INTEGER PRIMARY KEY,
+    system_id     INTEGER NOT NULL DEFAULT 0,
+    updated_at    TEXT
+);
+
+-- Caché persistente tipo → categoría (Naves, Ore, Módulos…), resuelta vía ESI una vez por tipo.
+CREATE TABLE IF NOT EXISTS type_category (
+    type_id    INTEGER PRIMARY KEY,
+    category   TEXT NOT NULL,
+    updated_at TEXT
+);

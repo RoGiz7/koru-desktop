@@ -1400,16 +1400,20 @@ pub struct AssetDetailView {
     pub quantity: i64,
     pub system_id: i64,
     pub system_name: Option<String>,
+    pub category: String,
 }
 
-/// Resuelve nombres de tipo y sistema para una lista de filas de detalle.
+/// Resuelve nombres de tipo/sistema y categoría (cacheada) para una lista de filas de detalle.
 async fn resolve_asset_detail(
     esi: &EsiClient,
+    db: &Db,
     rows: Vec<crate::esi::assets::AssetDetailRow>,
 ) -> AppResult<Vec<AssetDetailView>> {
     let mut ids: HashSet<i64> = HashSet::new();
+    let mut type_ids: HashSet<i64> = HashSet::new();
     for r in &rows {
         ids.insert(r.type_id);
+        type_ids.insert(r.type_id);
         if r.system_id != 0 {
             ids.insert(r.system_id);
         }
@@ -1418,6 +1422,10 @@ async fn resolve_asset_detail(
         .resolve_names(&ids.into_iter().collect::<Vec<_>>())
         .await
         .unwrap_or_default();
+    let mut cats: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+    for tid in type_ids {
+        cats.insert(tid, crate::esi::assets::resolve_category(esi, db, tid).await);
+    }
     Ok(rows
         .into_iter()
         .map(|r| AssetDetailView {
@@ -1430,6 +1438,7 @@ async fn resolve_asset_detail(
             } else {
                 None
             },
+            category: cats.get(&r.type_id).cloned().unwrap_or_else(|| "Otros".to_string()),
         })
         .collect())
 }
@@ -1448,7 +1457,7 @@ pub async fn get_assets_detail(
     )
     .await?;
     let rows = assets::detail(&state.esi, &state.db, character_id, &token).await?;
-    resolve_asset_detail(&state.esi, rows).await
+    resolve_asset_detail(&state.esi, &state.db, rows).await
 }
 
 /// Lista detallada de assets global (todos los personajes con el scope).
@@ -1485,7 +1494,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
         })
         .collect();
     rows.sort_by(|a, b| b.quantity.cmp(&a.quantity));
-    resolve_asset_detail(&state.esi, rows).await
+    resolve_asset_detail(&state.esi, &state.db, rows).await
 }
 
 /// Vista de un job de industria con nombres legibles.

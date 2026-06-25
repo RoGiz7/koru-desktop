@@ -2985,15 +2985,18 @@ function Th({
 function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] | null; busy: boolean }) {
   const { data, detail, busy } = props;
   const [q, setQ] = useState("");
+  const [cat, setCat] = useState(""); // "" = Todos
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "qty", dir: -1 });
   const onSort = (col: string) =>
     setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
   const ql = q.trim().toLowerCase();
+  const catList = Array.from(new Set((detail ?? []).map((r) => r.category))).sort();
   const filtered = (detail ?? []).filter(
     (r) =>
-      ql === "" ||
-      (r.type_name ?? "").toLowerCase().includes(ql) ||
-      (r.system_name ?? "").toLowerCase().includes(ql)
+      (cat === "" || r.category === cat) &&
+      (ql === "" ||
+        (r.type_name ?? "").toLowerCase().includes(ql) ||
+        (r.system_name ?? "").toLowerCase().includes(ql))
   );
   const sorted = [...filtered].sort((a, b) => {
     const d = sort.dir;
@@ -3014,6 +3017,22 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
             <Kpi label="Unidades totales" value={fmtSp(data.total_units)} />
             {data.est_value > 0 && <Kpi label="Valor estimado" value={fmtIsk(data.est_value)} />}
           </div>
+          {detail && catList.length > 1 && (
+            <div className="tabs" style={{ marginTop: "0.5rem" }}>
+              <button className={`tab ${cat === "" ? "active" : ""}`} onClick={() => setCat("")}>
+                Todos
+              </button>
+              {catList.map((c) => (
+                <button
+                  key={c}
+                  className={`tab ${cat === c ? "active" : ""}`}
+                  onClick={() => setCat(c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="asset-search">
             <input
               type="text"
