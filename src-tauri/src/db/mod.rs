@@ -319,6 +319,60 @@ pub struct RattingDetail {
     pub daily: Vec<RattingDay>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CategorySum {
+    pub category: String,
+    pub isk: f64,
+    pub prev_isk: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FinancialSummary {
+    pub income_total: f64,
+    pub expense_total: f64, // magnitud positiva
+    pub net: f64,
+    pub prev_income_total: f64,
+    pub prev_expense_total: f64,
+    pub prev_net: f64,
+    pub income_by_category: Vec<CategorySum>,
+    pub expense_by_category: Vec<CategorySum>,
+}
+
+/// Categoría amistosa para un ingreso (amount > 0) según su ref_type ESI.
+fn categorize_income(rt: &str) -> &'static str {
+    match rt {
+        "bounty_prizes" | "ess_escrow_transfer" => "Bounties y ESS",
+        "agent_mission_reward" | "agent_mission_time_bonus_reward" | "agent_mission_collateral_refunded"
+        | "project_discovery_reward" | "daily_goal_payouts" | "milestone_reward_payment" => "Recompensas",
+        "player_donation" | "corporation_account_withdrawal" | "corporation_dividend_payment"
+        | "player_trading" => "Movimientos de Wallet",
+        "market_transaction" | "market_escrow" => "Mercado",
+        "insurance" => "Seguros",
+        "contract_price" | "contract_reward" | "contract_collateral_refund" | "contract_deposit_refund" => "Contratos",
+        "industry_job_tax" => "Industria",
+        _ => "Otros",
+    }
+}
+
+/// Categoría amistosa para un gasto (amount < 0) según su ref_type ESI.
+fn categorize_expense(rt: &str) -> &'static str {
+    match rt {
+        "player_donation" => "Donaciones",
+        "contract_price" | "contract_brokers_fee" | "contract_deposit" | "contract_reward"
+        | "contract_sales_tax" => "Contratos",
+        "market_transaction" | "brokers_fee" | "transaction_tax" | "market_provider_tax" => "Mercado",
+        "skill_purchase" => "Skills",
+        "insurance" => "Seguros",
+        "asset_safety" => "Asset Safety",
+        "manufacturing" | "reprocessing_tax" | "researching_technology"
+        | "researching_time_productivity" | "researching_material_productivity" | "reaction" => "Industria",
+        "office_rental_fee" | "structure_gate_jump" | "jump_clone_installation_fee"
+        | "jump_clone_activation_fee" | "clone_activation" | "clone_transfer" | "docking_fee" => "Servicios",
+        "bounty_prize_corporation_tax" | "corporation_account_withdrawal" => "Impuestos",
+        _ => "Otros",
+    }
+}
+
 /// Suma las cantidades del campo `reason` de un bounty_prizes.
 /// Formato: "24129: 1,24130: 6,16895: 2" => typeID_rata: cantidad.
 fn parse_rat_count(reason: &str) -> i64 {
@@ -796,6 +850,105 @@ impl Db {
             active_hours: active.len() as i64,
             by_system,
             daily,
+        })
+    }
+
+    /// Lista de periodos "YYYY-MM" con movimientos en el journal (desc).
+    pub fn summary_periods(&self, character_id: Option<i64>) -> AppResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT substr(date, 1, 7) AS ym
+             FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1) AND date IS NOT NULL
+             ORDER BY ym DESC",
+        )?;
+        let out = stmt
+            .query_map(rusqlite::params![character_id], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(out)
+    }
+
+    /// Resumen financiero del mes `cur` (YYYY-MM) con comparativa contra `prev`.
+    pub fn financial_summary(
+        &self,
+        character_id: Option<i64>,
+        cur: &str,
+        prev: &str,
+    ) -> AppResult<FinancialSummary> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT substr(date, 1, 7) AS ym, ref_type, amount
+             FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND date IS NOT NULL
+               AND substr(date, 1, 7) IN (?2, ?3)",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id, cur, prev], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, f64>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        use std::collections::HashMap;
+        // (periodo) -> categoría -> isk
+        let mut income: HashMap<String, HashMap<&'static str, f64>> = HashMap::new();
+        let mut expense: HashMap<String, HashMap<&'static str, f64>> = HashMap::new();
+        let mut inc_total: HashMap<String, f64> = HashMap::new();
+        let mut exp_total: HashMap<String, f64> = HashMap::new();
+
+        for (ym, ref_type, amount) in rows {
+            let rt = ref_type.unwrap_or_default();
+            if amount >= 0.0 {
+                let cat = categorize_income(&rt);
+                *income.entry(ym.clone()).or_default().entry(cat).or_insert(0.0) += amount;
+                *inc_total.entry(ym).or_insert(0.0) += amount;
+            } else {
+                let mag = -amount;
+                let cat = categorize_expense(&rt);
+                *expense.entry(ym.clone()).or_default().entry(cat).or_insert(0.0) += mag;
+                *exp_total.entry(ym).or_insert(0.0) += mag;
+            }
+        }
+
+        // Construye la lista de categorías del mes actual con su valor del mes anterior.
+        let build = |cur_map: Option<&HashMap<&'static str, f64>>,
+                     prev_map: Option<&HashMap<&'static str, f64>>|
+         -> Vec<CategorySum> {
+            let mut v: Vec<CategorySum> = cur_map
+                .map(|m| {
+                    m.iter()
+                        .map(|(cat, isk)| CategorySum {
+                            category: cat.to_string(),
+                            isk: *isk,
+                            prev_isk: prev_map.and_then(|p| p.get(*cat).copied()).unwrap_or(0.0),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            v.sort_by(|a, b| b.isk.partial_cmp(&a.isk).unwrap_or(std::cmp::Ordering::Equal));
+            v
+        };
+
+        let income_by_category = build(income.get(cur), income.get(prev));
+        let expense_by_category = build(expense.get(cur), expense.get(prev));
+        let income_total = *inc_total.get(cur).unwrap_or(&0.0);
+        let expense_total = *exp_total.get(cur).unwrap_or(&0.0);
+        let prev_income_total = *inc_total.get(prev).unwrap_or(&0.0);
+        let prev_expense_total = *exp_total.get(prev).unwrap_or(&0.0);
+
+        Ok(FinancialSummary {
+            income_total,
+            expense_total,
+            net: income_total - expense_total,
+            prev_income_total,
+            prev_expense_total,
+            prev_net: prev_income_total - prev_expense_total,
+            income_by_category,
+            expense_by_category,
         })
     }
 

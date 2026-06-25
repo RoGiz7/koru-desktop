@@ -54,6 +54,8 @@ import type {
   MarketOrder,
   Planet,
   RattingDetail,
+  FinancialSummary,
+  CategorySum,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -112,7 +114,7 @@ function App() {
 
   // Sujeto activo: "global" (por defecto) o el id de un personaje. Filtro central.
   const [subject, setSubject] = useState<number | "global">("global");
-  const [tab, setTab] = useState<Tab>("pvp");
+  const [tab, setTab] = useState<Tab>("resumen");
   const [sectionBusy, setSectionBusy] = useState(false);
   const [progress, setProgress] = useState<{ processed: number; page: number } | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -879,6 +881,7 @@ function App() {
           {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
           {tab === "rateo" && <RateoView data={ratting} busy={sectionBusy} />}
+          {tab === "resumen" && <ResumenView subject={subject} />}
           {(tab === "abyssals" || tab === "factional") && (
             <div className="soon-box">
               <div className="soon-emoji">🚧</div>
@@ -3202,6 +3205,250 @@ function RateoView({
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+/* ---------- Resumen (dashboard financiero) ---------- */
+const MONTH_NAMES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+const DONUT_COLORS = [
+  "#4f9cff", "#a371f7", "#3fb950", "#d29922", "#db61a2",
+  "#e5534b", "#2dd4bf", "#f0883e", "#8b949e", "#6e7681",
+];
+
+function Donut({ items }: { items: { label: string; value: number }[] }) {
+  const data = items.filter((i) => i.value > 0);
+  const total = data.reduce((s, i) => s + i.value, 0);
+  if (total <= 0) return <p className="muted small">Sin datos.</p>;
+  const R = 60;
+  const C = 2 * Math.PI * R;
+  let acc = 0;
+  return (
+    <div className="donut-wrap">
+      <svg viewBox="0 0 160 160" className="donut-svg" aria-hidden="true">
+        <g transform="rotate(-90 80 80)">
+          {data.map((it, i) => {
+            const dash = (it.value / total) * C;
+            const seg = (
+              <circle
+                key={i}
+                cx="80"
+                cy="80"
+                r={R}
+                fill="none"
+                stroke={DONUT_COLORS[i % DONUT_COLORS.length]}
+                strokeWidth="22"
+                strokeDasharray={`${dash} ${C - dash}`}
+                strokeDashoffset={-acc}
+              />
+            );
+            acc += dash;
+            return seg;
+          })}
+        </g>
+      </svg>
+      <ul className="donut-legend">
+        {data.map((it, i) => (
+          <li key={i}>
+            <span
+              className="donut-dot"
+              style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
+            />
+            {it.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DeltaBadge({ cur, prev, invert = false }: { cur: number; prev: number; invert?: boolean }) {
+  let txt: string;
+  let dir: number; // 1 sube, -1 baja, 0 igual
+  if (prev === 0) {
+    if (cur === 0) {
+      txt = "—";
+      dir = 0;
+    } else {
+      txt = "nuevo";
+      dir = 1;
+    }
+  } else {
+    const p = ((cur - prev) / Math.abs(prev)) * 100;
+    const arrow = p > 0 ? "↑" : p < 0 ? "↓" : "→";
+    txt = `${arrow} ${Math.abs(p).toFixed(1)}%`;
+    dir = p > 0.05 ? 1 : p < -0.05 ? -1 : 0;
+  }
+  const good = invert ? dir < 0 : dir > 0;
+  const bad = invert ? dir > 0 : dir < 0;
+  const cls = good ? "delta-pos" : bad ? "delta-neg" : "delta-flat";
+  return <span className={`delta ${cls}`}>{txt}</span>;
+}
+
+function CatTable({ rows, invert }: { rows: CategorySum[]; invert: boolean }) {
+  if (rows.length === 0) return <p className="muted small">Sin movimientos.</p>;
+  return (
+    <table className="km-table cat-table">
+      <thead>
+        <tr>
+          <th>Categoría</th>
+          <th style={{ textAlign: "right" }}>ISK</th>
+          <th style={{ textAlign: "right" }}>vs anterior</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            <td>
+              <span className="cat-dot" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+              {r.category}
+            </td>
+            <td style={{ textAlign: "right" }}>{fmtIsk(r.isk)}</td>
+            <td style={{ textAlign: "right" }}>
+              <DeltaBadge cur={r.isk} prev={r.prev_isk} invert={invert} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ResumenView({ subject }: { subject: number | "global" }) {
+  const isGlobal = subject === "global";
+  const [periods, setPeriods] = useState<string[] | null>(null);
+  const [period, setPeriod] = useState<string>("");
+  const [data, setData] = useState<FinancialSummary | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const ps = isGlobal
+          ? await invoke<string[]>("get_summary_periods_global")
+          : await invoke<string[]>("get_summary_periods", { characterId: subject });
+        if (!alive) return;
+        setPeriods(ps);
+        setPeriod((p) => (p && ps.includes(p) ? p : ps[0] ?? ""));
+      } catch {
+        if (alive) setPeriods([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [subject]);
+
+  useEffect(() => {
+    if (!period) return;
+    let alive = true;
+    setBusy(true);
+    (async () => {
+      try {
+        const d = isGlobal
+          ? await invoke<FinancialSummary>("get_summary_global", { period })
+          : await invoke<FinancialSummary>("get_summary", { characterId: subject, period });
+        if (alive) setData(d);
+      } catch {
+        if (alive) setData(null);
+      } finally {
+        if (alive) setBusy(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [subject, period]);
+
+  if (periods === null) return <p className="muted">Cargando…</p>;
+  if (periods.length === 0)
+    return (
+      <p className="muted small">
+        Sin movimientos en el journal. Sincroniza la wallet de tus personajes (sección Wallet) para
+        ver tu resumen.
+      </p>
+    );
+
+  const years = [...new Set(periods.map((p) => p.slice(0, 4)))];
+  const curYear = period.slice(0, 4);
+  const curMonth = period.slice(5, 7);
+  const monthsOfYear = periods.filter((p) => p.startsWith(curYear));
+
+  return (
+    <>
+      <div className="resumen-period">
+        <span className="rp-label">📅 Período</span>
+        <select
+          value={curYear}
+          onChange={(e) => {
+            const y = e.target.value;
+            const first = periods.find((p) => p.startsWith(y));
+            if (first) setPeriod(first);
+          }}
+        >
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+        <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+          {monthsOfYear.map((p) => (
+            <option key={p} value={p}>
+              {MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1]}
+            </option>
+          ))}
+        </select>
+        <span className="rp-show">
+          Mostrando {MONTH_NAMES[parseInt(curMonth, 10) - 1]} {curYear}
+          {busy ? " · actualizando…" : ""}
+        </span>
+      </div>
+
+      {data && (
+        <>
+          <div className="resumen-kpis">
+            <div className="rk-card rk-net">
+              <span className="rk-label">Balance del mes</span>
+              <span className={`rk-value ${data.net >= 0 ? "pos" : "neg"}`}>{fmtIsk(data.net)} ISK</span>
+              <DeltaBadge cur={data.net} prev={data.prev_net} />
+            </div>
+            <div className="rk-card rk-in">
+              <span className="rk-label">↑ Ingresos</span>
+              <span className="rk-value pos">{fmtIsk(data.income_total)}</span>
+              <DeltaBadge cur={data.income_total} prev={data.prev_income_total} />
+            </div>
+            <div className="rk-card rk-out">
+              <span className="rk-label">↓ Gastos</span>
+              <span className="rk-value neg">{fmtIsk(data.expense_total)}</span>
+              <DeltaBadge cur={data.expense_total} prev={data.prev_expense_total} invert />
+            </div>
+          </div>
+
+          <div className="resumen-grid">
+            <div className="panel resumen-panel">
+              <h4>Distribución de ingresos</h4>
+              <Donut items={data.income_by_category.map((c) => ({ label: c.category, value: c.isk }))} />
+            </div>
+            <div className="panel resumen-panel">
+              <h4>Ingresos por categoría</h4>
+              <CatTable rows={data.income_by_category} invert={false} />
+            </div>
+            <div className="panel resumen-panel">
+              <h4>Distribución de gastos</h4>
+              <Donut items={data.expense_by_category.map((c) => ({ label: c.category, value: c.isk }))} />
+            </div>
+            <div className="panel resumen-panel">
+              <h4>Gastos por categoría</h4>
+              <CatTable rows={data.expense_by_category} invert={true} />
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

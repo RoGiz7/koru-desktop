@@ -1,6 +1,7 @@
 // Constantes y tipos pequeños compartidos por la app (datos estáticos, sin lógica).
 
 export type Tab =
+  | "resumen"
   | "pvp"
   | "rivales"
   | "batallas"
@@ -21,6 +22,13 @@ export type Tab =
 export type NavSub = { key: Tab; label: string; scopes?: string[]; soon?: boolean };
 // `typeId` opcional = icono real de EVE (images.evetech.net) para el grupo; si no, se usa `icon` (emoji).
 export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[] }[] = [
+  {
+    group: "Resumen",
+    icon: "📊",
+    subs: [
+      { key: "resumen", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1"] },
+    ],
+  },
   {
     group: "Patrimonio",
     icon: "💰",
@@ -134,6 +142,7 @@ export const TABS: { key: Tab; label: string; enabled: (s: string[]) => boolean 
 
 // Título + subtítulo por sección (header consistente del stage)
 export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
+  resumen: { title: "Resumen", subtitle: "Balance del mes, ingresos y gastos por categoría" },
   mapa: { title: "Mapa", subtitle: "New Eden con overlays de actividad, assets y soberanía" },
   pvp: { title: "PvP", subtitle: "Killmails, eficacia ISK y actividad de combate" },
   rivales: { title: "Rivales", subtitle: "A quién matas y quién te mata (por personaje y corp)" },

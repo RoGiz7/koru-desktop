@@ -1803,3 +1803,143 @@ h4 {
   color: var(--text, #e6edf3);
   border-color: var(--accent, #4f9cff);
 }
+
+/* ---- Resumen (dashboard financiero) ---- */
+.resumen-period {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.resumen-period .rp-label {
+  font-weight: 600;
+  color: var(--text, #e6edf3);
+}
+.resumen-period select {
+  background: rgba(20, 26, 38, 0.7);
+  border: 1px solid var(--border, #2a3242);
+  border-radius: 6px;
+  color: var(--text, #e6edf3);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.resumen-period .rp-show {
+  color: var(--text-dim, #9aa4b2);
+  font-size: 0.82rem;
+}
+
+.resumen-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+.rk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  background: rgba(18, 24, 35, 0.6);
+  border: 1px solid var(--border, #2a3242);
+  border-radius: var(--radius-md, 10px);
+  border-top: 3px solid var(--border, #2a3242);
+}
+.rk-net {
+  border-top-color: #4f9cff;
+}
+.rk-in {
+  border-top-color: #3fb950;
+}
+.rk-out {
+  border-top-color: #e5534b;
+}
+.rk-label {
+  font-size: 0.78rem;
+  color: var(--text-dim, #9aa4b2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.rk-value {
+  font-size: 1.55rem;
+  font-weight: 700;
+}
+.rk-value.pos {
+  color: #3fb950;
+}
+.rk-value.neg {
+  color: #e5534b;
+}
+
+.delta {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.delta-pos {
+  color: #3fb950;
+}
+.delta-neg {
+  color: #e5534b;
+}
+.delta-flat {
+  color: var(--text-dim, #9aa4b2);
+}
+
+.resumen-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 0.8rem;
+}
+.resumen-panel h4 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.donut-svg {
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+}
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--text-dim, #9aa4b2);
+}
+.donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.donut-dot,
+.cat-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.cat-dot {
+  margin-right: 0.45rem;
+}
+.cat-table td,
+.cat-table th {
+  padding: 0.35rem 0.5rem;
+}
+
+@media (max-width: 900px) {
+  .resumen-kpis,
+  .resumen-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -240,6 +240,17 @@ export type RattingDetail = {
   by_system: RattingSystem[];
   daily: RattingDay[];
 };
+export type CategorySum = { category: string; isk: number; prev_isk: number };
+export type FinancialSummary = {
+  income_total: number;
+  expense_total: number;
+  net: number;
+  prev_income_total: number;
+  prev_expense_total: number;
+  prev_net: number;
+  income_by_category: CategorySum[];
+  expense_by_category: CategorySum[];
+};
 export type Planet = {
   system_id: number;
   system_name: string | null;

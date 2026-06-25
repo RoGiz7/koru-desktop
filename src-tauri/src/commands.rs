@@ -1,7 +1,10 @@
 //! Comandos Tauri expuestos al frontend.
 
 use crate::config;
-use crate::db::{CharacterRow, Db, NetworthPoint, PvpStats, PvpTrendPoint, RattingDetail, WalletStats};
+use crate::db::{
+    CharacterRow, Db, FinancialSummary, NetworthPoint, PvpStats, PvpTrendPoint, RattingDetail,
+    WalletStats,
+};
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
 use crate::esi::assets::AssetsSummary;
@@ -779,6 +782,55 @@ pub async fn get_ratting(character_id: i64, state: State<'_, AppState>) -> AppRe
 #[tauri::command]
 pub async fn get_ratting_global(state: State<'_, AppState>) -> AppResult<RattingDetail> {
     state.db.ratting_detail(None)
+}
+
+/// Devuelve "YYYY-MM" del mes anterior a un "YYYY-MM" dado.
+fn prev_month(ym: &str) -> String {
+    let y: i32 = ym.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
+    let m: u32 = ym.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(1);
+    if m <= 1 {
+        format!("{:04}-12", y - 1)
+    } else {
+        format!("{:04}-{:02}", y, m - 1)
+    }
+}
+
+/// Periodos (YYYY-MM) con movimientos, de un personaje.
+#[tauri::command]
+pub async fn get_summary_periods(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<String>> {
+    state.db.summary_periods(Some(character_id))
+}
+
+/// Periodos (YYYY-MM) con movimientos, global.
+#[tauri::command]
+pub async fn get_summary_periods_global(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    state.db.summary_periods(None)
+}
+
+/// Resumen financiero (ingresos/gastos por categoría + vs anterior) de un personaje.
+#[tauri::command]
+pub async fn get_summary(
+    character_id: i64,
+    period: String,
+    state: State<'_, AppState>,
+) -> AppResult<FinancialSummary> {
+    let prev = prev_month(&period);
+    state
+        .db
+        .financial_summary(Some(character_id), &period, &prev)
+}
+
+/// Resumen financiero global (todos los personajes).
+#[tauri::command]
+pub async fn get_summary_global(
+    period: String,
+    state: State<'_, AppState>,
+) -> AppResult<FinancialSummary> {
+    let prev = prev_month(&period);
+    state.db.financial_summary(None, &period, &prev)
 }
 
 /// Entrada de journal con TODOS los campos relevantes (para inspeccionar qué expone ESI).
