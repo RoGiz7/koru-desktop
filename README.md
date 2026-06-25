@@ -61,7 +61,7 @@ es y será igual de completa para todo el mundo, dones o no.
 
 ## Créditos y agradecimientos
 
-- **CCP Games** por EVE Online, la API ESI y el Static Data Export.
+- **Fenris Creations** (antes CCP Games) por EVE Online, la API ESI y el Static Data Export.
 - La **comunidad de desarrolladores de EVE**, de la que esta herramienta aprende y a la que quiere
   devolver algo. Inspiración (solo inspiración, sin copiar código) en herramientas de la comunidad.
 - Construida con **Tauri**, **Rust** y **React**.
@@ -72,6 +72,6 @@ es y será igual de completa para todo el mundo, dones o no.
 
 ---
 
-EVE Online y el logo de EVE son marcas registradas de CCP hf. Esta es una herramienta de **terceros**,
-**no afiliada ni respaldada por CCP**. Todo el material relacionado con EVE Online es propiedad de
-CCP hf.
+EVE Online y el logo de EVE son marcas registradas de Fenris Creations (anteriormente CCP Games / CCP hf.).
+Esta es una herramienta de **terceros**, **no afiliada ni respaldada por Fenris Creations**. Todo el
+material relacionado con EVE Online es propiedad de sus respectivos titulares.
