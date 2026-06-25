@@ -532,6 +532,43 @@ button.danger:hover {
   font-weight: 600;
 }
 
+.kpi-value.kpi-pos {
+  color: #3fb950;
+}
+
+.kpi-value.kpi-neg {
+  color: #e5534b;
+}
+
+.dotlan-link {
+  background: transparent;
+  border: none;
+  padding: 0 0.25rem;
+  margin-left: 0.15rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.dotlan-link:hover {
+  opacity: 1;
+}
+
+.th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.th-sort:hover {
+  color: var(--accent-text);
+}
+
+.th-arrow {
+  opacity: 0.5;
+  font-size: 0.72em;
+}
+
 .kpi-label {
   font-size: 0.72rem;
   color: #9a9a9a;

@@ -749,10 +749,10 @@ function App() {
           <div className="dock">
             <Kpi label="Kills" value={fmtSp(stats.kills)} />
             <Kpi label="Losses" value={fmtSp(stats.losses)} />
-            <Kpi label="Eficacia" value={`${stats.efficiency.toFixed(0)}%`} />
-            <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} />
-            <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} />
-            {walletData && <Kpi label="Balance" value={fmtIsk(walletData.balance)} />}
+            <Kpi label="Eficacia" value={`${stats.efficiency.toFixed(0)}%`} tone={stats.efficiency >= 50 ? "pos" : "neg"} />
+            <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} tone="pos" />
+            <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} tone="neg" />
+            {walletData && <Kpi label="Balance" value={fmtIsk(walletData.balance)} tone={walletData.balance >= 0 ? "pos" : "neg"} />}
             {!isGlobal && skillsData && <Kpi label="SP" value={fmtSp(skillsData.total_sp)} />}
           </div>
         )}
@@ -947,10 +947,20 @@ function App() {
 }
 
 /* ---------- vistas ---------- */
-function Kpi({ label, value }: { label: string; value: number | string }) {
+function Kpi({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone?: "pos" | "neg";
+}) {
   return (
     <div className="kpi">
-      <div className="kpi-value">{value}</div>
+      <div className={`kpi-value ${tone === "pos" ? "kpi-pos" : tone === "neg" ? "kpi-neg" : ""}`}>
+        {value}
+      </div>
       <div className="kpi-label">{label}</div>
     </div>
   );
@@ -1154,9 +1164,9 @@ function PvpView(props: {
             <Kpi label="Solo kills" value={stats.solo_kills} />
             <Kpi label="Final blows" value={stats.final_blows} />
             <Kpi label="Top damage" value={stats.top_damage_kills} />
-            <Kpi label="Eficacia ISK" value={`${stats.efficiency.toFixed(1)}%`} />
-            <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} />
-            <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} />
+            <Kpi label="Eficacia ISK" value={`${stats.efficiency.toFixed(1)}%`} tone={stats.efficiency >= 50 ? "pos" : "neg"} />
+            <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} tone="pos" />
+            <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} tone="neg" />
           </div>
           <ViewToggle chart={chart} onChange={setChart} />
           {chart ? (
@@ -1213,6 +1223,17 @@ function PvpView(props: {
                     <li key={it.id}>
                       {it.name ?? `#${it.id}`} <span className="muted">({it.count})</span>
                       {it.region && <span className="region"> · {it.region}</span>}
+                      {it.name && (
+                        <button
+                          className="dotlan-link"
+                          title={`Ver ${it.name} en Dotlan`}
+                          onClick={() =>
+                            openUrl(`https://evemaps.dotlan.net/system/${it.name!.replace(/ /g, "_")}`)
+                          }
+                        >
+                          🗺
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ol>
@@ -1455,9 +1476,9 @@ function WalletViewC(props: {
         <>
           <div className="kpis">
             <Kpi label="Balance" value={fmtIsk(data.balance)} />
-            <Kpi label="Ingresos" value={fmtIsk(data.stats.income)} />
-            <Kpi label="Gastos" value={fmtIsk(data.stats.expense)} />
-            <Kpi label="Neto" value={fmtIsk(data.stats.net)} />
+            <Kpi label="Ingresos" value={fmtIsk(data.stats.income)} tone="pos" />
+            <Kpi label="Gastos" value={fmtIsk(data.stats.expense)} tone="neg" />
+            <Kpi label="Neto" value={fmtIsk(data.stats.net)} tone={data.stats.net >= 0 ? "pos" : "neg"} />
             <Kpi label="Movimientos" value={data.stats.entries} />
           </div>
           <div className="tops">
@@ -2900,9 +2921,32 @@ function GlobalSkillsView(props: { data: GlobalSkills | null; busy: boolean }) {
   );
 }
 
+// Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
+function Th({
+  label,
+  col,
+  sort,
+  onSort,
+}: {
+  label: string;
+  col: string;
+  sort: { col: string; dir: 1 | -1 };
+  onSort: (col: string) => void;
+}) {
+  const active = sort.col === col;
+  return (
+    <th className="th-sort" onClick={() => onSort(col)} title="Ordenar">
+      {label} <span className="th-arrow">{active ? (sort.dir === 1 ? "▲" : "▼") : "↕"}</span>
+    </th>
+  );
+}
+
 function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] | null; busy: boolean }) {
   const { data, detail, busy } = props;
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "qty", dir: -1 });
+  const onSort = (col: string) =>
+    setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
   const ql = q.trim().toLowerCase();
   const filtered = (detail ?? []).filter(
     (r) =>
@@ -2910,7 +2954,14 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
       (r.type_name ?? "").toLowerCase().includes(ql) ||
       (r.system_name ?? "").toLowerCase().includes(ql)
   );
-  const shown = filtered.slice(0, 300);
+  const sorted = [...filtered].sort((a, b) => {
+    const d = sort.dir;
+    if (sort.col === "qty") return (a.quantity - b.quantity) * d;
+    const av = sort.col === "name" ? a.type_name ?? "" : a.system_name ?? "";
+    const bv = sort.col === "name" ? b.type_name ?? "" : b.system_name ?? "";
+    return av.localeCompare(bv) * d;
+  });
+  const shown = sorted.slice(0, 300);
   return (
     <>
       {!data && busy && <p className="muted">Cargando… (puede tardar con muchos assets)</p>}
@@ -2945,9 +2996,9 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
             <table className="km-table">
               <thead>
                 <tr>
-                  <th>Item</th>
-                  <th>Cantidad</th>
-                  <th>Sistema</th>
+                  <Th label="Item" col="name" sort={sort} onSort={onSort} />
+                  <Th label="Cantidad" col="qty" sort={sort} onSort={onSort} />
+                  <Th label="Sistema" col="sys" sort={sort} onSort={onSort} />
                 </tr>
               </thead>
               <tbody>
