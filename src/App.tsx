@@ -4477,7 +4477,8 @@ function AbyssalsSection({ data, busy }: { data: AbyssalsData | null; busy: bool
     <>
       <p className="muted small">
         ⚠️ ESI no expone las runs abisales. Esto es una <b>estimación</b> a partir de tus compras de
-        filamentos en las transacciones de wallet (ventana reciente de ESI; 1 filamento ≈ 1 run).
+        filamentos, ahora <b>acumuladas en tu PC</b> (cada sync guarda las nuevas; 1 filamento ≈ 1 run).
+        Sincroniza la wallet con frecuencia para no perder transacciones fuera de la ventana de ESI.
       </p>
       {data.by_filament.length === 0 ? (
         <p className="muted small">

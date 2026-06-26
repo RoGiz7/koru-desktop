@@ -1,15 +1,15 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-26 (v0.4.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-06-26 (v0.6.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.4.0 · 2026-06-26)
+## 📌 Estado actual (v0.6.0 · 2026-06-26)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
 
-### Aplicado recientemente (v0.1.2 → v0.4.0)
+### Aplicado recientemente (v0.1.2 → v0.6.0)
 - **Comercio** (órdenes de mercado), **Planetología** (PI), **Assets Fase B** (resuelve estructuras
   privadas con caché persistente + tabs por categoría).
 - **Reestructura de navegación en grupos** (Resumen·Patrimonio·PvP·PvE·Industria·Personaje + Mapa
@@ -49,7 +49,13 @@
   **Capa de mapa "Standings NPC"**: colorea cada sistema por **tu standing con la facción NPC que lo
   controla** (verde↔rojo), incluido **highsec** — `public/system-factions.json` generado del **SDE**
   (facción por constelación/región). Útil para misioneros.
-- **Releases v0.1.2 → v0.4.0** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
+- **Scrub temporal (PvP + Wallet)**: gráfica de tendencia con **ventana deslizante** (2 sliders) +
+  selector **Año/Mes** + botón "Todo"; los **KPIs se recalculan** para el tramo elegido (sombreado).
+  PvP por defecto en **Gráfica**. Wallet usa serie mensual nueva (`wallet_trend`).
+- **Transacciones persistidas**: tabla `wallet_transactions` que **acumula** (como journal/mining);
+  `sync_transactions` en cada sync (manual + auto-sync). **Abyssals** ahora lee del **histórico
+  guardado** (crece con el tiempo), no solo de la ventana de ESI.
+- **Releases v0.1.2 → v0.6.0** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
   **instancia única**; `workflow_dispatch` (botón manual) en el workflow como red de seguridad.
 
 > **Convención de versiones (semver):** subimos el **minor** (`0.X.0`) cuando el lote añade *features*
@@ -57,17 +63,17 @@
 > para fixes/ajustes (p. ej. v0.2.1 = arreglo del zoom de rueda). El auto-update compara numéricamente.
 
 ### Pendiente (orden por prioridad)
-1. **Fabricación**: separar de "Industria" con su propia vista (jobs) — split del grupo Industria.
+1. **➡️ SIGUIENTE — Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`, scope
+   `esi-characters.read_fatigue.v1`) + rango/fuel automático por skills (Jump Drive Calibration /
+   Fuel Conservation) y datos de nave del SDE. Sobre la burbuja de rango ya existente.
 2. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
-3. **Scrub temporal** en PvP/Wallet (moverse en el tiempo) y orden por defecto Gráfica en PvP.
-4. **Persistir histórico de transacciones** (para Abyssals/Comercio fiables más allá de la ventana
-   de ESI) — hoy Abyssals usa solo la ventana reciente de `wallet/transactions/`.
-5. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`) + rango/fuel automático por skills.
-6. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
-7. **Tematización por evento** (sobre el selector de temas ya hecho).
-8. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
-9. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
-10. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
+3. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
+4. **Tematización por evento** (sobre el selector de temas ya hecho).
+5. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
+6. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
+7. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
+8. **Fabricación** (APLAZADO por complejidad: blueprints, materiales, ME/TE): split de Industria con
+   su propia vista. Se retoma más adelante.
 
 #### Apuntes / ideas surgidas
 - **Rangos de FW por facción**: hoy se muestra el rango como número; mapear a nombre por facción (cosmético).

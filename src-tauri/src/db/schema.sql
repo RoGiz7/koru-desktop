@@ -59,6 +59,18 @@ CREATE TABLE IF NOT EXISTS wallet_journal (
 CREATE INDEX IF NOT EXISTS idx_wj_char ON wallet_journal(character_id);
 CREATE INDEX IF NOT EXISTS idx_wj_date ON wallet_journal(date);
 
+-- Transacciones de mercado acumuladas (ESI da ventana corta; aquí las conservamos).
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+    transaction_id INTEGER PRIMARY KEY,
+    character_id   INTEGER NOT NULL,
+    date           TEXT,
+    type_id        INTEGER,
+    quantity       INTEGER,
+    unit_price     REAL,
+    is_buy         INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_wt_char ON wallet_transactions(character_id);
+
 -- Mining ledger acumulado (ESI solo da 90 días; aquí lo conservamos para histórico).
 -- Una entrada = día + sistema + tipo de mineral (clave compuesta).
 CREATE TABLE IF NOT EXISTS mining_ledger (

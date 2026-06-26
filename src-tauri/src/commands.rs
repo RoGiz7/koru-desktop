@@ -92,6 +92,13 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
             {
                 res.wallet += n;
             }
+            let _ = wallet::sync_transactions(
+                &state.esi,
+                &state.db,
+                c.character_id,
+                &valid.access_token,
+            )
+            .await;
         }
         if has("esi-industry.read_character_mining.v1") {
             if let Ok(n) =
@@ -1360,7 +1367,10 @@ pub async fn sync_wallet(character_id: i64, state: State<'_, AppState>) -> AppRe
         "Wallet",
     )
     .await?;
-    wallet::sync_journal(&state.esi, &state.db, character_id, &token, 50).await
+    let n = wallet::sync_journal(&state.esi, &state.db, character_id, &token, 50).await?;
+    // Acumula también las transacciones (para Abyssals/Comercio fiables a largo plazo).
+    let _ = wallet::sync_transactions(&state.esi, &state.db, character_id, &token).await;
+    Ok(n)
 }
 
 /// Devuelve balance + estadísticas de cartera (income/expense/net/top ref_types/recientes).
@@ -1607,7 +1617,7 @@ pub async fn get_abyssals(
     character_id: i64,
     state: State<'_, AppState>,
 ) -> AppResult<AbyssalsView> {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     let token = token_with_scope(
         &state,
         character_id,
@@ -1615,29 +1625,26 @@ pub async fn get_abyssals(
         "Wallet",
     )
     .await?;
-    let txs = crate::esi::wallet::transactions(&state.esi, &state.db, character_id, &token)
-        .await
+    // Acumula las transacciones recientes y luego lee del histórico GUARDADO (crece con el tiempo).
+    let _ = crate::esi::wallet::sync_transactions(&state.esi, &state.db, character_id, &token).await;
+    let buys = state
+        .db
+        .transaction_buys_by_type(Some(character_id))
         .unwrap_or_default();
 
-    let buys: Vec<&crate::esi::wallet::Transaction> = txs.iter().filter(|t| t.is_buy).collect();
-    let ids: Vec<i64> = buys
-        .iter()
-        .map(|t| t.type_id)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
+    let ids: Vec<i64> = buys.iter().map(|(tid, _, _)| *tid).collect();
     let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
 
     // Agrega solo los items cuyo nombre contiene "Filament" (ESI devuelve nombres en inglés).
     let mut by: HashMap<String, (i64, f64)> = HashMap::new();
-    for t in &buys {
-        let name = match names.get(&t.type_id) {
+    for (tid, qty, isk) in &buys {
+        let name = match names.get(tid) {
             Some(n) if n.to_lowercase().contains("filament") => n.clone(),
             _ => continue,
         };
         let e = by.entry(name).or_insert((0, 0.0));
-        e.0 += t.quantity;
-        e.1 += t.unit_price * t.quantity as f64;
+        e.0 += *qty;
+        e.1 += *isk;
     }
 
     let mut by_filament: Vec<FilamentRow> = by

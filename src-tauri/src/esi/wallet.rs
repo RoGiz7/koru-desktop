@@ -59,6 +59,36 @@ pub async fn transactions(
         .await
 }
 
+/// Sincroniza (acumula) las transacciones recientes en la BD. Devuelve cuántas nuevas se guardaron.
+pub async fn sync_transactions(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<usize> {
+    let existing = db.existing_transaction_ids(character_id)?;
+    let txs = transactions(esi, db, character_id, token)
+        .await
+        .unwrap_or_default();
+    let mut n = 0usize;
+    for t in &txs {
+        if existing.contains(&t.transaction_id) {
+            continue;
+        }
+        db.insert_transaction(
+            t.transaction_id,
+            character_id,
+            t.date.as_deref(),
+            t.type_id,
+            t.quantity,
+            t.unit_price,
+            t.is_buy,
+        )?;
+        n += 1;
+    }
+    Ok(n)
+}
+
 /// Balance actual de la cartera (ESI devuelve un número suelto). Cacheado por el cliente.
 pub async fn balance(esi: &EsiClient, db: &Db, character_id: i64, token: &str) -> AppResult<f64> {
     let path = format!("/characters/{character_id}/wallet/");

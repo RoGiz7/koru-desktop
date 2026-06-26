@@ -1418,6 +1418,70 @@ impl Db {
         Ok(())
     }
 
+    pub fn existing_transaction_ids(
+        &self,
+        character_id: i64,
+    ) -> AppResult<std::collections::HashSet<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT transaction_id FROM wallet_transactions WHERE character_id = ?1")?;
+        let ids = stmt
+            .query_map(rusqlite::params![character_id], |r| r.get::<_, i64>(0))?
+            .collect::<Result<std::collections::HashSet<_>, _>>()?;
+        Ok(ids)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_transaction(
+        &self,
+        transaction_id: i64,
+        character_id: i64,
+        date: Option<&str>,
+        type_id: i64,
+        quantity: i64,
+        unit_price: f64,
+        is_buy: bool,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO wallet_transactions
+                (transaction_id, character_id, date, type_id, quantity, unit_price, is_buy)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(transaction_id) DO NOTHING",
+            rusqlite::params![
+                transaction_id,
+                character_id,
+                date,
+                type_id,
+                quantity,
+                unit_price,
+                is_buy as i64
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Compras agregadas por type_id (qty total, ISK total) desde las transacciones guardadas.
+    /// Para Abyssals (filamentos). None = global.
+    pub fn transaction_buys_by_type(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(i64, i64, f64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT type_id, COALESCE(SUM(quantity),0), COALESCE(SUM(quantity * unit_price),0.0)
+             FROM wallet_transactions
+             WHERE (?1 IS NULL OR character_id = ?1) AND is_buy = 1
+             GROUP BY type_id",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn wallet_stats(&self, character_id: i64) -> AppResult<WalletStats> {
         let conn = self.conn.lock().unwrap();
 
