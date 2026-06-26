@@ -45,6 +45,12 @@ pub mod scopes {
     /// Guerra de Facciones (stats personales) — grupo PvE.
     pub const FW: &[&str] = &["esi-characters.read_fw_stats.v1"];
 
+    /// Contactos personales + standings con NPC (grupo Personaje).
+    pub const CONTACTS: &[&str] = &[
+        "esi-characters.read_contacts.v1",
+        "esi-characters.read_standings.v1",
+    ];
+
     pub const WALLET: &[&str] = &[
         "esi-wallet.read_character_wallet.v1",
         "esi-markets.read_character_orders.v1", // Comercio (órdenes de mercado), grupo Patrimonio
@@ -76,6 +82,7 @@ pub mod scopes {
         let mut v = Vec::new();
         v.extend_from_slice(PVP);
         v.extend_from_slice(FW);
+        v.extend_from_slice(CONTACTS);
         v.extend_from_slice(WALLET);
         v.extend_from_slice(SKILLS);
         v.extend_from_slice(ASSETS);

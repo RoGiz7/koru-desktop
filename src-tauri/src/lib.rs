@@ -89,6 +89,8 @@ pub fn run() {
             commands::get_character_detail,
             commands::get_factional,
             commands::get_abyssals,
+            commands::get_contacts,
+            commands::get_standings,
             commands::get_assets,
             commands::get_assets_detail,
             commands::get_assets_detail_global,

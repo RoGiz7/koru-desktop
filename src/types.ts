@@ -283,6 +283,15 @@ export type MiningDetail = {
   by_system: MiningSys[];
   monthly: MiningMonth[];
 };
+export type ContactRow = {
+  id: number;
+  name: string | null;
+  kind: string;
+  standing: number;
+  blocked: boolean;
+  watched: boolean;
+};
+export type StandingRow = { id: number; name: string | null; kind: string; standing: number };
 export type FwCountsView = { yesterday: number; last_week: number; total: number };
 export type FactionalView = {
   enlisted: boolean;

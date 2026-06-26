@@ -17,6 +17,7 @@ export type Tab =
   | "abyssals"
   | "factional"
   | "mineria"
+  | "contactos"
   | "planetologia";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
@@ -75,7 +76,10 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
   {
     group: "Personaje",
     icon: "👤",
-    subs: [{ key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] }],
+    subs: [
+      { key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] },
+      { key: "contactos", label: "Contactos", scopes: ["esi-characters.read_contacts.v1"] },
+    ],
   },
 ];
 
@@ -163,6 +167,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
+  contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },
 };
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.

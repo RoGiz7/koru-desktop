@@ -160,3 +160,58 @@ pub async fn fw_stats(
     )
     .await
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Contact {
+    pub contact_id: i64,
+    #[serde(default)]
+    pub contact_type: Option<String>,
+    #[serde(default)]
+    pub standing: f64,
+    #[serde(default)]
+    pub is_blocked: Option<bool>,
+    #[serde(default)]
+    pub is_watched: Option<bool>,
+}
+
+/// Contactos personales (scope esi-characters.read_contacts.v1). Página 1 (hasta 1000).
+pub async fn contacts(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<Vec<Contact>> {
+    esi.get_cached::<Vec<Contact>>(
+        db,
+        character_id,
+        &format!("/characters/{character_id}/contacts/"),
+        Some(token),
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Standing {
+    #[serde(default)]
+    pub from_id: i64,
+    #[serde(default)]
+    pub from_type: Option<String>,
+    #[serde(default)]
+    pub standing: f64,
+}
+
+/// Standings con NPC (facciones/corps/agentes) (scope esi-characters.read_standings.v1).
+pub async fn standings(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<Vec<Standing>> {
+    esi.get_cached::<Vec<Standing>>(
+        db,
+        character_id,
+        &format!("/characters/{character_id}/standings/"),
+        Some(token),
+    )
+    .await
+}

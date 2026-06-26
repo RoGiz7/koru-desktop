@@ -1638,6 +1638,100 @@ pub async fn get_abyssals(
     })
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ContactView {
+    pub id: i64,
+    pub name: Option<String>,
+    pub kind: String, // character / corporation / alliance / faction
+    pub standing: f64,
+    pub blocked: bool,
+    pub watched: bool,
+}
+
+/// Contactos personales con standing + nombre resuelto (grupo Personaje).
+#[tauri::command]
+pub async fn get_contacts(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<ContactView>> {
+    use std::collections::HashSet;
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-characters.read_contacts.v1",
+        "Contactos",
+    )
+    .await?;
+    let cs = crate::esi::character::contacts(&state.esi, &state.db, character_id, &token)
+        .await
+        .unwrap_or_default();
+    let ids: Vec<i64> = cs
+        .iter()
+        .map(|c| c.contact_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut out: Vec<ContactView> = cs
+        .iter()
+        .map(|c| ContactView {
+            id: c.contact_id,
+            name: names.get(&c.contact_id).cloned(),
+            kind: c.contact_type.clone().unwrap_or_default(),
+            standing: c.standing,
+            blocked: c.is_blocked.unwrap_or(false),
+            watched: c.is_watched.unwrap_or(false),
+        })
+        .collect();
+    out.sort_by(|a, b| b.standing.partial_cmp(&a.standing).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(out)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StandingView {
+    pub id: i64,
+    pub name: Option<String>,
+    pub kind: String, // agent / npc_corp / faction
+    pub standing: f64,
+}
+
+/// Standings con NPC (facciones/corps/agentes) con nombre resuelto.
+#[tauri::command]
+pub async fn get_standings(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<StandingView>> {
+    use std::collections::HashSet;
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-characters.read_standings.v1",
+        "Standings",
+    )
+    .await?;
+    let ss = crate::esi::character::standings(&state.esi, &state.db, character_id, &token)
+        .await
+        .unwrap_or_default();
+    let ids: Vec<i64> = ss
+        .iter()
+        .map(|s| s.from_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut out: Vec<StandingView> = ss
+        .iter()
+        .map(|s| StandingView {
+            id: s.from_id,
+            name: names.get(&s.from_id).cloned(),
+            kind: s.from_type.clone().unwrap_or_default(),
+            standing: s.standing,
+        })
+        .collect();
+    out.sort_by(|a, b| b.standing.partial_cmp(&a.standing).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(out)
+}
+
 /// PvP GLOBAL: agregado de todos los personajes (deduplicado por killmail).
 #[tauri::command]
 pub async fn get_pvp_stats_global(state: State<'_, AppState>) -> AppResult<PvpStats> {

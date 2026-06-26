@@ -62,6 +62,8 @@ import type {
   CharacterDetail,
   FactionalView as FactionalData,
   AbyssalsData,
+  ContactRow,
+  StandingRow,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -175,6 +177,8 @@ function App() {
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null); // header rico
   const [factionalData, setFactionalData] = useState<FactionalData | null>(null);
   const [abyssalsData, setAbyssalsData] = useState<AbyssalsData | null>(null);
+  const [contactsData, setContactsData] = useState<ContactRow[] | null>(null);
+  const [standingsData, setStandingsData] = useState<StandingRow[] | null>(null);
   const [gSkills, setGSkills] = useState<GlobalSkills | null>(null); // global (otra forma)
   const [assetsData, setAssetsData] = useState<AssetsSummary | null>(null);
   const [jobsData, setJobsData] = useState<JobView[] | null>(null);
@@ -247,6 +251,8 @@ function App() {
     setCharDetail(null);
     setFactionalData(null);
     setAbyssalsData(null);
+    setContactsData(null);
+    setStandingsData(null);
     setGSkills(null);
     setAssetsData(null);
     setJobsData(null);
@@ -389,6 +395,12 @@ function App() {
           setFactionalData(await invoke<FactionalData>("get_factional", { characterId }));
         if (t === "abyssals")
           setAbyssalsData(await invoke<AbyssalsData>("get_abyssals", { characterId }));
+        if (t === "contactos") {
+          setContactsData(await invoke<ContactRow[]>("get_contacts", { characterId }));
+          invoke<StandingRow[]>("get_standings", { characterId })
+            .then(setStandingsData)
+            .catch(() => setStandingsData([]));
+        }
         if (t === "industria") {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
@@ -968,6 +980,12 @@ function App() {
           {tab === "resumen" && <ResumenView subject={subject} />}
           {tab === "actividad" && <ActividadView subject={subject} />}
           {tab === "mineria" && <MineriaView subject={subject} />}
+          {tab === "contactos" &&
+            (isGlobal ? (
+              <p className="muted small">Selecciona un personaje para ver sus contactos y standings.</p>
+            ) : (
+              <ContactosView contacts={contactsData} standings={standingsData} busy={sectionBusy} />
+            ))}
           {tab === "factional" &&
             (isGlobal ? (
               <p className="muted small">Selecciona un personaje para ver sus stats de Guerra de Facciones.</p>
@@ -4218,6 +4236,125 @@ function AbyssalsSection({ data, busy }: { data: AbyssalsData | null; busy: bool
           </div>
         </>
       )}
+    </>
+  );
+}
+
+/* ---------- Contactos + Standings (Personaje) ---------- */
+function standingColor(s: number): string {
+  if (s >= 5) return "#3fb950";
+  if (s > 0) return "#56b870";
+  if (s === 0) return "#8b949e";
+  if (s > -5) return "#e3a13a";
+  return "#e5534b";
+}
+function contactLogo(kind: string, id: number): string | null {
+  if (kind === "character") return `https://images.evetech.net/characters/${id}/portrait?size=32`;
+  if (kind === "corporation") return `https://images.evetech.net/corporations/${id}/logo?size=32`;
+  if (kind === "alliance") return `https://images.evetech.net/alliances/${id}/logo?size=32`;
+  return null;
+}
+const KIND_ES: Record<string, string> = {
+  character: "Personaje",
+  corporation: "Corporación",
+  alliance: "Alianza",
+  faction: "Facción",
+  agent: "Agente",
+  npc_corp: "Corp NPC",
+};
+
+function ContactosView({
+  contacts,
+  standings,
+  busy,
+}: {
+  contacts: ContactRow[] | null;
+  standings: StandingRow[] | null;
+  busy: boolean;
+}) {
+  if (!contacts) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  const goodC = contacts.filter((c) => c.standing > 0).length;
+  const badC = contacts.filter((c) => c.standing < 0).length;
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="Contactos" value={fmtSp(contacts.length)} />
+        <Kpi label="Positivos" value={fmtSp(goodC)} tone="pos" />
+        <Kpi label="Negativos" value={fmtSp(badC)} tone="neg" />
+        {standings && <Kpi label="Standings NPC" value={fmtSp(standings.length)} />}
+      </div>
+
+      <div className="top-list">
+        <h4>Tus contactos</h4>
+        {contacts.length === 0 ? (
+          <p className="muted small">No tienes contactos.</p>
+        ) : (
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>Contacto</th>
+                <th>Tipo</th>
+                <th style={{ textAlign: "right" }}>Standing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contacts.map((c) => {
+                const logo = contactLogo(c.kind, c.id);
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      {logo && (
+                        <img
+                          className="type-ico"
+                          src={logo}
+                          alt=""
+                          loading="lazy"
+                          style={{ borderRadius: c.kind === "character" ? "50%" : "3px" }}
+                        />
+                      )}
+                      {c.name ?? `#${c.id}`}
+                      {c.watched && <span title="En seguimiento"> 👁️</span>}
+                      {c.blocked && <span title="Bloqueado"> 🚫</span>}
+                    </td>
+                    <td>{KIND_ES[c.kind] ?? c.kind}</td>
+                    <td style={{ textAlign: "right", color: standingColor(c.standing), fontWeight: 600 }}>
+                      {c.standing.toFixed(1)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="top-list">
+        <h4>Standings con NPC</h4>
+        {!standings || standings.length === 0 ? (
+          <p className="muted small">Sin standings (o falta el scope de standings; reloguea con acceso).</p>
+        ) : (
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>Entidad</th>
+                <th>Tipo</th>
+                <th style={{ textAlign: "right" }}>Standing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {standings.map((s) => (
+                <tr key={`${s.kind}-${s.id}`}>
+                  <td>{s.name ?? `#${s.id}`}</td>
+                  <td>{KIND_ES[s.kind] ?? s.kind}</td>
+                  <td style={{ textAlign: "right", color: standingColor(s.standing), fontWeight: 600 }}>
+                    {s.standing.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }
