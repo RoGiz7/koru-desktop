@@ -2036,6 +2036,41 @@ function MapView(props: {
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const clickTimer = useRef<number | null>(null);
   const movedRef = useRef(false);
+  // Zoom con rueda: el mapa se "arma" cuando el cursor lleva un instante dentro (~140 ms)
+  // o al hacer clic. Una pasada rápida mientras scrolleas la página NO llega a armarlo, así
+  // que no roba el scroll. La comprobación se hace en el momento de la rueda (más fiable que
+  // depender de un setTimeout). `insideSince` = timestamp de entrada (0 = fuera).
+  const DWELL_MS = 140;
+  const [mapActive, setMapActive] = useState(false); // solo para el borde visual
+  const insideSince = useRef(0);
+  const borderTimer = useRef<number | null>(null);
+  const enterMap = () => {
+    if (insideSince.current === 0) insideSince.current = performance.now();
+    if (borderTimer.current == null) {
+      borderTimer.current = window.setTimeout(() => {
+        borderTimer.current = null;
+        if (insideSince.current > 0) setMapActive(true);
+      }, DWELL_MS);
+    }
+  };
+  const leaveMap = () => {
+    insideSince.current = 0;
+    if (borderTimer.current != null) {
+      window.clearTimeout(borderTimer.current);
+      borderTimer.current = null;
+    }
+    setMapActive(false);
+  };
+  const forceActive = () => {
+    insideSince.current = performance.now() - 10000; // armado inmediato (clic)
+    setMapActive(true);
+  };
+  useEffect(
+    () => () => {
+      if (borderTimer.current != null) window.clearTimeout(borderTimer.current);
+    },
+    []
+  );
 
   useEffect(() => {
     loadNewEden().then(setNe).catch(() => {});
@@ -2073,6 +2108,10 @@ function MapView(props: {
     const el = svgRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
+      // Solo capturamos la rueda si el cursor lleva ya un instante dentro del mapa
+      // (evita robar el scroll en una pasada rápida). Si no, dejamos pasar → scroll de página.
+      const armed = insideSince.current > 0 && performance.now() - insideSince.current >= DWELL_MS;
+      if (!armed) return;
       e.preventDefault();
       const vb = clientToVB(e.clientX, e.clientY);
       if (!vb) return;
@@ -2085,12 +2124,15 @@ function MapView(props: {
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, []);
+    // Depende de `ne`: el SVG no existe hasta que carga el SDE; al aparecer, re-engancha.
+  }, [ne]);
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
     movedRef.current = false;
+    forceActive(); // interactuar (clic/arrastre) arma el zoom de inmediato
   }
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (insideSince.current === 0) enterMap(); // fallback si onPointerEnter no llegó
     if (drag.current) {
       const dx = e.clientX - drag.current.x;
       const dy = e.clientY - drag.current.y;
@@ -2621,16 +2663,21 @@ function MapView(props: {
         {liveBusy && " · cargando datos en vivo…"}
       </p>
       <div className="map-wrap">
+        {!mapActive && (
+          <div className="map-zoom-hint">Posa el ratón un instante para activar el zoom con rueda</div>
+        )}
         <svg
           ref={svgRef}
           viewBox={`0 0 ${MAP_W} ${MAP_H}`}
-          className={`eve-map ${hover ? "over-sys" : ""}`}
+          className={`eve-map ${hover ? "over-sys" : ""} ${mapActive ? "active" : ""}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerEnter={enterMap}
           onPointerLeave={() => {
             onPointerUp();
             setHover(null);
+            leaveMap(); // al salir del mapa, la rueda vuelve a scrollear la página
           }}
           onClick={() => {
             if (hover) clickSystem(hover.sid);

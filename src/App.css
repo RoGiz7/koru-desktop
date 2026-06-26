@@ -832,6 +832,32 @@ h4 {
   cursor: pointer;
 }
 
+/* Mapa "activo": la rueda hace zoom (tras hacer clic). Borde de acento sutil. */
+.eve-map.active {
+  box-shadow: inset 0 0 0 2px var(--accent-border, #4f9cff);
+}
+
+/* Aviso discreto cuando el mapa NO está activo (la rueda scrollea la página). */
+.map-zoom-hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 0.25rem 0.6rem;
+  background: rgba(10, 14, 20, 0.7);
+  border: 1px solid var(--border-accent-2, #3a4654);
+  border-radius: 999px;
+  color: var(--fg-muted-2, #9a9a9a);
+  font-size: 0.74rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.map-wrap:hover .map-zoom-hint {
+  opacity: 1;
+}
+
 .clickable-sys {
   cursor: pointer;
 }

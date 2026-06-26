@@ -48,6 +48,11 @@
 - **Releases v0.1.2 → v0.2.0** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
   **instancia única**; `workflow_dispatch` (botón manual) en el workflow como red de seguridad.
 
+> **Convención de versiones (semver):** subimos el **minor** (`0.X.0`) cuando el lote añade *features*
+> nuevas (p. ej. v0.2.0 = Personaje + PvE), y el **patch** (`0.2.x`) para fixes/ajustes. El siguiente
+> bloque grande de funcionalidad irá a **v0.3.0**. El auto-update compara numéricamente, así que tanto
+> `0.1.10` como `0.2.0` serían válidos; usamos minor por claridad semántica.
+
 ### Pendiente (orden por prioridad)
 1. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
 2. **Friends & Foes**: overlay de **standings** (contactos) azul/rojo en el mapa.
