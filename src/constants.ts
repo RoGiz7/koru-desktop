@@ -94,7 +94,8 @@ export type MapOverlay =
   | "kills"
   | "jumps"
   | "assets"
-  | "mineria";
+  | "mineria"
+  | "standings";
 
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
 
@@ -228,4 +229,5 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "pvp", label: "Tu PvP", short: "Tu PvP", icon: "⚔️", group: "tuyo" },
   { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", group: "tuyo" },
   { key: "mineria", label: "Tu minería", short: "Minería", icon: "⛏️", group: "tuyo" },
+  { key: "standings", label: "Standings NPC", short: "Standings", icon: "🤝", group: "tuyo" },
 ];

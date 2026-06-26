@@ -189,6 +189,7 @@ function App() {
   const [sovMap, setSovMap] = useState<Map<number, SovSystem> | null>(null);
   const [fwMap, setFwMap] = useState<Map<number, FwSystem> | null>(null);
   const [incursions, setIncursions] = useState<Incursion[] | null>(null);
+  const [factionStd, setFactionStd] = useState<Map<number, number> | null>(null); // faction_id -> standing
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
 
@@ -260,6 +261,7 @@ function App() {
     setMapData(null);
     setAssetsMap(null);
     setMiningMap(null);
+    setFactionStd(null);
     setRivalsData(null);
     setBattlesData(null);
   }
@@ -322,6 +324,22 @@ function App() {
     }
   }
 
+  // Standings con facciones NPC del personaje activo (para la capa de standings del mapa).
+  async function loadFactionStd(subj: number | "global") {
+    if (subj === "global") {
+      setFactionStd(new Map());
+      return;
+    }
+    try {
+      const rows = await invoke<StandingRow[]>("get_standings", { characterId: subj });
+      const m = new Map<number, number>();
+      for (const r of rows) if (r.kind === "faction") m.set(r.id, r.standing);
+      setFactionStd(m);
+    } catch {
+      setFactionStd(new Map());
+    }
+  }
+
   function handleOverlayChange(o: MapOverlay) {
     setMapOverlay(o);
     if (o === "assets" && !assetsMap) loadAssetsMap(subject);
@@ -329,6 +347,7 @@ function App() {
     if (o === "soberania" && !sovMap) loadSov();
     if (o === "fw" && !fwMap) loadFw();
     if (o === "incursion" && !incursions) loadIncursions();
+    if (o === "standings" && !factionStd) loadFactionStd(subject);
   }
 
   async function loadMap(subj: number | "global") {
@@ -436,6 +455,7 @@ function App() {
     loadHeadline(subj);
     loadTab(subj, tab);
     if (tab === "pvp") loadKillmails(subj, kmKind, 0);
+    if (mapOverlay === "standings") loadFactionStd(subj);
   }
 
   function changeTab(t: Tab) {
@@ -842,6 +862,7 @@ function App() {
           miningBySystem={miningMap}
           sovBySystem={sovMap}
           fwBySystem={fwMap}
+          factionStandings={factionStd}
           incursions={incursions}
           hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
           charLocations={(isGlobal
@@ -2016,6 +2037,7 @@ function MapView(props: {
   miningBySystem?: Map<number, number> | null;
   sovBySystem?: Map<number, SovSystem> | null;
   fwBySystem?: Map<number, FwSystem> | null;
+  factionStandings?: Map<number, number> | null;
   incursions?: Incursion[] | null;
   hereSystemId?: number | null;
   charLocations?: CharLoc[];
@@ -2028,11 +2050,13 @@ function MapView(props: {
     miningBySystem,
     sovBySystem,
     fwBySystem,
+    factionStandings,
     incursions,
     hereSystemId,
     charLocations,
   } = props;
   const [ne, setNe] = useState<NewEden | null>(null);
+  const [factionMap, setFactionMap] = useState<Record<string, number> | null>(null);
   const [liveKills, setLiveKills] = useState<Map<number, number> | null>(null);
   const [liveJumps, setLiveJumps] = useState<Map<number, number> | null>(null);
   const [liveBusy, setLiveBusy] = useState(false);
@@ -2092,6 +2116,11 @@ function MapView(props: {
 
   useEffect(() => {
     loadNewEden().then(setNe).catch(() => {});
+    // Facción NPC por sistema (del SDE) para la capa de standings.
+    fetch("/system-factions.json")
+      .then((r) => r.json())
+      .then(setFactionMap)
+      .catch(() => {});
     // Actividad en vivo (1h) para tooltips, siempre disponible.
     invoke<SystemKills[]>("get_system_kills")
       .then((rows) => {
@@ -2389,6 +2418,28 @@ function MapView(props: {
     });
   }, [geo, overlay, fwBySystem, subFilter]);
 
+  // Standings por sistema: color = tu standing con la facción NPC que controla el sistema.
+  const standingCircles = useMemo(() => {
+    if (!geo || overlay !== "standings" || !factionMap || !factionStandings) return null;
+    return Object.entries(factionMap).map(([sidStr, fac]) => {
+      if (!factionStandings.has(fac)) return null;
+      const s = geo.idx.get(Number(sidStr));
+      if (!s) return null;
+      const std = factionStandings.get(fac) as number;
+      const p = geo.proj(s);
+      return (
+        <circle
+          key={`std-${sidStr}`}
+          cx={p.px}
+          cy={p.py}
+          r={1.8}
+          fill={standingColor(std)}
+          fillOpacity={0.85}
+        />
+      );
+    });
+  }, [geo, overlay, factionMap, factionStandings]);
+
   // Incursiones de Sansha: sistemas infestados; el de staging más grande. Color = estado.
   const incursionCircles = useMemo(() => {
     if (!geo || overlay !== "incursion" || !incursions) return null;
@@ -2513,6 +2564,13 @@ function MapView(props: {
             ).length
           ),
           label: "Sistemas disputados",
+        }
+      : overlay === "standings" && factionMap && factionStandings
+      ? {
+          value: fmtSp(
+            Object.values(factionMap).filter((f) => (factionStandings.get(f) ?? 0) > 0).length
+          ),
+          label: "Sistemas con standing +",
         }
       : overlay === "incursion" && incursions
       ? { value: fmtSp(incursions.length), label: "Incursiones activas" }
@@ -2756,6 +2814,8 @@ function MapView(props: {
             {sovCircles}
             {/* overlay Guerra de facciones (memorizado) */}
             {fwCircles}
+            {/* overlay Standings por sistema (memorizado) */}
+            {standingCircles}
             {/* overlay Incursiones (memorizado) */}
             {incursionCircles}
             {/* overlay PvP */}
