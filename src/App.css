@@ -2264,3 +2264,16 @@ h4 {
   white-space: pre-wrap;
   color: var(--fg-muted-2, #9a9a9a);
 }
+
+/* ---- Scrub temporal (sliders de ventana sobre la tendencia) ---- */
+.scrub-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.3rem;
+}
+.scrub-sliders input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent-border, #4f9cff);
+  cursor: pointer;
+}

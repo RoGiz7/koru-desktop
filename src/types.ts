@@ -77,6 +77,7 @@ export type WalletStats = {
   recent: JournalRow[];
 };
 export type WalletView = { balance: number; stats: WalletStats };
+export type WalletTrendPoint = { month: string; income: number; expense: number };
 
 export type NetworthPoint = { date: string; liquid: number; asset_value: number; total: number };
 export type NetworthView = {

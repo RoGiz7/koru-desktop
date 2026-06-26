@@ -30,6 +30,7 @@ import type {
   PvpStats,
   PvpTrendPoint,
   WalletView,
+  WalletTrendPoint,
   NetworthPoint,
   NetworthView,
   SkillsSummary,
@@ -172,6 +173,7 @@ function App() {
   const [planets, setPlanets] = useState<Planet[] | null>(null);
   const [ratting, setRatting] = useState<RattingDetail | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
+  const [walletTrend, setWalletTrend] = useState<WalletTrendPoint[] | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null); // header rico
@@ -248,6 +250,7 @@ function App() {
     setPlanets(null);
     setRatting(null);
     setWalletData(null);
+    setWalletTrend(null);
     setSkillsData(null);
     setCharDetail(null);
     setFactionalData(null);
@@ -374,7 +377,10 @@ function App() {
         if (t === "rivales") setRivalsData(await invoke<Rivals>("get_rivals", { characterId: null }));
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId: null }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth_global"));
-        if (t === "wallet") setWalletData(await invoke<WalletView>("get_wallet_global"));
+        if (t === "wallet") {
+          setWalletData(await invoke<WalletView>("get_wallet_global"));
+          invoke<WalletTrendPoint[]>("get_wallet_trend_global").then(setWalletTrend).catch(() => {});
+        }
         if (t === "skills") setGSkills(await invoke<GlobalSkills>("get_skills_global"));
         if (t === "assets") {
           setAssetsData(await invoke<AssetsSummary>("get_assets_global"));
@@ -396,7 +402,12 @@ function App() {
         if (t === "rivales") setRivalsData(await invoke<Rivals>("get_rivals", { characterId }));
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth", { characterId }));
-        if (t === "wallet") setWalletData(await invoke<WalletView>("get_wallet", { characterId }));
+        if (t === "wallet") {
+          setWalletData(await invoke<WalletView>("get_wallet", { characterId }));
+          invoke<WalletTrendPoint[]>("get_wallet_trend", { characterId })
+            .then(setWalletTrend)
+            .catch(() => {});
+        }
         if (t === "skills") {
           setSkillsData(await invoke<SkillsSummary>("get_skills", { characterId }));
           invoke<CharacterDetail>("get_character_detail", { characterId })
@@ -971,6 +982,7 @@ function App() {
           {tab === "wallet" && (
             <WalletViewC
               data={walletData}
+              trend={walletTrend}
               busy={sectionBusy}
               global={isGlobal}
               onSync={() => handleSyncWallet(subjectId)}
@@ -1186,23 +1198,86 @@ function Bars({
   );
 }
 
-// Gráfica de líneas de tendencia temporal (kills/losses por semana).
-function TrendChart({ points }: { points: PvpTrendPoint[] }) {
-  if (points.length < 2)
+// Tendencia PvP con "scrub": selector Año/Mes + dos sliders que definen una ventana,
+// la gráfica sombrea el tramo elegido y los KPIs se recalculan para esa ventana.
+function TrendScrub({ points }: { points: PvpTrendPoint[] }) {
+  const n = points.length;
+  const [range, setRange] = useState<[number, number]>([0, Math.max(0, n - 1)]);
+  useEffect(() => {
+    setRange([0, Math.max(0, n - 1)]);
+  }, [n]);
+
+  if (n < 2)
     return <p className="muted small">Hace falta historial de varias semanas para ver la tendencia.</p>;
+
+  const lo = Math.min(range[0], range[1]);
+  const hi = Math.max(range[0], range[1]);
+  const sel = points.slice(lo, hi + 1);
+  const sum = (k: "kills" | "losses" | "isk_destroyed" | "isk_lost") =>
+    sel.reduce((a, p) => a + p[k], 0);
+  const kills = sum("kills");
+  const losses = sum("losses");
+  const iskD = sum("isk_destroyed");
+  const iskL = sum("isk_lost");
+  const eff = iskD + iskL > 0 ? (iskD / (iskD + iskL)) * 100 : 0;
+
+  const years = [...new Set(points.map((p) => p.date.slice(0, 4)))];
+  const curYear = points[lo].date.slice(0, 4);
+  const curMonth = points[lo].date.slice(0, 7);
+  const monthsOfYear = [
+    ...new Set(points.filter((p) => p.date.startsWith(curYear)).map((p) => p.date.slice(0, 7))),
+  ];
+  const setToYear = (y: string) => {
+    const idxs = points.map((p, i) => [p.date.slice(0, 4), i] as const).filter(([yy]) => yy === y);
+    if (idxs.length) setRange([idxs[0][1], idxs[idxs.length - 1][1]]);
+  };
+  const setToMonth = (ym: string) => {
+    const idxs = points.map((p, i) => [p.date.slice(0, 7), i] as const).filter(([mm]) => mm === ym);
+    if (idxs.length) setRange([idxs[0][1], idxs[idxs.length - 1][1]]);
+  };
+
   const W = 600;
   const H = 190;
   const PAD = 30;
   const maxY = Math.max(...points.flatMap((p) => [p.kills, p.losses]), 1);
-  const n = points.length;
   const x = (i: number) => PAD + (i / (n - 1)) * (W - 2 * PAD);
   const y = (v: number) => H - PAD - (v / maxY) * (H - 2 * PAD);
   const path = (key: "kills" | "losses") =>
     points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p[key]).toFixed(1)}`).join(" ");
   const labels = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+
   return (
     <div className="trend-chart">
+      <div className="resumen-period" style={{ marginBottom: "0.5rem" }}>
+        <span className="rp-label">📅 Ventana</span>
+        <select value={curYear} onChange={(e) => setToYear(e.target.value)}>
+          {years.map((yy) => (
+            <option key={yy} value={yy}>
+              {yy}
+            </option>
+          ))}
+        </select>
+        <select value={curMonth} onChange={(e) => setToMonth(e.target.value)}>
+          {monthsOfYear.map((m) => (
+            <option key={m} value={m}>
+              {MONTH_NAMES[parseInt(m.slice(5, 7), 10) - 1]}
+            </option>
+          ))}
+        </select>
+        <button className="rateo-clear" onClick={() => setRange([0, n - 1])}>
+          Todo
+        </button>
+      </div>
+
       <svg viewBox={`0 0 ${W} ${H}`} className="trend-svg" preserveAspectRatio="none">
+        <rect
+          x={x(lo)}
+          y={PAD - 6}
+          width={Math.max(x(hi) - x(lo), 1)}
+          height={H - PAD - (PAD - 6)}
+          fill="#4f9cff"
+          fillOpacity={0.12}
+        />
         <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#2a3340" strokeWidth={1} />
         <path d={path("losses")} fill="none" stroke="#e5534b" strokeWidth={2} />
         <path d={path("kills")} fill="none" stroke="#3fb950" strokeWidth={2} />
@@ -1211,14 +1286,149 @@ function TrendChart({ points }: { points: PvpTrendPoint[] }) {
             {points[i].date}
           </text>
         ))}
-        <text x={PAD} y={PAD - 10} className="trend-x">{`máx ${maxY}/sem`}</text>
       </svg>
+
+      <div className="scrub-sliders">
+        <input
+          type="range"
+          min={0}
+          max={n - 1}
+          value={lo}
+          onChange={(e) => setRange([Math.min(+e.target.value, hi), hi])}
+        />
+        <input
+          type="range"
+          min={0}
+          max={n - 1}
+          value={hi}
+          onChange={(e) => setRange([lo, Math.max(+e.target.value, lo)])}
+        />
+      </div>
+      <div className="muted small">
+        {points[lo].date} → {points[hi].date} · {sel.length} semanas
+      </div>
+
+      <div className="kpis" style={{ marginTop: "0.6rem" }}>
+        <Kpi label="Kills" value={fmtSp(kills)} tone="pos" />
+        <Kpi label="Losses" value={fmtSp(losses)} tone="neg" />
+        <Kpi label="ISK destruido" value={fmtIsk(iskD)} tone="pos" />
+        <Kpi label="ISK perdido" value={fmtIsk(iskL)} tone="neg" />
+        <Kpi label="Eficacia" value={`${eff.toFixed(0)}%`} tone={eff >= 50 ? "pos" : "neg"} />
+      </div>
+
       <div className="trend-legend">
         <span>
           <span className="ldot" style={{ background: "#3fb950" }} /> Kills
         </span>
         <span>
           <span className="ldot" style={{ background: "#e5534b" }} /> Losses
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Tendencia de Wallet con scrub: ingresos/gastos por mes, ventana deslizante y KPIs del tramo.
+function WalletScrub({ points }: { points: WalletTrendPoint[] }) {
+  const n = points.length;
+  const [range, setRange] = useState<[number, number]>([0, Math.max(0, n - 1)]);
+  useEffect(() => {
+    setRange([0, Math.max(0, n - 1)]);
+  }, [n]);
+  if (n < 2)
+    return <p className="muted small">Hace falta historial de varios meses para ver la tendencia.</p>;
+
+  const lo = Math.min(range[0], range[1]);
+  const hi = Math.max(range[0], range[1]);
+  const sel = points.slice(lo, hi + 1);
+  const income = sel.reduce((a, p) => a + p.income, 0);
+  const expense = sel.reduce((a, p) => a + p.expense, 0);
+  const net = income - expense;
+
+  const years = [...new Set(points.map((p) => p.month.slice(0, 4)))];
+  const curYear = points[lo].month.slice(0, 4);
+  const setToYear = (y: string) => {
+    const idxs = points.map((p, i) => [p.month.slice(0, 4), i] as const).filter(([yy]) => yy === y);
+    if (idxs.length) setRange([idxs[0][1], idxs[idxs.length - 1][1]]);
+  };
+
+  const W = 600;
+  const H = 190;
+  const PAD = 30;
+  const maxY = Math.max(...points.flatMap((p) => [p.income, p.expense]), 1);
+  const x = (i: number) => PAD + (i / (n - 1)) * (W - 2 * PAD);
+  const y = (v: number) => H - PAD - (v / maxY) * (H - 2 * PAD);
+  const path = (key: "income" | "expense") =>
+    points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p[key]).toFixed(1)}`).join(" ");
+  const labels = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+
+  return (
+    <div className="trend-chart">
+      <div className="resumen-period" style={{ marginBottom: "0.5rem" }}>
+        <span className="rp-label">📅 Ventana</span>
+        <select value={curYear} onChange={(e) => setToYear(e.target.value)}>
+          {years.map((yy) => (
+            <option key={yy} value={yy}>
+              {yy}
+            </option>
+          ))}
+        </select>
+        <button className="rateo-clear" onClick={() => setRange([0, n - 1])}>
+          Todo
+        </button>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="trend-svg" preserveAspectRatio="none">
+        <rect
+          x={x(lo)}
+          y={PAD - 6}
+          width={Math.max(x(hi) - x(lo), 1)}
+          height={H - PAD - (PAD - 6)}
+          fill="#4f9cff"
+          fillOpacity={0.12}
+        />
+        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#2a3340" strokeWidth={1} />
+        <path d={path("expense")} fill="none" stroke="#e5534b" strokeWidth={2} />
+        <path d={path("income")} fill="none" stroke="#3fb950" strokeWidth={2} />
+        {labels.map((i) => (
+          <text key={i} x={x(i)} y={H - PAD + 16} textAnchor="middle" className="trend-x">
+            {points[i].month}
+          </text>
+        ))}
+      </svg>
+
+      <div className="scrub-sliders">
+        <input
+          type="range"
+          min={0}
+          max={n - 1}
+          value={lo}
+          onChange={(e) => setRange([Math.min(+e.target.value, hi), hi])}
+        />
+        <input
+          type="range"
+          min={0}
+          max={n - 1}
+          value={hi}
+          onChange={(e) => setRange([lo, Math.max(+e.target.value, lo)])}
+        />
+      </div>
+      <div className="muted small">
+        {points[lo].month} → {points[hi].month} · {sel.length} meses
+      </div>
+
+      <div className="kpis" style={{ marginTop: "0.6rem" }}>
+        <Kpi label="Ingresos" value={fmtIsk(income)} tone="pos" />
+        <Kpi label="Gastos" value={fmtIsk(expense)} tone="neg" />
+        <Kpi label="Neto" value={fmtIsk(net)} tone={net >= 0 ? "pos" : "neg"} />
+      </div>
+
+      <div className="trend-legend">
+        <span>
+          <span className="ldot" style={{ background: "#3fb950" }} /> Ingresos
+        </span>
+        <span>
+          <span className="ldot" style={{ background: "#e5534b" }} /> Gastos
         </span>
       </div>
     </div>
@@ -1281,7 +1491,7 @@ function PvpView(props: {
     onKmKind,
     onKmPage,
   } = props;
-  const [chart, setChart] = useState(false);
+  const [chart, setChart] = useState(true); // PvP por defecto en Gráfica
   const [kmSort, setKmSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
   const onKmSort = (col: string) =>
     setKmSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
@@ -1348,8 +1558,8 @@ function PvpView(props: {
           {chart ? (
             <>
               <div className="top-list">
-                <h4>Tendencia (kills/losses por semana)</h4>
-                {trend ? <TrendChart points={trend} /> : <p className="muted small">Cargando…</p>}
+                <h4>Tendencia (kills/losses por semana) · arrastra para enfocar una ventana</h4>
+                {trend ? <TrendScrub points={trend} /> : <p className="muted small">Cargando…</p>}
               </div>
               <div className="tops">
                 <div className="top-list">
@@ -1646,11 +1856,12 @@ function NetworthChart(props: { series: NetworthPoint[] }) {
 
 function WalletViewC(props: {
   data: WalletView | null;
+  trend?: WalletTrendPoint[] | null;
   busy: boolean;
   global?: boolean;
   onSync?: () => void;
 }) {
-  const { data, busy, global, onSync } = props;
+  const { data, trend, busy, global, onSync } = props;
   const [chart, setChart] = useState(false);
   const [wSort, setWSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
   const onWSort = (col: string) =>
@@ -1690,6 +1901,12 @@ function WalletViewC(props: {
           <ViewToggle chart={chart} onChange={setChart} />
           {chart ? (
             <>
+              {trend && trend.length >= 2 && (
+                <div className="top-list">
+                  <h4>Tendencia (ingresos/gastos por mes) · arrastra para enfocar una ventana</h4>
+                  <WalletScrub points={trend} />
+                </div>
+              )}
               <div className="resumen-grid">
                 <div className="panel resumen-panel">
                   <h4>Distribución de ingresos</h4>

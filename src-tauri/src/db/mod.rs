@@ -1362,6 +1362,13 @@ pub struct WalletStats {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct WalletTrendPoint {
+    pub month: String, // YYYY-MM
+    pub income: f64,
+    pub expense: f64, // magnitud positiva
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RefTypeSum {
     pub ref_type: String,
     pub total: f64,
@@ -1466,6 +1473,29 @@ impl Db {
             top_expense,
             recent,
         })
+    }
+
+    /// Serie mensual de ingresos/gastos del journal (para el scrub de Wallet). None = global.
+    pub fn wallet_trend(&self, character_id: Option<i64>) -> AppResult<Vec<WalletTrendPoint>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT substr(date,1,7) AS ym,
+                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0.0),
+                    COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0.0)
+             FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1) AND date IS NOT NULL
+             GROUP BY ym ORDER BY ym ASC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok(WalletTrendPoint {
+                    month: r.get(0)?,
+                    income: r.get(1)?,
+                    expense: r.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     fn ref_type_sums(

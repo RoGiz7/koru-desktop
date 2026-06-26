@@ -1,15 +1,15 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-25 (v0.2.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-06-26 (v0.4.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.2.0 · 2026-06-25)
+## 📌 Estado actual (v0.4.0 · 2026-06-26)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
 
-### Aplicado recientemente (v0.1.2 → v0.2.0)
+### Aplicado recientemente (v0.1.2 → v0.4.0)
 - **Comercio** (órdenes de mercado), **Planetología** (PI), **Assets Fase B** (resuelve estructuras
   privadas con caché persistente + tabs por categoría).
 - **Reestructura de navegación en grupos** (Resumen·Patrimonio·PvP·PvE·Industria·Personaje + Mapa
@@ -33,9 +33,6 @@
 - **Auto-update multicapa**: comprueba al arrancar **+ cada 6 h + al recuperar el foco** de la ventana.
 - **Instancia única**: un 2º lanzamiento **enfoca la ventana existente** (evita conflictos de BD y
   carreras de refresh token).
-- **Selector de tema** persistido (Nebulosa/Amarr/Caldari/Gallente/Minmatar/Abismo).
-- **i18n ES/EN** — framework (`src/i18n.ts` + `t()` + selector persistido) y **chrome traducida**
-  (navegación, cabeceras, pie, botones). Cuerpos de cada vista: pendiente (incremental).
 - **Selector de tema** persistido (Nebulosa/Amarr/Caldari/Gallente/Minmatar/Abismo; `data-theme` + localStorage).
 - **i18n ES/EN** — framework `src/i18n.ts` (`t()` por string-fuente + selector persistido) y **chrome traducida**
   (navegación, cabeceras, pie, botones). Cuerpos de vista: pendiente (incremental).
@@ -45,27 +42,32 @@
 - **PvE — Factional** (`/fw/stats`, scope `esi-characters.read_fw_stats.v1`): facción, rango, enlistado,
   kills y victory points (ayer/semana/total). **PvE — Abyssals** (estimación honesta): runs e ISK por
   **compras de filamentos** en las transacciones de wallet (`wallet/transactions/` + match por nombre).
-- **Releases v0.1.2 → v0.2.0** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
+- **Zoom de rueda en el mapa arreglado + cómodo**: el listener no se enganchaba hasta cargar el SDE
+  (deps `[ne]`); ahora se "arma" por **permanencia del cursor (~140 ms) o clic**, sin robar el scroll de página.
+- **Friends & Foes (completo)** — **Contactos** (lista con standing + info pública + logos) y **Standings
+  NPC** (facciones/corps/agentes) en el grupo Personaje (`get_contacts`/`get_standings`, scopes nuevos).
+  **Capa de mapa "Standings NPC"**: colorea cada sistema por **tu standing con la facción NPC que lo
+  controla** (verde↔rojo), incluido **highsec** — `public/system-factions.json` generado del **SDE**
+  (facción por constelación/región). Útil para misioneros.
+- **Releases v0.1.2 → v0.4.0** publicadas; auto-update verificado y **multicapa** (arranque + 6h + foco);
   **instancia única**; `workflow_dispatch` (botón manual) en el workflow como red de seguridad.
 
 > **Convención de versiones (semver):** subimos el **minor** (`0.X.0`) cuando el lote añade *features*
-> nuevas (p. ej. v0.2.0 = Personaje + PvE), y el **patch** (`0.2.x`) para fixes/ajustes. El siguiente
-> bloque grande de funcionalidad irá a **v0.3.0**. El auto-update compara numéricamente, así que tanto
-> `0.1.10` como `0.2.0` serían válidos; usamos minor por claridad semántica.
+> nuevas (p. ej. v0.3.0 = Contactos, v0.4.0 = capa de standings en el mapa), y el **patch** (`0.x.y`)
+> para fixes/ajustes (p. ej. v0.2.1 = arreglo del zoom de rueda). El auto-update compara numéricamente.
 
 ### Pendiente (orden por prioridad)
-1. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
-2. **Friends & Foes**: overlay de **standings** (contactos) azul/rojo en el mapa.
-3. **Fabricación**: separar de "Industria" con su propia vista (jobs) — split del grupo Industria.
-4. **Scrub temporal** en PvP/Wallet (moverse en el tiempo) y orden por defecto Gráfica en PvP.
-5. **Persistir histórico de transacciones** (para Abyssals/Comercio fiables más allá de la ventana
+1. **Fabricación**: separar de "Industria" con su propia vista (jobs) — split del grupo Industria.
+2. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
+3. **Scrub temporal** en PvP/Wallet (moverse en el tiempo) y orden por defecto Gráfica en PvP.
+4. **Persistir histórico de transacciones** (para Abyssals/Comercio fiables más allá de la ventana
    de ESI) — hoy Abyssals usa solo la ventana reciente de `wallet/transactions/`.
-6. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`) + rango/fuel automático por skills.
-7. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
-8. **Tematización por evento** (sobre el selector de temas ya hecho).
-9. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
-10. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
-11. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
+5. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`) + rango/fuel automático por skills.
+6. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
+7. **Tematización por evento** (sobre el selector de temas ya hecho).
+8. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
+9. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
+10. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
 
 #### Apuntes / ideas surgidas
 - **Rangos de FW por facción**: hoy se muestra el rango como número; mapear a nombre por facción (cosmético).
@@ -73,6 +75,9 @@
   por el nombre del filamento daría desglose por dificultad.
 - **Resolver nombres de ubicación** (home clone, estaciones) reutilizando el patrón de Assets Fase B.
 - **i18n incremental**: ir traduciendo vista por vista; el diccionario `i18n.ts` ya admite añadir claves.
+- **Capa de standings**: hoy colorea por tu standing; opción futura = **sub-filtro "territorio NPC"**
+  (colorear por facción que controla, sin standing) reusando el mismo `system-factions.json`. Regenerar
+  ese archivo si CCP cambia la asignación de facciones (script ad-hoc desde el SDE en `documentacion/sde-source`).
 
 ### Ideas / visión recogidas
 - **Norte de diseño = dashboard "Koru Alliance Auth"** (capturas en `../documentacion/koru alliance auth/`):

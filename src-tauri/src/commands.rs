@@ -3,7 +3,7 @@
 use crate::config;
 use crate::db::{
     CharacterRow, Db, FinancialSummary, NetworthPoint, PvpActivity, PvpStats, PvpTrendPoint,
-    RattingDetail, WalletStats,
+    RattingDetail, WalletStats, WalletTrendPoint,
 };
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
@@ -1376,6 +1376,23 @@ pub async fn get_wallet(character_id: i64, state: State<'_, AppState>) -> AppRes
     let balance = wallet::balance(&state.esi, &state.db, character_id, &token).await?;
     let stats = state.db.wallet_stats(character_id)?;
     Ok(WalletView { balance, stats })
+}
+
+/// Serie mensual de ingresos/gastos (para el scrub de Wallet) de un personaje.
+#[tauri::command]
+pub async fn get_wallet_trend(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<WalletTrendPoint>> {
+    state.db.wallet_trend(Some(character_id))
+}
+
+/// Serie mensual de ingresos/gastos, global.
+#[tauri::command]
+pub async fn get_wallet_trend_global(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<WalletTrendPoint>> {
+    state.db.wallet_trend(None)
 }
 
 /// Devuelve resumen de skills: SP total, sin asignar, nº de skills y cola (con nombres).

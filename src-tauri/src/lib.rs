@@ -85,6 +85,8 @@ pub fn run() {
             commands::export_pvp_csv,
             commands::sync_wallet,
             commands::get_wallet,
+            commands::get_wallet_trend,
+            commands::get_wallet_trend_global,
             commands::get_skills,
             commands::get_character_detail,
             commands::get_factional,
