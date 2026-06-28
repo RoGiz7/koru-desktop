@@ -1,15 +1,30 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-26 (v0.6.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-06-28 (v0.7.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.6.0 · 2026-06-26)
+## 📌 Estado actual (v0.7.0 · 2026-06-28)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
 
-### Aplicado recientemente (v0.1.2 → v0.6.0)
+### Aplicado recientemente (v0.1.2 → v0.7.0)
+- ⭐ **Backup / restauración del histórico local (v0.7.0)**: desplegable **⚙️ Ajustes** en la
+  topbar con **Crear copia de seguridad** (exporta la BD a un único `.sqlite3` vía `VACUUM INTO`,
+  consistente aunque la app esté en uso) y **Restaurar** (valida que sea una BD de Koru, la deja
+  en staging `*.sqlite3.restore` y reinicia; el reemplazo se aplica al arrancar con la BD cerrada,
+  limpiando los sidecar `-wal`/`-shm`). Comandos `backup_db`/`restore_db`, `tauri-plugin-dialog`,
+  `db_path` en `AppState`. Tokens siguen en el keychain → en un PC nuevo solo hay que re-loguear.
+  El popup de Ajustes se posiciona con `fixed` recortado al viewport (no se corta en ventanas
+  estrechas). Extras en el mismo menú: **ruta + tamaño de la BD** (`db_info`, incluye el `-wal`),
+  **Abrir carpeta de datos** (`revealItemInDir`) y **"Última copia hace X"** (timestamp en
+  localStorage). **Copias automáticas**: toggle + carpeta destino + frecuencia (diaria/semanal/al
+  abrir) + rotación (conservar 7/14/30/todas); comando `auto_backup(dir, keep)` que hace `VACUUM INTO`
+  con nombre `koru-autobackup-FECHA.sqlite3` y borra las antiguas; el frontend lo dispara al arrancar
+  y cada hora si toca. _Resuelve el ítem CRÍTICO por completo._
+  _Importador CSV (p. ej. minería desde Alliance Auth) DESCARTADO: AA no guarda más allá de los
+  ~90 días de EVE, no aporta sobre el histórico que ya acumulamos en local._
 - **Comercio** (órdenes de mercado), **Planetología** (PI), **Assets Fase B** (resuelve estructuras
   privadas con caché persistente + tabs por categoría).
 - **Reestructura de navegación en grupos** (Resumen·Patrimonio·PvP·PvE·Industria·Personaje + Mapa
@@ -63,7 +78,27 @@
 > para fixes/ajustes (p. ej. v0.2.1 = arreglo del zoom de rueda). El auto-update compara numéricamente.
 
 ### Pendiente (orden por prioridad)
-1. **➡️ SIGUIENTE — Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`, scope
+
+✅ **HECHO (v0.7.0) — Backup / restauración del histórico local.** Implementado vía ⚙️ Ajustes
+(ver "Aplicado recientemente"). Pendiente como mejora futura: **auto-backup** periódico a una carpeta
+(el usuario la pone en su nube/Drive) y, más adelante, **merge de dos PCs** (dedupe por id: journal/
+killmails/transacciones por id, mining por clave compuesta). Cero servidor nuestro.
+
+0. **★ NUEVO CANDIDATO DE CABEZA — Capa de Intel en vivo en el mapa** (research en
+   `docs/RESEARCH_MAPA_INTEL.md`): leer el **log de chat** del juego (`Documents/EVE/logs/Chatlogs/`,
+   UTF-16LE), parsear avisos "sistema · piloto · nave", pintar **círculos rojos por recencia** en el
+   mapa, **proximidad por saltos** (Dijkstra que ya tenemos) y **alarma/notificación si entra a ≤N
+   saltos** + panel "intel reciente" con enlace zKill. Read-only y TOS-safe. Es lo más pedido por la
+   comunidad y explota toda nuestra base (grafo+overlays+zKill). _Decidir en próxima sesión si va antes
+   que el jump planner._ Complementos baratos: **anillos de proximidad** y **modo Hunting** (reusan
+   grafo/overlays); **notificaciones nativas** (infra reusable: intel + skill queue <24 h).
+   **Multiboxing: DESCARTADO** (decisión del usuario).
+- ✅ **Auto-refresh de la vista al sincronizar (v0.7.0)** — al terminar cualquier sync (auto de 30 min
+  o ⟳ manual) se recarga la vista activa (`loadTab(subject, tab)` + header + mapa) en **modo silencioso**
+  (`loadTab(..., silent=true)`: sin skeleton de carga, sin borrar/lanzar errores) para no resetear
+  scroll/selección. El listado de killmails NO se recarga a propósito (evita resetear la paginación).
+  El scrub solo se reajusta si cambia el nº de puntos (semana/mes nuevo), no en cada refresco.
+1. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`, scope
    `esi-characters.read_fatigue.v1`) + rango/fuel automático por skills (Jump Drive Calibration /
    Fuel Conservation) y datos de nave del SDE. Sobre la burbuja de rango ya existente.
 2. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
@@ -91,6 +126,13 @@
   anterior). Lo **de corp** (leaderboards de alianza, Kill Feed, top enemigos) **NO es local-first** →
   queda para el tool web (ecosistema koru_stats/Baserow), no para Koru Desktop.
 - **Filosofía local-first reforzada**: conservar en el PC lo que ESI olvida (sincronizar con frecuencia).
+- **Menú de features de comunidad** en `docs/COMUNIDAD_FEATURES.md` (notas de RoGiz7 + contraste con lo
+  que ya tenemos). Candidatos nuevos destacados a evaluar: **intel/local scanner** (pegar local →
+  zKill → clasificar amenazas; cuidado TOS = solo portapapeles), **alertas de skill queue (<24 h)**,
+  **calculadora de inyectores**, **calculadora de refinado**, **aviso de orden superada** en Comercio,
+  **modo overlay "siempre al frente"**. Pesados/aplazables: ship fitting (existe Pyfa), build-vs-buy
+  (ligado a Fabricación), multi-boxing. **Pendiente: nuestra propia búsqueda en la comunidad** para
+  priorizar con datos reales antes de comprometer módulos grandes.
 
 ---
 

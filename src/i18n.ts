@@ -63,6 +63,34 @@ const EN: Record<string, string> = {
   "Hora EVE": "EVE time",
   "Cargando…": "Loading…",
   "Sin datos.": "No data.",
+
+  // --- Ajustes / copia de seguridad ---
+  Ajustes: "Settings",
+  "Datos y copia de seguridad": "Data & backup",
+  "Crear copia de seguridad": "Create backup",
+  "Restaurar copia de seguridad": "Restore backup",
+  "Guarda todo tu histórico local (PvP, wallet, minería, patrimonio) en un archivo.":
+    "Save all your local history (PvP, wallet, mining, wealth) to a file.",
+  "Reemplaza tus datos actuales por los de una copia y reinicia la app.":
+    "Replace your current data with a backup and restart the app.",
+  "Copia de seguridad creada": "Backup created",
+  "Se reiniciará la app para aplicar la restauración. ¿Continuar?":
+    "The app will restart to apply the restore. Continue?",
+  "Esto reemplazará TODOS tus datos actuales. ¿Seguro?":
+    "This will replace ALL your current data. Are you sure?",
+  "Abrir carpeta de datos": "Open data folder",
+  "Última copia": "Last backup",
+  nunca: "never",
+  "Copias automáticas": "Automatic backups",
+  "Elegir carpeta de copias automáticas": "Choose automatic backup folder",
+  "Sin carpeta seleccionada": "No folder selected",
+  "Elegir carpeta…": "Choose folder…",
+  Frecuencia: "Frequency",
+  Conservar: "Keep",
+  Diaria: "Daily",
+  Semanal: "Weekly",
+  "Al abrir": "On launch",
+  Todas: "All",
 };
 
 export function t(s: string, lang: Lang): string {

@@ -31,6 +31,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // BD en el directorio de datos de la app.
             let data_dir = app
@@ -38,13 +39,30 @@ pub fn run() {
                 .app_data_dir()
                 .expect("no se pudo resolver app_data_dir");
             let db_path = data_dir.join("koru-desktop.sqlite3");
-            let db = Db::open(db_path).expect("no se pudo abrir la BD");
+
+            // Restauración pendiente: si existe un archivo .restore (dejado por restore_db),
+            // lo aplicamos AHORA, con la BD aún cerrada. Reemplazamos la BD vigente y
+            // borramos los sidecar -wal/-shm para que no "revivan" datos antiguos.
+            let staging = commands::restore_staging_path(&db_path);
+            if staging.exists() {
+                let _ = std::fs::remove_file(&db_path);
+                let _ = std::fs::remove_file(db_path.with_extension("sqlite3-wal"));
+                let _ = std::fs::remove_file(db_path.with_extension("sqlite3-shm"));
+                if std::fs::rename(&staging, &db_path).is_err() {
+                    // rename puede fallar entre volúmenes distintos → copia + borrado.
+                    let _ = std::fs::copy(&staging, &db_path);
+                    let _ = std::fs::remove_file(&staging);
+                }
+            }
+
+            let db = Db::open(db_path.clone()).expect("no se pudo abrir la BD");
 
             let http = sso::http_client().expect("no se pudo crear el cliente HTTP");
             let esi = EsiClient::new(http);
 
             app.manage(AppState {
                 db,
+                db_path,
                 tokens: TokenManager::new(),
                 esi,
                 cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -125,6 +143,10 @@ pub fn run() {
             commands::get_assets_map_global,
             commands::get_mining_map,
             commands::get_mining_map_global,
+            commands::backup_db,
+            commands::restore_db,
+            commands::db_info,
+            commands::auto_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

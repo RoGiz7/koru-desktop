@@ -26,6 +26,14 @@ export function fmtSp(n: number): string {
   return n.toLocaleString("es-ES");
 }
 
+// Tamaño de archivo legible (B / KB / MB / GB).
+export function fmtBytes(n: number): string {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  return `${(n / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+
 export function shipIcon(typeId: number | null): string | null {
   if (!typeId) return null;
   return `https://images.evetech.net/types/${typeId}/render?size=32`;

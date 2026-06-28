@@ -9,6 +9,11 @@
     "core:default",
     "opener:default",
     "opener:allow-open-url",
-    "process:default"
+    "opener:allow-reveal-item-in-dir",
+    "process:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-confirm"
   ]
 }

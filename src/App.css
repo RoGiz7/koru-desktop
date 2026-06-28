@@ -1822,6 +1822,146 @@ h4 {
   align-items: center;
 }
 
+/* ---- Desplegable ⚙️ Ajustes (datos / copia de seguridad) ---- */
+.tb-settings {
+  position: relative;
+}
+
+.tb-settings-toggle {
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
+
+.tb-settings-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent-border);
+  color: #fff;
+}
+
+.tb-settings-pop {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: auto;
+  margin-top: 4px;
+  width: 300px;
+  /* Nunca más ancho que la ventana (evita que se corte por el borde izquierdo). */
+  max-width: calc(100vw - 1.5rem);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.tb-settings-title {
+  padding: 0.2rem 0.4rem 0.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tb-settings-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  text-align: left;
+  padding: 0.5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  width: 100%;
+}
+
+.tb-settings-item:hover {
+  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
+  border-color: var(--border);
+}
+
+.tb-si-ic {
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.tb-si-tx {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.tb-settings-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  padding: 0.5rem 0.4rem 0.2rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Ruta de la BD: una línea con elipsis (el título muestra la ruta completa). */
+.tb-settings-db {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.tb-settings-folder {
+  align-self: flex-start;
+  padding: 0.3rem 0.6rem;
+}
+
+/* ---- Copias automáticas ---- */
+.tb-settings-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  padding: 0.5rem 0.4rem 0.2rem;
+  border-top: 1px solid var(--border);
+}
+
+.tb-auto-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.tb-auto-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-left: 0.2rem;
+}
+
+.tb-auto-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.tb-auto-pick {
+  align-self: flex-start;
+  padding: 0.3rem 0.6rem;
+}
+
+.tb-auto-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tb-auto-opts label {
+  display: flex;
+  align-items: center;
+}
+
 .tb-error {
   flex-basis: 100%;
   margin: 0.3rem 0 0;

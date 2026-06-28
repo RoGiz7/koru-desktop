@@ -20,10 +20,155 @@ use tauri::{Emitter, State, Window};
 /// Estado global de la app, gestionado por Tauri.
 pub struct AppState {
     pub db: Db,
+    /// Ruta del archivo SQLite en disco (para backup/restauración).
+    pub db_path: std::path::PathBuf,
     pub tokens: TokenManager,
     pub esi: EsiClient,
     /// Bandera para cancelar una sincronización en curso.
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+// --- Copia de seguridad / restauración del histórico local ---
+// Todo el histórico (journal, transacciones, minería, snapshots de patrimonio, killmails,
+// cachés) vive SOLO en este SQLite. Si el usuario cambia de PC o reinstala, lo pierde todo.
+// Estos comandos permiten exportarlo y restaurarlo (clave para el modelo local-first).
+// Los refresh tokens NO están aquí: viven en el keychain del SO → en un PC nuevo basta
+// con volver a iniciar sesión.
+
+/// Ruta del archivo de "staging" donde dejamos una restauración pendiente. Se aplica en el
+/// próximo arranque (ver `lib.rs`), porque no se puede reemplazar la BD mientras está abierta.
+pub fn restore_staging_path(db_path: &std::path::Path) -> std::path::PathBuf {
+    let mut p = db_path.as_os_str().to_owned();
+    p.push(".restore");
+    std::path::PathBuf::from(p)
+}
+
+/// Información de la BD local (ruta y tamaño) para mostrarla en el menú de Ajustes.
+#[derive(Debug, Serialize)]
+pub struct DbInfo {
+    pub path: String,
+    pub size: u64,
+}
+
+/// Devuelve la ruta y el tamaño (bytes) del archivo SQLite. El tamaño incluye, si existe,
+/// el sidecar `-wal` (datos aún no consolidados) para reflejar el total real en disco.
+#[tauri::command]
+pub fn db_info(state: State<'_, AppState>) -> AppResult<DbInfo> {
+    let path = &state.db_path;
+    let mut size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let wal = path.with_extension("sqlite3-wal");
+    if let Ok(m) = std::fs::metadata(&wal) {
+        size += m.len();
+    }
+    Ok(DbInfo {
+        path: path.to_string_lossy().to_string(),
+        size,
+    })
+}
+
+/// Crea una copia de seguridad consistente de la BD en `dest` (un único archivo .sqlite3).
+/// Usa `VACUUM INTO`, que consolida también el WAL pendiente → copia íntegra y compacta
+/// aunque la app esté en uso. Devuelve la ruta escrita.
+#[tauri::command]
+pub fn backup_db(state: State<'_, AppState>, dest: String) -> AppResult<String> {
+    // VACUUM INTO falla si el destino ya existe; lo quitamos primero (el usuario ya
+    // confirmó sobrescribir en el diálogo "Guardar como").
+    if std::path::Path::new(&dest).exists() {
+        std::fs::remove_file(&dest)
+            .map_err(|e| AppError::Other(format!("no se pudo sobrescribir el destino: {e}")))?;
+    }
+    let conn = state
+        .db
+        .conn
+        .lock()
+        .map_err(|_| AppError::Other("la base de datos está ocupada".into()))?;
+    conn.execute("VACUUM INTO ?1", [&dest])?;
+    Ok(dest)
+}
+
+/// Borra las copias automáticas más antiguas dejando solo las `keep` más recientes.
+/// `keep == 0` = conservar todas (no borra nada). El timestamp del nombre ordena por fecha.
+fn prune_autobackups(dir: &str, keep: usize) -> std::io::Result<()> {
+    if keep == 0 {
+        return Ok(());
+    }
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("koru-autobackup-") && n.ends_with(".sqlite3"))
+                .unwrap_or(false)
+        })
+        .collect();
+    files.sort(); // orden ascendente por nombre = cronológico
+    if files.len() > keep {
+        for p in &files[..files.len() - keep] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    Ok(())
+}
+
+/// Crea una copia automática en `dir` con nombre `koru-autobackup-FECHA.sqlite3` y rota las
+/// antiguas (deja `keep`). Mismo motor que el backup manual (`VACUUM INTO`). La llama el
+/// frontend cuando toca según la frecuencia configurada. Devuelve la ruta escrita.
+#[tauri::command]
+pub fn auto_backup(state: State<'_, AppState>, dir: String, keep: usize) -> AppResult<String> {
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H%M%S").to_string();
+    let dest = std::path::Path::new(&dir).join(format!("koru-autobackup-{stamp}.sqlite3"));
+    let dest_str = dest.to_string_lossy().to_string();
+    {
+        let conn = state
+            .db
+            .conn
+            .lock()
+            .map_err(|_| AppError::Other("la base de datos está ocupada".into()))?;
+        if dest.exists() {
+            std::fs::remove_file(&dest)
+                .map_err(|e| AppError::Other(format!("no se pudo escribir la copia: {e}")))?;
+        }
+        conn.execute("VACUUM INTO ?1", [&dest_str])?;
+    }
+    prune_autobackups(&dir, keep)
+        .map_err(|e| AppError::Other(format!("no se pudieron rotar las copias antiguas: {e}")))?;
+    Ok(dest_str)
+}
+
+/// Restaura un backup previamente exportado. No se puede reemplazar la BD mientras la
+/// conexión está abierta, así que dejamos el archivo en "staging" junto a la BD y reiniciamos:
+/// en el próximo arranque se aplica el reemplazo con la BD ya cerrada (ver `lib.rs`).
+#[tauri::command]
+pub fn restore_db(app: tauri::AppHandle, state: State<'_, AppState>, src: String) -> AppResult<()> {
+    // 1) Validar que es una BD SQLite de Koru (abrir solo-lectura y comprobar el esquema).
+    {
+        let test = rusqlite::Connection::open_with_flags(
+            &src,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|e| AppError::Other(format!("no es una base de datos válida: {e}")))?;
+        let n: i64 = test
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='characters'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| AppError::Other(format!("no se pudo leer la copia: {e}")))?;
+        if n == 0 {
+            return Err(AppError::Other(
+                "el archivo no parece una copia de Koru (falta la tabla characters)".into(),
+            ));
+        }
+    }
+    // 2) Copiar a <bd>.restore (staging). Se aplica en el próximo arranque.
+    let staging = restore_staging_path(&state.db_path);
+    std::fs::copy(&src, &staging)
+        .map_err(|e| AppError::Other(format!("no se pudo preparar la restauración: {e}")))?;
+    // 3) Reiniciar para aplicar el reemplazo con la BD cerrada. `restart()` normalmente no
+    // retorna (-> !); el `Ok(())` queda por si la versión de Tauri lo tipa como `()`.
+    app.restart();
+    #[allow(unreachable_code)]
+    Ok(())
 }
 
 /// Cancela la sincronización en curso (la marca; el bucle la detecta y para limpio).

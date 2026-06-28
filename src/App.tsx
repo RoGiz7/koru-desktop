@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { save, open as openDialog, message, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { t, type Lang } from "./i18n";
 import "./App.css";
-import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
+import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
 import {
   FEATURES,
   SCOPE,
@@ -75,6 +76,34 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [feature, setFeature] = useState("identity");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
+  const [settingsOpen, setSettingsOpen] = useState(false); // desplegable ⚙️ Ajustes (datos/backup)
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  // Posición calculada del popup (fixed) para que nunca se salga del viewport, caiga donde
+  // caiga el botón ⚙️ (la topbar se reordena en ventanas estrechas).
+  const [settingsPos, setSettingsPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [dbInfo, setDbInfo] = useState<{ path: string; size: number } | null>(null);
+  const [lastBackup, setLastBackup] = useState<number | null>(() => {
+    const v = localStorage.getItem("koru-last-backup");
+    return v ? Number(v) : null;
+  });
+  // Copias automáticas (config persistida en localStorage).
+  const [autoBkEnabled, setAutoBkEnabled] = useState<boolean>(
+    () => localStorage.getItem("koru-autobackup-enabled") === "1"
+  );
+  const [autoBkDir, setAutoBkDir] = useState<string | null>(
+    () => localStorage.getItem("koru-autobackup-dir")
+  );
+  const [autoBkFreq, setAutoBkFreq] = useState<string>(
+    () => localStorage.getItem("koru-autobackup-freq") || "daily"
+  );
+  const [autoBkKeep, setAutoBkKeep] = useState<number>(
+    () => Number(localStorage.getItem("koru-autobackup-keep") ?? 7)
+  );
+  const [autoBkLast, setAutoBkLast] = useState<number | null>(() => {
+    const v = localStorage.getItem("koru-autobackup-last");
+    return v ? Number(v) : null;
+  });
+  const ranStartupBackup = useRef(false);
   // Estado del servidor EVE (Tranquility)
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
   const [serverOffline, setServerOffline] = useState(false);
@@ -134,6 +163,134 @@ function App() {
     } catch (e) {
       setError(String(e));
       setUpdating(false);
+    }
+  }
+
+  // Calcula la posición del popup de Ajustes anclándolo al botón pero recortándolo al
+  // viewport (así no se corta por ningún borde, esté el ⚙️ a la derecha o haya bajado de fila).
+  function computeSettingsPos() {
+    const btn = settingsBtnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const width = Math.min(300, window.innerWidth - 16);
+    let left = r.right - width; // alinear borde derecho del popup con el del botón
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    setSettingsPos({ top: r.bottom + 4, left, width });
+  }
+  function openSettings() {
+    computeSettingsPos();
+    setSettingsOpen(true);
+    // Cargar ruta/tamaño de la BD para mostrarlos en el menú.
+    invoke<{ path: string; size: number }>("db_info")
+      .then(setDbInfo)
+      .catch(() => setDbInfo(null));
+  }
+  async function handleOpenDataFolder() {
+    try {
+      if (dbInfo?.path) await revealItemInDir(dbInfo.path);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // --- Copias automáticas ---
+  function setAutoBk(key: string, value: string) {
+    localStorage.setItem(`koru-autobackup-${key}`, value);
+  }
+  async function chooseAutoBkDir() {
+    try {
+      const dir = await openDialog({
+        title: tr("Elegir carpeta de copias automáticas"),
+        directory: true,
+        multiple: false,
+      });
+      if (dir && typeof dir === "string") {
+        setAutoBkDir(dir);
+        setAutoBk("dir", dir);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  // Dispara una copia automática si está activada, hay carpeta y toca según la frecuencia.
+  // Se evalúa al arrancar y cada hora. Errores (carpeta no disponible) se ignoran en silencio.
+  useEffect(() => {
+    if (!autoBkEnabled || !autoBkDir) return;
+    const isDue = (now: number) => {
+      if (autoBkFreq === "startup") return !ranStartupBackup.current;
+      const interval = autoBkFreq === "weekly" ? 7 * 864e5 : 864e5; // semanal o diario
+      return !autoBkLast || now - autoBkLast >= interval;
+    };
+    const run = async () => {
+      const now = Date.now();
+      if (!isDue(now)) return;
+      try {
+        await invoke<string>("auto_backup", { dir: autoBkDir, keep: autoBkKeep });
+        ranStartupBackup.current = true;
+        setAutoBk("last", String(now));
+        setAutoBkLast(now);
+        // refleja también en "Última copia" del menú
+        localStorage.setItem("koru-last-backup", String(now));
+        setLastBackup(now);
+      } catch {
+        // carpeta inaccesible (nube sin montar, USB fuera…): reintentará en la próxima vuelta
+      }
+    };
+    run();
+    const id = window.setInterval(run, 60 * 60 * 1000); // re-evaluar cada hora
+    return () => window.clearInterval(id);
+  }, [autoBkEnabled, autoBkDir, autoBkFreq, autoBkKeep, autoBkLast]);
+  // Recalcular si cambia el tamaño de la ventana con el menú abierto.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const on = () => computeSettingsPos();
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, [settingsOpen]);
+
+  // --- Copia de seguridad / restauración del histórico local ---
+  // Exporta la BD (un único .sqlite3) o la restaura desde un backup. Todo el histórico vive
+  // solo en local, así que esto es el "seguro" del modelo local-first.
+  async function handleBackup() {
+    setSettingsOpen(false);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const dest = await save({
+        title: tr("Crear copia de seguridad"),
+        defaultPath: `koru-backup-${today}.sqlite3`,
+        filters: [{ name: "Koru backup", extensions: ["sqlite3"] }],
+      });
+      if (!dest) return; // cancelado
+      const written = await invoke<string>("backup_db", { dest });
+      const now = Date.now();
+      localStorage.setItem("koru-last-backup", String(now));
+      setLastBackup(now);
+      await message(`${tr("Copia de seguridad creada")}:\n${written}`, { title: "Koru", kind: "info" });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleRestore() {
+    setSettingsOpen(false);
+    try {
+      const src = await openDialog({
+        title: tr("Restaurar copia de seguridad"),
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Koru backup", extensions: ["sqlite3"] }],
+      });
+      if (!src || typeof src !== "string") return; // cancelado
+      const ok = await dialogConfirm(tr("Esto reemplazará TODOS tus datos actuales. ¿Seguro?"), {
+        title: tr("Restaurar copia de seguridad"),
+        kind: "warning",
+      });
+      if (!ok) return;
+      // restore_db deja la copia en staging y reinicia la app para aplicarla (la BD no se
+      // puede reemplazar en caliente). El proceso se reinicia, así que no esperamos respuesta.
+      await invoke("restore_db", { src });
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -365,9 +522,13 @@ function App() {
     }
   }
 
-  async function loadTab(subj: number | "global", t: Tab) {
-    setError(null);
-    setSectionBusy(true);
+  // `silent` = refresco en segundo plano (tras un sync): NO muestra el skeleton de carga ni
+  // borra/lanza errores, para no resetear scroll/selección ni interrumpir al usuario.
+  async function loadTab(subj: number | "global", t: Tab, silent = false) {
+    if (!silent) {
+      setError(null);
+      setSectionBusy(true);
+    }
     try {
       if (subj === "global") {
         if (t === "pvp") {
@@ -440,9 +601,9 @@ function App() {
         }
       }
     } catch (e) {
-      setError(String(e));
+      if (!silent) setError(String(e));
     } finally {
-      setSectionBusy(false);
+      if (!silent) setSectionBusy(false);
     }
   }
 
@@ -483,10 +644,10 @@ function App() {
         "auto_sync"
       );
       setLastSync(Date.now());
-      // refrescar la vista actual con lo nuevo
+      // refrescar la vista actual con lo nuevo, en segundo plano (sin skeleton ni resetear scroll)
       loadHeadline(subject);
       loadMap(subject);
-      loadTab(subject, tab);
+      loadTab(subject, tab, true);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -831,6 +992,128 @@ function App() {
         >
           ⟳
         </button>
+
+        <div className="tb-settings">
+          <button
+            ref={settingsBtnRef}
+            className={`tb-settings-toggle ${settingsOpen ? "active" : ""}`}
+            onClick={() => (settingsOpen ? setSettingsOpen(false) : openSettings())}
+            title={tr("Ajustes")}
+          >
+            ⚙️
+          </button>
+          {settingsOpen && (
+            <div
+              className="tb-settings-pop"
+              style={
+                settingsPos
+                  ? {
+                      position: "fixed",
+                      top: settingsPos.top,
+                      left: settingsPos.left,
+                      right: "auto",
+                      width: settingsPos.width,
+                    }
+                  : undefined
+              }
+            >
+              <div className="tb-settings-title small muted">{tr("Datos y copia de seguridad")}</div>
+              <button className="tb-settings-item" onClick={handleBackup}>
+                <span className="tb-si-ic">💾</span>
+                <span className="tb-si-tx">
+                  <strong>{tr("Crear copia de seguridad")}</strong>
+                  <span className="small muted">
+                    {tr("Guarda todo tu histórico local (PvP, wallet, minería, patrimonio) en un archivo.")}
+                  </span>
+                </span>
+              </button>
+              <button className="tb-settings-item" onClick={handleRestore}>
+                <span className="tb-si-ic">↺</span>
+                <span className="tb-si-tx">
+                  <strong>{tr("Restaurar copia de seguridad")}</strong>
+                  <span className="small muted">
+                    {tr("Reemplaza tus datos actuales por los de una copia y reinicia la app.")}
+                  </span>
+                </span>
+              </button>
+
+              <div className="tb-settings-auto">
+                <label className="tb-auto-toggle">
+                  <input
+                    type="checkbox"
+                    checked={autoBkEnabled}
+                    onChange={(e) => {
+                      setAutoBkEnabled(e.target.checked);
+                      setAutoBk("enabled", e.target.checked ? "1" : "0");
+                    }}
+                  />
+                  <strong>{tr("Copias automáticas")}</strong>
+                </label>
+                {autoBkEnabled && (
+                  <div className="tb-auto-body">
+                    <div className="tb-auto-dir small muted" title={autoBkDir ?? ""}>
+                      {autoBkDir || tr("Sin carpeta seleccionada")}
+                    </div>
+                    <button className="tb-auto-pick" onClick={chooseAutoBkDir}>
+                      📁 {tr("Elegir carpeta…")}
+                    </button>
+                    <div className="tb-auto-opts">
+                      <label className="small">
+                        {tr("Frecuencia")}:&nbsp;
+                        <select
+                          value={autoBkFreq}
+                          onChange={(e) => {
+                            setAutoBkFreq(e.target.value);
+                            setAutoBk("freq", e.target.value);
+                          }}
+                        >
+                          <option value="daily">{tr("Diaria")}</option>
+                          <option value="weekly">{tr("Semanal")}</option>
+                          <option value="startup">{tr("Al abrir")}</option>
+                        </select>
+                      </label>
+                      <label className="small">
+                        {tr("Conservar")}:&nbsp;
+                        <select
+                          value={autoBkKeep}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            setAutoBkKeep(v);
+                            setAutoBk("keep", String(v));
+                          }}
+                        >
+                          <option value={7}>7</option>
+                          <option value={14}>14</option>
+                          <option value={30}>30</option>
+                          <option value={0}>{tr("Todas")}</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="tb-settings-foot">
+                <div className="small muted">
+                  {tr("Última copia")}:{" "}
+                  {lastBackup ? fmtAgo(Date.now() - lastBackup) : tr("nunca")}
+                </div>
+                {dbInfo && (
+                  <div className="small muted tb-settings-db" title={dbInfo.path}>
+                    {dbInfo.path} · {fmtBytes(dbInfo.size)}
+                  </div>
+                )}
+                <button
+                  className="tb-settings-folder"
+                  onClick={handleOpenDataFolder}
+                  disabled={!dbInfo}
+                >
+                  📂 {tr("Abrir carpeta de datos")}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="tb-login">
           <button
