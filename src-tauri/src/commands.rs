@@ -26,6 +26,8 @@ pub struct AppState {
     pub esi: EsiClient,
     /// Bandera para cancelar una sincronización en curso.
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Vigilancia de intel en segundo plano (hilo nativo, sin throttle del SO).
+    pub intel: std::sync::Arc<IntelWatch>,
 }
 
 // --- Copia de seguridad / restauración del histórico local ---
@@ -2536,6 +2538,503 @@ pub async fn get_thera_connections(state: State<'_, AppState>) -> AppResult<Vec<
         })
         .collect();
     Ok(out)
+}
+
+// ---- Intel en vivo (lectura de los logs de chat del juego) ----
+// Read-only sobre los .txt de Documents\EVE\logs\Chatlogs\ (UTF-16LE). El matching de sistema,
+// proximidad y alertas se hacen en el frontend (tiene neweden.json + Dijkstra).
+
+/// Decodifica bytes UTF-16LE (salta el BOM si está) a String (lossy ante bytes sueltos).
+fn decode_utf16le(bytes: &[u8]) -> String {
+    let start = if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        2
+    } else {
+        0
+    };
+    let u16s: Vec<u16> = bytes[start..]
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    String::from_utf16_lossy(&u16s)
+}
+
+/// Lee un archivo de audio del disco (para el sonido de alerta personalizado). Best-effort.
+#[tauri::command]
+pub fn read_audio_file(path: String) -> AppResult<Vec<u8>> {
+    std::fs::read(&path).map_err(|e| AppError::Other(format!("no se pudo leer el audio: {e}")))
+}
+
+/// Ruta por defecto de la carpeta de Chatlogs en Windows (Documents\EVE\logs\Chatlogs).
+#[tauri::command]
+pub fn default_chatlogs_dir() -> String {
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        return format!("{up}\\Documents\\EVE\\logs\\Chatlogs");
+    }
+    String::new()
+}
+
+/// Lista los canales presentes en la carpeta (prefijo antes de `_AAAAMMDD_HHMMSS_charID.txt`).
+#[tauri::command]
+pub fn intel_channels(folder: String) -> AppResult<Vec<String>> {
+    let mut set = std::collections::BTreeSet::new();
+    if let Ok(rd) = std::fs::read_dir(&folder) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let stem = match name.strip_suffix(".txt") {
+                Some(s) => s,
+                None => continue,
+            };
+            // Quitar los 3 últimos campos separados por '_' (fecha, hora, charID).
+            let parts: Vec<&str> = stem.split('_').collect();
+            if parts.len() >= 4 {
+                let ch = parts[..parts.len() - 3].join("_");
+                if !ch.is_empty() {
+                    set.insert(ch);
+                }
+            }
+        }
+    }
+    Ok(set.into_iter().collect())
+}
+
+/// Una línea de intel parseada de un log de chat.
+#[derive(Debug, Serialize, Clone)]
+pub struct IntelLine {
+    pub ts_ms: i64,
+    pub channel: String,
+    pub author: String,
+    pub message: String,
+}
+
+/// Parsea TODAS las líneas de un fichero ya decodificado (sin filtrar por recencia ni deduplicar).
+/// Se cachea por fichero, así que parsear todo y filtrar luego permite reutilizar la caché.
+fn parse_intel_text(text: &str, channel: &str) -> Vec<IntelLine> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw
+            .trim_start_matches(|c: char| c.is_control() || c == '\u{feff}')
+            .trim();
+        if !line.starts_with('[') {
+            continue;
+        }
+        let close = match line.find(']') {
+            Some(i) => i,
+            None => continue,
+        };
+        let ts_str = line[1..close].trim();
+        let rest = line[close + 1..].trim();
+        let (author, message) = match rest.split_once(" > ") {
+            Some((a, m)) => (a.trim().to_string(), m.trim().to_string()),
+            None => continue,
+        };
+        if author == "EVE System" || author == "Sistema EVE" || message.is_empty() {
+            continue;
+        }
+        let ndt = match chrono::NaiveDateTime::parse_from_str(ts_str, "%Y.%m.%d %H:%M:%S") {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let dt = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc);
+        out.push(IntelLine {
+            ts_ms: dt.timestamp_millis(),
+            channel: channel.to_string(),
+            author,
+            message,
+        });
+    }
+    out
+}
+
+/// Caché de parseo por fichero: ruta → (mtime_ns, tamaño, líneas). Evita re-decodificar/re-parsear
+/// en cada poll los logs que no han cambiado (una carpeta de EVE acumula cientos de ficheros).
+type IntelCache = std::collections::HashMap<std::path::PathBuf, (u128, u64, Vec<IntelLine>)>;
+fn intel_cache() -> &'static std::sync::Mutex<IntelCache> {
+    static C: std::sync::OnceLock<std::sync::Mutex<IntelCache>> = std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Lee los logs de los `channels` indicados en `folder`, parsea las líneas de los últimos
+/// `since_minutes`, deduplica entre personajes (mismo ts+autor+mensaje) y las devuelve por orden.
+#[tauri::command]
+pub fn read_intel(
+    folder: String,
+    channels: Vec<String>,
+    since_minutes: i64,
+) -> AppResult<Vec<IntelLine>> {
+    collect_intel_lines(&folder, &channels, since_minutes)
+}
+
+/// Núcleo de lectura/parseo/dedup de intel (lo usan el comando `read_intel` y el hilo vigilante).
+fn collect_intel_lines(
+    folder: &str,
+    channels: &[String],
+    since_minutes: i64,
+) -> AppResult<Vec<IntelLine>> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::minutes(since_minutes.max(1));
+    let cutoff_ms = cutoff.timestamp_millis();
+    let rd = std::fs::read_dir(folder)
+        .map_err(|e| AppError::Other(format!("no se pudo leer la carpeta de logs: {e}")))?;
+    let mut out: Vec<IntelLine> = Vec::new();
+    let mut seen: HashSet<(i64, String, String)> = HashSet::new();
+    let skip_before = cutoff - chrono::Duration::minutes(10);
+    let cache = intel_cache();
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".txt") {
+            continue;
+        }
+        let ch = match channels.iter().find(|c| name.starts_with(&format!("{c}_"))) {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let md = match e.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        // Saltar ficheros claramente viejos (mtime muy anterior al cutoff).
+        let modt = md.modified().ok();
+        if let Some(mt) = modt {
+            let mdt: chrono::DateTime<chrono::Utc> = mt.into();
+            if mdt < skip_before {
+                continue;
+            }
+        }
+        let path = e.path();
+        let len = md.len();
+        let mtime_ns = modt
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+
+        // ¿Caché válida (mismo mtime + tamaño)? Reutiliza el parseo.
+        let mut lines: Option<Vec<IntelLine>> = None;
+        if let Ok(c) = cache.lock() {
+            if let Some((ct, cl, cv)) = c.get(&path) {
+                if *ct == mtime_ns && *cl == len {
+                    lines = Some(cv.clone());
+                }
+            }
+        }
+        let lines = match lines {
+            Some(v) => v,
+            None => {
+                let bytes = match std::fs::read(&path) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                let parsed = parse_intel_text(&decode_utf16le(&bytes), &ch);
+                if let Ok(mut c) = cache.lock() {
+                    c.insert(path.clone(), (mtime_ns, len, parsed.clone()));
+                }
+                parsed
+            }
+        };
+
+        for l in lines {
+            if l.ts_ms < cutoff_ms {
+                continue;
+            }
+            let key = (l.ts_ms / 1000, l.author.clone(), l.message.clone());
+            if !seen.insert(key) {
+                continue; // duplicado entre personajes
+            }
+            out.push(l);
+        }
+    }
+    out.sort_by_key(|l| l.ts_ms);
+    Ok(out)
+}
+
+// ---- Vigilancia de intel en segundo plano (hilo nativo, sin throttle del SO) ----
+// La detección (matching de sistema + proximidad BFS + decisión de alerta) corre aquí, así que
+// la alarma salta aunque la ventana esté minimizada. Emite eventos al frontend:
+//   "intel-lines" (Vec<IntelLine> recientes, para pintar) y "intel-alert" (alerta de proximidad).
+
+#[derive(Clone)]
+pub struct IntelWatchCfg {
+    pub folder: String,
+    pub channels: Vec<String>,
+    pub recency_min: i64,
+    /// Orígenes de proximidad: sistema del personaje + puntos de ancla elegidos.
+    pub origins: Vec<i64>,
+    pub alert_jumps: i64,
+}
+
+#[derive(Default)]
+pub struct IntelGraph {
+    pub name_to_id: std::collections::HashMap<String, i64>,
+    pub id_to_name: std::collections::HashMap<i64, String>,
+    pub adj: std::collections::HashMap<i64, Vec<i64>>,
+}
+
+#[derive(Default)]
+pub struct IntelWatch {
+    pub cfg: std::sync::Mutex<Option<IntelWatchCfg>>,
+    pub graph: std::sync::Mutex<IntelGraph>,
+    pub alerted: std::sync::Mutex<HashSet<String>>,
+    pub started: std::sync::atomic::AtomicBool,
+}
+
+#[derive(Clone, Serialize)]
+pub struct IntelAlertEvent {
+    pub sys_id: i64,
+    pub system: String,
+    pub jumps: i64,
+    pub author: String,
+    pub message: String,
+    pub ts_ms: i64,
+}
+
+/// Limpia un token igual que el frontend (quita puntuación final y `[*(` iniciales) y lo pasa a minúsculas.
+fn clean_intel_token(t: &str) -> String {
+    let t = t.trim_end_matches(|c: char| "*.,;:!?()".contains(c));
+    let t = t.trim_start_matches(|c: char| "*([".contains(c));
+    t.trim().to_lowercase()
+}
+
+/// BFS multi-origen: distancia (en saltos) al más cercano de varios orígenes.
+fn intel_bfs(adj: &std::collections::HashMap<i64, Vec<i64>>, origins: &[i64]) -> std::collections::HashMap<i64, i64> {
+    let mut dist = std::collections::HashMap::new();
+    let mut q = std::collections::VecDeque::new();
+    for &o in origins {
+        if dist.insert(o, 0i64).is_none() {
+            q.push_back(o);
+        }
+    }
+    while let Some(cur) = q.pop_front() {
+        let d = dist[&cur];
+        if let Some(ns) = adj.get(&cur) {
+            for &nb in ns {
+                if !dist.contains_key(&nb) {
+                    dist.insert(nb, d + 1);
+                    q.push_back(nb);
+                }
+            }
+        }
+    }
+    dist
+}
+
+/// Carga el grafo (nombres↔id + adyacencia) una vez. El frontend lo envía desde neweden.json.
+#[tauri::command]
+pub fn set_intel_graph(
+    state: State<'_, AppState>,
+    names: Vec<(String, i64)>,
+    edges: Vec<(i64, i64)>,
+) -> AppResult<()> {
+    let mut g = IntelGraph::default();
+    for (n, id) in names {
+        g.name_to_id.insert(n.to_lowercase(), id);
+        g.id_to_name.entry(id).or_insert(n);
+    }
+    for (a, b) in edges {
+        g.adj.entry(a).or_default().push(b);
+        g.adj.entry(b).or_default().push(a);
+    }
+    if let Ok(mut slot) = state.intel.graph.lock() {
+        *slot = g;
+    }
+    Ok(())
+}
+
+/// Arranca (o reconfigura) la vigilancia de intel en segundo plano.
+#[tauri::command]
+pub fn start_intel_watch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    folder: String,
+    channels: Vec<String>,
+    recency_minutes: i64,
+    origins: Vec<i64>,
+    alert_jumps: i64,
+) -> AppResult<()> {
+    if let Ok(mut c) = state.intel.cfg.lock() {
+        *c = Some(IntelWatchCfg {
+            folder,
+            channels,
+            recency_min: recency_minutes,
+            origins,
+            alert_jumps,
+        });
+    }
+    // Arrancar el hilo una sola vez; en sucesivas llamadas solo cambia la cfg.
+    if !state.intel.started.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        spawn_intel_thread(app, state.intel.clone());
+    }
+    Ok(())
+}
+
+/// Detiene la vigilancia (el hilo sigue vivo pero ocioso).
+/// NO limpia el set de alertas ya emitidas: así, al reconfigurar (cambiar anclas/recencia/etc.,
+/// que hace stop+start) no se re-disparan las alertas que ya viste. Las claves (sid-ts) caducan
+/// solas porque los reportes viejos dejan de aparecer por el filtro de recencia.
+#[tauri::command]
+pub fn stop_intel_watch(state: State<'_, AppState>) -> AppResult<()> {
+    if let Ok(mut c) = state.intel.cfg.lock() {
+        *c = None;
+    }
+    Ok(())
+}
+
+fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) {
+    use std::hash::{Hash, Hasher};
+    std::thread::spawn(move || {
+        // Firma del último conjunto de líneas emitido: si no cambia, no re-emitimos
+        // (evita re-render del frontend) ni re-evaluamos matching salvo que cambie la config.
+        let mut last_sig: u64 = 0;
+        let mut last_cfg_sig: u64 = 0;
+        loop {
+            let cfg = watch.cfg.lock().ok().and_then(|c| c.clone());
+            let cfg = match cfg {
+                Some(c) => c,
+                None => {
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    continue;
+                }
+            };
+            if cfg.channels.is_empty() || cfg.folder.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+                continue;
+            }
+            let lines =
+                collect_intel_lines(&cfg.folder, &cfg.channels, cfg.recency_min).unwrap_or_default();
+
+            // Firma barata de las líneas y de la config relevante para alertas.
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for l in &lines {
+                l.ts_ms.hash(&mut h);
+                l.author.hash(&mut h);
+                l.message.hash(&mut h);
+            }
+            let sig = h.finish();
+            let mut hc = std::collections::hash_map::DefaultHasher::new();
+            cfg.origins.hash(&mut hc);
+            cfg.alert_jumps.hash(&mut hc);
+            let cfg_sig = hc.finish();
+
+            let lines_changed = sig != last_sig;
+            let cfg_changed = cfg_sig != last_cfg_sig;
+            // Si nada cambió (ni logs ni config), no hacemos trabajo ni despertamos al frontend.
+            if !lines_changed && !cfg_changed {
+                std::thread::sleep(std::time::Duration::from_millis(3000));
+                continue;
+            }
+            last_sig = sig;
+            last_cfg_sig = cfg_sig;
+
+            // Solo re-emitimos (y re-renderiza el frontend) cuando cambian las líneas.
+            if lines_changed {
+                let _ = app.emit("intel-lines", &lines);
+            }
+
+            // Matching de sistemas + proximidad + alertas, con el grafo cargado.
+            if let Ok(g) = watch.graph.lock() {
+                if !g.name_to_id.is_empty() {
+                    // rep: sistema -> (ts_ms, autor, mensaje), aplicando clears.
+                    let mut rep: std::collections::HashMap<i64, (i64, String, String)> =
+                        std::collections::HashMap::new();
+                    for l in &lines {
+                        let mut is_clear = false;
+                        let mut matched: Vec<i64> = Vec::new();
+                        for tok in l.message.split_whitespace() {
+                            let c = clean_intel_token(tok);
+                            if c.is_empty() {
+                                continue;
+                            }
+                            if c == "clr" || c == "clear" || c == "cleared" {
+                                is_clear = true;
+                                continue;
+                            }
+                            if let Some(&sid) = g.name_to_id.get(&c) {
+                                matched.push(sid);
+                            }
+                        }
+                        for sid in matched {
+                            if is_clear {
+                                rep.remove(&sid);
+                            } else {
+                                rep.insert(sid, (l.ts_ms, l.author.clone(), l.message.clone()));
+                            }
+                        }
+                    }
+                    // Proximidad desde los orígenes (pj + anclas).
+                    if !cfg.origins.is_empty() {
+                        let dist = intel_bfs(&g.adj, &cfg.origins);
+                        for (sid, (ts, author, message)) in &rep {
+                            if let Some(&d) = dist.get(sid) {
+                                if d <= cfg.alert_jumps {
+                                    let key = format!("{sid}-{ts}");
+                                    let is_new = watch
+                                        .alerted
+                                        .lock()
+                                        .map(|mut a| a.insert(key))
+                                        .unwrap_or(false);
+                                    if is_new {
+                                        let system = g
+                                            .id_to_name
+                                            .get(sid)
+                                            .cloned()
+                                            .unwrap_or_else(|| sid.to_string());
+                                        // Notificación nativa del SO (visible/audible minimizado).
+                                        use tauri_plugin_notification::NotificationExt;
+                                        let _ = app
+                                            .notification()
+                                            .builder()
+                                            .title(format!("⚠ Intel a {d} salto(s): {system}"))
+                                            .body(format!("{author}: {message}"))
+                                            .show();
+                                        let _ = app.emit(
+                                            "intel-alert",
+                                            IntelAlertEvent {
+                                                sys_id: *sid,
+                                                system,
+                                                jumps: d,
+                                                author: author.clone(),
+                                                message: message.clone(),
+                                                ts_ms: *ts,
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(3000));
+        }
+    });
+}
+
+#[derive(Debug, Serialize)]
+pub struct IntelEntity {
+    pub id: i64,
+    pub name: String,
+}
+#[derive(Debug, Serialize)]
+pub struct IntelEntities {
+    pub characters: Vec<IntelEntity>,
+    pub ships: Vec<IntelEntity>,
+}
+
+/// Resuelve una lista de nombres candidatos (de una línea de intel) a personajes y naves.
+/// El frontend lo usa al abrir la tarjeta de detalle para enlazar a zKill y distinguir piloto/nave.
+#[tauri::command]
+pub async fn resolve_intel_entities(
+    state: State<'_, AppState>,
+    names: Vec<String>,
+) -> AppResult<IntelEntities> {
+    let (chars, ships) = state.esi.resolve_entities(&names).await?;
+    Ok(IntelEntities {
+        characters: chars
+            .into_iter()
+            .map(|(id, name)| IntelEntity { id, name })
+            .collect(),
+        ships: ships
+            .into_iter()
+            .map(|(id, name)| IntelEntity { id, name })
+            .collect(),
+    })
 }
 
 /// Niveles de skill entrenados del personaje (skill_id → nivel activo). Para el skill-check de fits.

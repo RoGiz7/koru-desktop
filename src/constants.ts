@@ -98,7 +98,8 @@ export type MapOverlay =
   | "assets"
   | "mineria"
   | "standings"
-  | "wormholes";
+  | "wormholes"
+  | "intel";
 
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
 
@@ -245,6 +246,7 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "fw", label: "Guerra de facciones", short: "Facciones", icon: "◎", typeId: 17841, cat: "universo" }, // Federation Navy Comet
   { key: "kills", label: "Kills última hora", short: "Kills 1h", icon: "💥", typeId: 484, cat: "vivo" }, // 125mm Gatling AutoCannon I
   { key: "jumps", label: "Jumps última hora", short: "Jumps 1h", icon: "➿", typeId: 21096, cat: "vivo" }, // Cynosural Field Generator I
+  { key: "intel", label: "Intel en vivo (chat)", short: "Intel", icon: "🚨", cat: "vivo" },
   { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", cat: "vivo" },
   { key: "wormholes", label: "Wormholes Thera/Turnur", short: "Wormholes", icon: "🕳️", cat: "vivo" },
 ];

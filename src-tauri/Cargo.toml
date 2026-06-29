@@ -1,6 +1,6 @@
 [package]
 name = "koru-desktop"
-version = "0.9.0"
+version = "0.10.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -50,6 +50,8 @@ chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-process = "2"
 # Diálogos nativos de archivo (guardar/abrir) para backup y restauración de la BD.
 tauri-plugin-dialog = "2"
+# Notificaciones nativas del SO (alarma de intel aunque la app esté minimizada).
+tauri-plugin-notification = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

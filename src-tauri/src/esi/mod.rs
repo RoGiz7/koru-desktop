@@ -361,6 +361,65 @@ impl EsiClient {
         Ok(out)
     }
 
+    /// Resuelve NOMBRES → entidades (personajes y tipos/naves) vía POST /universe/ids (público).
+    /// Para el intel: distinguir piloto (character) de nave (inventory_type). Best-effort.
+    pub async fn resolve_entities(
+        &self,
+        names: &[String],
+    ) -> AppResult<(Vec<(i64, String)>, Vec<(i64, String)>)> {
+        let mut chars: Vec<(i64, String)> = Vec::new();
+        let mut ships: Vec<(i64, String)> = Vec::new();
+        let mut unique: Vec<String> = names
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        unique.sort();
+        unique.dedup();
+        if unique.is_empty() {
+            return Ok((chars, ships));
+        }
+        #[derive(serde::Deserialize)]
+        struct IdName {
+            id: i64,
+            name: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct IdsResp {
+            #[serde(default)]
+            characters: Vec<IdName>,
+            #[serde(default)]
+            inventory_types: Vec<IdName>,
+        }
+        for chunk in unique.chunks(500) {
+            let _permit = self
+                .sem
+                .acquire()
+                .await
+                .map_err(|e| AppError::Other(format!("semaphore: {e}")))?;
+            let url = format!("{}/universe/ids/", config::ESI_BASE_URL);
+            let resp = self
+                .http
+                .post(&url)
+                .header("X-Compatibility-Date", config::ESI_COMPATIBILITY_DATE)
+                .json(&chunk)
+                .send()
+                .await?;
+            if !resp.status().is_success() {
+                continue;
+            }
+            if let Ok(r) = resp.json::<IdsResp>().await {
+                for c in r.characters {
+                    chars.push((c.id, c.name));
+                }
+                for t in r.inventory_types {
+                    ships.push((t.id, t.name));
+                }
+            }
+        }
+        Ok((chars, ships))
+    }
+
     /// Resuelve system_id -> nombre de región (system -> constellation -> region).
     /// Todo cacheado (namespace 0). Best-effort.
     pub async fn resolve_region_names(

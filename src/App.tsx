@@ -5,6 +5,7 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { save, open as openDialog, message, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { t, type Lang } from "./i18n";
 import "./App.css";
 import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, fmtMin, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
@@ -70,6 +71,7 @@ import type {
   JumpShip,
   Fit,
   WhConn,
+  IntelLine,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -354,6 +356,127 @@ function App() {
   const [incursions, setIncursions] = useState<Incursion[] | null>(null);
   const [theraConns, setTheraConns] = useState<WhConn[] | null>(null);
   const [assetQuery, setAssetQuery] = useState(""); // búsqueda prefijada de Assets (p. ej. desde el mapa)
+  // --- Intel en vivo (logs de chat) ---
+  const [intelLines, setIntelLines] = useState<IntelLine[]>([]);
+  const [intelAvailChannels, setIntelAvailChannels] = useState<string[]>([]);
+  const [intelFolder, setIntelFolder] = useState<string>(() => localStorage.getItem("koru-intel-folder") || "");
+  const [intelChannels, setIntelChannels] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("koru-intel-channels") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [intelRecency, setIntelRecency] = useState<number>(() => Number(localStorage.getItem("koru-intel-recency") ?? 30));
+  const [intelAlertJumps, setIntelAlertJumps] = useState<number>(() => Number(localStorage.getItem("koru-intel-alert") ?? 5));
+  const [intelSound, setIntelSound] = useState<boolean>(() => localStorage.getItem("koru-intel-sound") !== "0");
+  const [intelSoundChoice, setIntelSoundChoice] = useState<string>(() => localStorage.getItem("koru-intel-sound-choice") || "double");
+  const [intelSoundFile, setIntelSoundFile] = useState<string>(() => localStorage.getItem("koru-intel-sound-file") || "");
+  const [intelAnchors, setIntelAnchors] = useState<number[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("koru-intel-anchors") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [intelOnlyRange, setIntelOnlyRange] = useState<boolean>(() => localStorage.getItem("koru-intel-onlyrange") === "1");
+  // Sembrar carpeta por defecto la primera vez.
+  useEffect(() => {
+    if (!intelFolder) {
+      invoke<string>("default_chatlogs_dir")
+        .then((d) => {
+          if (d) {
+            setIntelFolder(d);
+            localStorage.setItem("koru-intel-folder", d);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+  // Canales disponibles (para el selector) cuando hay carpeta + capa intel activa.
+  useEffect(() => {
+    if (mapOverlay !== "intel" || !intelFolder) return;
+    invoke<string[]>("intel_channels", { folder: intelFolder })
+      .then(setIntelAvailChannels)
+      .catch(() => setIntelAvailChannels([]));
+  }, [mapOverlay, intelFolder]);
+  // El intel lo vigila ahora un hilo en Rust (start_intel_watch en MapView): emite el evento
+  // "intel-lines" que escuchamos aquí para pintar mapa/feed, sin polling JS (no se ralentiza
+  // minimizado). Las alertas + notificación nativa las dispara el propio hilo de Rust.
+  useEffect(() => {
+    const un = listen<IntelLine[]>("intel-lines", (e) => setIntelLines(e.payload));
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+  function setIntelCfg(patch: {
+    channels?: string[];
+    recency?: number;
+    alertJumps?: number;
+    sound?: boolean;
+    folder?: string;
+    anchors?: number[];
+    onlyRange?: boolean;
+    soundChoice?: string;
+    soundFile?: string;
+  }) {
+    if (patch.channels !== undefined) {
+      setIntelChannels(patch.channels);
+      localStorage.setItem("koru-intel-channels", JSON.stringify(patch.channels));
+    }
+    if (patch.recency !== undefined) {
+      setIntelRecency(patch.recency);
+      localStorage.setItem("koru-intel-recency", String(patch.recency));
+    }
+    if (patch.alertJumps !== undefined) {
+      setIntelAlertJumps(patch.alertJumps);
+      localStorage.setItem("koru-intel-alert", String(patch.alertJumps));
+    }
+    if (patch.sound !== undefined) {
+      setIntelSound(patch.sound);
+      localStorage.setItem("koru-intel-sound", patch.sound ? "1" : "0");
+    }
+    if (patch.folder !== undefined) {
+      setIntelFolder(patch.folder);
+      localStorage.setItem("koru-intel-folder", patch.folder);
+    }
+    if (patch.anchors !== undefined) {
+      setIntelAnchors(patch.anchors);
+      localStorage.setItem("koru-intel-anchors", JSON.stringify(patch.anchors));
+    }
+    if (patch.onlyRange !== undefined) {
+      setIntelOnlyRange(patch.onlyRange);
+      localStorage.setItem("koru-intel-onlyrange", patch.onlyRange ? "1" : "0");
+    }
+    if (patch.soundChoice !== undefined) {
+      setIntelSoundChoice(patch.soundChoice);
+      localStorage.setItem("koru-intel-sound-choice", patch.soundChoice);
+    }
+    if (patch.soundFile !== undefined) {
+      setIntelSoundFile(patch.soundFile);
+      localStorage.setItem("koru-intel-sound-file", patch.soundFile);
+    }
+  }
+  async function pickIntelSound() {
+    try {
+      const f = await openDialog({
+        title: "Sonido de alerta",
+        multiple: false,
+        filters: [{ name: "Audio", extensions: ["wav", "mp3", "ogg", "flac", "m4a", "aac"] }],
+      });
+      if (f && typeof f === "string") setIntelCfg({ soundFile: f, soundChoice: "custom" });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function pickIntelFolder() {
+    try {
+      const dir = await openDialog({ title: "Carpeta de Chatlogs", directory: true, multiple: false });
+      if (dir && typeof dir === "string") setIntelCfg({ folder: dir });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   const [factionStd, setFactionStd] = useState<Map<number, number> | null>(null); // faction_id -> standing
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
@@ -1174,6 +1297,22 @@ function App() {
           factionStandings={factionStd}
           incursions={incursions}
           theraConns={theraConns}
+          intel={{
+            lines: intelLines,
+            availChannels: intelAvailChannels,
+            channels: intelChannels,
+            folder: intelFolder,
+            recency: intelRecency,
+            alertJumps: intelAlertJumps,
+            sound: intelSound,
+            anchors: intelAnchors,
+            onlyRange: intelOnlyRange,
+            soundChoice: intelSoundChoice,
+            soundFile: intelSoundFile,
+            onConfig: setIntelCfg,
+            onPickFolder: pickIntelFolder,
+            onPickSound: pickIntelSound,
+          }}
           onSystemAssets={(name) => {
             setAssetQuery(name);
             changeTab("assets");
@@ -2556,6 +2695,136 @@ function SystemSearch(props: {
   );
 }
 
+// Audio de alerta (Web Audio, sin assets ni plugins). Un único AudioContext compartido:
+// el webview lo arranca "suspended" hasta que hay un gesto del usuario, así que lo reanudamos.
+let _actx: AudioContext | null = null;
+function audioCtx(): AudioContext | null {
+  try {
+    if (!_actx) {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      _actx = new Ctx();
+    }
+    if (_actx.state === "suspended") void _actx.resume();
+    return _actx;
+  } catch {
+    return null;
+  }
+}
+// Un tono. Llamar desde un gesto del usuario al menos una vez "desbloquea" el audio.
+function tone(freq: number, startAt: number, dur: number, type: OscillatorType = "square") {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.connect(g);
+  g.connect(ctx.destination);
+  o.type = type;
+  o.frequency.value = freq;
+  const t = ctx.currentTime + startAt;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.14, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+// Catálogo de sonidos de alerta integrados (clave → etiqueta).
+const ALERT_SOUNDS: { key: string; label: string }[] = [
+  { key: "double", label: "Doble pitido" },
+  { key: "triple", label: "Triple corto" },
+  { key: "siren", label: "Sirena" },
+  { key: "bell", label: "Campana" },
+  { key: "sonar", label: "Sonar" },
+  { key: "custom", label: "Personalizado (archivo)" },
+];
+function playPreset(key: string) {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  if (key === "triple") {
+    tone(880, 0, 0.1);
+    tone(880, 0.14, 0.1);
+    tone(880, 0.28, 0.1);
+  } else if (key === "siren") {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(600, t0);
+    o.frequency.linearRampToValueAtTime(1100, t0 + 0.3);
+    o.frequency.linearRampToValueAtTime(600, t0 + 0.6);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.62);
+    o.start(t0);
+    o.stop(t0 + 0.64);
+  } else if (key === "bell") {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.type = "sine";
+    o.frequency.value = 1180;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
+    o.start(t0);
+    o.stop(t0 + 0.82);
+  } else if (key === "sonar") {
+    tone(620, 0, 0.18, "sine");
+    tone(940, 0.22, 0.26, "sine");
+  } else {
+    // double (por defecto)
+    tone(988, 0, 0.16);
+    tone(1319, 0.18, 0.22);
+  }
+}
+// Sonido personalizado desde un archivo (cargado vía Rust → Blob, reproducible aun minimizado).
+let _customAudio: HTMLAudioElement | null = null;
+let _customUrl: string | null = null;
+async function loadCustomSound(path: string) {
+  try {
+    const bytes = await invoke<number[]>("read_audio_file", { path });
+    const blob = new Blob([new Uint8Array(bytes)]);
+    if (_customUrl) URL.revokeObjectURL(_customUrl);
+    _customUrl = URL.createObjectURL(blob);
+    _customAudio = new Audio(_customUrl);
+  } catch {
+    _customAudio = null;
+  }
+}
+function playCustom() {
+  if (_customAudio) {
+    _customAudio.currentTime = 0;
+    void _customAudio.play().catch(() => {});
+  } else {
+    playPreset("double"); // fallback si el archivo no cargó
+  }
+}
+// Pitido simple (para desbloquear audio con un gesto).
+function beep() {
+  tone(880, 0, 0.18);
+}
+// Reproduce la alerta según la elección del usuario.
+function playAlertChoice(choice: string) {
+  if (choice === "custom") playCustom();
+  else playPreset(choice);
+}
+
+// Notificación nativa del SO (alarma de intel aunque la app esté minimizada).
+let _notifPerm: boolean | null = null;
+async function ensureNotifPerm(): Promise<boolean> {
+  if (_notifPerm !== null) return _notifPerm;
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) granted = (await requestPermission()) === "granted";
+    _notifPerm = granted;
+  } catch {
+    _notifPerm = false;
+  }
+  return _notifPerm ?? false;
+}
+
 function MapView(props: {
   data: SysActivity[] | null;
   busy: boolean;
@@ -2568,6 +2837,32 @@ function MapView(props: {
   factionStandings?: Map<number, number> | null;
   incursions?: Incursion[] | null;
   theraConns?: WhConn[] | null;
+  intel?: {
+    lines: IntelLine[];
+    availChannels: string[];
+    channels: string[];
+    folder: string;
+    recency: number;
+    alertJumps: number;
+    sound: boolean;
+    anchors: number[];
+    onlyRange: boolean;
+    soundChoice: string;
+    soundFile: string;
+    onConfig: (patch: {
+      channels?: string[];
+      recency?: number;
+      alertJumps?: number;
+      sound?: boolean;
+      folder?: string;
+      anchors?: number[];
+      onlyRange?: boolean;
+      soundChoice?: string;
+      soundFile?: string;
+    }) => void;
+    onPickFolder: () => void;
+    onPickSound: () => void;
+  };
   hereSystemId?: number | null;
   charLocations?: CharLoc[];
   characters?: Character[];
@@ -2577,6 +2872,7 @@ function MapView(props: {
     data,
     overlay,
     onOverlayChange,
+    intel,
     onSystemAssets,
     assetsBySystem,
     miningBySystem,
@@ -2861,6 +3157,7 @@ function MapView(props: {
       });
       return;
     }
+    setIntelDetail(null); // panel de sistema y tarjeta de detalle comparten sitio
     setSelected(sid);
   }
 
@@ -3082,6 +3379,399 @@ function MapView(props: {
     });
   }, [geo, overlay, theraConns]);
 
+  // Orígenes de proximidad: sistema del pj + puntos de ancla elegidos (sin duplicados).
+  const intelOrigins = useMemo(() => {
+    const set = new Set<number>();
+    if (hereSystemId != null) set.add(hereSystemId);
+    for (const a of intel?.anchors ?? []) set.add(a);
+    return [...set];
+  }, [hereSystemId, intel?.anchors]);
+
+  // --- Intel: proximidad (BFS multi-origen: distancia al más cercano de los orígenes) ---
+  const jumpsFrom = useMemo(() => {
+    if (!geo || intelOrigins.length === 0) return null;
+    const dist = new Map<number, number>();
+    const q: number[] = [];
+    for (const o of intelOrigins) {
+      if (!dist.has(o)) {
+        dist.set(o, 0);
+        q.push(o);
+      }
+    }
+    let head = 0;
+    while (head < q.length) {
+      const cur = q[head++];
+      const d = dist.get(cur)!;
+      for (const nb of geo.adj.get(cur) ?? []) {
+        if (!dist.has(nb)) {
+          dist.set(nb, d + 1);
+          q.push(nb);
+        }
+      }
+    }
+    return dist;
+  }, [geo, intelOrigins]);
+
+  // --- Intel: parsear líneas → reportes por sistema + feed cronológico ---
+  const intelReports = useMemo(() => {
+    if (!geo || !intel) return null;
+    const rep = new Map<number, { ts: number; author: string; message: string; name: string }>();
+    const feed: {
+      ts: number;
+      author: string;
+      message: string;
+      sysId: number | null;
+      sysName: string | null;
+    }[] = [];
+    const CLEAR = new Set(["clr", "clear", "cleared"]);
+    for (const l of intel.lines) {
+      let isClear = false;
+      const matched: { id: number; name: string }[] = [];
+      for (const tok of l.message.split(/\s+/)) {
+        const c = tok.replace(/[*.,;:!?()]+$/g, "").replace(/^[*([]+/g, "").trim();
+        if (!c) continue;
+        if (CLEAR.has(c.toLowerCase())) {
+          isClear = true;
+          continue;
+        }
+        const s = geo.nameIdx.get(c.toLowerCase());
+        if (s) matched.push({ id: s.id, name: s.n });
+      }
+      const primary = matched[0];
+      feed.push({
+        ts: l.ts_ms,
+        author: l.author,
+        message: l.message,
+        sysId: primary?.id ?? null,
+        sysName: primary?.name ?? null,
+      });
+      for (const m of matched) {
+        if (isClear) rep.delete(m.id);
+        else rep.set(m.id, { ts: l.ts_ms, author: l.author, message: l.message, name: m.name });
+      }
+    }
+    feed.reverse(); // más reciente primero
+    return { rep, feed };
+  }, [geo, intel?.lines]);
+
+  // --- Intel: círculos en el mapa (rojo, opacidad por recencia) ---
+  const intelCircles = useMemo(() => {
+    if (!geo || overlay !== "intel" || !intelReports) return null;
+    const now = Date.now();
+    const recencyMs = (intel?.recency ?? 30) * 60000;
+    return [...intelReports.rep.entries()].map(([sid, r]) => {
+      const s = geo.idx.get(sid);
+      if (!s) return null;
+      const p = geo.proj(s);
+      const op = Math.max(0.18, 1 - (now - r.ts) / recencyMs);
+      const j = jumpsFrom?.get(sid);
+      const near = j != null && j <= (intel?.alertJumps ?? 0);
+      // Filtro "solo en rango": oculta lo que esté fuera del umbral de saltos.
+      if (intel?.onlyRange && !near) return null;
+      return (
+        <g
+          key={`intel-${sid}`}
+          style={{ cursor: "pointer" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (movedRef.current) return; // fue un paneo
+            openIntelDetail({ sysId: sid, sysName: s.n, ts: r.ts, author: r.author, message: r.message });
+          }}
+        >
+          {/* Solo los sistemas cercanos pulsan (animación). Los lejanos = anillo estático
+              → reduce drásticamente el nº de animaciones SMIL y el repintado del SVG. */}
+          {near ? (
+            <circle cx={p.px} cy={p.py} r={1.4} fill="none" stroke="#ff3b3b" strokeOpacity={op * 0.7} strokeWidth={0.5} pointerEvents="none">
+              <animate attributeName="r" values="1.4;3.2;1.4" dur="1.1s" repeatCount="indefinite" />
+              <animate attributeName="stroke-opacity" values={`${op * 0.7};0;${op * 0.7}`} dur="1.1s" repeatCount="indefinite" />
+            </circle>
+          ) : (
+            <circle cx={p.px} cy={p.py} r={2.1} fill="none" stroke="#ff3b3b" strokeOpacity={op * 0.3} strokeWidth={0.4} pointerEvents="none" />
+          )}
+          {/* zona de click ampliada (invisible) para acertar fácil el punto + tooltip */}
+          <circle cx={p.px} cy={p.py} r={2.6} fill="transparent">
+            <title>{`${s.n}${j != null ? ` · ${j} saltos` : ""}\n${r.author}: ${r.message}\n(clic para ver detalle)`}</title>
+          </circle>
+          <circle cx={p.px} cy={p.py} r={1.3} fill="#ff3b3b" fillOpacity={op} stroke="#0a0d12" strokeWidth={0.3} pointerEvents="none" />
+        </g>
+      );
+    });
+  }, [geo, overlay, intelReports, jumpsFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange]);
+
+  // --- Intel: marcadores de los puntos de ancla (anclas de proximidad) ---
+  const intelAnchorMarkers = useMemo(() => {
+    if (!geo || overlay !== "intel") return null;
+    const z = view.z;
+    return (intel?.anchors ?? []).map((sid) => {
+      const s = geo.idx.get(sid);
+      if (!s) return null;
+      const p = geo.proj(s);
+      return (
+        <g key={`anchor-${sid}`} pointerEvents="none">
+          <circle
+            cx={p.px}
+            cy={p.py}
+            r={2.4 / z}
+            fill="none"
+            stroke="#5ad6ff"
+            strokeWidth={0.5 / z}
+            strokeDasharray={`${1.1 / z} ${0.9 / z}`}
+          />
+          <text
+            x={p.px}
+            y={p.py + 0.9 / z}
+            textAnchor="middle"
+            style={{ fontSize: `${2.6 / z}px` }}
+            fill="#5ad6ff"
+          >
+            ⚓
+          </text>
+        </g>
+      );
+    });
+  }, [geo, overlay, intel?.anchors, view.z]);
+
+  // --- Intel: banner de alerta. La DETECCIÓN ahora la hace un hilo en Rust (start_intel_watch),
+  // que dispara la notificación nativa y emite "intel-alert"; aquí solo mostramos banner + sonido. ---
+  const [intelAlert, setIntelAlert] = useState<{
+    text: string;
+    report: { sysId: number; sysName: string; ts: number; author: string; message: string };
+  } | null>(null);
+
+  // Enviar el grafo (nombres↔id + aristas) a Rust una vez, en cuanto haya datos del mapa.
+  useEffect(() => {
+    if (!geo || !ne) return;
+    const names: [string, number][] = [...geo.nameIdx.entries()].map(([n, s]) => [n, s.id]);
+    const edges: [number, number][] = ne.jumps as [number, number][];
+    invoke("set_intel_graph", { names, edges }).catch(() => {});
+  }, [geo, ne]);
+
+  // Arrancar / reconfigurar / detener el vigilante de Rust según la capa y la config.
+  useEffect(() => {
+    if (overlay !== "intel" || !intel || !intel.folder || intel.channels.length === 0) {
+      invoke("stop_intel_watch").catch(() => {});
+      return;
+    }
+    invoke("start_intel_watch", {
+      folder: intel.folder,
+      channels: intel.channels,
+      recencyMinutes: intel.recency,
+      origins: intelOrigins,
+      alertJumps: intel.alertJumps,
+    }).catch(() => {});
+    return () => {
+      invoke("stop_intel_watch").catch(() => {});
+    };
+  }, [overlay, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins]);
+
+  // Escuchar las alertas que emite el hilo de Rust → banner + sonido (la notificación nativa
+  // ya la lanza Rust, así que aquí NO la repetimos).
+  useEffect(() => {
+    const un = listen<{
+      sys_id: number;
+      system: string;
+      jumps: number;
+      author: string;
+      message: string;
+      ts_ms: number;
+    }>("intel-alert", (e) => {
+      const a = e.payload;
+      setIntelAlert({
+        text: `⚠ Intel a ${a.jumps} salto(s): ${a.system} — ${a.author}`,
+        report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
+      });
+      if (intel?.sound) playAlertChoice(intel.soundChoice);
+      window.setTimeout(() => setIntelAlert(null), 12000);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [intel?.sound, intel?.soundChoice]);
+
+  // Cargar el sonido personalizado cuando se elige/ cambia el archivo.
+  useEffect(() => {
+    if (intel?.soundChoice === "custom" && intel?.soundFile) {
+      void loadCustomSound(intel.soundFile);
+    }
+  }, [intel?.soundChoice, intel?.soundFile]);
+
+  // --- Intel: tarjeta de detalle (piloto/nave/ruta/zKill) ---
+  const [intelDetail, setIntelDetail] = useState<{
+    sysId: number | null;
+    sysName: string | null;
+    ts: number;
+    author: string;
+    message: string;
+  } | null>(null);
+  const [intelEntities, setIntelEntities] = useState<{
+    characters: { id: number; name: string }[];
+    ships: { id: number; name: string }[];
+  } | null>(null);
+  const [intelEntLoading, setIntelEntLoading] = useState(false);
+  const [intelTrackPilot, setIntelTrackPilot] = useState<string | null>(null);
+  const [chanOpen, setChanOpen] = useState(false);
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const [anchorInput, setAnchorInput] = useState("");
+  // Abrir la config automáticamente si la capa intel está activa y aún no hay canales elegidos.
+  // Y pedir permiso de notificación al entrar (para que el SO pregunte en buen momento).
+  useEffect(() => {
+    if (overlay === "intel" && intel) {
+      if (intel.channels.length === 0) setCfgOpen(true);
+      void ensureNotifPerm();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay]);
+
+  // Genera candidatos (1-3 palabras) de un mensaje, quitando sistemas y palabras de jerga.
+  function intelCandidates(message: string): string[] {
+    if (!geo) return [];
+    const KW = new Set([
+      "clr", "clear", "cleared", "nv", "neut", "neutral", "neutrals", "red", "reds",
+      "hostile", "hostiles", "status", "gate", "station", "x", "and", "in", "is", "at",
+    ]);
+    const toks = message
+      .split(/\s+/)
+      .map((t) => t.replace(/[*.,;:!?()]+$/g, "").replace(/^[*([]+/g, "").trim())
+      .filter(Boolean)
+      .filter((t) => !KW.has(t.toLowerCase()))
+      .filter((t) => !geo.nameIdx.get(t.toLowerCase()));
+    const out = new Set<string>();
+    for (let i = 0; i < toks.length; i++) {
+      out.add(toks[i]);
+      if (i + 1 < toks.length) out.add(`${toks[i]} ${toks[i + 1]}`);
+      if (i + 2 < toks.length) out.add(`${toks[i]} ${toks[i + 1]} ${toks[i + 2]}`);
+    }
+    return [...out].slice(0, 80);
+  }
+
+  function openIntelDetail(r: {
+    sysId: number | null;
+    sysName: string | null;
+    ts: number;
+    author: string;
+    message: string;
+  }) {
+    setSelected(null); // la tarjeta de detalle y el panel de sistema comparten sitio (derecha)
+    setIntelDetail(r);
+    setIntelEntities(null);
+    setIntelTrackPilot(null);
+  }
+
+  // Resuelve entidades cuando se abre la tarjeta.
+  useEffect(() => {
+    if (!intelDetail) return;
+    const cands = intelCandidates(intelDetail.message);
+    if (cands.length === 0) {
+      setIntelEntities({ characters: [], ships: [] });
+      return;
+    }
+    setIntelEntLoading(true);
+    invoke<{ characters: { id: number; name: string }[]; ships: { id: number; name: string }[] }>(
+      "resolve_intel_entities",
+      { names: cands }
+    )
+      .then((e) => {
+        // Descartar personajes cuyo nombre es sub-frase (palabras contiguas) de otro más largo.
+        // Evita que "Dexter" (otro pj vacío) tape a "Dexter Morgan 0690" → 404 en zKill.
+        const isSubPhrase = (short: string, long: string) => {
+          const a = short.toLowerCase().split(/\s+/);
+          const b = long.toLowerCase().split(/\s+/);
+          if (a.length >= b.length) return false;
+          for (let i = 0; i + a.length <= b.length; i++) {
+            if (a.every((w, k) => w === b[i + k])) return true;
+          }
+          return false;
+        };
+        const sorted = [...e.characters].sort((a, b) => b.name.length - a.name.length);
+        const kept: { id: number; name: string }[] = [];
+        for (const c of sorted) {
+          if (kept.some((k) => isSubPhrase(c.name, k.name))) continue;
+          kept.push(c);
+        }
+        setIntelEntities({ characters: kept, ships: e.ships });
+      })
+      .catch(() => setIntelEntities({ characters: [], ships: [] }))
+      .finally(() => setIntelEntLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intelDetail]);
+
+  // Trayectoria de un piloto: sistemas (cronológico) donde aparece su nombre en los reportes.
+  function pilotTrack(name: string) {
+    const lower = name.toLowerCase();
+    const asc = [...(intelReports?.feed ?? [])].reverse(); // feed es newest-first
+    const track: { ts: number; sysId: number; sysName: string }[] = [];
+    for (const f of asc) {
+      if (f.sysId != null && f.message.toLowerCase().includes(lower)) {
+        track.push({ ts: f.ts, sysId: f.sysId, sysName: f.sysName! });
+      }
+    }
+    return track;
+  }
+
+  // Polilínea de la ruta del piloto seleccionado (sobre el grafo del mapa).
+  const intelTrackLine = useMemo(() => {
+    if (!geo || overlay !== "intel" || !intelTrackPilot) return null;
+    const track = pilotTrack(intelTrackPilot);
+    const pts = track
+      .map((t) => geo.idx.get(t.sysId))
+      .filter((s): s is NeSystem => !!s)
+      .map((s) => geo.proj(s));
+    if (pts.length < 1) return null;
+    const poly = pts.map((p) => `${p.px},${p.py}`).join(" ");
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    return (
+      <g>
+        {pts.length >= 2 && (
+          <>
+            <defs>
+              <marker
+                id="intel-arrow"
+                markerWidth="4"
+                markerHeight="4"
+                refX="2.4"
+                refY="2"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0,0 L4,2 L0,4 Z" fill="#ffd98a" />
+              </marker>
+            </defs>
+            {/* trazo base tenue (toda la ruta) */}
+            <polyline points={poly} fill="none" stroke="#ffb24a" strokeOpacity={0.25} strokeWidth={0.6} />
+            {/* flujo direccional: las rayas viajan del origen al destino + flecha al final */}
+            <polyline
+              points={poly}
+              fill="none"
+              stroke="#ffd98a"
+              strokeWidth={0.7}
+              strokeLinecap="round"
+              strokeDasharray="2 2.5"
+              markerEnd="url(#intel-arrow)"
+            >
+              <animate attributeName="stroke-dashoffset" from="0" to="-4.5" dur="0.7s" repeatCount="indefinite" />
+            </polyline>
+          </>
+        )}
+        {/* sistemas intermedios */}
+        {pts.slice(1, -1).map((p, i) => (
+          <circle key={`tk-${i}`} cx={p.px} cy={p.py} r={0.9} fill="#ffb24a" />
+        ))}
+        {/* origen (hueco) */}
+        <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ffb24a" strokeWidth={0.5}>
+          <title>Origen</title>
+        </circle>
+        {/* destino / posición más reciente */}
+        {pts.length >= 2 && (
+          <circle cx={last.px} cy={last.py} r={1.5} fill="#ffd98a" stroke="#0a0d12" strokeWidth={0.3}>
+            <title>Último reporte</title>
+          </circle>
+        )}
+      </g>
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo, overlay, intelTrackPilot, intelReports]);
+
   // Nave seleccionada (del catálogo del SDE).
   const selShip = useMemo(
     () => jumpShips.find((s) => s.name === jumpShip) || null,
@@ -3257,34 +3947,13 @@ function MapView(props: {
 
   return (
     <>
-      <div className="map-toolbar">
-        <div className="route-controls">
-          <button
-            className={routeActive ? "active" : ""}
-            onClick={() => {
-              setRouteActive((v) => !v);
-              setJumpActive(false);
-              setRouteStops([null]);
-            }}
-          >
-            {routeActive ? "Ruta: ON" : "Ruta"}
-          </button>
-          <button
-            className={jumpActive ? "active" : ""}
-            onClick={() => {
-              setJumpActive((v) => !v);
-              setRouteActive(false);
-              setJumpOrigin(null);
-              setJumpDest(null);
-            }}
-          >
-            {jumpActive ? "Salto: ON" : "Salto"}
-          </button>
-        </div>
-      </div>
-
-      {routeActive && (
-        <div className="route-panel">
+      <p className="muted small">
+        New Eden completo (líneas = stargates).
+        {liveBusy && " · cargando datos en vivo…"}
+      </p>
+      <div className="map-wrap">
+        {routeActive && (
+        <div className="route-panel map-navcard">
           <div className="route-panel-head">
             <select value={routeMode} onChange={(e) => setRouteMode(e.target.value as RouteMode)}>
               <option value="shortest">Más corta</option>
@@ -3374,8 +4043,8 @@ function MapView(props: {
         </div>
       )}
 
-      {jumpActive && (
-        <div className="route-panel">
+        {jumpActive && (
+        <div className="route-panel map-navcard">
           {characters.length > 0 && (
             <div className="route-panel-head">
               <label className="muted small">
@@ -3525,13 +4194,22 @@ function MapView(props: {
           </p>
         </div>
       )}
-      <p className="muted small">
-        New Eden completo (líneas = stargates).
-        {liveBusy && " · cargando datos en vivo…"}
-      </p>
-      <div className="map-wrap">
         {!mapActive && (
           <div className="map-zoom-hint">Posa el ratón un instante para activar el zoom con rueda</div>
+        )}
+        {intelAlert && (
+          <div
+            className="intel-alert"
+            onClick={() => {
+              openIntelDetail(intelAlert.report);
+              setSelected(intelAlert.report.sysId);
+              setIntelAlert(null);
+            }}
+            title="Ver detalle"
+          >
+            {intelAlert.text}
+            <span className="intel-alert-cta">ver detalle ▸</span>
+          </div>
         )}
         <svg
           ref={svgRef}
@@ -3610,6 +4288,10 @@ function MapView(props: {
             {/* overlay Incursiones (memorizado) */}
             {incursionCircles}
             {theraCircles}
+            {/* overlay Intel en vivo (memorizado) */}
+            {intelAnchorMarkers}
+            {intelTrackLine}
+            {intelCircles}
             {/* overlay PvP */}
             {overlay === "pvp" &&
               pvp.map((d) => {
@@ -3882,7 +4564,7 @@ function MapView(props: {
             const jv = liveJumps?.get(selected);
             const av = assetsBySystem?.get(selected);
             return (
-              <div className="sys-panel">
+              <div className={`sys-panel${overlay === "intel" ? " intel" : ""}`}>
                 <div className="sys-panel-head">
                   <strong>{s.n}</strong>
                   <button className="sys-close" onClick={() => setSelected(null)}>
@@ -3946,41 +4628,412 @@ function MapView(props: {
                     📦 Mis assets aquí
                   </button>
                 )}
+                {overlay === "intel" && intel && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      const has = intel.anchors.includes(selected);
+                      intel.onConfig({
+                        anchors: has
+                          ? intel.anchors.filter((x) => x !== selected)
+                          : [...intel.anchors, selected],
+                      });
+                    }}
+                  >
+                    {intel.anchors.includes(selected) ? "⚓ Quitar ancla" : "⚓ Anclar aquí"}
+                  </button>
+                )}
               </div>
             );
           })()}
 
-        {/* Panel de contexto de la capa activa (derecha): KPIs propios de la capa, plegable */}
-        <div className={`map-context ${ctxCollapsed ? "collapsed" : ""}`}>
-          <div className="mc-title">
-            <span className="mc-icon">
-              <OverlayIcon o={activeOverlay} />
-            </span>
-            <span className="mc-title-tx">{activeOverlay.label}</span>
-            <button
-              className="mc-toggle"
-              onClick={() => setCtxCollapsed((v) => !v)}
-              title={ctxCollapsed ? "Expandir" : "Plegar"}
-            >
-              {ctxCollapsed ? "▸" : "▾"}
-            </button>
-          </div>
-          {!ctxCollapsed && (
-            <>
-              <p className="mc-desc">{legend}</p>
-              {ctxKpis.length > 0 && (
-                <div className="mc-kpis">
-                  {ctxKpis.map((k, i) => (
-                    <div className="mc-kpi" key={i}>
-                      <span>{k.value}</span>
-                      <label>{k.label}</label>
+        {/* Panel de Intel: configuración + feed en vivo (izquierda) */}
+        {overlay === "intel" && intel && (
+          <div className="intel-panel">
+            <div className="intel-head">
+              <strong>🚨 Intel en vivo</strong>
+              <span className="muted small">
+                {(intel.onlyRange
+                  ? [...(intelReports?.rep.keys() ?? [])].filter((sid) => {
+                      const d = jumpsFrom?.get(sid);
+                      return d != null && d <= intel.alertJumps;
+                    }).length
+                  : intelReports?.rep.size ?? 0)}{" "}
+                sistema(s)
+              </span>
+              <button
+                className={`intel-gear${cfgOpen ? " active" : ""}`}
+                onClick={() => setCfgOpen((v) => !v)}
+                title="Configuración"
+              >
+                ⚙
+              </button>
+            </div>
+            {cfgOpen && (
+              <div className="intel-cfg">
+                <label className="intel-folder" title={intel.folder}>
+                  <span className="muted small">Carpeta de logs</span>
+                  <div className="intel-folder-row">
+                    <span className="intel-folder-path">{intel.folder || "(sin definir)"}</span>
+                    <button onClick={intel.onPickFolder}>📁</button>
+                  </div>
+                </label>
+                <div className="intel-channels">
+                  <span className="muted small">Canales</span>
+                  <button
+                    type="button"
+                    className="intel-chan-btn"
+                    onClick={() => setChanOpen((v) => !v)}
+                  >
+                    <span>
+                      {intel.channels.length === 0
+                        ? "Seleccionar canales…"
+                        : `${intel.channels.length} canal(es)`}
+                    </span>
+                    <span>{chanOpen ? "▴" : "▾"}</span>
+                  </button>
+                  {chanOpen && (
+                    <div className="intel-chan-menu">
+                      {intel.availChannels.length === 0 && (
+                        <div className="muted small">No se encontraron canales en la carpeta.</div>
+                      )}
+                      {intel.availChannels.map((c) => (
+                        <label key={c} className="intel-chk">
+                          <input
+                            type="checkbox"
+                            checked={intel.channels.includes(c)}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...intel.channels, c]
+                                : intel.channels.filter((x) => x !== c);
+                              intel.onConfig({ channels: next });
+                            }}
+                          />
+                          {c}
+                        </label>
+                      ))}
                     </div>
+                  )}
+                </div>
+                <div className="intel-nums">
+                  <label>
+                    <span className="muted small">Recencia (min)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={180}
+                      value={intel.recency}
+                      onChange={(e) => intel.onConfig({ recency: Math.max(1, Number(e.target.value)) })}
+                    />
+                  </label>
+                  <label>
+                    <span className="muted small">Alerta ≤ saltos</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={intel.alertJumps}
+                      onChange={(e) => intel.onConfig({ alertJumps: Math.max(0, Number(e.target.value)) })}
+                    />
+                  </label>
+                </div>
+                <div className="intel-sound-row">
+                  <label className="intel-chk">
+                    <input
+                      type="checkbox"
+                      checked={intel.sound}
+                      onChange={(e) => {
+                        if (e.target.checked) beep(); // gesto del usuario → desbloquea el audio
+                        intel.onConfig({ sound: e.target.checked });
+                      }}
+                    />
+                    🔊 Sonido
+                  </label>
+                  <select
+                    className="intel-sound-sel"
+                    value={intel.soundChoice}
+                    disabled={!intel.sound}
+                    onChange={(e) => {
+                      if (e.target.value === "custom" && !intel.soundFile) {
+                        intel.onPickSound();
+                      } else {
+                        intel.onConfig({ soundChoice: e.target.value });
+                      }
+                    }}
+                  >
+                    {ALERT_SOUNDS.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="intel-test-snd"
+                    disabled={!intel.sound}
+                    onClick={() => playAlertChoice(intel.soundChoice)}
+                  >
+                    Probar
+                  </button>
+                </div>
+                {intel.soundChoice === "custom" && (
+                  <div className="intel-sound-custom">
+                    <span className="intel-sound-file" title={intel.soundFile}>
+                      {intel.soundFile ? intel.soundFile.split(/[\\/]/).pop() : "(ningún archivo)"}
+                    </span>
+                    <button onClick={intel.onPickSound}>Elegir…</button>
+                  </div>
+                )}
+                <label className="intel-chk">
+                  <input
+                    type="checkbox"
+                    checked={intel.onlyRange}
+                    onChange={(e) => intel.onConfig({ onlyRange: e.target.checked })}
+                  />
+                  Mostrar solo intel en rango (≤ {intel.alertJumps} saltos)
+                </label>
+                <div className="intel-anchors">
+                  <span className="muted small">Puntos de ancla (proximidad)</span>
+                  <div className="intel-anchor-add">
+                    <input
+                      type="text"
+                      placeholder="Sistema… (p. ej. 9PX2-F)"
+                      value={anchorInput}
+                      onChange={(e) => setAnchorInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        const s = geo?.nameIdx.get(anchorInput.trim().toLowerCase());
+                        if (s && !intel.anchors.includes(s.id)) {
+                          intel.onConfig({ anchors: [...intel.anchors, s.id] });
+                          setAnchorInput("");
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const s = geo?.nameIdx.get(anchorInput.trim().toLowerCase());
+                        if (s && !intel.anchors.includes(s.id)) {
+                          intel.onConfig({ anchors: [...intel.anchors, s.id] });
+                          setAnchorInput("");
+                        }
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="intel-anchor-chips">
+                    {intel.anchors.length === 0 && (
+                      <span className="muted small">
+                        Sin anclas. También puedes pinchar un sistema → “⚓ Anclar aquí”.
+                      </span>
+                    )}
+                    {intel.anchors.map((sid) => (
+                      <span key={sid} className="intel-anchor-chip">
+                        ⚓ {geo?.idx.get(sid)?.n ?? sid}
+                        <button
+                          title="Quitar"
+                          onClick={() => intel.onConfig({ anchors: intel.anchors.filter((x) => x !== sid) })}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="muted small intel-anchor-hint">
+                    La alerta usa el sistema más cercano entre tu personaje y tus anclas.
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="intel-feed">
+              {intel.channels.length === 0 && (
+                <div className="muted small">Abre la ⚙ y elige carpeta y al menos un canal para empezar.</div>
+              )}
+              {intel.channels.length > 0 && (intelReports?.feed.length ?? 0) === 0 && (
+                <div className="muted small">Sin actividad reciente.</div>
+              )}
+              {intelReports?.feed
+                .filter((f) => {
+                  if (!intel.onlyRange) return true;
+                  if (f.sysId == null) return false;
+                  const d = jumpsFrom?.get(f.sysId);
+                  return d != null && d <= intel.alertJumps;
+                })
+                .slice(0, 60)
+                .map((f, i) => {
+                const j = f.sysId != null ? jumpsFrom?.get(f.sysId) : undefined;
+                const near = j != null && j <= intel.alertJumps;
+                return (
+                  <div
+                    key={`${f.ts}-${i}`}
+                    className={`intel-row clickable${near ? " near" : ""}`}
+                    onClick={() =>
+                      openIntelDetail({
+                        sysId: f.sysId,
+                        sysName: f.sysName,
+                        ts: f.ts,
+                        author: f.author,
+                        message: f.message,
+                      })
+                    }
+                  >
+                    <div className="intel-row-top">
+                      <span className="intel-time">{fmtAgo(Date.now() - f.ts)}</span>
+                      {f.sysName && (
+                        <span className="intel-sys">
+                          {f.sysName}
+                          {j != null && <em className="intel-j"> · {j} saltos</em>}
+                        </span>
+                      )}
+                    </div>
+                    <div className="intel-msg">
+                      <span className="intel-author">{f.author}:</span> {f.message}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tarjeta de detalle de un reporte de intel (piloto/nave/ruta/zKill) */}
+        {overlay === "intel" && intelDetail && (
+          <div className="intel-detail">
+            <div className="intel-detail-head">
+              <strong>{intelDetail.sysName ?? "Reporte"}</strong>
+              <button className="sys-close" onClick={() => setIntelDetail(null)}>✕</button>
+            </div>
+            <div className="muted small">
+              {fmtAgo(Date.now() - intelDetail.ts)} · reportó {intelDetail.author}
+            </div>
+            <div className="intel-detail-msg">{intelDetail.message}</div>
+
+            <div className="intel-detail-sec">
+              <span className="muted small">Pilotos</span>
+              {intelEntLoading && <div className="muted small">Resolviendo…</div>}
+              {!intelEntLoading && intelEntities && intelEntities.characters.length === 0 && (
+                <div className="muted small">Ningún piloto reconocido en el reporte.</div>
+              )}
+              {intelEntities?.characters.map((c) => {
+                const track = pilotTrack(c.name);
+                const active = intelTrackPilot === c.name;
+                return (
+                  <div key={c.id} className={`intel-pilot${active ? " active" : ""}`}>
+                    <div className="intel-pilot-row">
+                      <img
+                        src={`https://images.evetech.net/characters/${c.id}/portrait?size=32`}
+                        alt=""
+                        width={24}
+                        height={24}
+                      />
+                      <span className="intel-pilot-name">{c.name}</span>
+                      <button title="zKillboard" onClick={() => openUrl(`https://zkillboard.com/character/${c.id}/`)}>
+                        zKill
+                      </button>
+                      {track.length > 1 && (
+                        <button
+                          title="Trazar ruta según reportes"
+                          onClick={() => setIntelTrackPilot(active ? null : c.name)}
+                        >
+                          {active ? "Ocultar ruta" : `Ruta (${track.length})`}
+                        </button>
+                      )}
+                    </div>
+                    {active && track.length > 0 && (
+                      <ol className="intel-track">
+                        {track.map((t, ti) => (
+                          <li key={ti}>
+                            <span className="intel-time">{fmtAgo(Date.now() - t.ts)}</span> {t.sysName}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {intelEntities && intelEntities.ships.length > 0 && (
+              <div className="intel-detail-sec">
+                <span className="muted small">Naves citadas</span>
+                <div className="intel-ships">
+                  {intelEntities.ships.map((s) => (
+                    <button
+                      key={s.id}
+                      className="intel-ship"
+                      title="zKillboard del tipo"
+                      onClick={() => openUrl(`https://zkillboard.com/ship/${s.id}/`)}
+                    >
+                      <img src={typeIcon(s.id, 32)} alt="" width={22} height={22} />
+                      {s.name}
+                    </button>
                   ))}
                 </div>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            )}
+
+            {intelDetail.sysId != null && (
+              <>
+                {intel && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      const id = intelDetail.sysId!;
+                      const has = intel.anchors.includes(id);
+                      intel.onConfig({
+                        anchors: has ? intel.anchors.filter((x) => x !== id) : [...intel.anchors, id],
+                      });
+                    }}
+                  >
+                    {intel.anchors.includes(intelDetail.sysId) ? "⚓ Quitar ancla" : "⚓ Anclar aquí"}
+                  </button>
+                )}
+                <div className="sys-links">
+                  <button onClick={() => openUrl(`https://zkillboard.com/system/${intelDetail.sysId}/`)}>
+                    zKill sistema
+                  </button>
+                  {onSystemAssets && intelDetail.sysName && (
+                    <button onClick={() => onSystemAssets(intelDetail.sysName!)}>📦 Mis assets</button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Panel de contexto de la capa activa (derecha): KPIs propios de la capa, plegable.
+            Se oculta en Intel (lo sustituyen sus paneles) y cuando hay Ruta/Salto (tarjeta a la derecha). */}
+        {overlay !== "intel" && !routeActive && !jumpActive && (
+          <div className={`map-context ${ctxCollapsed ? "collapsed" : ""}`}>
+            <div className="mc-title">
+              <span className="mc-icon">
+                <OverlayIcon o={activeOverlay} />
+              </span>
+              <span className="mc-title-tx">{activeOverlay.label}</span>
+              <button
+                className="mc-toggle"
+                onClick={() => setCtxCollapsed((v) => !v)}
+                title={ctxCollapsed ? "Expandir" : "Plegar"}
+              >
+                {ctxCollapsed ? "▸" : "▾"}
+              </button>
+            </div>
+            {!ctxCollapsed && (
+              <>
+                <p className="mc-desc">{legend}</p>
+                {ctxKpis.length > 0 && (
+                  <div className="mc-kpis">
+                    {ctxKpis.map((k, i) => (
+                      <div className="mc-kpi" key={i}>
+                        <span>{k.value}</span>
+                        <label>{k.label}</label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Sub-filtro de la capa activa (desplegable, estilo mapa oficial) */}
         {SUBFILTERS[overlay] && (
@@ -4037,6 +5090,50 @@ function MapView(props: {
               </div>
             );
           })}
+
+          {/* Categoría Navegación: herramientas de ruta y salto (no son capas, son modos). */}
+          <div className="mfb-cat" key="navegacion">
+            <button
+              className={`mfb-btn ${routeActive || jumpActive ? "active" : ""} ${openCat === "navegacion" ? "open" : ""}`}
+              onClick={() => setOpenCat(openCat === "navegacion" ? null : "navegacion")}
+              title="Navegación"
+            >
+              <span className="mfb-icon">🧭</span>
+              <span className="mfb-label">
+                {routeActive ? "Ruta" : jumpActive ? "Salto" : "Navegación"}
+              </span>
+              <span className="mfb-caret">▾</span>
+            </button>
+            {openCat === "navegacion" && (
+              <div className="mfb-menu">
+                <button
+                  className={`mfb-item ${routeActive ? "active" : ""}`}
+                  onClick={() => {
+                    setRouteActive((v) => !v);
+                    setJumpActive(false);
+                    setRouteStops([null]);
+                    setOpenCat(null);
+                  }}
+                >
+                  <span className="mfb-icon">🗺️</span>
+                  <span>Ruta {routeActive ? "(ON)" : ""}</span>
+                </button>
+                <button
+                  className={`mfb-item ${jumpActive ? "active" : ""}`}
+                  onClick={() => {
+                    setJumpActive((v) => !v);
+                    setRouteActive(false);
+                    setJumpOrigin(null);
+                    setJumpDest(null);
+                    setOpenCat(null);
+                  }}
+                >
+                  <span className="mfb-icon">⚡</span>
+                  <span>Salto {jumpActive ? "(ON)" : ""}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>

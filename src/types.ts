@@ -101,6 +101,14 @@ export type SkillsSummary = {
   skill_count: number;
   queue: QueueItem[];
 };
+// Línea de intel parseada de un log de chat del juego.
+export type IntelLine = {
+  ts_ms: number;
+  channel: string;
+  author: string;
+  message: string;
+};
+
 // Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space).
 export type WhConn = {
   system_id: number;

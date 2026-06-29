@@ -911,6 +911,12 @@ h4 {
   border-radius: 10px;
   padding: 0.7rem 0.8rem;
   backdrop-filter: blur(4px);
+  z-index: 6;
+}
+/* En la capa Intel el panel de Intel ocupa la izquierda → el del sistema va a la derecha. */
+.sys-panel.intel {
+  left: auto;
+  right: 8px;
 }
 
 .sys-panel-head {
@@ -1006,6 +1012,20 @@ h4 {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+/* Ruta/Salto como tarjeta flotante a la derecha del mapa (estilo intel-detail). */
+.route-panel.map-navcard {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+  width: 280px;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  z-index: 6;
+  background: rgba(20, 26, 36, 0.97);
+  border-color: #3a4654;
+  backdrop-filter: blur(4px);
 }
 
 .route-panel-head {
@@ -2951,4 +2971,366 @@ h4 {
   width: 100%;
   accent-color: var(--accent-border, #4f9cff);
   cursor: pointer;
+}
+
+/* ---- Intel en vivo ---- */
+@keyframes intel-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.5); }
+  70% { box-shadow: 0 0 0 12px rgba(255, 59, 59, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0); }
+}
+.intel-alert {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  background: #7a1c1c;
+  border: 1px solid #ff5b5b;
+  color: #ffe2e2;
+  padding: 0.5rem 0.9rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  animation: intel-pulse 1.4s ease-out infinite;
+}
+.intel-panel {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 280px;
+  max-height: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 26, 36, 0.96);
+  border: 1px solid #5a2a2a;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  z-index: 5;
+}
+.intel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #2a3340;
+}
+.intel-head .muted {
+  margin-left: auto;
+}
+.intel-gear {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.intel-gear.active {
+  border-color: #ff5b5b;
+  color: #ffb3b3;
+}
+.intel-cfg {
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #2a3340;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.intel-sound-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.intel-test-snd {
+  font-size: 0.76rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+.intel-sound-sel {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.3rem;
+}
+.intel-sound-custom {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.intel-sound-file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  color: var(--fg-muted-2, #9a9a9a);
+}
+.intel-sound-custom button {
+  font-size: 0.74rem;
+  padding: 0.2rem 0.5rem;
+}
+.intel-anchors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px solid #2a3340;
+  padding-top: 0.45rem;
+}
+.intel-anchor-add {
+  display: flex;
+  gap: 0.3rem;
+}
+.intel-anchor-add input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.25rem 0.4rem;
+}
+.intel-anchor-add button {
+  padding: 0.2rem 0.55rem;
+}
+.intel-anchor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.intel-anchor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+  background: rgba(90, 214, 255, 0.12);
+  border: 1px solid #2c5a6b;
+  border-radius: 6px;
+  padding: 0.1rem 0.2rem 0.1rem 0.4rem;
+  color: #bfe9ff;
+}
+.intel-anchor-chip button {
+  padding: 0 0.25rem;
+  background: transparent;
+  border: none;
+  color: #8fb3c2;
+  cursor: pointer;
+}
+.intel-anchor-hint {
+  margin: 0;
+}
+.intel-folder-row {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.intel-folder-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  color: var(--fg-muted-2, #9a9a9a);
+  direction: rtl;
+  text-align: left;
+}
+.intel-folder-row button {
+  padding: 0.15rem 0.4rem;
+}
+.intel-channels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.intel-chk {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.intel-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+.intel-nums label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.intel-nums input[type="number"] {
+  width: 64px;
+  padding: 0.2rem 0.35rem;
+}
+.intel-feed {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.4rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.intel-row {
+  border-left: 2px solid #3a4654;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+.intel-row.clickable {
+  cursor: pointer;
+}
+.intel-row.clickable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.intel-row.near {
+  border-left-color: #ff3b3b;
+  background: rgba(122, 28, 28, 0.25);
+}
+.intel-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.74rem;
+}
+.intel-time {
+  color: var(--fg-muted-2, #9a9a9a);
+}
+.intel-sys {
+  color: #7fb0ff;
+  font-weight: 600;
+}
+.intel-j {
+  color: #ff8b6b;
+  font-style: normal;
+}
+.intel-msg {
+  font-size: 0.8rem;
+  margin-top: 0.1rem;
+  word-break: break-word;
+}
+.intel-author {
+  color: #cfd8e3;
+  font-weight: 600;
+}
+.intel-alert-cta {
+  margin-left: 0.6rem;
+  font-size: 0.78rem;
+  opacity: 0.85;
+  text-decoration: underline;
+}
+/* Desplegable de canales */
+.intel-chan-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.intel-chan-menu {
+  margin-top: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid #2a3340;
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+  background: rgba(10, 14, 20, 0.6);
+}
+/* Tarjeta de detalle */
+.intel-detail {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 300px;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  z-index: 7;
+  background: rgba(20, 26, 36, 0.97);
+  border: 1px solid #5a2a2a;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.intel-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.intel-detail-msg {
+  font-size: 0.85rem;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+}
+.intel-detail-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.intel-pilot {
+  border: 1px solid #2a3340;
+  border-radius: 7px;
+  padding: 0.3rem 0.4rem;
+}
+.intel-pilot.active {
+  border-color: #ffb24a;
+}
+.intel-pilot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.intel-pilot-row img {
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.intel-pilot-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+.intel-pilot-row button {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.4rem;
+}
+.intel-track {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.intel-ships {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.intel-ship {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  padding: 0.2rem 0.4rem 0.2rem 0.25rem;
+}
+.intel-ship img {
+  border-radius: 3px;
 }

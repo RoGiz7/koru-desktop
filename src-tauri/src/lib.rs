@@ -32,6 +32,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // BD en el directorio de datos de la app.
             let data_dir = app
@@ -69,6 +70,7 @@ pub fn run() {
                 tokens: TokenManager::new(),
                 esi,
                 cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                intel: std::sync::Arc::new(commands::IntelWatch::default()),
             });
             Ok(())
         })
@@ -158,6 +160,14 @@ pub fn run() {
             commands::import_fittings,
             commands::get_char_skill_levels,
             commands::get_thera_connections,
+            commands::default_chatlogs_dir,
+            commands::read_audio_file,
+            commands::intel_channels,
+            commands::read_intel,
+            commands::resolve_intel_entities,
+            commands::set_intel_graph,
+            commands::start_intel_watch,
+            commands::stop_intel_watch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
