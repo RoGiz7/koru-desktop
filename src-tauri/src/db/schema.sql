@@ -131,3 +131,14 @@ CREATE TABLE IF NOT EXISTS system_region (
     region     TEXT NOT NULL,
     updated_at TEXT
 );
+
+-- Gestor de fiteos local (propio): guarda fits importados por EFT. `modules` es JSON.
+CREATE TABLE IF NOT EXISTS fits (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    ship_type_id  INTEGER NOT NULL,
+    ship_name     TEXT NOT NULL,
+    eft           TEXT NOT NULL,
+    modules       TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);

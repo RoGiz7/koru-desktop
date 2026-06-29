@@ -1,13 +1,27 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-28 (v0.7.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-06-29 (v0.8.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.7.0 · 2026-06-28)
+## 📌 Estado actual (v0.8.0 · 2026-06-29)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
+
+### Aplicado en v0.8.0
+- **Jump planner avanzado**: selector de nave (56 del SDE) + skills JDC/JFC + rango efectivo
+  (base×(1+0,2·JDC)) + destino con isótopos; selector de personaje (carga skills reales y marca naves
+  propias); **fatiga** (cooldown + estimación). Validado contra Dotlan.
+- **Mejoras de assets**: paginación resiliente (se arregló que faltaran naves —iban en páginas
+  posteriores—), resolución de estructuras de jugador (scope read_structures + entre personajes),
+  anidados en contenedores/naves, Asset Safety, columnas **Ubicación** y **Contenedor**, y **drill-down**
+  (abrir contenedor/nave).
+- **Gestor de fiteos local**: importar por **EFT** o **desde el juego** (ESI fittings); **visor circular**
+  estilo ventana de fitting (nave al centro + slots en arco, hover con info) y **skill-check** contra el
+  personaje activo (✅ puedes / lista de skills que faltan).
+- ⚠️ **Scopes nuevos** (añadir en developers.eveonline.com + re-login): `esi-characters.read_fatigue.v1`,
+  `esi-universe.read_structures.v1`, `esi-fittings.read_fittings.v1`.
 
 ### Aplicado recientemente (v0.1.2 → v0.7.0)
 - ⭐ **Backup / restauración del histórico local (v0.7.0)**: desplegable **⚙️ Ajustes** en la
@@ -84,6 +98,14 @@
 (el usuario la pone en su nube/Drive) y, más adelante, **merge de dos PCs** (dedupe por id: journal/
 killmails/transacciones por id, mining por clave compuesta). Cero servidor nuestro.
 
+★ **NAVEGACIÓN (próxima release, decidido 2026-06-29):**
+- **Ansiblex en rutas**: importar un archivo con la red de jump bridges de la alianza (pares de
+  sistemas) y añadir esas aristas al grafo de Dijkstra para que el planificador use los puentes.
+  PENDIENTE: el usuario aún no tiene el archivo → al conseguirlo, pasar una muestra para fijar el formato.
+- **Wormholes / Thera / Turnur (estilo eve-scout)**: capa de mapa con las conexiones públicas de
+  `api.eve-scout.com` (fetch nativo desde el backend Tauri, sin CORS). Fase 1 = mostrar info en el mapa.
+  Fase 2 (más gorda) = rutar a través de wormholes (origen→sistema con WH→Thera→salida→destino).
+
 0. **★ NUEVO CANDIDATO DE CABEZA — Capa de Intel en vivo en el mapa** (research en
    `docs/RESEARCH_MAPA_INTEL.md`): leer el **log de chat** del juego (`Documents/EVE/logs/Chatlogs/`,
    UTF-16LE), parsear avisos "sistema · piloto · nave", pintar **círculos rojos por recencia** en el
@@ -98,9 +120,32 @@ killmails/transacciones por id, mining por clave compuesta). Cero servidor nuest
   (`loadTab(..., silent=true)`: sin skeleton de carga, sin borrar/lanzar errores) para no resetear
   scroll/selección. El listado de killmails NO se recarga a propósito (evita resetear la paginación).
   El scrub solo se reajusta si cambia el nº de puntos (semana/mes nuevo), no en cada refresco.
-1. **Jump planner avanzado**: fatiga (`/characters/{id}/fatigue/`, scope
-   `esi-characters.read_fatigue.v1`) + rango/fuel automático por skills (Jump Drive Calibration /
-   Fuel Conservation) y datos de nave del SDE. Sobre la burbuja de rango ya existente.
+1. **Jump planner avanzado** — ✅ COMPLETO (v0.8.0-dev):
+   - ✅ **Rango + fuel por nave y skills**: `public/jumpships.json` (59 naves de salto extraídas del
+     SDE: rango base LY attr 867, fuel/LY attr 868, isótopo attr 866, agrupadas por clase). Panel de
+     salto con selector de nave, niveles **JDC** (Jump Drive Calibration, **+20% rango/nivel**, ×2 a V
+     — SDE attr 870) y **JFC** (Jump Fuel Conservation, −10% fuel/nivel — SDE attr 1296). Rango
+     efectivo = base×(1+0,20·JDC) autorrellena la
+     burbuja; destino por click (1º origen, 2º destino) o buscador → distancia LY + isótopos
+     necesarios + aviso fuera de rango. **Selector de personaje** (`get_jump_profile`): autorrellena
+     JDC/JFC con los niveles reales del pj y **marca con ★ + ordena primero las naves que posee**
+     (cruce con assets). El campo Rango se **bloquea** (dato calculado) al elegir nave; editable solo
+     en modo manual. Sin scope nuevo (reusa skills + assets).
+   - ✅ **Fatiga**: `get_fatigue` (`/characters/{id}/fatigue/`, scope `esi-characters.read_fatigue.v1`
+     añadido a `config::scopes::FATIGUE` + `core_v1`). Muestra fatiga actual (minutos del timer azul,
+     contador cada 30 s) y estima el salto al destino: cooldown=max(1+LY, fatiga/10) [máx 30 min],
+     fatiga nueva=max(10·(1+LY), fatiga·(1+LY)) [máx 5 h] (fórmula EVE Uni); JF/Rorqual marcan que
+     reducen fatiga (bono de rol, mostramos el máximo). Si falta el scope, hint para re-loguear.
+     **OJO**: hay que añadir el scope en developers.eveonline.com y re-loguear (Conceder acceso).
+   - ✅ **Bug de assets resuelto** (afectaba al ★ y a la pestaña Assets/mapa): (a) paginación
+     **resiliente** (`assets::fetch_all_assets`, reintenta cada página y no abandona ante un error
+     transitorio; usado por summary/detail/by_system/owned_type_ids) → ya no se pierden assets de
+     páginas posteriores; (b) **estructuras de jugador**: faltaba el scope `esi-universe.read_structures.v1`
+     (las NPC son endpoint público, por eso sí salían) → añadido a `ASSETS`/`core_v1`; (c) la caché
+     **negativa** (system_id=0) se limpia al arrancar (`location_system_clear_negative`) para reintentar
+     con el scope nuevo. **Requiere añadir el scope en developers.eveonline.com + re-login.**
+   - Nota: assets en **hangares de corp** siguen sin contar (son corp assets, no personales);
+     requeriría `esi-assets.read_corporation_assets.v1` + rol Director. Fuera de alcance.
 2. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
 3. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
 4. **Tematización por evento** (sobre el selector de temas ya hecho).

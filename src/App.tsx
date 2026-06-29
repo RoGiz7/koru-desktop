@@ -7,7 +7,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { save, open as openDialog, message, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { t, type Lang } from "./i18n";
 import "./App.css";
-import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
+import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, fmtMin, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
 import {
   FEATURES,
   SCOPE,
@@ -66,6 +66,8 @@ import type {
   AbyssalsData,
   ContactRow,
   StandingRow,
+  JumpShip,
+  Fit,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -1167,6 +1169,7 @@ function App() {
           )
             .filter((c) => c.system_id != null)
             .map((c) => ({ id: c.character_id, name: c.name, system_id: c.system_id as number }))}
+          characters={characters}
         />
 
         {/* Dock de titulares del sujeto (siempre visible) */}
@@ -1280,7 +1283,14 @@ function App() {
                 <SkillsView data={skillsData} busy={sectionBusy} />
               </>
             ))}
-          {tab === "assets" && <AssetsView data={assetsData} detail={assetsDetail} busy={sectionBusy} />}
+          {tab === "assets" && (
+            <AssetsView
+              data={assetsData}
+              detail={assetsDetail}
+              busy={sectionBusy}
+              charId={isGlobal ? null : subjectId}
+            />
+          )}
           {tab === "industria" && (
             <IndustryView
               jobs={jobsData}
@@ -1292,6 +1302,7 @@ function App() {
           )}
           {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
+          {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && <RateoView data={ratting} busy={sectionBusy} />}
           {tab === "resumen" && <ResumenView subject={subject} />}
           {tab === "actividad" && <ActividadView subject={subject} />}
@@ -2541,6 +2552,7 @@ function MapView(props: {
   incursions?: Incursion[] | null;
   hereSystemId?: number | null;
   charLocations?: CharLoc[];
+  characters?: Character[];
 }) {
   const {
     data,
@@ -2554,6 +2566,7 @@ function MapView(props: {
     incursions,
     hereSystemId,
     charLocations,
+    characters = [],
   } = props;
   const [ne, setNe] = useState<NewEden | null>(null);
   const [factionMap, setFactionMap] = useState<Record<string, number> | null>(null);
@@ -2573,7 +2586,51 @@ function MapView(props: {
   // Planificador de saltos de capital (jump drive)
   const [jumpActive, setJumpActive] = useState(false);
   const [jumpOrigin, setJumpOrigin] = useState<number | null>(null);
+  const [jumpDest, setJumpDest] = useState<number | null>(null);
   const [jumpRange, setJumpRange] = useState(5);
+  // Naves de salto (del SDE: rango base, fuel/LY, isótopo) + skills del piloto.
+  const [jumpShips, setJumpShips] = useState<JumpShip[]>([]);
+  const [jumpShip, setJumpShip] = useState<string>(""); // nombre de la nave elegida
+  const [jdcLevel, setJdcLevel] = useState(5); // Jump Drive Calibration → +20% rango/nivel (×2 a V)
+  const [jfcLevel, setJfcLevel] = useState(5); // Jump Fuel Conservation → −10% fuel/nivel
+  const [jumpChar, setJumpChar] = useState<number | null>(null); // pj del que cargar skills/naves
+  const [jumpOwned, setJumpOwned] = useState<Set<number>>(new Set()); // type_ids de naves propias
+  const [jumpFatigue, setJumpFatigue] = useState<{ expire: string | null } | null>(null);
+  const [jumpFatMissing, setJumpFatMissing] = useState(false); // falta el scope de fatiga
+  const [fatNow, setFatNow] = useState(Date.now()); // tick para el contador de fatiga
+  // Al elegir personaje: cargar sus niveles JDC/JFC, naves que posee y la fatiga actual.
+  useEffect(() => {
+    if (jumpChar == null) {
+      setJumpOwned(new Set());
+      setJumpFatigue(null);
+      setJumpFatMissing(false);
+      return;
+    }
+    invoke<{ jdc: number; jfc: number; owned: number[] }>("get_jump_profile", {
+      characterId: jumpChar,
+    })
+      .then((p) => {
+        setJdcLevel(p.jdc);
+        setJfcLevel(p.jfc);
+        setJumpOwned(new Set(p.owned));
+      })
+      .catch(() => setJumpOwned(new Set()));
+    invoke<{ jump_fatigue_expire_date: string | null }>("get_fatigue", { characterId: jumpChar })
+      .then((f) => {
+        setJumpFatigue({ expire: f.jump_fatigue_expire_date });
+        setJumpFatMissing(false);
+      })
+      .catch(() => {
+        setJumpFatigue(null);
+        setJumpFatMissing(true);
+      });
+  }, [jumpChar]);
+  // Contador de fatiga: refresca cada 30 s mientras el modo salto está activo.
+  useEffect(() => {
+    if (!jumpActive) return;
+    const id = window.setInterval(() => setFatNow(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, [jumpActive]);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const clickTimer = useRef<number | null>(null);
@@ -2620,6 +2677,11 @@ function MapView(props: {
     fetch("/system-factions.json")
       .then((r) => r.json())
       .then(setFactionMap)
+      .catch(() => {});
+    // Naves de salto (rango/fuel/isótopo) extraídas del SDE.
+    fetch("/jumpships.json")
+      .then((r) => r.json())
+      .then((d) => setJumpShips(d.ships || []))
       .catch(() => {});
     // Actividad en vivo (1h) para tooltips, siempre disponible.
     invoke<SystemKills[]>("get_system_kills")
@@ -2759,7 +2821,9 @@ function MapView(props: {
   function selectSystem(sid: number) {
     if (drag.current?.moved) return; // fue un paneo, no un click
     if (jumpActive) {
-      setJumpOrigin(sid);
+      // Primer click fija el origen; los siguientes fijan el destino (para fuel/distancia).
+      if (jumpOrigin == null) setJumpOrigin(sid);
+      else setJumpDest(sid);
       return;
     }
     if (routeActive) {
@@ -2970,6 +3034,51 @@ function MapView(props: {
     });
   }, [geo, overlay, incursions]);
 
+  // Nave seleccionada (del catálogo del SDE).
+  const selShip = useMemo(
+    () => jumpShips.find((s) => s.name === jumpShip) || null,
+    [jumpShips, jumpShip]
+  );
+  // Rango efectivo = base × (1 + 20%·Jump Drive Calibration). A nivel V se dobla (SDE: attr 870
+  // jumpDriveRangeBonus = 20/nivel). Autorrellena la burbuja LY.
+  useEffect(() => {
+    if (selShip) setJumpRange(+(selShip.range * (1 + 0.2 * jdcLevel)).toFixed(2));
+  }, [selShip, jdcLevel]);
+
+  // Combustible (isótopos) y distancia al destino elegido.
+  // fuel = dist(LY) × fuelPerLy × (1 − 10%·Jump Fuel Conservation).
+  const jumpFuel = useMemo(() => {
+    if (!geo || !selShip || jumpOrigin == null || jumpDest == null) return null;
+    const o = geo.idx.get(jumpOrigin);
+    const d = geo.idx.get(jumpDest);
+    if (!o || !d) return null;
+    const dist = Math.hypot(d.gx - o.gx, d.gy - o.gy, d.gz - o.gz);
+    const fuel = Math.ceil(dist * selShip.fuelPerLy * (1 - 0.1 * jfcLevel));
+    return { dist, fuel, isotope: selShip.isotope, inRange: dist <= jumpRange + 1e-6 };
+  }, [geo, selShip, jumpOrigin, jumpDest, jfcLevel, jumpRange]);
+
+  // Fatiga actual del personaje (minutos restantes del timer azul).
+  const curFatMin = useMemo(() => {
+    if (!jumpFatigue?.expire) return 0;
+    const ms = Date.parse(jumpFatigue.expire) - fatNow;
+    return ms > 0 ? ms / 60000 : 0;
+  }, [jumpFatigue, fatNow]);
+
+  // Estimación del salto al destino: cooldown de activación y fatiga resultante.
+  // Fórmula EVE (EVE Uni): cooldown = max(1+LY, fatigaPre/10) [máx 30 min];
+  // fatiga nueva = max(10·(1+LY), fatigaPre·(1+LY)) [máx 5 h]. Las JF/Rorqual reducen
+  // mucho la fatiga (bono de rol −90% sobre la distancia efectiva): mostramos el máximo.
+  const jumpFatEst = useMemo(() => {
+    if (!selShip || !jumpFuel) return null;
+    const ly = jumpFuel.dist;
+    const reduced =
+      selShip.group === "Jump Freighter" || selShip.group === "Capital Industrial Ship";
+    const effLy = reduced ? ly * 0.1 : ly;
+    const cooldown = Math.min(30, Math.max(1 + ly, curFatMin / 10));
+    const newFat = Math.min(300, Math.max(10 * (1 + effLy), curFatMin * (1 + effLy)));
+    return { cooldown, newFat, reduced };
+  }, [selShip, jumpFuel, curFatMin]);
+
   // Sistemas alcanzables por salto de capital (low/null dentro del rango LY).
   const jumpReach = useMemo(() => {
     if (!geo || jumpOrigin == null) return null;
@@ -3102,6 +3211,7 @@ function MapView(props: {
               setJumpActive((v) => !v);
               setRouteActive(false);
               setJumpOrigin(null);
+              setJumpDest(null);
             }}
           >
             {jumpActive ? "Salto: ON" : "Salto"}
@@ -3202,18 +3312,91 @@ function MapView(props: {
 
       {jumpActive && (
         <div className="route-panel">
+          {characters.length > 0 && (
+            <div className="route-panel-head">
+              <label className="muted small">
+                Cargar de:&nbsp;
+                <select
+                  value={jumpChar ?? ""}
+                  onChange={(e) => setJumpChar(e.target.value ? +e.target.value : null)}
+                >
+                  <option value="">— manual —</option>
+                  {characters.map((c) => (
+                    <option key={c.character_id} value={c.character_id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {jumpChar != null && <span className="muted small">★ = la tienes</span>}
+            </div>
+          )}
           <div className="route-panel-head">
             <label className="muted small">
-              Rango (LY):&nbsp;
-              <input
-                type="number"
-                min={1}
-                max={12}
-                step={0.1}
-                value={jumpRange}
-                onChange={(e) => setJumpRange(Math.max(0, parseFloat(e.target.value) || 0))}
-                style={{ width: "5rem" }}
-              />
+              Nave:&nbsp;
+              <select value={jumpShip} onChange={(e) => setJumpShip(e.target.value)}>
+                <option value="">— manual —</option>
+                {Object.entries(
+                  jumpShips.reduce<Record<string, JumpShip[]>>((acc, s) => {
+                    (acc[s.group] ||= []).push(s);
+                    return acc;
+                  }, {})
+                ).map(([grp, list]) => (
+                  <optgroup key={grp} label={grp}>
+                    {[...list]
+                      .sort(
+                        (a, b) =>
+                          (jumpOwned.has(b.id) ? 1 : 0) - (jumpOwned.has(a.id) ? 1 : 0)
+                      )
+                      .map((s) => (
+                        <option key={s.name} value={s.name}>
+                          {jumpOwned.has(s.id) ? "★ " : ""}
+                          {s.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="route-panel-head">
+            {selShip ? (
+              <span className="muted small" title="Calculado por nave y Jump Drive Calibration">
+                Rango: <b>{jumpRange}</b> LY
+              </span>
+            ) : (
+              <label className="muted small">
+                Rango (LY):&nbsp;
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  step={0.1}
+                  value={jumpRange}
+                  onChange={(e) => setJumpRange(Math.max(0, parseFloat(e.target.value) || 0))}
+                  style={{ width: "4.5rem" }}
+                />
+              </label>
+            )}
+            <label className="muted small" title="Jump Drive Calibration: +20% de rango por nivel (a V se dobla)">
+              JDC:&nbsp;
+              <select value={jdcLevel} onChange={(e) => setJdcLevel(+e.target.value)}>
+                {[0, 1, 2, 3, 4, 5].map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted small" title="Jump Fuel Conservation: −10% de consumo por nivel">
+              JFC:&nbsp;
+              <select value={jfcLevel} onChange={(e) => setJfcLevel(+e.target.value)}>
+                {[0, 1, 2, 3, 4, 5].map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
             </label>
             <span className="muted small">
               {jumpReach ? `${jumpReach.size} sistemas al alcance` : "elige el origen"}
@@ -3228,9 +3411,53 @@ function MapView(props: {
               onPick={(id) => setJumpOrigin(id)}
             />
           </div>
+          <div className="route-stop">
+            <span className="route-stop-label">Destino</span>
+            <SystemSearch
+              systems={ne.systems}
+              value={jumpDest}
+              placeholder="Destino (para el fuel)…"
+              onPick={(id) => setJumpDest(id)}
+            />
+          </div>
+          {jumpFuel && (
+            <div className={`jump-fuel ${jumpFuel.inRange ? "" : "out"}`}>
+              <span>
+                <b>{jumpFuel.dist.toFixed(2)}</b> LY
+              </span>
+              <span>
+                ⛽ <b>{fmtSp(jumpFuel.fuel)}</b> {jumpFuel.isotope}
+              </span>
+              {!jumpFuel.inRange && <span className="jump-oor">⚠️ fuera de rango</span>}
+            </div>
+          )}
+          {jumpChar != null && (
+            <div className="jump-fatigue">
+              {jumpFatMissing ? (
+                <span className="small muted">
+                  ⏳ Fatiga: falta el acceso. Pulsa «Conceder acceso» y vuelve a iniciar sesión con
+                  este personaje para verla.
+                </span>
+              ) : (
+                <>
+                  <span className="small">
+                    ⏳ Fatiga actual: <b>{curFatMin >= 1 ? fmtMin(curFatMin) : "ninguna"}</b>
+                  </span>
+                  {jumpFatEst && jumpFuel && (
+                    <span className="small muted">
+                      tras saltar → cooldown ~{fmtMin(jumpFatEst.cooldown)} · fatiga ~
+                      {fmtMin(jumpFatEst.newFat)}
+                      {jumpFatEst.reduced ? " (máx; tu nave reduce fatiga)" : ""}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <p className="muted small">
-            Pon el rango de tu nave con tus skills (en LY). Resalta los low/null alcanzables en
-            morado. También puedes hacer click en el mapa para fijar el origen.
+            Elige tu nave (rango y fuel salen del SDE) y tus skills; el rango se calcula solo.
+            Click en el mapa: 1º fija el origen, 2º el destino. Resalta en morado los low/null
+            alcanzables.
           </p>
         </div>
       )}
@@ -3624,6 +3851,7 @@ function MapView(props: {
                       setRouteActive(false);
                       setJumpActive(true);
                       setJumpOrigin(selected);
+                      setJumpDest(null);
                       setSelected(null);
                     }}
                   >
@@ -5032,21 +5260,412 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
   );
 }
 
-function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] | null; busy: boolean }) {
-  const { data, detail, busy } = props;
+// ---- Visor de fit circular (estilo ventana de fitting del juego) ----
+type WheelMod = { type_id: number; name: string; qty: number; fam: string };
+const RING_FAMS = ["high", "mid", "low", "rig", "sub"];
+const FAM_LABEL: Record<string, string> = {
+  high: "Slot alto",
+  mid: "Slot medio",
+  low: "Slot bajo",
+  rig: "Rig",
+  sub: "Subsistema",
+  extra: "Drones / Carga",
+};
+
+// La nave en el centro y los módulos en círculo alrededor (altos→medios→bajos→rigs→subs).
+// Drones/carga van en un panel lateral. Al pasar el ratón por un módulo se ve su info.
+function FitWheel({
+  shipTypeId,
+  shipName,
+  mods,
+  charSkills,
+  reqs,
+  skillNames,
+}: {
+  shipTypeId: number;
+  shipName: string;
+  mods: WheelMod[];
+  charSkills?: Record<number, number> | null;
+  reqs?: Record<string, [number, number][]>;
+  skillNames?: Record<string, string>;
+}) {
+  const [hover, setHover] = useState<WheelMod | null>(null);
+  // Skill-check: ¿puede el personaje activo pilotar este fit? ¿qué le falta?
+  const skillReport = useMemo(() => {
+    if (!charSkills || !reqs) return null;
+    const need = new Map<number, number>(); // skill_id → nivel máximo requerido
+    for (const t of [shipTypeId, ...mods.map((m) => m.type_id)]) {
+      const rs = reqs[String(t)];
+      if (!rs) continue;
+      for (const [sid, lvl] of rs) need.set(sid, Math.max(need.get(sid) ?? 0, lvl));
+    }
+    const missing: { name: string; have: number; need: number }[] = [];
+    for (const [sid, lvl] of need) {
+      const have = charSkills[sid] ?? 0;
+      if (have < lvl)
+        missing.push({ name: skillNames?.[String(sid)] ?? `#${sid}`, have, need: lvl });
+    }
+    missing.sort((a, b) => a.name.localeCompare(b.name));
+    return { canFly: missing.length === 0, missing };
+  }, [charSkills, reqs, skillNames, shipTypeId, mods]);
+  const ring = mods
+    .filter((m) => RING_FAMS.includes(m.fam))
+    .sort((a, b) => RING_FAMS.indexOf(a.fam) - RING_FAMS.indexOf(b.fam));
+  const extra = mods.filter((m) => !RING_FAMS.includes(m.fam));
+  const SIZE = 460;
+  const C = SIZE / 2;
+  const R = 190;
+  // Como en el juego: los slots se agrupan por familia en arcos con HUECOS entre grupos
+  // (altos arriba → medios → bajos → rigs → subs, en sentido horario desde arriba).
+  const placed: { m: WheelMod; ang: number }[] = [];
+  {
+    const groups = RING_FAMS.map((f) => ring.filter((m) => m.fam === f)).filter((g) => g.length > 0);
+    const total = ring.length;
+    const GAP = total > 0 ? Math.min(22, 130 / total) : 0; // hueco angular entre grupos
+    const step = total > 0 ? (360 - groups.length * GAP) / total : 0;
+    let ang = -90 + GAP / 2; // arranca arriba
+    for (const g of groups) {
+      for (const m of g) {
+        placed.push({ m, ang });
+        ang += step;
+      }
+      ang += GAP;
+    }
+  }
+  return (
+    <div className="fitw">
+      <div className="fitw-wheel" style={{ width: SIZE, height: SIZE }}>
+        <div className="fitw-ring" />
+        <img className="fitw-ship" src={typeRender(shipTypeId, 512)} alt={shipName} />
+        <div className="fitw-name">{shipName}</div>
+        {placed.map(({ m, ang: deg }, i) => {
+          const ang = (deg * Math.PI) / 180;
+          const x = C + R * Math.cos(ang);
+          const y = C + R * Math.sin(ang);
+          return (
+            <div
+              key={i}
+              className={`fitw-slot fam-${m.fam} ${hover === m ? "hl" : ""}`}
+              style={{ left: `${x}px`, top: `${y}px` }}
+              onMouseEnter={() => setHover(m)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <img src={typeIcon(m.type_id, 32)} alt="" loading="lazy" />
+              {m.qty > 1 && <span className="fitw-qty">{m.qty > 99 ? "99+" : m.qty}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="fitw-side">
+        <div className="fitw-info">
+          {hover ? (
+            <>
+              <img src={typeIcon(hover.type_id, 64)} alt="" />
+              <div>
+                <strong>{hover.name}</strong>
+                {hover.qty > 1 && <span className="muted"> ×{fmtSp(hover.qty)}</span>}
+                <div className="small muted">{FAM_LABEL[hover.fam] ?? hover.fam}</div>
+              </div>
+            </>
+          ) : (
+            <span className="small muted">Pasa el ratón por un módulo para ver su info.</span>
+          )}
+        </div>
+        {skillReport && (
+          <div className={`fitw-skills ${skillReport.canFly ? "ok" : "no"}`}>
+            {skillReport.canFly ? (
+              <span>✅ Puedes pilotar este fit con tus skills.</span>
+            ) : (
+              <>
+                <div className="fitw-skills-h">⚠ Te faltan {skillReport.missing.length} skills:</div>
+                {skillReport.missing.map((s, i) => (
+                  <div className="fitw-skill" key={i}>
+                    <span>{s.name}</span>
+                    <span className="muted small">
+                      {s.have} → {s.need}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+        {extra.length > 0 && (
+          <div className="fitw-extra">
+            <div className="fit-group-h">Drones / Carga</div>
+            {extra.map((m, i) => (
+              <div className="fit-mod" key={i} title={m.name}>
+                <img className="type-ico" src={typeIcon(m.type_id)} alt="" loading="lazy" />
+                <span className="fit-mod-name">{m.name}</span>
+                {m.qty > 1 && <span className="fit-mod-qty">×{fmtSp(m.qty)}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Visor de un fit guardado (Fiteos): slot de cada módulo vía module_slots.json.
+function FitDisplay({
+  fit,
+  slots,
+  charSkills,
+  reqs,
+  skillNames,
+}: {
+  fit: Fit;
+  slots: Record<string, string>;
+  charSkills?: Record<number, number> | null;
+  reqs?: Record<string, [number, number][]>;
+  skillNames?: Record<string, string>;
+}) {
+  const mods: WheelMod[] = fit.modules.map((m) => ({
+    type_id: m.type_id,
+    name: m.name,
+    qty: m.qty,
+    fam: m.fitted ? slots[String(m.type_id)] ?? "extra" : "extra",
+  }));
+  return (
+    <FitWheel
+      shipTypeId={fit.ship_type_id}
+      shipName={fit.ship_name}
+      mods={mods}
+      charSkills={charSkills}
+      reqs={reqs}
+      skillNames={skillNames}
+    />
+  );
+}
+
+function FitsView({ charId, charName }: { charId: number | null; charName: string | null }) {
+  const [fits, setFits] = useState<Fit[]>([]);
+  const [slots, setSlots] = useState<Record<string, string>>({});
+  const [reqs, setReqs] = useState<Record<string, [number, number][]>>({});
+  const [skillNames, setSkillNames] = useState<Record<string, string>>({});
+  const [charSkills, setCharSkills] = useState<Record<number, number> | null>(null);
+  const [eft, setEft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [open, setOpen] = useState<Fit | null>(null);
+  useEffect(() => {
+    invoke<Fit[]>("list_fits").then(setFits).catch(() => {});
+    fetch("/module_slots.json").then((r) => r.json()).then(setSlots).catch(() => {});
+    fetch("/skill_reqs.json").then((r) => r.json()).then(setReqs).catch(() => {});
+    fetch("/skill_names.json").then((r) => r.json()).then(setSkillNames).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (charId == null) {
+      setCharSkills(null);
+      return;
+    }
+    invoke<Record<number, number>>("get_char_skill_levels", { characterId: charId })
+      .then(setCharSkills)
+      .catch(() => setCharSkills(null));
+  }, [charId]);
+  async function importGame() {
+    if (charId == null) return;
+    setBusy(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      const imported = await invoke<Fit[]>("import_fittings", { characterId: charId });
+      setFits((prev) => [...imported, ...prev]);
+      setNotice(
+        imported.length > 0
+          ? `Importados ${imported.length} fits de ${charName ?? "tu personaje"}.`
+          : "No hay fits nuevos que importar."
+      );
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function save() {
+    if (!eft.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const f = await invoke<Fit>("save_fit", { eft });
+      setFits((prev) => [f, ...prev]);
+      setEft("");
+      setOpen(f);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function del(id: number) {
+    try {
+      await invoke("delete_fit", { id });
+      setFits((prev) => prev.filter((f) => f.id !== id));
+      if (open?.id === id) setOpen(null);
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+  return (
+    <div className="fits-view">
+      <div className="fits-import">
+        <textarea
+          className="fits-eft"
+          value={eft}
+          onChange={(e) => setEft(e.target.value)}
+          placeholder={"Pega aquí un fit en formato EFT:\n\n[Thanatos, Mi fit]\nDrone Damage Amplifier II\n..."}
+          rows={5}
+        />
+        <div className="fits-actions">
+          <button className="fits-save" onClick={save} disabled={busy || !eft.trim()}>
+            {busy ? "…" : "Importar fit (EFT)"}
+          </button>
+          <button
+            className="fits-import-game"
+            onClick={importGame}
+            disabled={busy || charId == null}
+            title={
+              charId == null
+                ? "Selecciona un personaje arriba para importar sus fits del juego"
+                : "Trae tus fits guardados en EVE"
+            }
+          >
+            🚀 Importar fits del juego
+          </button>
+        </div>
+        {err && <span className="fits-err small">{err}</span>}
+        {notice && <span className="small muted">{notice}</span>}
+      </div>
+      {fits.length > 0 && (
+        <div className="fits-list">
+          {fits.map((f) => (
+            <div
+              key={f.id}
+              className={`fits-card ${open?.id === f.id ? "active" : ""}`}
+              onClick={() => setOpen(f)}
+            >
+              <img className="type-ico" src={typeIcon(f.ship_type_id)} alt="" loading="lazy" />
+              <span className="fits-card-tx">
+                <strong>{f.name}</strong>
+                <span className="small muted">{f.ship_name}</span>
+              </span>
+              <button
+                className="fits-del"
+                title="Borrar fit"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  del(f.id);
+                }}
+              >
+                🗑
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {open ? (
+        <FitDisplay
+          fit={open}
+          slots={slots}
+          charSkills={charSkills}
+          reqs={reqs}
+          skillNames={skillNames}
+        />
+      ) : (
+        fits.length === 0 && (
+          <p className="muted small">
+            Aún no hay fiteos. Pega un EFT (en EVE: clic derecho en el fitting → Copiar al portapapeles)
+            y pulsa Importar.
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
+// location_flag de EVE → familia de slot del visor circular.
+function flagFamily(flag: string): string {
+  if (flag.startsWith("HiSlot")) return "high";
+  if (flag.startsWith("MedSlot")) return "mid";
+  if (flag.startsWith("LoSlot")) return "low";
+  if (flag.startsWith("RigSlot")) return "rig";
+  if (flag.startsWith("SubSystem")) return "sub";
+  return "extra"; // DroneBay, Cargo, Fighter, bodegas…
+}
+const FIT_SLOTS_RE = /^(HiSlot|MedSlot|LoSlot|RigSlot|SubSystem)/;
+
+// Fit de una nave abierta en Assets: reusa el visor circular.
+function ShipFit(props: {
+  rows: AssetDetail[];
+  typeId: number;
+  name: string;
+  charSkills?: Record<number, number> | null;
+  reqs?: Record<string, [number, number][]>;
+  skillNames?: Record<string, string>;
+}) {
+  const { rows, typeId, name, charSkills, reqs, skillNames } = props;
+  const mods: WheelMod[] = rows.map((r) => ({
+    type_id: r.type_id,
+    name: r.type_name ?? `#${r.type_id}`,
+    qty: r.quantity,
+    fam: flagFamily(r.slot),
+  }));
+  return (
+    <FitWheel
+      shipTypeId={typeId}
+      shipName={name}
+      mods={mods}
+      charSkills={charSkills}
+      reqs={reqs}
+      skillNames={skillNames}
+    />
+  );
+}
+
+function AssetsView(props: {
+  data: AssetsSummary | null;
+  detail: AssetDetail[] | null;
+  busy: boolean;
+  charId: number | null;
+}) {
+  const { data, detail, busy, charId } = props;
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // "" = Todos
+  // Datos para el skill-check del fit al abrir una nave.
+  const [reqs, setReqs] = useState<Record<string, [number, number][]>>({});
+  const [skillNames, setSkillNames] = useState<Record<string, string>>({});
+  const [charSkills, setCharSkills] = useState<Record<number, number> | null>(null);
+  useEffect(() => {
+    fetch("/skill_reqs.json").then((r) => r.json()).then(setReqs).catch(() => {});
+    fetch("/skill_names.json").then((r) => r.json()).then(setSkillNames).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (charId == null) {
+      setCharSkills(null);
+      return;
+    }
+    invoke<Record<number, number>>("get_char_skill_levels", { characterId: charId })
+      .then(setCharSkills)
+      .catch(() => setCharSkills(null));
+  }, [charId]);
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "qty", dir: -1 });
+  // Contenedor/nave "abierto" (drill-down): muestra solo su contenido.
+  const [openContainer, setOpenContainer] = useState<{ id: number; name: string } | null>(null);
   const onSort = (col: string) =>
     setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
   const ql = q.trim().toLowerCase();
   const catList = Array.from(new Set((detail ?? []).map((r) => r.category))).sort();
   const filtered = (detail ?? []).filter(
     (r) =>
+      (openContainer === null || r.container_id === openContainer.id) &&
       (cat === "" || r.category === cat) &&
       (ql === "" ||
         (r.type_name ?? "").toLowerCase().includes(ql) ||
-        (r.system_name ?? "").toLowerCase().includes(ql))
+        (r.system_name ?? "").toLowerCase().includes(ql) ||
+        (r.location_name ?? "").toLowerCase().includes(ql) ||
+        (r.container ?? "").toLowerCase().includes(ql))
   );
   const sorted = [...filtered].sort((a, b) => {
     const d = sort.dir;
@@ -5056,6 +5675,20 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
     return av.localeCompare(bv) * d;
   });
   const shown = sorted.slice(0, 300);
+  // Si el contenedor abierto es una nave (tiene slots), mostramos su fit.
+  const containerRows = openContainer
+    ? (detail ?? []).filter((r) => r.container_id === openContainer.id)
+    : [];
+  const isShipFit = openContainer !== null && containerRows.some((r) => FIT_SLOTS_RE.test(r.slot));
+  const shipTypeId = containerRows[0]?.container_type_id ?? 0;
+  // Contenedores que son naves fiteadas (tienen módulos en slots): para mostrar otro icono.
+  const shipContainers = useMemo(() => {
+    const s = new Set<number>();
+    for (const r of detail ?? []) {
+      if (r.container_id && FIT_SLOTS_RE.test(r.slot)) s.add(r.container_id);
+    }
+    return s;
+  }, [detail]);
   return (
     <>
       {!data && busy && <p className="muted">Cargando… (puede tardar con muchos assets)</p>}
@@ -5099,12 +5732,20 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
               ))}
             </div>
           )}
+          {openContainer && (
+            <div className="asset-open-bar">
+              <span>📦 Dentro de: <b>{openContainer.name}</b></span>
+              <button className="asset-open-close" onClick={() => setOpenContainer(null)}>
+                ✕ cerrar
+              </button>
+            </div>
+          )}
           <div className="asset-search">
             <input
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar por item o sistema…"
+              placeholder="Buscar por item, sistema, ubicación o contenedor…"
             />
             {detail && (
               <span className="muted small">
@@ -5114,7 +5755,16 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
               </span>
             )}
           </div>
-          {!detail ? (
+          {isShipFit ? (
+            <ShipFit
+              rows={containerRows}
+              typeId={shipTypeId}
+              name={openContainer!.name}
+              charSkills={charSkills}
+              reqs={reqs}
+              skillNames={skillNames}
+            />
+          ) : !detail ? (
             <p className="muted small">Cargando inventario…</p>
           ) : detail.length === 0 ? (
             <p className="muted small">Sin assets.</p>
@@ -5125,6 +5775,8 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
                   <Th label="Item" col="name" sort={sort} onSort={onSort} />
                   <Th label="Cantidad" col="qty" sort={sort} onSort={onSort} />
                   <Th label="Sistema" col="sys" sort={sort} onSort={onSort} />
+                  <th>Ubicación</th>
+                  <th>Contenedor</th>
                 </tr>
               </thead>
               <tbody>
@@ -5136,6 +5788,36 @@ function AssetsView(props: { data: AssetsSummary | null; detail: AssetDetail[] |
                     </td>
                     <td>{fmtSp(r.quantity)}</td>
                     <td>{r.system_name ?? (r.system_id ? `#${r.system_id}` : "—")}</td>
+                    <td className="muted small">{r.location_name || "—"}</td>
+                    <td className="muted small">
+                      {r.container ?? ""}
+                      {r.container_id !== 0 && (
+                        <button
+                          className="asset-open"
+                          title={
+                            shipContainers.has(r.container_id)
+                              ? `Ver fit de ${r.container ?? "la nave"}`
+                              : `Abrir ${r.container ?? "contenedor"}`
+                          }
+                          onClick={() =>
+                            setOpenContainer({ id: r.container_id, name: r.container ?? "contenedor" })
+                          }
+                        >
+                          {r.container_type_id ? (
+                            <img
+                              className="asset-open-ico"
+                              src={typeIcon(r.container_type_id, 24)}
+                              alt=""
+                              loading="lazy"
+                            />
+                          ) : shipContainers.has(r.container_id) ? (
+                            "🚀"
+                          ) : (
+                            "🔍"
+                          )}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -10,6 +10,18 @@ pub struct Db {
     pub conn: Mutex<Connection>,
 }
 
+/// Fila cruda de un fiteo guardado (modules en JSON). El comando la convierte a la vista del frontend.
+#[derive(Debug, Clone)]
+pub struct FitRow {
+    pub id: i64,
+    pub name: String,
+    pub ship_type_id: i64,
+    pub ship_name: String,
+    pub eft: String,
+    pub modules: String,
+    pub created_at: String,
+}
+
 impl Db {
     /// Abre (o crea) la BD en `path` y aplica el esquema.
     pub fn open(path: PathBuf) -> AppResult<Self> {
@@ -1860,6 +1872,65 @@ impl Db {
              ON CONFLICT(location_id) DO UPDATE SET system_id = excluded.system_id, updated_at = excluded.updated_at",
             rusqlite::params![location_id, system_id, now],
         );
+    }
+
+    /// Borra las resoluciones de ubicación fallidas (system_id = 0). Se llama al arrancar para
+    /// que las estructuras de jugador que no se pudieron resolver antes (p. ej. por faltar el scope
+    /// `esi-universe.read_structures.v1`) se reintenten. Devuelve cuántas se limpiaron.
+    pub fn location_system_clear_negative(&self) -> usize {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM location_system WHERE system_id = 0", [])
+            .unwrap_or(0)
+    }
+
+    /// Inserta un fiteo guardado. `modules` es JSON serializado. Devuelve el id nuevo.
+    pub fn fit_insert(
+        &self,
+        name: &str,
+        ship_type_id: i64,
+        ship_name: &str,
+        eft: &str,
+        modules_json: &str,
+    ) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO fits (name, ship_type_id, ship_name, eft, modules, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![name, ship_type_id, ship_name, eft, modules_json, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Lista los fiteos guardados (más recientes primero). Devuelve filas crudas.
+    pub fn fit_list(&self) -> AppResult<Vec<FitRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, ship_type_id, ship_name, eft, modules, created_at
+             FROM fits ORDER BY id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(FitRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    ship_type_id: r.get(2)?,
+                    ship_name: r.get(3)?,
+                    eft: r.get(4)?,
+                    modules: r.get(5)?,
+                    created_at: r.get(6)?,
+                })
+            })?
+            .filter_map(|x| x.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Borra un fiteo por id.
+    pub fn fit_delete(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM fits WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
     }
 
     /// Caché tipo→categoría. None si no está cacheada.

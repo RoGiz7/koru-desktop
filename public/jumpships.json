@@ -1,0 +1,452 @@
+{
+"ships": [
+{
+"id": 44996,
+"name": "Marshal",
+"group": "Black Ops",
+"range": 4.0,
+"fuelPerLy": 700,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 22440,
+"name": "Panther",
+"group": "Black Ops",
+"range": 4.0,
+"fuelPerLy": 700,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 85236,
+"name": "Python",
+"group": "Black Ops",
+"range": 4.0,
+"fuelPerLy": 700,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 22428,
+"name": "Redeemer",
+"group": "Black Ops",
+"range": 4.0,
+"fuelPerLy": 700,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 22430,
+"name": "Sin",
+"group": "Black Ops",
+"range": 4.0,
+"fuelPerLy": 700,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 22436,
+"name": "Widow",
+"group": "Black Ops",
+"range": 4.0,
+"fuelPerLy": 700,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 28352,
+"name": "Rorqual",
+"group": "Capital Industrial Ship",
+"range": 5.0,
+"fuelPerLy": 4000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 23757,
+"name": "Archon",
+"group": "Carrier",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 23915,
+"name": "Chimera",
+"group": "Carrier",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 24483,
+"name": "Nidhoggur",
+"group": "Carrier",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 23911,
+"name": "Thanatos",
+"group": "Carrier",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 92824,
+"name": "Gaia",
+"group": "Command Carrier",
+"range": 3.75,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 92822,
+"name": "Salvation",
+"group": "Command Carrier",
+"range": 3.75,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 92823,
+"name": "Simurgh",
+"group": "Command Carrier",
+"range": 3.75,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 92825,
+"name": "Ymir",
+"group": "Command Carrier",
+"range": 3.75,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 45647,
+"name": "Caiman",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 42243,
+"name": "Chemosh",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 19724,
+"name": "Moros",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 73792,
+"name": "Moros Navy Issue",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 19722,
+"name": "Naglfar",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 73787,
+"name": "Naglfar Fleet Issue",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 19726,
+"name": "Phoenix",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 73793,
+"name": "Phoenix Navy Issue",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 19720,
+"name": "Revelation",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 73790,
+"name": "Revelation Navy Issue",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 87381,
+"name": "Sarathiel",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 42124,
+"name": "Vehement",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 52907,
+"name": "Zirnitra",
+"group": "Dreadnought",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 37604,
+"name": "Apostle",
+"group": "Force Auxiliary",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 42242,
+"name": "Dagon",
+"group": "Force Auxiliary",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 37606,
+"name": "Lif",
+"group": "Force Auxiliary",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 45645,
+"name": "Loggerhead",
+"group": "Force Auxiliary",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 37605,
+"name": "Minokawa",
+"group": "Force Auxiliary",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 37607,
+"name": "Ninazu",
+"group": "Force Auxiliary",
+"range": 3.5,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 28848,
+"name": "Anshar",
+"group": "Jump Freighter",
+"range": 5.0,
+"fuelPerLy": 9400,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 28850,
+"name": "Ark",
+"group": "Jump Freighter",
+"range": 5.0,
+"fuelPerLy": 8800,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 28846,
+"name": "Nomad",
+"group": "Jump Freighter",
+"range": 5.0,
+"fuelPerLy": 8200,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 28844,
+"name": "Rhea",
+"group": "Jump Freighter",
+"range": 5.0,
+"fuelPerLy": 10000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 77283,
+"name": "Bane",
+"group": "Lancer Dreadnought",
+"range": 4.0,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 77281,
+"name": "Hubris",
+"group": "Lancer Dreadnought",
+"range": 4.0,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 77284,
+"name": "Karura",
+"group": "Lancer Dreadnought",
+"range": 4.0,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 77288,
+"name": "Valravn",
+"group": "Lancer Dreadnought",
+"range": 4.0,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 23919,
+"name": "Aeon",
+"group": "Supercarrier",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 22852,
+"name": "Hel",
+"group": "Supercarrier",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 23913,
+"name": "Nyx",
+"group": "Supercarrier",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 3514,
+"name": "Revenant",
+"group": "Supercarrier",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 42125,
+"name": "Vendetta",
+"group": "Supercarrier",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 23917,
+"name": "Wyvern",
+"group": "Supercarrier",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 11567,
+"name": "Avatar",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 78576,
+"name": "Azariel",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 671,
+"name": "Erebus",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+},
+{
+"id": 45649,
+"name": "Komodo",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 3764,
+"name": "Leviathan",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Nitrogen Isotopes"
+},
+{
+"id": 42241,
+"name": "Molok",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Helium Isotopes"
+},
+{
+"id": 23773,
+"name": "Ragnarok",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Hydrogen Isotopes"
+},
+{
+"id": 42126,
+"name": "Vanquisher",
+"group": "Titan",
+"range": 3.0,
+"fuelPerLy": 3000,
+"isotope": "Oxygen Isotopes"
+}
+]
+}

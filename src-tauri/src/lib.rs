@@ -56,6 +56,9 @@ pub fn run() {
             }
 
             let db = Db::open(db_path.clone()).expect("no se pudo abrir la BD");
+            // Reintentar resoluciones de ubicación fallidas (estructuras de jugador que antes
+            // no se pudieron resolver, p. ej. por faltar el scope read_structures).
+            let _ = db.location_system_clear_negative();
 
             let http = sso::http_client().expect("no se pudo crear el cliente HTTP");
             let esi = EsiClient::new(http);
@@ -147,6 +150,13 @@ pub fn run() {
             commands::restore_db,
             commands::db_info,
             commands::auto_backup,
+            commands::get_jump_profile,
+            commands::get_fatigue,
+            commands::save_fit,
+            commands::list_fits,
+            commands::delete_fit,
+            commands::import_fittings,
+            commands::get_char_skill_levels,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

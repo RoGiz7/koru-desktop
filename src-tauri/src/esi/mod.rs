@@ -251,6 +251,116 @@ impl EsiClient {
         Ok(out)
     }
 
+    /// Nombres propios (custom) de contenedores/naves del personaje vía
+    /// POST /characters/{id}/assets/names. Best-effort: ids no resueltos se omiten.
+    /// El endpoint acepta hasta 1000 ids por llamada y requiere token.
+    pub async fn asset_names(
+        &self,
+        character_id: i64,
+        token: &str,
+        item_ids: &[i64],
+    ) -> AppResult<std::collections::HashMap<i64, String>> {
+        use std::collections::HashMap;
+        let mut out = HashMap::new();
+        let mut unique: Vec<i64> = item_ids.iter().copied().filter(|&v| v > 0).collect();
+        unique.sort_unstable();
+        unique.dedup();
+        if unique.is_empty() {
+            return Ok(out);
+        }
+        for chunk in unique.chunks(1000) {
+            let _permit = self
+                .sem
+                .acquire()
+                .await
+                .map_err(|e| AppError::Other(format!("semaphore: {e}")))?;
+            let url = format!(
+                "{}/characters/{character_id}/assets/names/",
+                config::ESI_BASE_URL
+            );
+            let resp = self
+                .http
+                .post(&url)
+                .header("X-Compatibility-Date", config::ESI_COMPATIBILITY_DATE)
+                .bearer_auth(token)
+                .json(&chunk)
+                .send()
+                .await?;
+            if !resp.status().is_success() {
+                continue; // best-effort
+            }
+            #[derive(serde::Deserialize)]
+            struct NameEntry {
+                item_id: i64,
+                name: String,
+            }
+            if let Ok(entries) = resp.json::<Vec<NameEntry>>().await {
+                for e in entries {
+                    // ESI devuelve "None" para los no nombrados; lo omitimos.
+                    if !e.name.is_empty() && e.name != "None" {
+                        out.insert(e.item_id, e.name);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Resuelve NOMBRES de tipos → type_id vía POST /universe/ids (público). Para importar fits EFT.
+    /// Devuelve un mapa nombre→id (solo inventory_types). Best-effort.
+    pub async fn type_ids(
+        &self,
+        names: &[String],
+    ) -> AppResult<std::collections::HashMap<String, i64>> {
+        use std::collections::HashMap;
+        let mut out = HashMap::new();
+        let mut unique: Vec<String> = names
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        unique.sort();
+        unique.dedup();
+        if unique.is_empty() {
+            return Ok(out);
+        }
+        #[derive(serde::Deserialize)]
+        struct IdName {
+            id: i64,
+            name: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct IdsResp {
+            #[serde(default)]
+            inventory_types: Vec<IdName>,
+        }
+        // /universe/ids acepta hasta 500 nombres por llamada.
+        for chunk in unique.chunks(500) {
+            let _permit = self
+                .sem
+                .acquire()
+                .await
+                .map_err(|e| AppError::Other(format!("semaphore: {e}")))?;
+            let url = format!("{}/universe/ids/", config::ESI_BASE_URL);
+            let resp = self
+                .http
+                .post(&url)
+                .header("X-Compatibility-Date", config::ESI_COMPATIBILITY_DATE)
+                .json(&chunk)
+                .send()
+                .await?;
+            if !resp.status().is_success() {
+                continue;
+            }
+            if let Ok(r) = resp.json::<IdsResp>().await {
+                for t in r.inventory_types {
+                    out.insert(t.name, t.id);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Resuelve system_id -> nombre de región (system -> constellation -> region).
     /// Todo cacheado (namespace 0). Best-effort.
     pub async fn resolve_region_names(

@@ -101,6 +101,26 @@ export type SkillsSummary = {
   skill_count: number;
   queue: QueueItem[];
 };
+// Fiteo local guardado (importado por EFT).
+export type FitModule = { type_id: number; name: string; qty: number; fitted: boolean };
+export type Fit = {
+  id: number;
+  name: string;
+  ship_type_id: number;
+  ship_name: string;
+  modules: FitModule[];
+  created_at: string;
+};
+
+// Nave capaz de saltar (datos del SDE en public/jumpships.json).
+export type JumpShip = {
+  id: number; // type_id (para cruzar con assets propios)
+  name: string;
+  group: string; // clase: Dreadnought, Carrier, Jump Freighter…
+  range: number; // rango base en LY (skill 0)
+  fuelPerLy: number; // isótopos por LY
+  isotope: string; // nombre del isótopo (combustible)
+};
 export type AttrView = {
   charisma: number;
   intelligence: number;
@@ -151,6 +171,11 @@ export type AssetDetail = {
   quantity: number;
   system_id: number;
   system_name: string | null;
+  location_name: string;
+  container: string | null;
+  container_id: number;
+  container_type_id: number;
+  slot: string;
   category: string;
 };
 export type JobView = {

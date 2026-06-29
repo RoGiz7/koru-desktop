@@ -1551,6 +1551,91 @@ pub async fn get_wallet_trend_global(
 }
 
 /// Devuelve resumen de skills: SP total, sin asignar, nº de skills y cola (con nombres).
+/// Perfil de salto del personaje: niveles de las skills relevantes + naves de salto que posee.
+/// JDC = Jump Drive Calibration (21611, rango), JFC = Jump Fuel Conservation (21610, fuel).
+/// `owned` = type_ids distintos en sus assets (el frontend cruza con el catálogo de naves).
+#[derive(Debug, Serialize)]
+pub struct JumpProfile {
+    pub jdc: i64,
+    pub jfc: i64,
+    pub owned: Vec<i64>,
+}
+
+#[tauri::command]
+pub async fn get_jump_profile(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<JumpProfile> {
+    // Skills (best-effort: si falta el scope, quedan en 0 y el usuario los ajusta a mano).
+    let (mut jdc, mut jfc) = (0i64, 0i64);
+    if let Ok(token) =
+        token_with_scope(&state, character_id, "esi-skills.read_skills.v1", "Skills").await
+    {
+        if let Ok(s) = skills::skills(&state.esi, &state.db, character_id, &token).await {
+            for sk in &s.skills {
+                match sk.skill_id {
+                    21611 => jdc = sk.active_skill_level,
+                    21610 => jfc = sk.active_skill_level,
+                    _ => {}
+                }
+            }
+        }
+    }
+    // Naves que posee (best-effort: requiere scope de assets).
+    let mut owned = Vec::new();
+    if let Ok(token) =
+        token_with_scope(&state, character_id, "esi-assets.read_assets.v1", "Assets").await
+    {
+        owned = assets::owned_type_ids(&state.esi, &state.db, character_id, &token)
+            .await
+            .unwrap_or_default();
+    }
+    Ok(JumpProfile { jdc, jfc, owned })
+}
+
+/// Fatiga de salto del personaje (timer azul). `jump_fatigue_expire_date` es cuándo expira
+/// la fatiga actual; el frontend calcula los minutos restantes y estima el próximo salto.
+#[derive(Debug, Serialize)]
+pub struct FatigueInfo {
+    pub jump_fatigue_expire_date: Option<String>,
+    pub last_jump_date: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_fatigue(character_id: i64, state: State<'_, AppState>) -> AppResult<FatigueInfo> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-characters.read_fatigue.v1",
+        "Fatiga de salto",
+    )
+    .await?;
+    #[derive(serde::Deserialize)]
+    struct Raw {
+        #[serde(default)]
+        jump_fatigue_expire_date: Option<String>,
+        #[serde(default)]
+        last_jump_date: Option<String>,
+    }
+    let path = format!("/characters/{character_id}/fatigue/");
+    match state
+        .esi
+        .get_cached::<Raw>(&state.db, character_id, &path, Some(&token))
+        .await
+    {
+        Ok(r) => Ok(FatigueInfo {
+            jump_fatigue_expire_date: r.jump_fatigue_expire_date,
+            last_jump_date: r.last_jump_date,
+        }),
+        // Sin registro de fatiga (nunca ha saltado) = sin fatiga.
+        Err(AppError::NotFound) => Ok(FatigueInfo {
+            jump_fatigue_expire_date: None,
+            last_jump_date: None,
+        }),
+        Err(e) => Err(e),
+    }
+}
+
 #[tauri::command]
 pub async fn get_skills(character_id: i64, state: State<'_, AppState>) -> AppResult<SkillsSummary> {
     let token =
@@ -2085,6 +2170,11 @@ pub struct AssetDetailView {
     pub quantity: i64,
     pub system_id: i64,
     pub system_name: Option<String>,
+    pub location_name: String,
+    pub container: Option<String>,
+    pub container_id: i64,
+    pub container_type_id: i64,
+    pub slot: String,
     pub category: String,
 }
 
@@ -2123,6 +2213,11 @@ async fn resolve_asset_detail(
             } else {
                 None
             },
+            location_name: r.location_name,
+            container: r.container,
+            container_id: r.container_id,
+            container_type_id: r.container_type_id,
+            slot: r.slot,
             category: cats.get(&r.type_id).cloned().unwrap_or_else(|| "Otros".to_string()),
         })
         .collect())
@@ -2141,15 +2236,274 @@ pub async fn get_assets_detail(
         "Assets / industria",
     )
     .await?;
-    let rows = assets::detail(&state.esi, &state.db, character_id, &token).await?;
+    let all_tokens = structure_tokens(&state).await;
+    let rows = assets::detail(&state.esi, &state.db, character_id, &token, &all_tokens).await?;
     resolve_asset_detail(&state.esi, &state.db, rows).await
+}
+
+/// Access tokens de todos los pjs con scope de estructuras. Para resolver estructuras de jugador
+/// "entre personajes": si el dueño de unos assets no tiene acceso a la citadel, otro alt puede.
+async fn structure_tokens(state: &AppState) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(chars) = state.db.list_characters() {
+        for c in chars {
+            if c
+                .scopes
+                .iter()
+                .any(|s| s == "esi-universe.read_structures.v1")
+            {
+                if let Ok(v) = state
+                    .tokens
+                    .access_token(state.esi.http(), c.character_id)
+                    .await
+                {
+                    out.push(v.access_token);
+                }
+            }
+        }
+    }
+    out
+}
+
+// ---- Gestor de fiteos local (importación EFT) ----
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct FitModule {
+    pub type_id: i64,
+    pub name: String,
+    pub qty: i64,
+    pub fitted: bool, // true = módulo en slot; false = drone/carga (línea con xN)
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct FitView {
+    pub id: i64,
+    pub name: String,
+    pub ship_type_id: i64,
+    pub ship_name: String,
+    pub modules: Vec<FitModule>,
+    pub created_at: String,
+}
+
+/// Parsea un bloque EFT: devuelve (nave, nombre_fit, [(módulo, cantidad, fiteado)]).
+/// EFT: 1ª línea `[Nave, Nombre]`; luego módulos (líneas `xN` = drones/carga; `Mod, Carga` = con carga).
+fn parse_eft(eft: &str) -> Option<(String, String, Vec<(String, i64, bool)>)> {
+    let mut lines = eft.lines();
+    let header = lines.by_ref().map(|l| l.trim()).find(|l| !l.is_empty())?;
+    let inner = header.strip_prefix('[')?.strip_suffix(']')?;
+    let mut it = inner.splitn(2, ',');
+    let ship = it.next()?.trim().to_string();
+    let fit_name = it.next().unwrap_or("Fit").trim().to_string();
+    if ship.is_empty() {
+        return None;
+    }
+    let mut mods: Vec<(String, i64, bool)> = Vec::new();
+    for l in lines {
+        let l = l.trim();
+        if l.is_empty() || l.starts_with('[') {
+            continue; // separadores o "[Empty ... slot]"
+        }
+        // ¿cantidad al final " xN"? (drones/carga)
+        let (namepart, qty, fitted) = match l.rfind(" x") {
+            Some(idx) => {
+                let num = l[idx + 2..].trim();
+                match num.parse::<i64>() {
+                    Ok(n) => (l[..idx].trim().to_string(), n, false),
+                    Err(_) => (l.to_string(), 1, true),
+                }
+            }
+            None => (l.to_string(), 1, true),
+        };
+        // módulo con carga: "Gun, Ammo" → nos quedamos con el módulo
+        let name = namepart
+            .split(',')
+            .next()
+            .unwrap_or(&namepart)
+            .trim()
+            .to_string();
+        if !name.is_empty() {
+            mods.push((name, qty, fitted));
+        }
+    }
+    Some((ship, fit_name, mods))
+}
+
+/// Guarda un fiteo a partir de un bloque EFT pegado (resuelve type_ids vía ESI público).
+#[tauri::command]
+pub async fn save_fit(eft: String, state: State<'_, AppState>) -> AppResult<FitView> {
+    let (ship, fit_name, mods) = parse_eft(&eft)
+        .ok_or_else(|| AppError::Other("EFT no válido (falta la cabecera [Nave, Nombre]).".into()))?;
+    // Resolver nombres → type_id (nave + módulos).
+    let mut names: Vec<String> = vec![ship.clone()];
+    names.extend(mods.iter().map(|(n, _, _)| n.clone()));
+    let idmap = state.esi.type_ids(&names).await.unwrap_or_default();
+    let ship_type_id = idmap.get(&ship).copied().unwrap_or(0);
+    // Agregar módulos iguales (mismo nombre + tipo de slot).
+    let mut agg: std::collections::HashMap<(String, bool), i64> = std::collections::HashMap::new();
+    for (n, q, f) in &mods {
+        *agg.entry((n.clone(), *f)).or_insert(0) += *q;
+    }
+    let modules: Vec<FitModule> = agg
+        .into_iter()
+        .map(|((name, fitted), qty)| FitModule {
+            type_id: idmap.get(&name).copied().unwrap_or(0),
+            name,
+            qty,
+            fitted,
+        })
+        .collect();
+    let modules_json = serde_json::to_string(&modules)?;
+    let id = state
+        .db
+        .fit_insert(&fit_name, ship_type_id, &ship, &eft, &modules_json)?;
+    Ok(FitView {
+        id,
+        name: fit_name,
+        ship_type_id,
+        ship_name: ship,
+        modules,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    })
+}
+
+/// Lista los fiteos guardados (más recientes primero).
+#[tauri::command]
+pub fn list_fits(state: State<'_, AppState>) -> AppResult<Vec<FitView>> {
+    let rows = state.db.fit_list()?;
+    Ok(rows
+        .into_iter()
+        .map(|r| FitView {
+            id: r.id,
+            name: r.name,
+            ship_type_id: r.ship_type_id,
+            ship_name: r.ship_name,
+            modules: serde_json::from_str(&r.modules).unwrap_or_default(),
+            created_at: r.created_at,
+        })
+        .collect())
+}
+
+/// Borra un fiteo guardado por id.
+#[tauri::command]
+pub fn delete_fit(id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.fit_delete(id)
+}
+
+/// Importa los fittings guardados en el juego del personaje (ESI). Evita duplicados por
+/// (nombre, nave). Devuelve los recién importados.
+#[tauri::command]
+pub async fn import_fittings(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<FitView>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-fittings.read_fittings.v1",
+        "Fittings",
+    )
+    .await?;
+    #[derive(serde::Deserialize)]
+    struct EsiItem {
+        type_id: i64,
+        #[serde(default)]
+        flag: String,
+        #[serde(default)]
+        quantity: i64,
+    }
+    #[derive(serde::Deserialize)]
+    struct EsiFit {
+        name: String,
+        ship_type_id: i64,
+        #[serde(default)]
+        items: Vec<EsiItem>,
+    }
+    let path = format!("/characters/{character_id}/fittings/");
+    let fittings: Vec<EsiFit> = state
+        .esi
+        .get_cached(&state.db, character_id, &path, Some(&token))
+        .await?;
+    // Resolver nombres (naves + módulos).
+    let mut ids: HashSet<i64> = HashSet::new();
+    for f in &fittings {
+        ids.insert(f.ship_type_id);
+        for it in &f.items {
+            ids.insert(it.type_id);
+        }
+    }
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+    // Evitar duplicados con lo ya guardado.
+    let existing: HashSet<(String, i64)> = state
+        .db
+        .fit_list()?
+        .into_iter()
+        .map(|r| (r.name, r.ship_type_id))
+        .collect();
+    let is_slot = |fl: &str| {
+        fl.starts_with("HiSlot")
+            || fl.starts_with("MedSlot")
+            || fl.starts_with("LoSlot")
+            || fl.starts_with("RigSlot")
+            || fl.starts_with("SubSystem")
+    };
+    let mut out = Vec::new();
+    for f in fittings {
+        if existing.contains(&(f.name.clone(), f.ship_type_id)) {
+            continue;
+        }
+        let modules: Vec<FitModule> = f
+            .items
+            .iter()
+            .map(|it| FitModule {
+                type_id: it.type_id,
+                name: names.get(&it.type_id).cloned().unwrap_or_default(),
+                qty: it.quantity.max(1),
+                fitted: is_slot(&it.flag),
+            })
+            .collect();
+        let modules_json = serde_json::to_string(&modules)?;
+        let ship_name = names.get(&f.ship_type_id).cloned().unwrap_or_default();
+        let id = state
+            .db
+            .fit_insert(&f.name, f.ship_type_id, &ship_name, "", &modules_json)?;
+        out.push(FitView {
+            id,
+            name: f.name,
+            ship_type_id: f.ship_type_id,
+            ship_name,
+            modules,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        });
+    }
+    Ok(out)
+}
+
+/// Niveles de skill entrenados del personaje (skill_id → nivel activo). Para el skill-check de fits.
+#[tauri::command]
+pub async fn get_char_skill_levels(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<i64, i64>> {
+    let token =
+        token_with_scope(&state, character_id, "esi-skills.read_skills.v1", "Skills").await?;
+    let s = skills::skills(&state.esi, &state.db, character_id, &token).await?;
+    let mut m = std::collections::HashMap::new();
+    for sk in &s.skills {
+        m.insert(sk.skill_id, sk.active_skill_level);
+    }
+    Ok(m)
 }
 
 /// Lista detallada de assets global (todos los personajes con el scope).
 #[tauri::command]
 pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<Vec<AssetDetailView>> {
     use std::collections::HashMap;
-    let mut agg: HashMap<(i64, i64), i64> = HashMap::new();
+    let all_tokens = structure_tokens(&state).await;
+    let mut agg: HashMap<(i64, i64, String, Option<String>, i64, i64, String), i64> = HashMap::new();
     for c in state.db.list_characters()? {
         if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
             continue;
@@ -2163,20 +2517,51 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
             Err(_) => continue,
         };
         if let Ok(rows) =
-            assets::detail(&state.esi, &state.db, c.character_id, &valid.access_token).await
+            assets::detail(&state.esi, &state.db, c.character_id, &valid.access_token, &all_tokens)
+                .await
         {
             for r in rows {
-                *agg.entry((r.type_id, r.system_id)).or_insert(0) += r.quantity;
+                *agg
+                    .entry((
+                        r.type_id,
+                        r.system_id,
+                        r.location_name,
+                        r.container,
+                        r.container_id,
+                        r.container_type_id,
+                        r.slot,
+                    ))
+                    .or_insert(0) += r.quantity;
             }
         }
     }
     let mut rows: Vec<crate::esi::assets::AssetDetailRow> = agg
         .into_iter()
-        .map(|((type_id, system_id), quantity)| crate::esi::assets::AssetDetailRow {
-            type_id,
-            quantity,
-            system_id,
-        })
+        .map(
+            |(
+                (
+                    type_id,
+                    system_id,
+                    location_name,
+                    container,
+                    container_id,
+                    container_type_id,
+                    slot,
+                ),
+                quantity,
+            )| {
+                crate::esi::assets::AssetDetailRow {
+                    type_id,
+                    quantity,
+                    system_id,
+                    location_name,
+                    container,
+                    container_id,
+                    container_type_id,
+                    slot,
+                }
+            },
+        )
         .collect();
     rows.sort_by(|a, b| b.quantity.cmp(&a.quantity));
     resolve_asset_detail(&state.esi, &state.db, rows).await

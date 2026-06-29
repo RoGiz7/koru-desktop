@@ -26,6 +26,14 @@ export function fmtSp(n: number): string {
   return n.toLocaleString("es-ES");
 }
 
+// Minutos → "X min" o "Xh Ym" (para timers de fatiga de salto).
+export function fmtMin(m: number): string {
+  const t = Math.round(m);
+  if (t <= 0) return "0 min";
+  if (t < 60) return `${t} min`;
+  return `${Math.floor(t / 60)}h ${t % 60}m`;
+}
+
 // Tamaño de archivo legible (B / KB / MB / GB).
 export function fmtBytes(n: number): string {
   if (!n) return "0 B";

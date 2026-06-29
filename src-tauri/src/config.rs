@@ -45,6 +45,12 @@ pub mod scopes {
     /// Guerra de Facciones (stats personales) — grupo PvE.
     pub const FW: &[&str] = &["esi-characters.read_fw_stats.v1"];
 
+    /// Fatiga de salto (jump planner avanzado del mapa).
+    pub const FATIGUE: &[&str] = &["esi-characters.read_fatigue.v1"];
+
+    /// Fittings guardados del personaje (gestor de fiteos).
+    pub const FITTINGS: &[&str] = &["esi-fittings.read_fittings.v1"];
+
     /// Contactos personales + standings con NPC (grupo Personaje).
     pub const CONTACTS: &[&str] = &[
         "esi-characters.read_contacts.v1",
@@ -65,6 +71,7 @@ pub mod scopes {
 
     pub const ASSETS: &[&str] = &[
         "esi-assets.read_assets.v1",
+        "esi-universe.read_structures.v1", // resolver estructuras de jugador (citadels) → sistema
         "esi-industry.read_character_jobs.v1",
         "esi-industry.read_character_mining.v1",
         "esi-planets.manage_planets.v1", // Planetología (PI)
@@ -82,6 +89,8 @@ pub mod scopes {
         let mut v = Vec::new();
         v.extend_from_slice(PVP);
         v.extend_from_slice(FW);
+        v.extend_from_slice(FATIGUE);
+        v.extend_from_slice(FITTINGS);
         v.extend_from_slice(CONTACTS);
         v.extend_from_slice(WALLET);
         v.extend_from_slice(SKILLS);

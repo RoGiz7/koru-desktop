@@ -18,7 +18,8 @@ export type Tab =
   | "factional"
   | "mineria"
   | "contactos"
-  | "planetologia";
+  | "planetologia"
+  | "fiteos";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
@@ -79,6 +80,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     subs: [
       { key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] },
       { key: "contactos", label: "Contactos", scopes: ["esi-characters.read_contacts.v1"] },
+      { key: "fiteos", label: "Fiteos" },
     ],
   },
 ];
@@ -169,6 +171,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
   contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },
+  fiteos: { title: "Fiteos", subtitle: "Tus fits guardados (importados por EFT)" },
 };
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.
