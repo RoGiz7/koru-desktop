@@ -91,3 +91,77 @@ de ficheros en Rust (tail UTF-16LE + watcher), el parser, y el overlay + panel +
 - Vintel, IntelPy, IntelWalker, RIFT Intel Fusion Tool, EveIntelChecker — repos/foros.
 - Formato y ubicación del log de chat — EVE University Wiki ("EVE logs") y guía de parsing.
 - Listas de tools — awesome-eve, EVE University Wiki.
+
+---
+
+## 6. Spec afinado para implementación (2026-06-29, confirmado por web)
+
+**Log de chat (confirmado):**
+- Carpeta: `Documents\EVE\logs\Chatlogs\` (Win). Encoding **UTF-16LE** (con BOM).
+- Nombre: `Canal_AAAAMMDD_HHMMSS_<charID>.txt` (incluye el character_id "listener").
+- Cabecera delimitada por guiones (channelName, listener, sessionStarted) → saltar.
+- Línea: `[ AAAA.MM.DD HH:MM:SS ] Autor > mensaje`.
+- **Uno por (canal, personaje, sesión):** cada cliente escribe su propio fichero. Con N alts en el
+  mismo canal de intel hay N ficheros con líneas duplicadas → **juntar todos los ficheros de los
+  canales configurados y deduplicar por (timestamp + autor + mensaje)**. Ficheros rotan por sesión:
+  seguir el/los más recientes por canal.
+
+**Arquitectura propuesta (Rust backend + watcher):**
+- Watcher de la carpeta Chatlogs (crate `notify`) filtrando por los canales que configure el usuario.
+- Lector incremental UTF-16LE (tail por offset) de los ficheros activos; parsear líneas nuevas.
+- Estado en memoria: `Map<system_id, IntelReport{ last_seen, pilot?, ship?, raw, jumps }>`; emitir
+  evento a frontend (Tauri `emit`) al llegar intel nuevo.
+- NO persistir en BD (efímero) salvo quizá un historial corto opcional.
+
+**Parser:**
+- Sistema: match de tokens vs `neweden.json` `nameIdx` (prefijo + soportar `*` y abreviaturas).
+- Keywords clear: `clr`/`clear`/`status`/`nv`/`nothing` → limpiar sistema.
+- Piloto/nave: best-effort (regex laxa); guardar siempre el texto crudo.
+
+**Enlaces:**
+- Piloto → zKill: resolver nombre con ESI `/universe/ids` (nombre→character_id) → `zkillboard.com/character/<id>/`;
+  fallback a búsqueda de zKill si no resuelve.
+- Sistema → zKill/Dotlan (ya existe).
+
+**Overlay "Intel" en el mapa:** círculos rojos pulsantes por recencia (fade en X min configurable);
+tooltip hora/sistema/piloto/nave + "a N saltos" (Dijkstra desde sistema actual). Capa nueva en
+OVERLAY_CATS "En vivo".
+
+**Alertas configurables:** notificación nativa (`tauri-plugin-notification`) + sonido opcional si entra
+intel a ≤ N saltos de tu sistema actual (o un "home" fijado). Config persistida (localStorage):
+canales a seguir, ventana de recencia, umbral de saltos, sonido on/off.
+
+**Panel "Intel reciente":** lista (hora · sistema · piloto · nave · saltos · enlace zKill) + botón limpiar.
+
+**TOS:** read-only sobre logs locales, sin tocar el cliente → permitido (igual que SMT/Vintel/IntelPy).
+
+---
+
+## 7. Ejemplos REALES analizados (`../documentacion/chat logs/`, 2026-06-29)
+
+El usuario copió logs reales de 3 personajes (charIDs 2117767770, 152730148, 331681765) y varios
+canales: `Local`, `Corp.`, `Rekium Corp`, `Flota`, `Alianza`, `isk.imperium`, `fareast.imperium`.
+**Canales de intel = `fareast.imperium` (Imperium/Goons) e `isk.imperium`.** El resto NO es intel.
+
+**Confirmado de los ficheros:**
+- Cabecera: 2 líneas de guiones; campos `Channel ID` (player_<hex>), `Channel Name`, `Listener`
+  (= nombre del personaje, p. ej. SieteHierros), `Session started`. Saltar hasta tras la 2ª línea de guiones.
+- Cada línea de datos lleva un carácter de control/BOM antes del `[` → limpiar (trim de no-imprimibles).
+- Formato exacto: `[ AAAA.MM.DD HH:MM:SS ] Autor > mensaje`.
+- El MOTD del sistema viene como línea de "Sistema EVE >" (ignorar).
+
+**Patrones de intel reales (parser):**
+- Sistema = código null-sec (`9PX2-F`, `8-WYQZ`, `TZN-2V`, `78-0R6`, `EFM-C4`, `R-3FBU`…) → match exacto
+  contra `neweden.json` `nameIdx`. El `*` final (`9PX2-F*`) = hostil EN el sistema → quitar antes de matchear.
+- Keywords: `clr`/`clear`/`CLR`/`cleared` = limpiar el sistema; `nv`/`NV` = neutral/sin visual; otros: `ess`,
+  `drops`, `caps(ul)`, "on the X gate", "on ansiblex" (notas, no críticas).
+- Estructura típica del mensaje: `SISTEMA* <piloto(s)> <nave?> <notas>` (sistema suele ir primero, pero no
+  siempre). Pilotos = tokens capitalizados multi-palabra; naves a menudo en minúscula → poco fiables.
+- Guardar SIEMPRE el texto crudo; extraer piloto/nave best-effort. Si NO hay sistema reconocido →
+  es charla/ruido ("gj", "sorry", "wrong channel", "Kill: X (Proteus)") → no pintar en mapa.
+- Hay nombres no-latinos (ruso/chino) y texto corrupto → no romper; el match de sistema (ASCII) sigue ok.
+
+**Multi-personaje confirmado:** `fareast.imperium` existe para los 3 charIDs con líneas idénticas →
+**deduplicar por (timestamp + autor + mensaje)** al juntar todos los ficheros de un canal.
+
+**Para tests:** usar estos ficheros de `documentacion/chat logs/` como fixtures del parser.
