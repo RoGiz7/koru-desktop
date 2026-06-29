@@ -20,15 +20,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # En push de tag, github.ref ya es el tag. En manual, usa el input.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable

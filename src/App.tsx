@@ -2710,8 +2710,14 @@ function audioCtx(): AudioContext | null {
     return null;
   }
 }
-// Un tono. Llamar desde un gesto del usuario al menos una vez "desbloquea" el audio.
-function tone(freq: number, startAt: number, dur: number, type: OscillatorType = "square") {
+// Un tono con envolvente attack/decay. Llamar desde un gesto del usuario "desbloquea" el audio.
+function tone(
+  freq: number,
+  startAt: number,
+  dur: number,
+  type: OscillatorType = "square",
+  peak = 0.14
+) {
   const ctx = audioCtx();
   if (!ctx) return;
   const o = ctx.createOscillator();
@@ -2722,61 +2728,65 @@ function tone(freq: number, startAt: number, dur: number, type: OscillatorType =
   o.frequency.value = freq;
   const t = ctx.currentTime + startAt;
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.14, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(peak, t + 0.015);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.start(t);
   o.stop(t + dur + 0.02);
 }
-// Catálogo de sonidos de alerta integrados (clave → etiqueta).
+// Un barrido de frecuencia (para sirena/sonar): lista de [tiempoRel, frec].
+function sweep(points: [number, number][], dur: number, type: OscillatorType, peak: number) {
+  const ctx = audioCtx();
+  if (!ctx || points.length === 0) return;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.connect(g);
+  g.connect(ctx.destination);
+  o.type = type;
+  const t0 = ctx.currentTime;
+  o.frequency.setValueAtTime(points[0][1], t0);
+  for (const [dt, f] of points) o.frequency.linearRampToValueAtTime(f, t0 + dt);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + 0.04);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur + 0.02);
+}
+// Catálogo de sonidos de alerta integrados (clave → etiqueta). Basado en los tipos de alerta
+// mejor valorados: ping cristalino (alta prioridad), chime de 2 notas, alarma corta, campana, sonar.
 const ALERT_SOUNDS: { key: string; label: string }[] = [
-  { key: "double", label: "Doble pitido" },
-  { key: "triple", label: "Triple corto" },
-  { key: "siren", label: "Sirena" },
+  { key: "ping", label: "Ping cristalino" },
+  { key: "double", label: "Chime (dos notas)" },
+  { key: "triple", label: "Alarma (urgente)" },
   { key: "bell", label: "Campana" },
   { key: "sonar", label: "Sonar" },
+  { key: "siren", label: "Sirena" },
   { key: "custom", label: "Personalizado (archivo)" },
 ];
 function playPreset(key: string) {
-  const ctx = audioCtx();
-  if (!ctx) return;
-  const t0 = ctx.currentTime;
-  if (key === "triple") {
-    tone(880, 0, 0.1);
-    tone(880, 0.14, 0.1);
-    tone(880, 0.28, 0.1);
+  if (!audioCtx()) return;
+  if (key === "ping") {
+    // Ping brillante tipo cristal: fundamental + octava de brillo, decaimiento corto.
+    tone(1568, 0, 0.38, "sine", 0.24);
+    tone(3136, 0, 0.22, "sine", 0.05);
+  } else if (key === "triple") {
+    // Alarma urgente: tres pulsos cortos y brillantes.
+    tone(1047, 0, 0.09, "square", 0.16);
+    tone(1047, 0.14, 0.09, "square", 0.16);
+    tone(1047, 0.28, 0.11, "square", 0.16);
   } else if (key === "siren") {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.type = "sawtooth";
-    o.frequency.setValueAtTime(600, t0);
-    o.frequency.linearRampToValueAtTime(1100, t0 + 0.3);
-    o.frequency.linearRampToValueAtTime(600, t0 + 0.6);
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.62);
-    o.start(t0);
-    o.stop(t0 + 0.64);
+    sweep([[0, 600], [0.3, 1100], [0.6, 600]], 0.62, "sawtooth", 0.12);
   } else if (key === "bell") {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.type = "sine";
-    o.frequency.value = 1180;
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
-    o.start(t0);
-    o.stop(t0 + 0.82);
+    // Campana: fundamental + parcial inarmónico (~2.76×), cola larga.
+    tone(880, 0, 0.95, "sine", 0.22);
+    tone(2429, 0, 0.6, "sine", 0.07);
   } else if (key === "sonar") {
-    tone(620, 0, 0.18, "sine");
-    tone(940, 0.22, 0.26, "sine");
+    // Ping de sonar: descenso de tono con cola + eco suave.
+    sweep([[0, 900], [0.5, 480]], 0.55, "sine", 0.2);
+    tone(700, 0.55, 0.3, "sine", 0.07);
   } else {
-    // double (por defecto)
-    tone(988, 0, 0.16);
-    tone(1319, 0.18, 0.22);
+    // "double" (por defecto): chime ascendente de dos notas, suave.
+    tone(784, 0, 0.18, "triangle", 0.17);
+    tone(1175, 0.16, 0.5, "triangle", 0.17);
   }
 }
 // Sonido personalizado desde un archivo (cargado vía Rust → Blob, reproducible aun minimizado).
