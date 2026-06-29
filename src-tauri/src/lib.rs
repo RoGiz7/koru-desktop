@@ -157,6 +157,7 @@ pub fn run() {
             commands::delete_fit,
             commands::import_fittings,
             commands::get_char_skill_levels,
+            commands::get_thera_connections,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

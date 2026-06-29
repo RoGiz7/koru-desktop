@@ -17,6 +17,7 @@ import {
   NAV,
   TAB_HEAD,
   OVERLAYS,
+  OVERLAY_CATS,
   SUBFILTERS,
   FW_FACTIONS,
   POIS,
@@ -68,6 +69,7 @@ import type {
   StandingRow,
   JumpShip,
   Fit,
+  WhConn,
 } from "./types";
 
 /* ---------- app ---------- */
@@ -350,6 +352,8 @@ function App() {
   const [sovMap, setSovMap] = useState<Map<number, SovSystem> | null>(null);
   const [fwMap, setFwMap] = useState<Map<number, FwSystem> | null>(null);
   const [incursions, setIncursions] = useState<Incursion[] | null>(null);
+  const [theraConns, setTheraConns] = useState<WhConn[] | null>(null);
+  const [assetQuery, setAssetQuery] = useState(""); // búsqueda prefijada de Assets (p. ej. desde el mapa)
   const [factionStd, setFactionStd] = useState<Map<number, number> | null>(null); // faction_id -> standing
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
@@ -486,6 +490,14 @@ function App() {
     }
   }
 
+  async function loadThera() {
+    try {
+      setTheraConns(await invoke<WhConn[]>("get_thera_connections"));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   // Standings con facciones NPC del personaje activo (para la capa de standings del mapa).
   async function loadFactionStd(subj: number | "global") {
     if (subj === "global") {
@@ -509,6 +521,7 @@ function App() {
     if (o === "soberania" && !sovMap) loadSov();
     if (o === "fw" && !fwMap) loadFw();
     if (o === "incursion" && !incursions) loadIncursions();
+    if (o === "wormholes" && !theraConns) loadThera();
     if (o === "standings" && !factionStd) loadFactionStd(subject);
   }
 
@@ -1160,6 +1173,11 @@ function App() {
           fwBySystem={fwMap}
           factionStandings={factionStd}
           incursions={incursions}
+          theraConns={theraConns}
+          onSystemAssets={(name) => {
+            setAssetQuery(name);
+            changeTab("assets");
+          }}
           hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
           charLocations={(isGlobal
             ? Object.values(cards)
@@ -1289,6 +1307,7 @@ function App() {
               detail={assetsDetail}
               busy={sectionBusy}
               charId={isGlobal ? null : subjectId}
+              presetQuery={assetQuery}
             />
           )}
           {tab === "industria" && (
@@ -1438,14 +1457,12 @@ function TopList({
       <ol className={icon ? "with-ico" : ""}>
         {items.map((it) => (
           <li key={it.id}>
-            {icon && (
-              <img
-                className="type-ico"
-                src={icon === "render" ? typeRender(it.id) : typeIcon(it.id)}
-                alt=""
-                loading="lazy"
-              />
-            )}
+            {icon &&
+              (icon === "render" ? (
+                <img className="type-ico" src={typeRender(it.id)} alt="" loading="lazy" />
+              ) : (
+                <TypeIcon typeId={it.id} />
+              ))}
             {it.name ?? `#${it.id}`} <span className="muted">({it.count})</span>
           </li>
         ))}
@@ -2550,20 +2567,24 @@ function MapView(props: {
   fwBySystem?: Map<number, FwSystem> | null;
   factionStandings?: Map<number, number> | null;
   incursions?: Incursion[] | null;
+  theraConns?: WhConn[] | null;
   hereSystemId?: number | null;
   charLocations?: CharLoc[];
   characters?: Character[];
+  onSystemAssets?: (systemName: string) => void;
 }) {
   const {
     data,
     overlay,
     onOverlayChange,
+    onSystemAssets,
     assetsBySystem,
     miningBySystem,
     sovBySystem,
     fwBySystem,
     factionStandings,
     incursions,
+    theraConns,
     hereSystemId,
     charLocations,
     characters = [],
@@ -2578,6 +2599,8 @@ function MapView(props: {
   const [hover, setHover] = useState<{ sid: number; sx: number; sy: number } | null>(null);
   const [subFilter, setSubFilter] = useState<string>("all"); // sub-filtro de la capa activa
   useEffect(() => setSubFilter("all"), [overlay]); // reset al cambiar de capa
+  const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
+  const [ctxCollapsed, setCtxCollapsed] = useState(false); // panel de contexto plegado
   // Planificador de rutas
   const [routeActive, setRouteActive] = useState(false);
   const [routeMode, setRouteMode] = useState<RouteMode>("shortest");
@@ -3034,6 +3057,31 @@ function MapView(props: {
     });
   }, [geo, overlay, incursions]);
 
+  // Capa de wormholes (eve-scout): marca los sistemas con conexión Thera/Turnur.
+  const theraCircles = useMemo(() => {
+    if (!geo || overlay !== "wormholes" || !theraConns) return null;
+    return theraConns.map((c, i) => {
+      const s = geo.idx.get(c.system_id);
+      if (!s) return null;
+      const p = geo.proj(s);
+      const col = c.hub === "Turnur" ? "#e0863a" : "#3ad6e0"; // Turnur naranja · Thera cian
+      return (
+        <circle
+          key={`wh-${c.system_id}-${i}`}
+          cx={p.px}
+          cy={p.py}
+          r={2.4}
+          fill={col}
+          fillOpacity={0.85}
+          stroke="#0a0d12"
+          strokeWidth={0.5}
+        >
+          <title>{`${s.n} — ${c.hub} (${c.wh_type || "WH"}) · ${c.max_ship_size || "?"} · ~${c.remaining_hours}h`}</title>
+        </circle>
+      );
+    });
+  }, [geo, overlay, theraConns]);
+
   // Nave seleccionada (del catálogo del SDE).
   const selShip = useMemo(
     () => jumpShips.find((s) => s.name === jumpShip) || null,
@@ -3152,6 +3200,8 @@ function MapView(props: {
       ? "Guerra de facciones: color = imperio que controla; tamaño/intensidad = cuán disputado está el sistema."
       : overlay === "incursion"
       ? "Incursiones de Sansha: sistemas infestados (el más grande = staging). Color = estado (rojo establecida · naranja movilizando · amarillo retirándose)."
+      : overlay === "wormholes"
+      ? "Conexiones de wormhole a Thera/Turnur (datos de eve-scout): sistemas k-space con salida (cian = Thera, naranja = Turnur). El tooltip muestra tipo, tamaño máx y horas restantes."
       : overlay === "kills"
       ? "Kills de jugadores en la última hora (datos en vivo de ESI)."
       : overlay === "jumps"
@@ -3183,6 +3233,8 @@ function MapView(props: {
         }
       : overlay === "incursion" && incursions
       ? { value: fmtSp(incursions.length), label: "Incursiones activas" }
+      : overlay === "wormholes" && theraConns
+      ? { value: fmtSp(theraConns.length), label: "Conexiones Thera/Turnur" }
       : overlay === "ubicacion"
       ? { value: fmtSp(charLocations?.length ?? 0), label: "Personajes situados" }
       : overlay === "poi"
@@ -3190,6 +3242,18 @@ function MapView(props: {
       : liveMap
       ? { value: fmtSp(liveMap.size), label: "Sistemas con datos" }
       : null;
+
+  // KPIs contextuales a la capa activa (no genéricos): los de PvP solo en la capa PvP.
+  const ctxKpis: { value: string; label: string }[] =
+    overlay === "pvp"
+      ? [
+          { value: fmtSp(pvp.length), label: "Sistemas (tu PvP)" },
+          { value: fmtSp(totalKills), label: "Kills" },
+          { value: fmtSp(totalLosses), label: "Losses" },
+        ]
+      : ctxKpi
+      ? [ctxKpi]
+      : [];
 
   return (
     <>
@@ -3545,6 +3609,7 @@ function MapView(props: {
             {standingCircles}
             {/* overlay Incursiones (memorizado) */}
             {incursionCircles}
+            {theraCircles}
             {/* overlay PvP */}
             {overlay === "pvp" &&
               pvp.map((d) => {
@@ -3870,37 +3935,51 @@ function MapView(props: {
                     Dotlan
                   </button>
                 </div>
+                {onSystemAssets && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      onSystemAssets(s.n);
+                      setSelected(null);
+                    }}
+                  >
+                    📦 Mis assets aquí
+                  </button>
+                )}
               </div>
             );
           })()}
 
-        {/* Panel de contexto de la capa activa (derecha, estilo mapa oficial) */}
-        <div className="map-context">
+        {/* Panel de contexto de la capa activa (derecha): KPIs propios de la capa, plegable */}
+        <div className={`map-context ${ctxCollapsed ? "collapsed" : ""}`}>
           <div className="mc-title">
-            <span className="mc-icon">{activeOverlay.icon}</span>
-            {activeOverlay.label}
+            <span className="mc-icon">
+              <OverlayIcon o={activeOverlay} />
+            </span>
+            <span className="mc-title-tx">{activeOverlay.label}</span>
+            <button
+              className="mc-toggle"
+              onClick={() => setCtxCollapsed((v) => !v)}
+              title={ctxCollapsed ? "Expandir" : "Plegar"}
+            >
+              {ctxCollapsed ? "▸" : "▾"}
+            </button>
           </div>
-          <p className="mc-desc">{legend}</p>
-          <div className="mc-kpis">
-            <div className="mc-kpi">
-              <span>{fmtSp(pvp.length)}</span>
-              <label>Sistemas (tu PvP)</label>
-            </div>
-            <div className="mc-kpi">
-              <span>{fmtSp(totalKills)}</span>
-              <label>Kills</label>
-            </div>
-            <div className="mc-kpi">
-              <span>{fmtSp(totalLosses)}</span>
-              <label>Losses</label>
-            </div>
-            {ctxKpi && (
-              <div className="mc-kpi">
-                <span>{ctxKpi.value}</span>
-                <label>{ctxKpi.label}</label>
-              </div>
-            )}
-          </div>
+          {!ctxCollapsed && (
+            <>
+              <p className="mc-desc">{legend}</p>
+              {ctxKpis.length > 0 && (
+                <div className="mc-kpis">
+                  {ctxKpis.map((k, i) => (
+                    <div className="mc-kpi" key={i}>
+                      <span>{k.value}</span>
+                      <label>{k.label}</label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Sub-filtro de la capa activa (desplegable, estilo mapa oficial) */}
@@ -3918,19 +3997,46 @@ function MapView(props: {
           </div>
         )}
 
-        {/* Barra de filtros de capas (abajo-centro) */}
+        {/* Barra de capas por categorías (abajo-centro): cada categoría es un desplegable */}
         <div className="map-filterbar">
-          {OVERLAYS.map((o) => (
-            <button
-              key={o.key}
-              className={`mfb-btn ${overlay === o.key ? "active" : ""} ${o.group === "tuyo" ? "mine" : ""}`}
-              onClick={() => onOverlayChange(o.key)}
-              title={o.label}
-            >
-              <span className="mfb-icon">{o.icon}</span>
-              <span className="mfb-label">{o.short}</span>
-            </button>
-          ))}
+          {OVERLAY_CATS.map((c) => {
+            const layers = OVERLAYS.filter((o) => o.cat === c.key);
+            const activeHere = layers.find((o) => o.key === overlay);
+            return (
+              <div className="mfb-cat" key={c.key}>
+                <button
+                  className={`mfb-btn ${activeHere ? "active" : ""} ${openCat === c.key ? "open" : ""}`}
+                  onClick={() => setOpenCat(openCat === c.key ? null : c.key)}
+                  title={c.label}
+                >
+                  <span className="mfb-icon">
+                    {activeHere ? <OverlayIcon o={activeHere} /> : c.icon}
+                  </span>
+                  <span className="mfb-label">{activeHere ? activeHere.short : c.label}</span>
+                  <span className="mfb-caret">▾</span>
+                </button>
+                {openCat === c.key && (
+                  <div className="mfb-menu">
+                    {layers.map((o) => (
+                      <button
+                        key={o.key}
+                        className={`mfb-item ${overlay === o.key ? "active" : ""}`}
+                        onClick={() => {
+                          onOverlayChange(o.key);
+                          setOpenCat(null);
+                        }}
+                      >
+                        <span className="mfb-icon">
+                          <OverlayIcon o={o} />
+                        </span>
+                        <span>{o.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </>
@@ -4024,6 +4130,28 @@ function RivalsView(props: { data: Rivals | null; busy: boolean }) {
       <p className="muted small">
         Basado en tus killmails (necesita el JSON completo: si está vacío, pulsa "Reprocesar daño" en PvP).
       </p>
+      {(data.you_kill_chars.length > 0 || data.kills_you_chars.length > 0) && (
+        <div className="rivals-charts">
+          <div className="panel resumen-panel">
+            <h4>A quién más matas (top)</h4>
+            <Bars
+              items={data.you_kill_chars
+                .slice(0, 8)
+                .map((r) => ({ label: r.name ?? `#${r.id}`, value: r.count }))}
+              color="#3fb950"
+            />
+          </div>
+          <div className="panel resumen-panel">
+            <h4>Quién más te mata (top)</h4>
+            <Bars
+              items={data.kills_you_chars
+                .slice(0, 8)
+                .map((r) => ({ label: r.name ?? `#${r.id}`, value: r.count }))}
+              color="#e5534b"
+            />
+          </div>
+        </div>
+      )}
       <div className="rivals-grid">
         <RivalList title="A quién más matas" items={data.you_kill_chars} kind="char" />
         <RivalList title="Corps que más matas" items={data.you_kill_corps} kind="corp" />
@@ -4891,7 +5019,7 @@ function MineriaView({ subject }: { subject: number | "global" }) {
                     {data.by_ore.map((o, i) => (
                       <tr key={i}>
                         <td>
-                          <img className="type-ico" src={typeIcon(o.type_id, 32)} alt="" loading="lazy" />
+                          <TypeIcon typeId={o.type_id} />
                           {o.type_name ?? `#${o.type_id}`}
                         </td>
                         <td style={{ textAlign: "right" }}>{fmtSp(o.units)}</td>
@@ -5240,7 +5368,7 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
           {sorted.map((o, i) => (
             <tr key={i}>
               <td className="ship-cell">
-                <img className="type-ico" src={typeIcon(o.type_id)} alt="" loading="lazy" />
+                <TypeIcon typeId={o.type_id} />
                 <span>{o.type_name ?? `#${o.type_id}`}</span>
               </td>
               <td style={{ color: o.is_buy ? "#3fb950" : "#e5534b" }}>
@@ -5258,6 +5386,38 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
       </table>
     </>
   );
+}
+
+// Icono de tipo con fallback: el endpoint /icon no existe para blueprints (salen rotos);
+// si falla, probamos la variante /bp (icono de plano). Se reinicia si cambia el type_id.
+function TypeIcon({
+  typeId,
+  size = 32,
+  className = "type-ico",
+}: {
+  typeId: number;
+  size?: number;
+  className?: string;
+}) {
+  const [src, setSrc] = useState(typeIcon(typeId, size));
+  useEffect(() => setSrc(typeIcon(typeId, size)), [typeId, size]);
+  return (
+    <img
+      className={className}
+      src={src}
+      alt=""
+      loading="lazy"
+      onError={() => {
+        const bp = `https://images.evetech.net/types/${typeId}/bp?size=${size}`;
+        if (src !== bp) setSrc(bp);
+      }}
+    />
+  );
+}
+
+// Icono de una capa del mapa: arte real de EVE si tiene typeId, si no el emoji.
+function OverlayIcon({ o }: { o: { icon: string; typeId?: number } }) {
+  return o.typeId ? <img src={typeIcon(o.typeId, 32)} alt="" loading="lazy" /> : <>{o.icon}</>;
 }
 
 // ---- Visor de fit circular (estilo ventana de fitting del juego) ----
@@ -5629,8 +5789,9 @@ function AssetsView(props: {
   detail: AssetDetail[] | null;
   busy: boolean;
   charId: number | null;
+  presetQuery?: string;
 }) {
-  const { data, detail, busy, charId } = props;
+  const { data, detail, busy, charId, presetQuery } = props;
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // "" = Todos
   // Datos para el skill-check del fit al abrir una nave.
@@ -5653,6 +5814,27 @@ function AssetsView(props: {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "qty", dir: -1 });
   // Contenedor/nave "abierto" (drill-down): muestra solo su contenido.
   const [openContainer, setOpenContainer] = useState<{ id: number; name: string } | null>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const lastPreset = useRef<string | null>(null);
+  const pendingScroll = useRef(false);
+  // Búsqueda prefijada desde fuera (p. ej. "Mis assets aquí" del mapa): filtra por el sistema.
+  useEffect(() => {
+    if (presetQuery && presetQuery !== lastPreset.current) {
+      lastPreset.current = presetQuery;
+      setQ(presetQuery);
+      setOpenContainer(null);
+      pendingScroll.current = true; // bajar a la lista en cuanto exista (aunque los assets aún carguen)
+    }
+  }, [presetQuery]);
+  // Baja hasta el buscador/tabla una sola vez cuando ya está renderizado.
+  useEffect(() => {
+    if (pendingScroll.current && searchRef.current) {
+      pendingScroll.current = false;
+      requestAnimationFrame(() =>
+        searchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      );
+    }
+  });
   const onSort = (col: string) =>
     setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
   const ql = q.trim().toLowerCase();
@@ -5703,7 +5885,7 @@ function AssetsView(props: {
           {detail && detail.length > 0 && catList.length > 1 && (
             <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
               <h4>Distribución por categoría</h4>
-              <Donut
+              <Bars
                 items={Object.entries(
                   detail.reduce<Record<string, number>>((acc, r) => {
                     acc[r.category] = (acc[r.category] ?? 0) + r.quantity;
@@ -5740,7 +5922,7 @@ function AssetsView(props: {
               </button>
             </div>
           )}
-          <div className="asset-search">
+          <div className="asset-search" ref={searchRef}>
             <input
               type="text"
               value={q}
@@ -5806,7 +5988,7 @@ function AssetsView(props: {
                           {r.container_type_id ? (
                             <img
                               className="asset-open-ico"
-                              src={typeIcon(r.container_type_id, 24)}
+                              src={typeIcon(r.container_type_id, 32)}
                               alt=""
                               loading="lazy"
                             />

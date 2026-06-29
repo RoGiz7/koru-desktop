@@ -278,20 +278,13 @@ async fn resolve_location_named(
     }
     // Estructura de jugador (Upwell): requiere token con acceso a esa estructura.
     if loc_id >= 1_000_000_000_000 {
-        let path = format!("/universe/structures/{loc_id}/");
-        match db.location_system_get(loc_id) {
-            Some(0) => return (0, Some("⚠ Estructura sin acceso".to_string())), // negativo cacheado
-            Some(sys) => {
-                let name = esi
-                    .get_cached::<StructureGeo>(db, 0, &path, tokens.first().map(|s| s.as_str()))
-                    .await
-                    .ok()
-                    .and_then(|g| g.name);
-                return (sys, name);
-            }
-            None => {}
+        // Si ya sabemos que nadie tiene acceso, no reintentar.
+        if db.location_system_get(loc_id) == Some(0) {
+            return (0, Some("⚠ Estructura sin acceso".to_string()));
         }
-        // Probar cada token (dueño + alts) hasta que uno con acceso la resuelva.
+        let path = format!("/universe/structures/{loc_id}/");
+        // Probar todos los tokens (dueño + alts) hasta obtener sistema Y nombre. El endpoint está
+        // cacheado por Expires, así que repetir es barato; así no se pierde el nombre entre pasadas.
         for tok in tokens {
             if let Ok(g) = esi
                 .get_cached::<StructureGeo>(db, 0, &path, Some(tok.as_str()))
@@ -391,15 +384,24 @@ pub async fn detail(
         .map(|((type_id, root, container_id, safety, slot), quantity)| {
             let (sys, locname) = root_info.get(&root).cloned().unwrap_or((0, None));
             let container_type_id = item_type.get(&container_id).copied().unwrap_or(0);
-            let mut location_name = locname
-                .or_else(|| {
-                    if sys != 0 {
-                        names.get(&sys).map(|n| format!("espacio · {n}"))
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_default();
+            let sysname = if sys != 0 { names.get(&sys).cloned() } else { None };
+            // Nombre de ubicación: estación/estructura resuelta; si no, distinguir espacio real
+            // (location_id en rango de sistema) de estructura sin nombre (no marcar "espacio").
+            let mut location_name = if let Some(n) = locname {
+                n
+            } else if (30_000_000..=30_999_999).contains(&root) {
+                sysname
+                    .as_ref()
+                    .map(|n| format!("espacio · {n}"))
+                    .unwrap_or_default()
+            } else if root >= 1_000_000_000_000 {
+                sysname
+                    .as_ref()
+                    .map(|n| format!("estructura · {n}"))
+                    .unwrap_or_else(|| "⚠ Estructura sin acceso".to_string())
+            } else {
+                sysname.clone().unwrap_or_default()
+            };
             let mut container = if container_id != 0 {
                 custom_names
                     .get(&container_id)

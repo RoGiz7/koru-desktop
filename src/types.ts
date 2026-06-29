@@ -101,6 +101,16 @@ export type SkillsSummary = {
   skill_count: number;
   queue: QueueItem[];
 };
+// Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space).
+export type WhConn = {
+  system_id: number;
+  system_name: string;
+  hub: string;
+  wh_type: string;
+  max_ship_size: string;
+  remaining_hours: number;
+};
+
 // Fiteo local guardado (importado por EFT).
 export type FitModule = { type_id: number; name: string; qty: number; fitted: boolean };
 export type Fit = {

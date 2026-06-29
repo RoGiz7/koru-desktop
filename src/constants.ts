@@ -97,7 +97,8 @@ export type MapOverlay =
   | "jumps"
   | "assets"
   | "mineria"
-  | "standings";
+  | "standings"
+  | "wormholes";
 
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
 
@@ -131,6 +132,9 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Planetología", scope: "esi-planets.manage_planets.v1" },
   { label: "Industria", scope: "esi-industry.read_character_jobs.v1" },
   { label: "Ubicación", scope: "esi-location.read_location.v1" },
+  { label: "Estructuras (assets en citadels)", scope: "esi-universe.read_structures.v1" },
+  { label: "Fatiga de salto", scope: "esi-characters.read_fatigue.v1" },
+  { label: "Fittings (fiteos del juego)", scope: "esi-fittings.read_fittings.v1" },
 ];
 
 export const KM_LIMIT = 50;
@@ -220,17 +224,27 @@ export const SUBFILTERS: Partial<Record<MapOverlay, { v: string; l: string }[]>>
   ],
 };
 
-export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: string; group: "publico" | "tuyo" }[] = [
-  { key: "ubicacion", label: "Ubicación", short: "Ubicación", icon: "📍", group: "tuyo" },
-  { key: "poi", label: "Lugares notables", short: "Lugares", icon: "🏛️", group: "publico" },
-  { key: "security", label: "Seguridad", short: "Seguridad", icon: "🛡️", group: "publico" },
-  { key: "soberania", label: "Soberanía", short: "Soberanía", icon: "👑", group: "publico" },
-  { key: "fw", label: "Guerra de facciones", short: "Facciones", icon: "◎", group: "publico" },
-  { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", group: "publico" },
-  { key: "kills", label: "Kills última hora", short: "Kills 1h", icon: "💥", group: "publico" },
-  { key: "jumps", label: "Jumps última hora", short: "Jumps 1h", icon: "➿", group: "publico" },
-  { key: "pvp", label: "Tu PvP", short: "Tu PvP", icon: "⚔️", group: "tuyo" },
-  { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", group: "tuyo" },
-  { key: "mineria", label: "Tu minería", short: "Minería", icon: "⛏️", group: "tuyo" },
-  { key: "standings", label: "Standings NPC", short: "Standings", icon: "🤝", group: "tuyo" },
+// Categorías para agrupar las capas del mapa en desplegables (evita la fila enorme de iconos).
+export type OverlayCat = "tu" | "universo" | "vivo";
+export const OVERLAY_CATS: { key: OverlayCat; label: string; icon: string }[] = [
+  { key: "tu", label: "Tú", icon: "👤" },
+  { key: "universo", label: "Universo", icon: "🌌" },
+  { key: "vivo", label: "En vivo", icon: "📡" },
+];
+
+// `typeId` opcional = icono real de EVE (images.evetech.net) para la capa; si no, se usa el emoji `icon`.
+export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: string; typeId?: number; cat: OverlayCat }[] = [
+  { key: "ubicacion", label: "Ubicación", short: "Ubicación", icon: "📍", typeId: 670, cat: "tu" }, // Capsule
+  { key: "pvp", label: "Tu PvP", short: "Tu PvP", icon: "⚔️", typeId: 587, cat: "tu" }, // Rifter
+  { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", typeId: 17366, cat: "tu" }, // Station Container
+  { key: "mineria", label: "Tu minería", short: "Minería", icon: "⛏️", typeId: 1230, cat: "tu" }, // Veldspar
+  { key: "standings", label: "Standings NPC", short: "Standings", icon: "🤝", cat: "tu" },
+  { key: "poi", label: "Lugares notables", short: "Lugares", icon: "🏛️", typeId: 35832, cat: "universo" }, // Astrahus
+  { key: "security", label: "Seguridad", short: "Seguridad", icon: "🛡️", typeId: 2046, cat: "universo" }, // Damage Control I
+  { key: "soberania", label: "Soberanía", short: "Soberanía", icon: "👑", typeId: 32458, cat: "universo" }, // Sovereignty Hub
+  { key: "fw", label: "Guerra de facciones", short: "Facciones", icon: "◎", typeId: 17841, cat: "universo" }, // Federation Navy Comet
+  { key: "kills", label: "Kills última hora", short: "Kills 1h", icon: "💥", typeId: 484, cat: "vivo" }, // 125mm Gatling AutoCannon I
+  { key: "jumps", label: "Jumps última hora", short: "Jumps 1h", icon: "➿", typeId: 21096, cat: "vivo" }, // Cynosural Field Generator I
+  { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", cat: "vivo" },
+  { key: "wormholes", label: "Wormholes Thera/Turnur", short: "Wormholes", icon: "🕳️", cat: "vivo" },
 ];

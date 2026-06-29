@@ -2482,6 +2482,62 @@ pub async fn import_fittings(
     Ok(out)
 }
 
+/// Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space). Para la capa del mapa.
+#[derive(Debug, serde::Serialize)]
+pub struct WhConn {
+    pub system_id: i64, // sistema k-space conectado (lado "in")
+    pub system_name: String,
+    pub hub: String, // "Thera" o "Turnur" (lado "out")
+    pub wh_type: String,
+    pub max_ship_size: String,
+    pub remaining_hours: i64,
+}
+
+/// Trae las conexiones públicas de Thera/Turnur de eve-scout (api.eve-scout.com). Público, sin token.
+#[tauri::command]
+pub async fn get_thera_connections(state: State<'_, AppState>) -> AppResult<Vec<WhConn>> {
+    #[derive(serde::Deserialize)]
+    struct Sig {
+        #[serde(default)]
+        in_system_id: i64,
+        #[serde(default)]
+        in_system_name: String,
+        #[serde(default)]
+        out_system_name: String,
+        #[serde(default)]
+        wh_type: Option<String>,
+        #[serde(default)]
+        max_ship_size: Option<String>,
+        #[serde(default)]
+        remaining_hours: Option<f64>,
+    }
+    let resp = state
+        .esi
+        .http()
+        .get("https://api.eve-scout.com/v2/public/signatures")
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(AppError::Other(format!("eve-scout HTTP {}", resp.status())));
+    }
+    let body = resp.text().await?;
+    let sigs: Vec<Sig> = serde_json::from_str(&body)?;
+    let out: Vec<WhConn> = sigs
+        .into_iter()
+        .filter(|s| s.in_system_id != 0)
+        .map(|s| WhConn {
+            system_id: s.in_system_id,
+            system_name: s.in_system_name,
+            hub: s.out_system_name,
+            wh_type: s.wh_type.unwrap_or_default(),
+            max_ship_size: s.max_ship_size.unwrap_or_default(),
+            remaining_hours: s.remaining_hours.unwrap_or(0.0).round() as i64,
+        })
+        .collect();
+    Ok(out)
+}
+
 /// Niveles de skill entrenados del personaje (skill_id → nivel activo). Para el skill-check de fits.
 #[tauri::command]
 pub async fn get_char_skill_levels(

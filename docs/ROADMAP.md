@@ -93,18 +93,21 @@
 
 ### Pendiente (orden por prioridad)
 
-✅ **HECHO (v0.7.0) — Backup / restauración del histórico local.** Implementado vía ⚙️ Ajustes
-(ver "Aplicado recientemente"). Pendiente como mejora futura: **auto-backup** periódico a una carpeta
-(el usuario la pone en su nube/Drive) y, más adelante, **merge de dos PCs** (dedupe por id: journal/
-killmails/transacciones por id, mining por clave compuesta). Cero servidor nuestro.
+✅ **HECHO (v0.7.0) — Backup / restauración del histórico local** (vía ⚙️ Ajustes) **+ auto-backup
+periódico** (carpeta + frecuencia + rotación, también hecho en v0.7.0). Pendiente como mejora futura:
+**merge de dos PCs** (dedupe por id: journal/killmails/transacciones por id, mining por clave
+compuesta). Cero servidor nuestro.
 
-★ **NAVEGACIÓN (próxima release, decidido 2026-06-29):**
-- **Ansiblex en rutas**: importar un archivo con la red de jump bridges de la alianza (pares de
-  sistemas) y añadir esas aristas al grafo de Dijkstra para que el planificador use los puentes.
-  PENDIENTE: el usuario aún no tiene el archivo → al conseguirlo, pasar una muestra para fijar el formato.
-- **Wormholes / Thera / Turnur (estilo eve-scout)**: capa de mapa con las conexiones públicas de
-  `api.eve-scout.com` (fetch nativo desde el backend Tauri, sin CORS). Fase 1 = mostrar info en el mapa.
+★★ **SIGUIENTE — NAVEGACIÓN (próxima release, decidido 2026-06-29):**
+- 👉 **Accionable ya — Wormholes / Thera / Turnur (estilo eve-scout)**: capa de mapa con las
+  conexiones públicas de `api.eve-scout.com` (fetch nativo desde el backend Tauri, sin CORS).
+  Fase 1 = mostrar la info en el mapa (sistemas con conexión Thera/Turnur, in/out, vida/masa).
   Fase 2 (más gorda) = rutar a través de wormholes (origen→sistema con WH→Thera→salida→destino).
+  Es lo primero a hacer porque NO depende de nada externo del usuario.
+- ⏳ **Bloqueado — Ansiblex en rutas**: importar un archivo con la red de jump bridges de la alianza
+  (pares de sistemas) y añadir esas aristas al grafo de Dijkstra para que el planificador use los
+  puentes. Esperando a que el usuario consiga el archivo → al tenerlo, pasar una muestra para fijar
+  el formato del parser.
 
 0. **★ NUEVO CANDIDATO DE CABEZA — Capa de Intel en vivo en el mapa** (research en
    `docs/RESEARCH_MAPA_INTEL.md`): leer el **log de chat** del juego (`Documents/EVE/logs/Chatlogs/`,
@@ -147,8 +150,14 @@ killmails/transacciones por id, mining por clave compuesta). Cero servidor nuest
    - Nota: assets en **hangares de corp** siguen sin contar (son corp assets, no personales);
      requeriría `esi-assets.read_corporation_assets.v1` + rol Director. Fuera de alcance.
 2. **i18n — completar** la traducción de los textos dentro de cada vista (mecánico, incremental).
-3. **Iconos reales de EVE en el mapa** (estaciones, estructuras, ore).
+3. ~~**Iconos reales de EVE en el mapa**~~ — VALORADO y APLAZADO: recargaría el mapa (5.485 sistemas)
+   y en POI los círculos de color comunican mejor que iconos arbitrarios. Alternativa futura: iconos en
+   el **panel del sistema al hacer clic** (necesita datos de estaciones/estructuras por sistema vía ESI).
 4. **Tematización por evento** (sobre el selector de temas ya hecho).
+- ✅ **Fix iconos de blueprints** (post-v0.8.0): componente `TypeIcon` con fallback a `/bp` (el endpoint
+  `/icon` no existe para planos → salían rotos); usado en Assets, Comercio y top-tipos.
+- ✅ **Gráficas a más vistas**: ya estaban en Wallet/Assets/Patrimonio/Rateo/Minería; añadidas **barras
+  de top-rivales** en Rivales. Pendiente menor: Skills e Industria (necesitan algo más de datos).
 5. **Refactor pasada 2**: mover `MapView` y vistas a sus propios archivos.
 6. **Feed de noticias** (RSS CCP/comunidad) + hitos históricos.
 7. **Firma de código** (SignPath Foundation, gratis para OSS) para mitigar SmartScreen.
