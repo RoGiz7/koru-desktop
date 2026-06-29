@@ -6,7 +6,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { save, open as openDialog, message, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
-import { t, type Lang } from "./i18n";
+import { tr, setLang as setI18nLang, type Lang } from "./i18n";
 import "./App.css";
 import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, fmtMin, shipIcon, zkillUrl, secColor, ownerColor, heatColor, typeIcon, typeRender } from "./format";
 import {
@@ -318,7 +318,7 @@ function App() {
     localStorage.setItem("koru-lang", lang);
     document.documentElement.lang = lang;
   }, [lang]);
-  const tr = (s: string) => t(s, lang);
+  setI18nLang(lang); // fija el idioma activo a nivel de módulo → todas las vistas usan tr()
 
   // Sujeto activo: "global" (por defecto) o el id de un personaje. Filtro central.
   const [subject, setSubject] = useState<number | "global">("global");
@@ -998,9 +998,9 @@ function App() {
         <button
           className={`subject-global tb-global ${isGlobal ? "active" : ""}`}
           onClick={() => changeSubject("global")}
-          title="Vista global (todos los personajes)"
+          title={tr("Vista global (todos los personajes)")}
         >
-          🌌 Global <span className="muted">· {characters.length}</span>
+          🌌 {tr("Global")} <span className="muted">· {characters.length}</span>
         </button>
 
         <div className="tb-chars">
@@ -1021,7 +1021,7 @@ function App() {
                   src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=64`}
                   alt={c.name}
                 />
-                {missing.length > 0 && <span className="pj-warn" title="Falta acceso a alguna sección">!</span>}
+                {missing.length > 0 && <span className="pj-warn" title={tr("Falta acceso a alguna sección")}>!</span>}
                 {/* tarjeta expandida en hover */}
                 <div className="pj-pop">
                   <img
@@ -1055,7 +1055,7 @@ function App() {
                     </div>
                     {missing.length > 0 && (
                       <div className="pj-missing">
-                        <span className="small">⚠️ Falta acceso: {missing.map((m) => m.label).join(", ")}</span>
+                        <span className="small">⚠️ {tr("Falta acceso")}: {missing.map((m) => m.label).join(", ")}</span>
                         <button
                           className="pj-addscope"
                           disabled={busy}
@@ -1063,9 +1063,9 @@ function App() {
                             e.stopPropagation();
                             handleLogin("core");
                           }}
-                          title="Volver a iniciar sesión con el set completo para conceder los scopes que faltan"
+                          title={tr("Volver a iniciar sesión con el set completo para conceder los scopes que faltan")}
                         >
-                          {busy ? "Esperando login…" : tr("Añadir acceso")}
+                          {busy ? tr("Esperando login…") : tr("Añadir acceso")}
                         </button>
                       </div>
                     )}
@@ -1116,9 +1116,9 @@ function App() {
             className="tb-update"
             onClick={handleUpdate}
             disabled={updating}
-            title="Descargar e instalar la actualización y reiniciar"
+            title={tr("Descargar e instalar la actualización y reiniciar")}
           >
-            {updating ? "Actualizando…" : `⬇️ Actualizar a v${updateVersion}`}
+            {updating ? tr("Actualizando…") : `⬇️ ${tr("Actualizar a")} v${updateVersion}`}
           </button>
         )}
 
@@ -1264,17 +1264,17 @@ function App() {
           {loginOpen && (
             <div className="tb-login-pop">
               <label className="small">
-                Acceso a:&nbsp;
+                {tr("Acceso a")}:&nbsp;
                 <select value={feature} onChange={(e) => setFeature(e.target.value)}>
                   {FEATURES.map((f) => (
                     <option key={f.key} value={f.key}>
-                      {f.label}
+                      {tr(f.label)}
                     </option>
                   ))}
                 </select>
               </label>
               <button onClick={() => handleLogin()} disabled={busy}>
-                {busy ? "Esperando login…" : "Iniciar sesión con EVE"}
+                {busy ? tr("Esperando login…") : tr("Iniciar sesión con EVE")}
               </button>
             </div>
           )}
@@ -1498,13 +1498,13 @@ function App() {
             {statusText}
           </span>
           {isSyncingHistory && (
-            <button className="sb-cancel" onClick={handleCancelSync} title="Cancelar sincronización">
-              Cancelar
+            <button className="sb-cancel" onClick={handleCancelSync} title={tr("Cancelar sincronización")}>
+              {tr("Cancelar")}
             </button>
           )}
         </div>
         <div className="statusbar-meta">
-          <span className="sb-badge" title="Hora EVE (UTC)">
+          <span className="sb-badge" title={tr("Hora EVE (UTC)")}>
             🕓 {new Date(now).toISOString().substring(11, 16)} EVE
           </span>
           <span className="sb-sep" />
@@ -1512,10 +1512,10 @@ function App() {
             className="sb-badge"
             title={
               serverOffline
-                ? "Tranquility caído o en VIP"
+                ? tr("Tranquility caído o en VIP")
                 : serverStatus
                 ? `Tranquility online${serverStatus.vip ? " (VIP)" : ""}`
-                : "Comprobando estado del servidor…"
+                : tr("Comprobando estado del servidor…")
             }
           >
             <span
@@ -1533,26 +1533,26 @@ function App() {
             TQ {serverOffline ? "offline" : serverStatus ? `· ${fmtSp(serverStatus.players)}` : "…"}
           </span>
           <span className="sb-sep" />
-          <span className="sb-badge" title="Mapa y datos servidos desde la base de datos local (SDE), sin llamada a ESI">
+          <span className="sb-badge" title={tr("Mapa y datos servidos desde la base de datos local (SDE), sin llamada a ESI")}>
             <span className="sb-dot" />
-            SDE local
+            {tr("SDE local")}
           </span>
           <span className="sb-sep" />
-          <span className="sb-badge" title="Estado de la sincronización automática">
+          <span className="sb-badge" title={tr("Estado de la sincronización automática")}>
             <span className={`sb-dot ${autoBusy ? "busy" : ""}`} />
             {autoBusy
-              ? "Sincronizando…"
+              ? tr("Sincronizando…")
               : lastSync
-              ? `Sync ${fmtAgo(now - lastSync)} · próxima ${fmtMMSS(lastSync + AUTO_SYNC_MS - now)}`
-              : "Sin sincronizar"}
+              ? `${tr("Sync")} ${fmtAgo(now - lastSync)} · ${tr("próxima")} ${fmtMMSS(lastSync + AUTO_SYNC_MS - now)}`
+              : tr("Sin sincronizar")}
           </span>
           <span className="sb-sep" />
           <button
             className="sb-kofi"
             onClick={() => openUrl("https://ko-fi.com/rogiz7")}
-            title="Apoyar el proyecto en Ko-fi (totalmente voluntario)"
+            title={tr("Apoyar el proyecto en Ko-fi (totalmente voluntario)")}
           >
-            ☕ Apoyar
+            ☕ {tr("Apoyar")}
           </button>
         </div>
       </footer>
@@ -1592,7 +1592,7 @@ function TopList({
   return (
     <div className="top-list">
       <h4>{title}</h4>
-      {items.length === 0 && <p className="muted small">Sin datos.</p>}
+      {items.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
       <ol className={icon ? "with-ico" : ""}>
         {items.map((it) => (
           <li key={it.id}>
@@ -1891,10 +1891,10 @@ function ViewToggle({ chart, onChange }: { chart: boolean; onChange: (v: boolean
     <div className="view-toggle">
       <div className="seg">
         <button className={!chart ? "active" : ""} onClick={() => onChange(false)}>
-          Tabla
+          {tr("Tabla")}
         </button>
         <button className={chart ? "active" : ""} onClick={() => onChange(true)}>
-          Gráfica
+          {tr("Gráfica")}
         </button>
       </div>
     </div>
@@ -1967,57 +1967,57 @@ function PvpView(props: {
       {!global && (
         <div className="pvp-toolbar">
           <button onClick={onSync} disabled={busy}>
-            {busy ? "Trabajando…" : "Sincronizar recientes"}
+            {busy ? tr("Trabajando…") : tr("Sincronizar recientes")}
           </button>
           <button onClick={onSyncFull} disabled={busy}>
-            Sincronizar histórico (zKill)
+            {tr("Sincronizar histórico (zKill)")}
           </button>
-          <button onClick={onReprocess} disabled={busy} title="Recalcula daño, final blow y nave víctima desde la caché">
-            Reprocesar daño
+          <button onClick={onReprocess} disabled={busy} title={tr("Recalcula daño, final blow y nave víctima desde la caché")}>
+            {tr("Reprocesar daño")}
           </button>
-          <button onClick={onExport}>Exportar CSV</button>
+          <button onClick={onExport}>{tr("Exportar CSV")}</button>
         </div>
       )}
       {progress !== null && (
         <div className="sync-progress">
           <span className="spinner" />
           <span>
-            Trabajando… <strong>{fmtSp(progress.processed)}</strong> killmails
-            {progress.page > 0 ? ` (página ${progress.page})` : ""} · {elapsed}s
+            {tr("Trabajando…")} <strong>{fmtSp(progress.processed)}</strong> killmails
+            {progress.page > 0 ? ` (${tr("página")} ${progress.page})` : ""} · {elapsed}s
           </span>
-          <span className="muted small">No cierres la app.</span>
+          <span className="muted small">{tr("No cierres la app.")}</span>
           <button className="danger" onClick={onCancel}>
-            Cancelar
+            {tr("Cancelar")}
           </button>
         </div>
       )}
-      {!stats && busy && <p className="muted">Cargando…</p>}
+      {!stats && busy && <p className="muted">{tr("Cargando…")}</p>}
       {stats && (
         <>
           <div className="kpis">
-            <Kpi label="Kills" value={stats.kills} />
-            <Kpi label="Losses" value={stats.losses} />
-            <Kpi label="Solo kills" value={stats.solo_kills} />
-            <Kpi label="Final blows" value={stats.final_blows} />
-            <Kpi label="Top damage" value={stats.top_damage_kills} />
-            <Kpi label="Eficacia ISK" value={`${stats.efficiency.toFixed(1)}%`} tone={stats.efficiency >= 50 ? "pos" : "neg"} />
-            <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} tone="pos" />
-            <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} tone="neg" />
+            <Kpi label={tr("Kills")} value={stats.kills} />
+            <Kpi label={tr("Losses")} value={stats.losses} />
+            <Kpi label={tr("Solo kills")} value={stats.solo_kills} />
+            <Kpi label={tr("Final blows")} value={stats.final_blows} />
+            <Kpi label={tr("Top damage")} value={stats.top_damage_kills} />
+            <Kpi label={tr("Eficacia ISK")} value={`${stats.efficiency.toFixed(1)}%`} tone={stats.efficiency >= 50 ? "pos" : "neg"} />
+            <Kpi label={tr("ISK destruido")} value={fmtIsk(stats.isk_destroyed)} tone="pos" />
+            <Kpi label={tr("ISK perdido")} value={fmtIsk(stats.isk_lost)} tone="neg" />
           </div>
           <ViewToggle chart={chart} onChange={setChart} />
           {chart ? (
             <>
               <div className="top-list">
-                <h4>Tendencia (kills/losses por semana) · arrastra para enfocar una ventana</h4>
-                {trend ? <TrendScrub points={trend} /> : <p className="muted small">Cargando…</p>}
+                <h4>{tr("Tendencia (kills/losses por semana) · arrastra para enfocar una ventana")}</h4>
+                {trend ? <TrendScrub points={trend} /> : <p className="muted small">{tr("Cargando…")}</p>}
               </div>
               <div className="tops">
                 <div className="top-list">
-                  <h4>Top naves</h4>
+                  <h4>{tr("Top naves")}</h4>
                   <Bars items={stats.top_ships.map((s) => ({ label: s.name ?? `#${s.id}`, value: s.count }))} />
                 </div>
                 <div className="top-list">
-                  <h4>Top sistemas</h4>
+                  <h4>{tr("Top sistemas")}</h4>
                   <Bars
                     items={stats.top_systems.map((s) => ({ label: s.name ?? `#${s.id}`, value: s.count }))}
                     color="#e3a13a"
@@ -2026,21 +2026,21 @@ function PvpView(props: {
               </div>
               <div className="tops">
                 <div className="top-list">
-                  <h4>Kills vs Losses</h4>
+                  <h4>{tr("Kills vs Losses")}</h4>
                   <Bars
                     items={[
-                      { label: "Kills", value: stats.kills },
-                      { label: "Losses", value: stats.losses },
+                      { label: tr("Kills"), value: stats.kills },
+                      { label: tr("Losses"), value: stats.losses },
                     ]}
                     color="#3fb950"
                   />
                 </div>
                 <div className="top-list">
-                  <h4>ISK destruido vs perdido</h4>
+                  <h4>{tr("ISK destruido vs perdido")}</h4>
                   <Bars
                     items={[
-                      { label: "Destruido", value: stats.isk_destroyed },
-                      { label: "Perdido", value: stats.isk_lost },
+                      { label: tr("Destruido"), value: stats.isk_destroyed },
+                      { label: tr("Perdido"), value: stats.isk_lost },
                     ]}
                     color="#e5534b"
                     fmt={fmtIsk}
@@ -2050,10 +2050,10 @@ function PvpView(props: {
             </>
           ) : (
             <div className="tops">
-              <TopList title="Top naves" items={stats.top_ships} icon="render" />
+              <TopList title={tr("Top naves")} items={stats.top_ships} icon="render" />
               <div className="top-list">
-                <h4>Top sistemas</h4>
-                {stats.top_systems.length === 0 && <p className="muted small">Sin datos.</p>}
+                <h4>{tr("Top sistemas")}</h4>
+                {stats.top_systems.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
                 <ol>
                   {stats.top_systems.map((it) => (
                     <li key={it.id}>
@@ -2062,7 +2062,7 @@ function PvpView(props: {
                       {it.name && (
                         <button
                           className="dotlan-link"
-                          title={`Ver ${it.name} en Dotlan`}
+                          title={`${tr("Ver")} ${it.name} ${tr("en Dotlan")}`}
                           onClick={() =>
                             openUrl(`https://evemaps.dotlan.net/system/${it.name!.replace(/ /g, "_")}`)
                           }
@@ -2079,14 +2079,14 @@ function PvpView(props: {
 
           {stats.top_expensive.length > 0 && (
             <>
-              <h4>Kills más caros</h4>
+              <h4>{tr("Kills más caros")}</h4>
               <table className="km-table">
                 <thead>
                   <tr>
-                    <th>Nave destruida</th>
-                    <th>Sistema</th>
+                    <th>{tr("Nave destruida")}</th>
+                    <th>{tr("Sistema")}</th>
                     <th>ISK</th>
-                    <th>Fecha</th>
+                    <th>{tr("Fecha")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2095,7 +2095,7 @@ function PvpView(props: {
                       key={k.killmail_id}
                       className="clickable kill"
                       onClick={() => openUrl(zkillUrl(k.killmail_id))}
-                      title="Abrir en zKillboard"
+                      title={tr("Abrir en zKillboard")}
                     >
                       <td className="ship-cell">
                         {shipIcon(k.victim_ship_id) && (
@@ -2124,7 +2124,7 @@ function PvpView(props: {
               className={`tab ${kmKind === k ? "active" : ""}`}
               onClick={() => onKmKind(k)}
             >
-              {k === "all" ? "Todos" : k === "kill" ? "Kills" : "Losses"}
+              {k === "all" ? tr("Todos") : k === "kill" ? tr("Kills") : tr("Losses")}
             </button>
           ))}
         </div>
@@ -2132,12 +2132,12 @@ function PvpView(props: {
       <table className="km-table">
         <thead>
           <tr>
-            <Th label="Tipo" col="type" sort={kmSort} onSort={onKmSort} />
-            <Th label="Nave" col="ship" sort={kmSort} onSort={onKmSort} />
-            <Th label="Sistema" col="sys" sort={kmSort} onSort={onKmSort} />
-            <Th label="Daño" col="dmg" sort={kmSort} onSort={onKmSort} />
+            <Th label={tr("Tipo")} col="type" sort={kmSort} onSort={onKmSort} />
+            <Th label={tr("Nave")} col="ship" sort={kmSort} onSort={onKmSort} />
+            <Th label={tr("Sistema")} col="sys" sort={kmSort} onSort={onKmSort} />
+            <Th label={tr("Daño")} col="dmg" sort={kmSort} onSort={onKmSort} />
             <Th label="ISK" col="isk" sort={kmSort} onSort={onKmSort} />
-            <Th label="Fecha" col="date" sort={kmSort} onSort={onKmSort} />
+            <Th label={tr("Fecha")} col="date" sort={kmSort} onSort={onKmSort} />
           </tr>
         </thead>
         <tbody>
@@ -2146,7 +2146,7 @@ function PvpView(props: {
               key={k.killmail_id}
               className={`clickable ${k.is_loss ? "loss" : "kill"}`}
               onClick={() => openUrl(zkillUrl(k.killmail_id))}
-              title="Abrir en zKillboard"
+              title={tr("Abrir en zKillboard")}
             >
               <td>
                 {k.is_loss ? "loss" : "kill"}
@@ -2170,18 +2170,18 @@ function PvpView(props: {
       </table>
       <div className="km-pager">
         <button disabled={kmOffset <= 0} onClick={() => onKmPage(Math.max(0, kmOffset - kmLimit))}>
-          ← Anterior
+          ← {tr("Anterior")}
         </button>
         <span className="muted">
           {kmTotal === 0
-            ? "Sin killmails"
-            : `${kmOffset + 1}–${Math.min(kmOffset + kmLimit, kmTotal)} de ${fmtSp(kmTotal)}`}
+            ? tr("Sin killmails")
+            : `${kmOffset + 1}–${Math.min(kmOffset + kmLimit, kmTotal)} ${tr("de")} ${fmtSp(kmTotal)}`}
         </span>
         <button
           disabled={kmOffset + kmLimit >= kmTotal}
           onClick={() => onKmPage(kmOffset + kmLimit)}
         >
-          Siguiente →
+          {tr("Siguiente")} →
         </button>
       </div>
     </>
@@ -2190,26 +2190,26 @@ function PvpView(props: {
 
 function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
   const { data, busy } = props;
-  if (!data && busy) return <p className="muted">Cargando…</p>;
+  if (!data && busy) return <p className="muted">{tr("Cargando…")}</p>;
   if (!data) return null;
   const s = data.series;
 
   return (
     <>
       <div className="kpis">
-        <Kpi label="Patrimonio total" value={fmtIsk(data.total)} />
-        <Kpi label="Líquido (wallet)" value={fmtIsk(data.liquid)} />
-        <Kpi label="Valor de assets" value={fmtIsk(data.asset_value)} />
-        <Kpi label="Snapshots" value={s.length} />
+        <Kpi label={tr("Patrimonio total")} value={fmtIsk(data.total)} />
+        <Kpi label={tr("Líquido (wallet)")} value={fmtIsk(data.liquid)} />
+        <Kpi label={tr("Valor de assets")} value={fmtIsk(data.asset_value)} />
+        <Kpi label={tr("Snapshots")} value={s.length} />
       </div>
 
       {data.total > 0 && (
         <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
-          <h4>Composición del patrimonio</h4>
+          <h4>{tr("Composición del patrimonio")}</h4>
           <Donut
             items={[
-              { label: "Líquido (wallet)", value: data.liquid },
-              { label: "Valor de assets", value: data.asset_value },
+              { label: tr("Líquido (wallet)"), value: data.liquid },
+              { label: tr("Valor de assets"), value: data.asset_value },
             ]}
             fmt={fmtIsk}
           />
@@ -2218,22 +2218,19 @@ function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
 
       {data.prices_loaded === 0 && (
         <p className="muted" style={{ marginTop: 8 }}>
-          Aún no hay precios de mercado en la BD, así que los assets no están valorados.
-          Se descargan solos en la próxima sincronización (endpoint público de ESI).
+          {tr("Aún no hay precios de mercado en la BD, así que los assets no están valorados. Se descargan solos en la próxima sincronización (endpoint público de ESI).")}
         </p>
       )}
 
       {s.length === 0 && (
         <p className="muted" style={{ marginTop: 12 }}>
-          Todavía no hay histórico. Cada sincronización guarda un snapshot diario de tu
-          patrimonio; la curva de evolución aparecerá a partir del segundo día.
+          {tr("Todavía no hay histórico. Cada sincronización guarda un snapshot diario de tu patrimonio; la curva de evolución aparecerá a partir del segundo día.")}
         </p>
       )}
 
       {s.length === 1 && (
         <p className="muted" style={{ marginTop: 12 }}>
-          Primer snapshot guardado ({s[0].date}). La gráfica de evolución necesita al menos
-          dos días de datos.
+          {tr("Primer snapshot guardado")} ({s[0].date}). {tr("La gráfica de evolución necesita al menos dos días de datos.")}
         </p>
       )}
 
@@ -2241,8 +2238,7 @@ function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
 
       {s.length >= 2 && (
         <p className="muted" style={{ marginTop: 8, fontSize: "0.78rem" }}>
-          Valor de assets estimado con el precio medio de mercado (average price de ESI),
-          no con órdenes reales de Jita. Útil como tendencia, no como liquidación exacta.
+          {tr("Valor de assets estimado con el precio medio de mercado (average price de ESI), no con órdenes reales de Jita. Útil como tendencia, no como liquidación exacta.")}
         </p>
       )}
     </>
@@ -2280,9 +2276,9 @@ function NetworthChart(props: { series: NetworthPoint[] }) {
     <div className="nw-chart">
       <div className="nw-chart-head">
         <span className="nw-legend">
-          <i className="dot total" /> Total
-          <i className="dot liquid" /> Líquido
-          <i className="dot asset" /> Assets
+          <i className="dot total" /> {tr("Total")}
+          <i className="dot liquid" /> {tr("Líquido")}
+          <i className="dot asset" /> {tr("Assets")}
         </span>
         <span className={`nw-delta ${delta >= 0 ? "up" : "down"}`}>
           {delta >= 0 ? "▲" : "▼"} {fmtIsk(Math.abs(delta))} ({pct >= 0 ? "+" : ""}
@@ -2297,7 +2293,7 @@ function NetworthChart(props: { series: NetworthPoint[] }) {
       </svg>
       <div className="nw-axis">
         <span>{first.date}</span>
-        <span className="muted">máx {fmtIsk(maxV)}</span>
+        <span className="muted">{tr("máx")} {fmtIsk(maxV)}</span>
         <span>{last.date}</span>
       </div>
     </div>
@@ -2334,39 +2330,39 @@ function WalletViewC(props: {
       {!global && (
         <div className="pvp-toolbar">
           <button onClick={onSync} disabled={busy}>
-            {busy ? "Trabajando…" : "Sincronizar wallet"}
+            {busy ? tr("Trabajando…") : tr("Sincronizar wallet")}
           </button>
         </div>
       )}
-      {!data && busy && <p className="muted">Cargando…</p>}
+      {!data && busy && <p className="muted">{tr("Cargando…")}</p>}
       {data && (
         <>
           <div className="kpis">
-            <Kpi label="Balance" value={fmtIsk(data.balance)} />
-            <Kpi label="Ingresos" value={fmtIsk(data.stats.income)} tone="pos" />
-            <Kpi label="Gastos" value={fmtIsk(data.stats.expense)} tone="neg" />
-            <Kpi label="Neto" value={fmtIsk(data.stats.net)} tone={data.stats.net >= 0 ? "pos" : "neg"} />
-            <Kpi label="Movimientos" value={data.stats.entries} />
+            <Kpi label={tr("Balance")} value={fmtIsk(data.balance)} />
+            <Kpi label={tr("Ingresos")} value={fmtIsk(data.stats.income)} tone="pos" />
+            <Kpi label={tr("Gastos")} value={fmtIsk(data.stats.expense)} tone="neg" />
+            <Kpi label={tr("Neto")} value={fmtIsk(data.stats.net)} tone={data.stats.net >= 0 ? "pos" : "neg"} />
+            <Kpi label={tr("Movimientos")} value={data.stats.entries} />
           </div>
           <ViewToggle chart={chart} onChange={setChart} />
           {chart ? (
             <>
               {trend && trend.length >= 2 && (
                 <div className="top-list">
-                  <h4>Tendencia (ingresos/gastos por mes) · arrastra para enfocar una ventana</h4>
+                  <h4>{tr("Tendencia (ingresos/gastos por mes) · arrastra para enfocar una ventana")}</h4>
                   <WalletScrub points={trend} />
                 </div>
               )}
               <div className="resumen-grid">
                 <div className="panel resumen-panel">
-                  <h4>Distribución de ingresos</h4>
+                  <h4>{tr("Distribución de ingresos")}</h4>
                   <Donut
                     items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
                     fmt={fmtIsk}
                   />
                 </div>
                 <div className="panel resumen-panel">
-                  <h4>Top ingresos</h4>
+                  <h4>{tr("Top ingresos")}</h4>
                   <Bars
                     items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
                     color="#3fb950"
@@ -2374,14 +2370,14 @@ function WalletViewC(props: {
                   />
                 </div>
                 <div className="panel resumen-panel">
-                  <h4>Distribución de gastos</h4>
+                  <h4>{tr("Distribución de gastos")}</h4>
                   <Donut
                     items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
                     fmt={fmtIsk}
                   />
                 </div>
                 <div className="panel resumen-panel">
-                  <h4>Top gastos</h4>
+                  <h4>{tr("Top gastos")}</h4>
                   <Bars
                     items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
                     color="#e5534b"
@@ -2393,8 +2389,8 @@ function WalletViewC(props: {
           ) : (
             <div className="tops">
               <div className="top-list">
-                <h4>Top ingresos</h4>
-                {data.stats.top_income.length === 0 && <p className="muted small">Sin datos.</p>}
+                <h4>{tr("Top ingresos")}</h4>
+                {data.stats.top_income.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
                 <ol>
                   {data.stats.top_income.map((r, i) => (
                     <li key={i}>
@@ -2404,8 +2400,8 @@ function WalletViewC(props: {
                 </ol>
               </div>
               <div className="top-list">
-                <h4>Top gastos</h4>
-                {data.stats.top_expense.length === 0 && <p className="muted small">Sin datos.</p>}
+                <h4>{tr("Top gastos")}</h4>
+                {data.stats.top_expense.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
                 <ol>
                   {data.stats.top_expense.map((r, i) => (
                     <li key={i}>
@@ -2416,14 +2412,14 @@ function WalletViewC(props: {
               </div>
             </div>
           )}
-          <h4>Movimientos recientes</h4>
+          <h4>{tr("Movimientos recientes")}</h4>
           <table className="km-table">
             <thead>
               <tr>
-                <Th label="Fecha" col="date" sort={wSort} onSort={onWSort} />
-                <Th label="Tipo" col="type" sort={wSort} onSort={onWSort} />
-                <Th label="Cantidad" col="amount" sort={wSort} onSort={onWSort} />
-                <Th label="Balance" col="balance" sort={wSort} onSort={onWSort} />
+                <Th label={tr("Fecha")} col="date" sort={wSort} onSort={onWSort} />
+                <Th label={tr("Tipo")} col="type" sort={wSort} onSort={onWSort} />
+                <Th label={tr("Cantidad")} col="amount" sort={wSort} onSort={onWSort} />
+                <Th label={tr("Balance")} col="balance" sort={wSort} onSort={onWSort} />
               </tr>
             </thead>
             <tbody>
@@ -2453,11 +2449,11 @@ function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: C
   const bio = detail.bio ? detail.bio.replace(/<[^>]*>/g, "").trim() : "";
   const attrs = a
     ? [
-        { label: "Inteligencia", v: a.intelligence },
-        { label: "Memoria", v: a.memory },
-        { label: "Percepción", v: a.perception },
-        { label: "Carisma", v: a.charisma },
-        { label: "Voluntad", v: a.willpower },
+        { label: tr("Inteligencia"), v: a.intelligence },
+        { label: tr("Memoria"), v: a.memory },
+        { label: tr("Percepción"), v: a.perception },
+        { label: tr("Carisma"), v: a.charisma },
+        { label: tr("Voluntad"), v: a.willpower },
       ]
     : [];
   return (
@@ -2465,7 +2461,7 @@ function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: C
       <div className="ch-top">
         {portrait && <img className="ch-portrait" src={portrait} alt="" />}
         <div className="ch-id">
-          <h3>{card?.name ?? "Personaje"}</h3>
+          <h3>{card?.name ?? tr("Personaje")}</h3>
           <div className="ch-sub muted small">
             {card?.corporation_name ?? ""}
             {card?.alliance_name ? ` · ${card.alliance_name}` : ""}
@@ -2473,13 +2469,13 @@ function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: C
           <div className="ch-meta">
             {sec != null && (
               <span>
-                Sec:{" "}
+                {tr("Sec")}:{" "}
                 <b style={{ color: secColor(sec) }}>{sec.toFixed(2)}</b>
               </span>
             )}
-            {detail.birthday && <span>Nacimiento: {detail.birthday.slice(0, 10)}</span>}
+            {detail.birthday && <span>{tr("Nacimiento")}: {detail.birthday.slice(0, 10)}</span>}
             <span>
-              Jump clones: <b>{detail.jump_clones}</b>
+              {tr("Jump clones")}: <b>{detail.jump_clones}</b>
             </span>
           </div>
         </div>
@@ -2496,7 +2492,7 @@ function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: C
           {a?.bonus_remaps != null && (
             <div className="ch-attr">
               <span className="ch-attr-v">{a.bonus_remaps}</span>
-              <span className="ch-attr-l">Remaps libres</span>
+              <span className="ch-attr-l">{tr("Remaps libres")}</span>
             </div>
           )}
         </div>
@@ -2504,7 +2500,7 @@ function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: C
 
       {detail.implants.length > 0 && (
         <div className="top-list">
-          <h4>Implantes ({detail.implants.length})</h4>
+          <h4>{tr("Implantes")} ({detail.implants.length})</h4>
           <div className="ch-implant-list">
             {detail.implants.map((im) => (
               <span className="ch-implant" key={im.type_id} title={im.name ?? `#${im.type_id}`}>
@@ -2518,7 +2514,7 @@ function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: C
 
       {bio && (
         <details className="ch-bio">
-          <summary>Biografía</summary>
+          <summary>{tr("Biografía")}</summary>
           <p>{bio}</p>
         </details>
       )}
@@ -2530,25 +2526,25 @@ function SkillsView(props: { data: SkillsSummary | null; busy: boolean }) {
   const { data, busy } = props;
   return (
     <>
-      {!data && busy && <p className="muted">Cargando…</p>}
+      {!data && busy && <p className="muted">{tr("Cargando…")}</p>}
       {data && (
         <>
           <div className="kpis">
-            <Kpi label="SP total" value={fmtSp(data.total_sp)} />
-            <Kpi label="SP sin asignar" value={fmtSp(data.unallocated_sp)} />
-            <Kpi label="Skills" value={data.skill_count} />
-            <Kpi label="En cola" value={data.queue.length} />
+            <Kpi label={tr("SP total")} value={fmtSp(data.total_sp)} />
+            <Kpi label={tr("SP sin asignar")} value={fmtSp(data.unallocated_sp)} />
+            <Kpi label={tr("Skills")} value={data.skill_count} />
+            <Kpi label={tr("En cola")} value={data.queue.length} />
           </div>
-          <h4>Cola de entrenamiento</h4>
-          {data.queue.length === 0 && <p className="muted small">Cola vacía.</p>}
+          <h4>{tr("Cola de entrenamiento")}</h4>
+          {data.queue.length === 0 && <p className="muted small">{tr("Cola vacía.")}</p>}
           {data.queue.length > 0 && (
             <table className="km-table">
               <thead>
                 <tr>
                   <th>#</th>
                   <th>Skill</th>
-                  <th>Nivel</th>
-                  <th>Termina</th>
+                  <th>{tr("Nivel")}</th>
+                  <th>{tr("Termina")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -3500,7 +3496,7 @@ function MapView(props: {
           )}
           {/* zona de click ampliada (invisible) para acertar fácil el punto + tooltip */}
           <circle cx={p.px} cy={p.py} r={2.6} fill="transparent">
-            <title>{`${s.n}${j != null ? ` · ${j} saltos` : ""}\n${r.author}: ${r.message}\n(clic para ver detalle)`}</title>
+            <title>{`${s.n}${j != null ? ` · ${j} ${tr("saltos")}` : ""}\n${r.author}: ${r.message}\n${tr("(clic para ver detalle)")}`}</title>
           </circle>
           <circle cx={p.px} cy={p.py} r={1.3} fill="#ff3b3b" fillOpacity={op} stroke="#0a0d12" strokeWidth={0.3} pointerEvents="none" />
         </g>
@@ -3587,7 +3583,7 @@ function MapView(props: {
     }>("intel-alert", (e) => {
       const a = e.payload;
       setIntelAlert({
-        text: `⚠ Intel a ${a.jumps} salto(s): ${a.system} — ${a.author}`,
+        text: `⚠ ${tr("Intel a")} ${a.jumps} ${tr("salto(s)")}: ${a.system} — ${a.author}`,
         report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
       });
       if (intel?.sound) playAlertChoice(intel.soundChoice);
@@ -3769,12 +3765,12 @@ function MapView(props: {
         ))}
         {/* origen (hueco) */}
         <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ffb24a" strokeWidth={0.5}>
-          <title>Origen</title>
+          <title>{tr("Origen")}</title>
         </circle>
         {/* destino / posición más reciente */}
         {pts.length >= 2 && (
           <circle cx={last.px} cy={last.py} r={1.5} fill="#ffd98a" stroke="#0a0d12" strokeWidth={0.3}>
-            <title>Último reporte</title>
+            <title>{tr("Último reporte")}</title>
           </circle>
         )}
       </g>
@@ -3857,7 +3853,7 @@ function MapView(props: {
     return full;
   }, [geo, routeStops, routeMode]);
 
-  if (!ne || !geo) return <p className="muted">Cargando mapa…</p>;
+  if (!ne || !geo) return <p className="muted">{tr("Cargando mapa…")}</p>;
 
   const pvp = data ?? [];
   const maxAct = Math.max(...pvp.map((d) => d.kills + d.losses), 1);
@@ -3958,39 +3954,39 @@ function MapView(props: {
   return (
     <>
       <p className="muted small">
-        New Eden completo (líneas = stargates).
-        {liveBusy && " · cargando datos en vivo…"}
+        {tr("New Eden completo (líneas = stargates).")}
+        {liveBusy && ` · ${tr("cargando datos en vivo…")}`}
       </p>
       <div className="map-wrap">
         {routeActive && (
         <div className="route-panel map-navcard">
           <div className="route-panel-head">
             <select value={routeMode} onChange={(e) => setRouteMode(e.target.value as RouteMode)}>
-              <option value="shortest">Más corta</option>
-              <option value="safer">Más segura</option>
-              <option value="insecure">Menos segura</option>
+              <option value="shortest">{tr("Más corta")}</option>
+              <option value="safer">{tr("Más segura")}</option>
+              <option value="insecure">{tr("Menos segura")}</option>
             </select>
             <span className="muted small">
               {routePath
-                ? `${routePath.length - 1} saltos`
+                ? `${routePath.length - 1} ${tr("saltos")}`
                 : routeStops.filter((s) => s != null).length >= 2
-                ? "Sin ruta por stargates"
-                : "Elige origen y destino"}
+                ? tr("Sin ruta por stargates")
+                : tr("Elige origen y destino")}
             </span>
             <button
               onClick={() => setRouteStops([null])}
-              title="Limpiar"
+              title={tr("Limpiar")}
             >
-              Limpiar
+              {tr("Limpiar")}
             </button>
           </div>
           {routeStops.map((stop, i) => (
             <div className="route-stop" key={i}>
-              <span className="route-stop-label">{i === 0 ? "Origen" : `Destino ${i}`}</span>
+              <span className="route-stop-label">{i === 0 ? tr("Origen") : `${tr("Destino")} ${i}`}</span>
               <SystemSearch
                 systems={ne.systems}
                 value={stop}
-                placeholder="Escribe un sistema…"
+                placeholder={tr("Escribe un sistema…")}
                 onPick={(id) =>
                   setRouteStops((prev) => {
                     const copy = [...prev];
@@ -4002,7 +3998,7 @@ function MapView(props: {
               {i > 0 && (
                 <button
                   className="route-stop-del"
-                  title="Quitar"
+                  title={tr("Quitar")}
                   onClick={() => setRouteStops((prev) => prev.filter((_, j) => j !== i))}
                 >
                   ✕
@@ -4011,15 +4007,15 @@ function MapView(props: {
             </div>
           ))}
           <button className="route-add" onClick={() => setRouteStops((prev) => [...prev, null])}>
-            + Añadir destino
+            + {tr("Añadir destino")}
           </button>
           <p className="muted small">
-            También puedes hacer click en sistemas del mapa para añadirlos · doble-click en el mapa = zoom.
+            {tr("También puedes hacer click en sistemas del mapa para añadirlos · doble-click en el mapa = zoom.")}
           </p>
 
           {routePath && routePath.length > 1 && (
             <div className="route-list">
-              <div className="muted small">Sistemas de la ruta ({routePath.length}):</div>
+              <div className="muted small">{tr("Sistemas de la ruta")} ({routePath.length}):</div>
               <ol>
                 {routePath.map((sid, i) => {
                   const s = geo.idx.get(sid);
@@ -4030,12 +4026,12 @@ function MapView(props: {
                         {(s?.s ?? 0).toFixed(1)}
                       </span>
                       <span className="route-sysname">{s?.n ?? `#${sid}`}</span>
-                      <span className={`route-kills ${kills > 0 ? "hot" : ""}`} title="Kills última hora">
+                      <span className={`route-kills ${kills > 0 ? "hot" : ""}`} title={tr("Kills última hora")}>
                         {kills} ⚔
                       </span>
                       <button
                         className="route-dotlan"
-                        title="Abrir en Dotlan"
+                        title={tr("Abrir en Dotlan")}
                         onClick={() =>
                           openUrl(
                             `https://evemaps.dotlan.net/system/${(s?.n ?? "").replace(/ /g, "_")}`
@@ -4058,12 +4054,12 @@ function MapView(props: {
           {characters.length > 0 && (
             <div className="route-panel-head">
               <label className="muted small">
-                Cargar de:&nbsp;
+                {tr("Cargar de")}:&nbsp;
                 <select
                   value={jumpChar ?? ""}
                   onChange={(e) => setJumpChar(e.target.value ? +e.target.value : null)}
                 >
-                  <option value="">— manual —</option>
+                  <option value="">{tr("— manual —")}</option>
                   {characters.map((c) => (
                     <option key={c.character_id} value={c.character_id}>
                       {c.name}
@@ -4071,14 +4067,14 @@ function MapView(props: {
                   ))}
                 </select>
               </label>
-              {jumpChar != null && <span className="muted small">★ = la tienes</span>}
+              {jumpChar != null && <span className="muted small">{tr("★ = la tienes")}</span>}
             </div>
           )}
           <div className="route-panel-head">
             <label className="muted small">
-              Nave:&nbsp;
+              {tr("Nave")}:&nbsp;
               <select value={jumpShip} onChange={(e) => setJumpShip(e.target.value)}>
-                <option value="">— manual —</option>
+                <option value="">{tr("— manual —")}</option>
                 {Object.entries(
                   jumpShips.reduce<Record<string, JumpShip[]>>((acc, s) => {
                     (acc[s.group] ||= []).push(s);
@@ -4104,12 +4100,12 @@ function MapView(props: {
           </div>
           <div className="route-panel-head">
             {selShip ? (
-              <span className="muted small" title="Calculado por nave y Jump Drive Calibration">
-                Rango: <b>{jumpRange}</b> LY
+              <span className="muted small" title={tr("Calculado por nave y Jump Drive Calibration")}>
+                {tr("Rango")}: <b>{jumpRange}</b> LY
               </span>
             ) : (
               <label className="muted small">
-                Rango (LY):&nbsp;
+                {tr("Rango (LY)")}:&nbsp;
                 <input
                   type="number"
                   min={1}
@@ -4121,7 +4117,7 @@ function MapView(props: {
                 />
               </label>
             )}
-            <label className="muted small" title="Jump Drive Calibration: +20% de rango por nivel (a V se dobla)">
+            <label className="muted small" title={tr("Jump Drive Calibration: +20% de rango por nivel (a V se dobla)")}>
               JDC:&nbsp;
               <select value={jdcLevel} onChange={(e) => setJdcLevel(+e.target.value)}>
                 {[0, 1, 2, 3, 4, 5].map((l) => (
@@ -4131,7 +4127,7 @@ function MapView(props: {
                 ))}
               </select>
             </label>
-            <label className="muted small" title="Jump Fuel Conservation: −10% de consumo por nivel">
+            <label className="muted small" title={tr("Jump Fuel Conservation: −10% de consumo por nivel")}>
               JFC:&nbsp;
               <select value={jfcLevel} onChange={(e) => setJfcLevel(+e.target.value)}>
                 {[0, 1, 2, 3, 4, 5].map((l) => (
@@ -4142,24 +4138,24 @@ function MapView(props: {
               </select>
             </label>
             <span className="muted small">
-              {jumpReach ? `${jumpReach.size} sistemas al alcance` : "elige el origen"}
+              {jumpReach ? `${jumpReach.size} ${tr("sistemas al alcance")}` : tr("elige el origen")}
             </span>
           </div>
           <div className="route-stop">
-            <span className="route-stop-label">Origen</span>
+            <span className="route-stop-label">{tr("Origen")}</span>
             <SystemSearch
               systems={ne.systems}
               value={jumpOrigin}
-              placeholder="Sistema de salto…"
+              placeholder={tr("Sistema de salto…")}
               onPick={(id) => setJumpOrigin(id)}
             />
           </div>
           <div className="route-stop">
-            <span className="route-stop-label">Destino</span>
+            <span className="route-stop-label">{tr("Destino")}</span>
             <SystemSearch
               systems={ne.systems}
               value={jumpDest}
-              placeholder="Destino (para el fuel)…"
+              placeholder={tr("Destino (para el fuel)…")}
               onPick={(id) => setJumpDest(id)}
             />
           </div>
@@ -4171,26 +4167,25 @@ function MapView(props: {
               <span>
                 ⛽ <b>{fmtSp(jumpFuel.fuel)}</b> {jumpFuel.isotope}
               </span>
-              {!jumpFuel.inRange && <span className="jump-oor">⚠️ fuera de rango</span>}
+              {!jumpFuel.inRange && <span className="jump-oor">⚠️ {tr("fuera de rango")}</span>}
             </div>
           )}
           {jumpChar != null && (
             <div className="jump-fatigue">
               {jumpFatMissing ? (
                 <span className="small muted">
-                  ⏳ Fatiga: falta el acceso. Pulsa «Conceder acceso» y vuelve a iniciar sesión con
-                  este personaje para verla.
+                  ⏳ {tr("Fatiga: falta el acceso. Pulsa «Conceder acceso» y vuelve a iniciar sesión con este personaje para verla.")}
                 </span>
               ) : (
                 <>
                   <span className="small">
-                    ⏳ Fatiga actual: <b>{curFatMin >= 1 ? fmtMin(curFatMin) : "ninguna"}</b>
+                    ⏳ {tr("Fatiga actual")}: <b>{curFatMin >= 1 ? fmtMin(curFatMin) : tr("ninguna")}</b>
                   </span>
                   {jumpFatEst && jumpFuel && (
                     <span className="small muted">
-                      tras saltar → cooldown ~{fmtMin(jumpFatEst.cooldown)} · fatiga ~
+                      {tr("tras saltar → cooldown")} ~{fmtMin(jumpFatEst.cooldown)} · {tr("fatiga")} ~
                       {fmtMin(jumpFatEst.newFat)}
-                      {jumpFatEst.reduced ? " (máx; tu nave reduce fatiga)" : ""}
+                      {jumpFatEst.reduced ? ` ${tr("(máx; tu nave reduce fatiga)")}` : ""}
                     </span>
                   )}
                 </>
@@ -4198,14 +4193,12 @@ function MapView(props: {
             </div>
           )}
           <p className="muted small">
-            Elige tu nave (rango y fuel salen del SDE) y tus skills; el rango se calcula solo.
-            Click en el mapa: 1º fija el origen, 2º el destino. Resalta en morado los low/null
-            alcanzables.
+            {tr("Elige tu nave (rango y fuel salen del SDE) y tus skills; el rango se calcula solo. Click en el mapa: 1º fija el origen, 2º el destino. Resalta en morado los low/null alcanzables.")}
           </p>
         </div>
       )}
         {!mapActive && (
-          <div className="map-zoom-hint">Posa el ratón un instante para activar el zoom con rueda</div>
+          <div className="map-zoom-hint">{tr("Posa el ratón un instante para activar el zoom con rueda")}</div>
         )}
         {intelAlert && (
           <div
@@ -4218,7 +4211,7 @@ function MapView(props: {
             title="Ver detalle"
           >
             {intelAlert.text}
-            <span className="intel-alert-cta">ver detalle ▸</span>
+            <span className="intel-alert-cta">{tr("ver detalle")} ▸</span>
           </div>
         )}
         <svg
@@ -4483,7 +4476,7 @@ function MapView(props: {
                 return (
                   <g>
                     <circle cx={p.px} cy={p.py} r={r} fill="#7fd8ff">
-                      <title>{`Aquí: ${geo.idx.get(hereSystemId)!.n}`}</title>
+                      <title>{`${tr("Aquí")}: ${geo.idx.get(hereSystemId)!.n}`}</title>
                     </circle>
                     <circle cx={p.px} cy={p.py} r={r * 2} fill="none" stroke="#7fd8ff" strokeWidth={1 / view.z}>
                       <animate attributeName="r" from={`${r}`} to={`${r * 3}`} dur="1.6s" repeatCount="indefinite" />
@@ -4582,15 +4575,15 @@ function MapView(props: {
                   </button>
                 </div>
                 <div className="muted small">
-                  Seguridad <span style={{ color: secColor(s.s) }}>{s.s.toFixed(1)}</span> · {region}
+                  {tr("Seguridad")} <span style={{ color: secColor(s.s) }}>{s.s.toFixed(1)}</span> · {region}
                 </div>
                 <div className="sys-stats">
-                  <div>Tus kills: <strong>{act?.kills ?? 0}</strong></div>
-                  <div>Tus losses: <strong>{act?.losses ?? 0}</strong></div>
-                  <div>Tu ISK: <strong>{act ? fmtIsk(act.isk) : "0"}</strong></div>
-                  {kv != null && <div>Kills 1h: <strong>{kv}</strong></div>}
-                  {jv != null && <div>Jumps 1h: <strong>{jv}</strong></div>}
-                  {av != null && <div>Assets (stacks): <strong>{av}</strong></div>}
+                  <div>{tr("Tus kills")}: <strong>{act?.kills ?? 0}</strong></div>
+                  <div>{tr("Tus losses")}: <strong>{act?.losses ?? 0}</strong></div>
+                  <div>{tr("Tu ISK")}: <strong>{act ? fmtIsk(act.isk) : "0"}</strong></div>
+                  {kv != null && <div>{tr("Kills 1h")}: <strong>{kv}</strong></div>}
+                  {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
+                  {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
                 </div>
                 <div className="sys-links">
                   <button
@@ -4601,7 +4594,7 @@ function MapView(props: {
                       setSelected(null);
                     }}
                   >
-                    Ruta desde
+                    {tr("Ruta desde")}
                   </button>
                   <button
                     onClick={() => {
@@ -4612,7 +4605,7 @@ function MapView(props: {
                       setSelected(null);
                     }}
                   >
-                    Saltar desde
+                    {tr("Saltar desde")}
                   </button>
                 </div>
                 <div className="sys-links">
@@ -4635,7 +4628,7 @@ function MapView(props: {
                       setSelected(null);
                     }}
                   >
-                    📦 Mis assets aquí
+                    📦 {tr("Mis assets aquí")}
                   </button>
                 )}
                 {overlay === "intel" && intel && (
@@ -4650,7 +4643,7 @@ function MapView(props: {
                       });
                     }}
                   >
-                    {intel.anchors.includes(selected) ? "⚓ Quitar ancla" : "⚓ Anclar aquí"}
+                    {intel.anchors.includes(selected) ? `⚓ ${tr("Quitar ancla")}` : `⚓ ${tr("Anclar aquí")}`}
                   </button>
                 )}
               </div>
@@ -4661,7 +4654,7 @@ function MapView(props: {
         {overlay === "intel" && intel && (
           <div className="intel-panel">
             <div className="intel-head">
-              <strong>🚨 Intel en vivo</strong>
+              <strong>🚨 {tr("Intel en vivo")}</strong>
               <span className="muted small">
                 {(intel.onlyRange
                   ? [...(intelReports?.rep.keys() ?? [])].filter((sid) => {
@@ -4669,12 +4662,12 @@ function MapView(props: {
                       return d != null && d <= intel.alertJumps;
                     }).length
                   : intelReports?.rep.size ?? 0)}{" "}
-                sistema(s)
+                {tr("sistema(s)")}
               </span>
               <button
                 className={`intel-gear${cfgOpen ? " active" : ""}`}
                 onClick={() => setCfgOpen((v) => !v)}
-                title="Configuración"
+                title={tr("Configuración")}
               >
                 ⚙
               </button>
@@ -4682,14 +4675,14 @@ function MapView(props: {
             {cfgOpen && (
               <div className="intel-cfg">
                 <label className="intel-folder" title={intel.folder}>
-                  <span className="muted small">Carpeta de logs</span>
+                  <span className="muted small">{tr("Carpeta de logs")}</span>
                   <div className="intel-folder-row">
-                    <span className="intel-folder-path">{intel.folder || "(sin definir)"}</span>
+                    <span className="intel-folder-path">{intel.folder || tr("(sin definir)")}</span>
                     <button onClick={intel.onPickFolder}>📁</button>
                   </div>
                 </label>
                 <div className="intel-channels">
-                  <span className="muted small">Canales</span>
+                  <span className="muted small">{tr("Canales")}</span>
                   <button
                     type="button"
                     className="intel-chan-btn"
@@ -4697,15 +4690,15 @@ function MapView(props: {
                   >
                     <span>
                       {intel.channels.length === 0
-                        ? "Seleccionar canales…"
-                        : `${intel.channels.length} canal(es)`}
+                        ? tr("Seleccionar canales…")
+                        : `${intel.channels.length} ${tr("canal(es)")}`}
                     </span>
                     <span>{chanOpen ? "▴" : "▾"}</span>
                   </button>
                   {chanOpen && (
                     <div className="intel-chan-menu">
                       {intel.availChannels.length === 0 && (
-                        <div className="muted small">No se encontraron canales en la carpeta.</div>
+                        <div className="muted small">{tr("No se encontraron canales en la carpeta.")}</div>
                       )}
                       {intel.availChannels.map((c) => (
                         <label key={c} className="intel-chk">
@@ -4727,7 +4720,7 @@ function MapView(props: {
                 </div>
                 <div className="intel-nums">
                   <label>
-                    <span className="muted small">Recencia (min)</span>
+                    <span className="muted small">{tr("Recencia (min)")}</span>
                     <input
                       type="number"
                       min={1}
@@ -4737,7 +4730,7 @@ function MapView(props: {
                     />
                   </label>
                   <label>
-                    <span className="muted small">Alerta ≤ saltos</span>
+                    <span className="muted small">{tr("Alerta ≤ saltos")}</span>
                     <input
                       type="number"
                       min={0}
@@ -4757,7 +4750,7 @@ function MapView(props: {
                         intel.onConfig({ sound: e.target.checked });
                       }}
                     />
-                    🔊 Sonido
+                    🔊 {tr("Sonido")}
                   </label>
                   <select
                     className="intel-sound-sel"
@@ -4773,7 +4766,7 @@ function MapView(props: {
                   >
                     {ALERT_SOUNDS.map((s) => (
                       <option key={s.key} value={s.key}>
-                        {s.label}
+                        {tr(s.label)}
                       </option>
                     ))}
                   </select>
@@ -4782,15 +4775,15 @@ function MapView(props: {
                     disabled={!intel.sound}
                     onClick={() => playAlertChoice(intel.soundChoice)}
                   >
-                    Probar
+                    {tr("Probar")}
                   </button>
                 </div>
                 {intel.soundChoice === "custom" && (
                   <div className="intel-sound-custom">
                     <span className="intel-sound-file" title={intel.soundFile}>
-                      {intel.soundFile ? intel.soundFile.split(/[\\/]/).pop() : "(ningún archivo)"}
+                      {intel.soundFile ? intel.soundFile.split(/[\\/]/).pop() : tr("(ningún archivo)")}
                     </span>
-                    <button onClick={intel.onPickSound}>Elegir…</button>
+                    <button onClick={intel.onPickSound}>{tr("Elegir…")}</button>
                   </div>
                 )}
                 <label className="intel-chk">
@@ -4799,14 +4792,14 @@ function MapView(props: {
                     checked={intel.onlyRange}
                     onChange={(e) => intel.onConfig({ onlyRange: e.target.checked })}
                   />
-                  Mostrar solo intel en rango (≤ {intel.alertJumps} saltos)
+                  {tr("Mostrar solo intel en rango")} (≤ {intel.alertJumps} {tr("saltos")})
                 </label>
                 <div className="intel-anchors">
-                  <span className="muted small">Puntos de ancla (proximidad)</span>
+                  <span className="muted small">{tr("Puntos de ancla (proximidad)")}</span>
                   <div className="intel-anchor-add">
                     <input
                       type="text"
-                      placeholder="Sistema… (p. ej. 9PX2-F)"
+                      placeholder={tr("Sistema… (p. ej. 9PX2-F)")}
                       value={anchorInput}
                       onChange={(e) => setAnchorInput(e.target.value)}
                       onKeyDown={(e) => {
@@ -4833,14 +4826,14 @@ function MapView(props: {
                   <div className="intel-anchor-chips">
                     {intel.anchors.length === 0 && (
                       <span className="muted small">
-                        Sin anclas. También puedes pinchar un sistema → “⚓ Anclar aquí”.
+                        {tr("Sin anclas. También puedes pinchar un sistema → “⚓ Anclar aquí”.")}
                       </span>
                     )}
                     {intel.anchors.map((sid) => (
                       <span key={sid} className="intel-anchor-chip">
                         ⚓ {geo?.idx.get(sid)?.n ?? sid}
                         <button
-                          title="Quitar"
+                          title={tr("Quitar")}
                           onClick={() => intel.onConfig({ anchors: intel.anchors.filter((x) => x !== sid) })}
                         >
                           ✕
@@ -4849,17 +4842,17 @@ function MapView(props: {
                     ))}
                   </div>
                   <p className="muted small intel-anchor-hint">
-                    La alerta usa el sistema más cercano entre tu personaje y tus anclas.
+                    {tr("La alerta usa el sistema más cercano entre tu personaje y tus anclas.")}
                   </p>
                 </div>
               </div>
             )}
             <div className="intel-feed">
               {intel.channels.length === 0 && (
-                <div className="muted small">Abre la ⚙ y elige carpeta y al menos un canal para empezar.</div>
+                <div className="muted small">{tr("Abre la ⚙ y elige carpeta y al menos un canal para empezar.")}</div>
               )}
               {intel.channels.length > 0 && (intelReports?.feed.length ?? 0) === 0 && (
-                <div className="muted small">Sin actividad reciente.</div>
+                <div className="muted small">{tr("Sin actividad reciente.")}</div>
               )}
               {intelReports?.feed
                 .filter((f) => {
@@ -4891,7 +4884,7 @@ function MapView(props: {
                       {f.sysName && (
                         <span className="intel-sys">
                           {f.sysName}
-                          {j != null && <em className="intel-j"> · {j} saltos</em>}
+                          {j != null && <em className="intel-j"> · {j} {tr("saltos")}</em>}
                         </span>
                       )}
                     </div>
@@ -4909,19 +4902,19 @@ function MapView(props: {
         {overlay === "intel" && intelDetail && (
           <div className="intel-detail">
             <div className="intel-detail-head">
-              <strong>{intelDetail.sysName ?? "Reporte"}</strong>
+              <strong>{intelDetail.sysName ?? tr("Reporte")}</strong>
               <button className="sys-close" onClick={() => setIntelDetail(null)}>✕</button>
             </div>
             <div className="muted small">
-              {fmtAgo(Date.now() - intelDetail.ts)} · reportó {intelDetail.author}
+              {fmtAgo(Date.now() - intelDetail.ts)} · {tr("reportó")} {intelDetail.author}
             </div>
             <div className="intel-detail-msg">{intelDetail.message}</div>
 
             <div className="intel-detail-sec">
-              <span className="muted small">Pilotos</span>
-              {intelEntLoading && <div className="muted small">Resolviendo…</div>}
+              <span className="muted small">{tr("Pilotos")}</span>
+              {intelEntLoading && <div className="muted small">{tr("Resolviendo…")}</div>}
               {!intelEntLoading && intelEntities && intelEntities.characters.length === 0 && (
-                <div className="muted small">Ningún piloto reconocido en el reporte.</div>
+                <div className="muted small">{tr("Ningún piloto reconocido en el reporte.")}</div>
               )}
               {intelEntities?.characters.map((c) => {
                 const track = pilotTrack(c.name);
@@ -4941,10 +4934,10 @@ function MapView(props: {
                       </button>
                       {track.length > 1 && (
                         <button
-                          title="Trazar ruta según reportes"
+                          title={tr("Trazar ruta según reportes")}
                           onClick={() => setIntelTrackPilot(active ? null : c.name)}
                         >
-                          {active ? "Ocultar ruta" : `Ruta (${track.length})`}
+                          {active ? tr("Ocultar ruta") : `${tr("Ruta")} (${track.length})`}
                         </button>
                       )}
                     </div>
@@ -4964,13 +4957,13 @@ function MapView(props: {
 
             {intelEntities && intelEntities.ships.length > 0 && (
               <div className="intel-detail-sec">
-                <span className="muted small">Naves citadas</span>
+                <span className="muted small">{tr("Naves citadas")}</span>
                 <div className="intel-ships">
                   {intelEntities.ships.map((s) => (
                     <button
                       key={s.id}
                       className="intel-ship"
-                      title="zKillboard del tipo"
+                      title={tr("zKillboard del tipo")}
                       onClick={() => openUrl(`https://zkillboard.com/ship/${s.id}/`)}
                     >
                       <img src={typeIcon(s.id, 32)} alt="" width={22} height={22} />
@@ -4994,15 +4987,15 @@ function MapView(props: {
                       });
                     }}
                   >
-                    {intel.anchors.includes(intelDetail.sysId) ? "⚓ Quitar ancla" : "⚓ Anclar aquí"}
+                    {intel.anchors.includes(intelDetail.sysId) ? `⚓ ${tr("Quitar ancla")}` : `⚓ ${tr("Anclar aquí")}`}
                   </button>
                 )}
                 <div className="sys-links">
                   <button onClick={() => openUrl(`https://zkillboard.com/system/${intelDetail.sysId}/`)}>
-                    zKill sistema
+                    {tr("zKill sistema")}
                   </button>
                   {onSystemAssets && intelDetail.sysName && (
-                    <button onClick={() => onSystemAssets(intelDetail.sysName!)}>📦 Mis assets</button>
+                    <button onClick={() => onSystemAssets(intelDetail.sysName!)}>📦 {tr("Mis assets")}</button>
                   )}
                 </div>
               </>
@@ -5018,24 +5011,24 @@ function MapView(props: {
               <span className="mc-icon">
                 <OverlayIcon o={activeOverlay} />
               </span>
-              <span className="mc-title-tx">{activeOverlay.label}</span>
+              <span className="mc-title-tx">{tr(activeOverlay.label)}</span>
               <button
                 className="mc-toggle"
                 onClick={() => setCtxCollapsed((v) => !v)}
-                title={ctxCollapsed ? "Expandir" : "Plegar"}
+                title={ctxCollapsed ? tr("Expandir") : tr("Plegar")}
               >
                 {ctxCollapsed ? "▸" : "▾"}
               </button>
             </div>
             {!ctxCollapsed && (
               <>
-                <p className="mc-desc">{legend}</p>
+                <p className="mc-desc">{tr(legend)}</p>
                 {ctxKpis.length > 0 && (
                   <div className="mc-kpis">
                     {ctxKpis.map((k, i) => (
                       <div className="mc-kpi" key={i}>
                         <span>{k.value}</span>
-                        <label>{k.label}</label>
+                        <label>{tr(k.label)}</label>
                       </div>
                     ))}
                   </div>
@@ -5054,7 +5047,7 @@ function MapView(props: {
                 className={`msf-btn ${subFilter === o.v ? "active" : ""}`}
                 onClick={() => setSubFilter(o.v)}
               >
-                {o.l}
+                {tr(o.l)}
               </button>
             ))}
           </div>
@@ -5070,12 +5063,12 @@ function MapView(props: {
                 <button
                   className={`mfb-btn ${activeHere ? "active" : ""} ${openCat === c.key ? "open" : ""}`}
                   onClick={() => setOpenCat(openCat === c.key ? null : c.key)}
-                  title={c.label}
+                  title={tr(c.label)}
                 >
                   <span className="mfb-icon">
                     {activeHere ? <OverlayIcon o={activeHere} /> : c.icon}
                   </span>
-                  <span className="mfb-label">{activeHere ? activeHere.short : c.label}</span>
+                  <span className="mfb-label">{activeHere ? tr(activeHere.short) : tr(c.label)}</span>
                   <span className="mfb-caret">▾</span>
                 </button>
                 {openCat === c.key && (
@@ -5092,7 +5085,7 @@ function MapView(props: {
                         <span className="mfb-icon">
                           <OverlayIcon o={o} />
                         </span>
-                        <span>{o.label}</span>
+                        <span>{tr(o.label)}</span>
                       </button>
                     ))}
                   </div>
@@ -5106,11 +5099,11 @@ function MapView(props: {
             <button
               className={`mfb-btn ${routeActive || jumpActive ? "active" : ""} ${openCat === "navegacion" ? "open" : ""}`}
               onClick={() => setOpenCat(openCat === "navegacion" ? null : "navegacion")}
-              title="Navegación"
+              title={tr("Navegación")}
             >
               <span className="mfb-icon">🧭</span>
               <span className="mfb-label">
-                {routeActive ? "Ruta" : jumpActive ? "Salto" : "Navegación"}
+                {routeActive ? tr("Ruta") : jumpActive ? tr("Salto") : tr("Navegación")}
               </span>
               <span className="mfb-caret">▾</span>
             </button>
@@ -5126,7 +5119,7 @@ function MapView(props: {
                   }}
                 >
                   <span className="mfb-icon">🗺️</span>
-                  <span>Ruta {routeActive ? "(ON)" : ""}</span>
+                  <span>{tr("Ruta")} {routeActive ? "(ON)" : ""}</span>
                 </button>
                 <button
                   className={`mfb-item ${jumpActive ? "active" : ""}`}
@@ -5139,7 +5132,7 @@ function MapView(props: {
                   }}
                 >
                   <span className="mfb-icon">⚡</span>
-                  <span>Salto {jumpActive ? "(ON)" : ""}</span>
+                  <span>{tr("Salto")} {jumpActive ? "(ON)" : ""}</span>
                 </button>
               </div>
             )}
@@ -5163,10 +5156,10 @@ function RivalList(props: { title: string; items: RivalEntry[]; kind: "char" | "
   return (
     <div className="rival-list">
       <h4>{title}</h4>
-      {items.length === 0 && <p className="muted small">Sin datos.</p>}
+      {items.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
       <ol>
         {items.map((e) => (
-          <li key={e.id} className="rival-row" onClick={() => openUrl(url(e.id))} title="Abrir en zKillboard">
+          <li key={e.id} className="rival-row" onClick={() => openUrl(url(e.id))} title={tr("Abrir en zKillboard")}>
             <img className="rival-img" src={img(e.id)} alt="" loading="lazy" />
             <span className="rival-name">{e.name ?? `#${e.id}`}</span>
             <span className="muted">{e.count}</span>
@@ -5179,29 +5172,27 @@ function RivalList(props: { title: string; items: RivalEntry[]; kind: "char" | "
 
 function BattlesView(props: { data: Battle[] | null; busy: boolean }) {
   const { data, busy } = props;
-  if (!data && busy) return <p className="muted">Cargando…</p>;
+  if (!data && busy) return <p className="muted">{tr("Cargando…")}</p>;
   if (!data || data.length === 0)
     return (
       <p className="muted small">
-        Sin batallas detectadas. Sincroniza el histórico (y pulsa "Reprocesar daño") para tener los
-        datos.
+        {tr("Sin batallas detectadas. Sincroniza el histórico (y pulsa \"Reprocesar daño\") para tener los datos.")}
       </p>
     );
   return (
     <>
       <p className="muted small">
-        Peleas detectadas (≥8 killmails en un sistema en menos de 1h). Click en una fila → battle
-        report en zKillboard.
+        {tr("Peleas detectadas (≥8 killmails en un sistema en menos de 1h). Click en una fila → battle report en zKillboard.")}
       </p>
       <table className="km-table">
         <thead>
           <tr>
-            <th>Sistema</th>
-            <th>Fecha</th>
-            <th>Kills</th>
-            <th>Losses</th>
+            <th>{tr("Sistema")}</th>
+            <th>{tr("Fecha")}</th>
+            <th>{tr("Kills")}</th>
+            <th>{tr("Losses")}</th>
             <th>ISK</th>
-            <th>Total</th>
+            <th>{tr("Total")}</th>
           </tr>
         </thead>
         <tbody>
@@ -5209,7 +5200,7 @@ function BattlesView(props: { data: Battle[] | null; busy: boolean }) {
             <tr
               key={`${b.system_id}-${b.slug}`}
               className="clickable"
-              title="Abrir battle report en zKillboard"
+              title={tr("Abrir battle report en zKillboard")}
               onClick={() => openUrl(`https://zkillboard.com/related/${b.system_id}/${b.slug}/`)}
             >
               <td>{b.system_name ?? `#${b.system_id}`}</td>
@@ -5230,17 +5221,17 @@ function BattlesView(props: { data: Battle[] | null; busy: boolean }) {
 
 function RivalsView(props: { data: Rivals | null; busy: boolean }) {
   const { data, busy } = props;
-  if (!data && busy) return <p className="muted">Cargando…</p>;
-  if (!data) return <p className="muted small">Sin datos. Sincroniza killmails y pulsa "Reprocesar daño".</p>;
+  if (!data && busy) return <p className="muted">{tr("Cargando…")}</p>;
+  if (!data) return <p className="muted small">{tr("Sin datos. Sincroniza killmails y pulsa \"Reprocesar daño\".")}</p>;
   return (
     <>
       <p className="muted small">
-        Basado en tus killmails (necesita el JSON completo: si está vacío, pulsa "Reprocesar daño" en PvP).
+        {tr("Basado en tus killmails (necesita el JSON completo: si está vacío, pulsa \"Reprocesar daño\" en PvP).")}
       </p>
       {(data.you_kill_chars.length > 0 || data.kills_you_chars.length > 0) && (
         <div className="rivals-charts">
           <div className="panel resumen-panel">
-            <h4>A quién más matas (top)</h4>
+            <h4>{tr("A quién más matas (top)")}</h4>
             <Bars
               items={data.you_kill_chars
                 .slice(0, 8)
@@ -5249,7 +5240,7 @@ function RivalsView(props: { data: Rivals | null; busy: boolean }) {
             />
           </div>
           <div className="panel resumen-panel">
-            <h4>Quién más te mata (top)</h4>
+            <h4>{tr("Quién más te mata (top)")}</h4>
             <Bars
               items={data.kills_you_chars
                 .slice(0, 8)
@@ -5260,10 +5251,10 @@ function RivalsView(props: { data: Rivals | null; busy: boolean }) {
         </div>
       )}
       <div className="rivals-grid">
-        <RivalList title="A quién más matas" items={data.you_kill_chars} kind="char" />
-        <RivalList title="Corps que más matas" items={data.you_kill_corps} kind="corp" />
-        <RivalList title="Quién más te mata" items={data.kills_you_chars} kind="char" />
-        <RivalList title="Corps que más te matan" items={data.kills_you_corps} kind="corp" />
+        <RivalList title={tr("A quién más matas")} items={data.you_kill_chars} kind="char" />
+        <RivalList title={tr("Corps que más matas")} items={data.you_kill_corps} kind="corp" />
+        <RivalList title={tr("Quién más te mata")} items={data.kills_you_chars} kind="char" />
+        <RivalList title={tr("Corps que más te matan")} items={data.kills_you_corps} kind="corp" />
       </div>
     </>
   );
@@ -5277,28 +5268,28 @@ function GlobalSkillsView(props: { data: GlobalSkills | null; busy: boolean }) {
       {data && (
         <>
           <div className="kpis">
-            <Kpi label="SP total" value={fmtSp(data.total_sp)} />
-            <Kpi label="SP sin asignar" value={fmtSp(data.unallocated_sp)} />
-            <Kpi label="Skills" value={fmtSp(data.skill_count)} />
-            <Kpi label="Personajes" value={data.character_count} />
+            <Kpi label={tr("SP total")} value={fmtSp(data.total_sp)} />
+            <Kpi label={tr("SP sin asignar")} value={fmtSp(data.unallocated_sp)} />
+            <Kpi label={tr("Skills")} value={fmtSp(data.skill_count)} />
+            <Kpi label={tr("Personajes")} value={data.character_count} />
           </div>
-          <h4>Entrenando ahora</h4>
-          {data.training.length === 0 && <p className="muted small">Sin datos.</p>}
+          <h4>{tr("Entrenando ahora")}</h4>
+          {data.training.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
           {data.training.length > 0 && (
             <table className="km-table">
               <thead>
                 <tr>
-                  <th>Personaje</th>
+                  <th>{tr("Personaje")}</th>
                   <th>Skill</th>
-                  <th>Nivel</th>
-                  <th>Termina</th>
+                  <th>{tr("Nivel")}</th>
+                  <th>{tr("Termina")}</th>
                 </tr>
               </thead>
               <tbody>
                 {data.training.map((t) => (
                   <tr key={t.character_id}>
                     <td>{t.character_name}</td>
-                    <td>{t.skill_name ?? (t.skill_id ? `#${t.skill_id}` : "— sin entrenar —")}</td>
+                    <td>{t.skill_name ?? (t.skill_id ? `#${t.skill_id}` : tr("— sin entrenar —"))}</td>
                     <td>{t.skill_id ? t.finished_level : "-"}</td>
                     <td>{t.finish_date?.replace("T", " ").slice(0, 16) ?? "-"}</td>
                   </tr>
@@ -5326,7 +5317,7 @@ function Th({
 }) {
   const active = sort.col === col;
   return (
-    <th className="th-sort" onClick={() => onSort(col)} title="Ordenar">
+    <th className="th-sort" onClick={() => onSort(col)} title={tr("Ordenar")}>
       {label} <span className="th-arrow">{active ? (sort.dir === 1 ? "▲" : "▼") : "↕"}</span>
     </th>
   );
@@ -5351,18 +5342,17 @@ function RateoView({
       .catch(() => {});
   }, []);
 
-  if (!data) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
   if (data.entries === 0)
     return (
       <p className="muted small">
-        Sin ingresos de rateo en el journal. Sincroniza la wallet del personaje (sección Wallet)
-        para empezar a acumular el histórico en tu PC.
+        {tr("Sin ingresos de rateo en el journal. Sincroniza la wallet del personaje (sección Wallet) para empezar a acumular el histórico en tu PC.")}
       </p>
     );
 
   const sysName = (id: number) => names.get(id) ?? `#${id}`;
   const granLabel =
-    gran === "day" ? "día" : gran === "week" ? "semana" : gran === "month" ? "mes" : "año";
+    gran === "day" ? tr("día") : gran === "week" ? tr("semana") : gran === "month" ? tr("mes") : tr("año");
 
   // Filtra por rango de fechas (YYYY-MM-DD) y agrupa por granularidad.
   const daily = data.daily.filter((d) => (!from || d.date >= from) && (!to || d.date <= to));
@@ -5395,18 +5385,18 @@ function RateoView({
   return (
     <>
       <div className="kpis">
-        <Kpi label="ISK total (bounty + ESS)" value={fmtIsk(totalIsk)} tone="pos" />
-        <Kpi label="Bounties" value={fmtIsk(data.total_bounty)} tone="pos" />
-        <Kpi label="ESS" value={fmtIsk(data.total_ess)} tone="pos" />
-        <Kpi label="Ratas eliminadas" value={fmtSp(data.rats_killed)} />
-        <Kpi label="ISK / hora (estim.)" value={fmtIsk(iskPerHour)} />
+        <Kpi label={tr("ISK total (bounty + ESS)")} value={fmtIsk(totalIsk)} tone="pos" />
+        <Kpi label={tr("Bounties")} value={fmtIsk(data.total_bounty)} tone="pos" />
+        <Kpi label={tr("ESS")} value={fmtIsk(data.total_ess)} tone="pos" />
+        <Kpi label={tr("Ratas eliminadas")} value={fmtSp(data.rats_killed)} />
+        <Kpi label={tr("ISK / hora (estim.)")} value={fmtIsk(iskPerHour)} />
       </div>
 
       <div className="rateo-controls">
         <div className="seg">
           {(["day", "week", "month", "year"] as const).map((g) => (
             <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
-              {g === "day" ? "Día" : g === "week" ? "Semana" : g === "month" ? "Mes" : "Año"}
+              {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : g === "month" ? tr("Mes") : tr("Año")}
             </button>
           ))}
         </div>
@@ -5416,13 +5406,13 @@ function RateoView({
             checked={cumulative}
             onChange={(e) => setCumulative(e.target.checked)}
           />
-          Acumulado
+          {tr("Acumulado")}
         </label>
         <label className="rateo-date">
-          Desde <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label className="rateo-date">
-          Hasta <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          {tr("Hasta")} <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
         {(from || to) && (
           <button
@@ -5439,7 +5429,7 @@ function RateoView({
 
       <div className="top-list">
         <h4>
-          {cumulative ? "ISK acumulado" : "ISK"} por {granLabel}
+          {cumulative ? tr("ISK acumulado") : "ISK"} {tr("por")} {granLabel}
         </h4>
         <Bars
           items={series.map((s) => ({ label: s.label, value: s.isk }))}
@@ -5449,7 +5439,7 @@ function RateoView({
       </div>
 
       <div className="top-list">
-        <h4>Ratas por {granLabel}</h4>
+        <h4>{tr("Ratas")} {tr("por")} {granLabel}</h4>
         <Bars
           items={series.map((s) => ({ label: s.label, value: s.rats }))}
           color="#d29922"
@@ -5459,14 +5449,14 @@ function RateoView({
 
       <div className="resumen-grid">
         <div className="panel resumen-panel">
-          <h4>Distribución por sistema</h4>
+          <h4>{tr("Distribución por sistema")}</h4>
           <Donut
             items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
             fmt={fmtIsk}
           />
         </div>
         <div className="panel resumen-panel">
-          <h4>ISK por sistema (histórico)</h4>
+          <h4>{tr("ISK por sistema (histórico)")}</h4>
           <Bars
             items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
             color="#4f9cff"
@@ -5476,13 +5466,13 @@ function RateoView({
       </div>
 
       <div className="top-list">
-        <h4>Detalle por sistema</h4>
+        <h4>{tr("Detalle por sistema")}</h4>
         <table className="km-table">
           <thead>
             <tr>
-              <th>Sistema</th>
+              <th>{tr("Sistema")}</th>
               <th>ISK</th>
-              <th>Ratas</th>
+              <th>{tr("Ratas")}</th>
             </tr>
           </thead>
           <tbody>
@@ -5621,7 +5611,7 @@ function DeltaBadge({ cur, prev, invert = false }: { cur: number; prev: number; 
       txt = "—";
       dir = 0;
     } else {
-      txt = "nuevo";
+      txt = tr("nuevo");
       dir = 1;
     }
   } else {
@@ -5637,14 +5627,14 @@ function DeltaBadge({ cur, prev, invert = false }: { cur: number; prev: number; 
 }
 
 function CatTable({ rows, invert }: { rows: CategorySum[]; invert: boolean }) {
-  if (rows.length === 0) return <p className="muted small">Sin movimientos.</p>;
+  if (rows.length === 0) return <p className="muted small">{tr("Sin movimientos.")}</p>;
   return (
     <table className="km-table cat-table">
       <thead>
         <tr>
-          <th>Categoría</th>
+          <th>{tr("Categoría")}</th>
           <th style={{ textAlign: "right" }}>ISK</th>
-          <th style={{ textAlign: "right" }}>vs anterior</th>
+          <th style={{ textAlign: "right" }}>{tr("vs anterior")}</th>
         </tr>
       </thead>
       <tbody>
@@ -5652,7 +5642,7 @@ function CatTable({ rows, invert }: { rows: CategorySum[]; invert: boolean }) {
           <tr key={i}>
             <td>
               <span className="cat-dot" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-              {r.category}
+              {tr(r.category)}
             </td>
             <td style={{ textAlign: "right" }}>{fmtIsk(r.isk)}</td>
             <td style={{ textAlign: "right" }}>
@@ -5712,12 +5702,11 @@ function ResumenView({ subject }: { subject: number | "global" }) {
     };
   }, [subject, period]);
 
-  if (periods === null) return <p className="muted">Cargando…</p>;
+  if (periods === null) return <p className="muted">{tr("Cargando…")}</p>;
   if (periods.length === 0)
     return (
       <p className="muted small">
-        Sin movimientos en el journal. Sincroniza la wallet de tus personajes (sección Wallet) para
-        ver tu resumen.
+        {tr("Sin movimientos en el journal. Sincroniza la wallet de tus personajes (sección Wallet) para ver tu resumen.")}
       </p>
     );
 
@@ -5729,7 +5718,7 @@ function ResumenView({ subject }: { subject: number | "global" }) {
   return (
     <>
       <div className="resumen-period">
-        <span className="rp-label">📅 Período</span>
+        <span className="rp-label">📅 {tr("Período")}</span>
         <select
           value={curYear}
           onChange={(e) => {
@@ -5747,13 +5736,13 @@ function ResumenView({ subject }: { subject: number | "global" }) {
         <select value={period} onChange={(e) => setPeriod(e.target.value)}>
           {monthsOfYear.map((p) => (
             <option key={p} value={p}>
-              {MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1]}
+              {tr(MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1])}
             </option>
           ))}
         </select>
         <span className="rp-show">
-          Mostrando {MONTH_NAMES[parseInt(curMonth, 10) - 1]} {curYear}
-          {busy ? " · actualizando…" : ""}
+          {tr("Mostrando")} {tr(MONTH_NAMES[parseInt(curMonth, 10) - 1])} {curYear}
+          {busy ? ` · ${tr("actualizando…")}` : ""}
         </span>
       </div>
 
@@ -5761,17 +5750,17 @@ function ResumenView({ subject }: { subject: number | "global" }) {
         <>
           <div className="resumen-kpis">
             <div className="rk-card rk-net">
-              <span className="rk-label">Balance del mes</span>
+              <span className="rk-label">{tr("Balance del mes")}</span>
               <span className={`rk-value ${data.net >= 0 ? "pos" : "neg"}`}>{fmtIsk(data.net)} ISK</span>
               <DeltaBadge cur={data.net} prev={data.prev_net} />
             </div>
             <div className="rk-card rk-in">
-              <span className="rk-label">↑ Ingresos</span>
+              <span className="rk-label">↑ {tr("Ingresos")}</span>
               <span className="rk-value pos">{fmtIsk(data.income_total)}</span>
               <DeltaBadge cur={data.income_total} prev={data.prev_income_total} />
             </div>
             <div className="rk-card rk-out">
-              <span className="rk-label">↓ Gastos</span>
+              <span className="rk-label">↓ {tr("Gastos")}</span>
               <span className="rk-value neg">{fmtIsk(data.expense_total)}</span>
               <DeltaBadge cur={data.expense_total} prev={data.prev_expense_total} invert />
             </div>
@@ -5779,19 +5768,19 @@ function ResumenView({ subject }: { subject: number | "global" }) {
 
           <div className="resumen-grid">
             <div className="panel resumen-panel">
-              <h4>Distribución de ingresos</h4>
+              <h4>{tr("Distribución de ingresos")}</h4>
               <Donut items={data.income_by_category.map((c) => ({ label: c.category, value: c.isk }))} fmt={fmtIsk} />
             </div>
             <div className="panel resumen-panel">
-              <h4>Ingresos por categoría</h4>
+              <h4>{tr("Ingresos por categoría")}</h4>
               <CatTable rows={data.income_by_category} invert={false} />
             </div>
             <div className="panel resumen-panel">
-              <h4>Distribución de gastos</h4>
+              <h4>{tr("Distribución de gastos")}</h4>
               <Donut items={data.expense_by_category.map((c) => ({ label: c.category, value: c.isk }))} fmt={fmtIsk} />
             </div>
             <div className="panel resumen-panel">
-              <h4>Gastos por categoría</h4>
+              <h4>{tr("Gastos por categoría")}</h4>
               <CatTable rows={data.expense_by_category} invert={true} />
             </div>
           </div>
@@ -5877,11 +5866,11 @@ function ActividadView({ subject }: { subject: number | "global" }) {
     };
   }, [subject, period]);
 
-  if (periods === null) return <p className="muted">Cargando…</p>;
+  if (periods === null) return <p className="muted">{tr("Cargando…")}</p>;
   if (periods.length === 0)
     return (
       <p className="muted small">
-        Sin killmails registrados. Sincroniza el PvP de tus personajes para ver tu actividad.
+        {tr("Sin killmails registrados. Sincroniza el PvP de tus personajes para ver tu actividad.")}
       </p>
     );
 
@@ -5893,7 +5882,7 @@ function ActividadView({ subject }: { subject: number | "global" }) {
   return (
     <>
       <div className="resumen-period">
-        <span className="rp-label">📅 Período</span>
+        <span className="rp-label">📅 {tr("Período")}</span>
         <select
           value={curYear}
           onChange={(e) => {
@@ -5910,13 +5899,13 @@ function ActividadView({ subject }: { subject: number | "global" }) {
         <select value={period} onChange={(e) => setPeriod(e.target.value)}>
           {monthsOfYear.map((p) => (
             <option key={p} value={p}>
-              {MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1]}
+              {tr(MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1])}
             </option>
           ))}
         </select>
         <span className="rp-show">
-          Mostrando {MONTH_NAMES[parseInt(curMonth, 10) - 1]} {curYear}
-          {busy ? " · actualizando…" : ""}
+          {tr("Mostrando")} {tr(MONTH_NAMES[parseInt(curMonth, 10) - 1])} {curYear}
+          {busy ? ` · ${tr("actualizando…")}` : ""}
         </span>
       </div>
 
@@ -5924,23 +5913,23 @@ function ActividadView({ subject }: { subject: number | "global" }) {
         <>
           <div className="resumen-kpis act-kpis">
             <div className="rk-card rk-in">
-              <span className="rk-label">Kills</span>
+              <span className="rk-label">{tr("Kills")}</span>
               <span className="rk-value pos">{fmtSp(data.kills)}</span>
               <span className="muted small">{fmtIsk(data.isk_destroyed)} ISK</span>
             </div>
             <div className="rk-card rk-out">
-              <span className="rk-label">Losses</span>
+              <span className="rk-label">{tr("Losses")}</span>
               <span className="rk-value neg">{fmtSp(data.losses)}</span>
               <span className="muted small">{fmtIsk(data.isk_lost)} ISK</span>
             </div>
             <div className="rk-card rk-net">
-              <span className="rk-label">Eficacia ISK</span>
+              <span className="rk-label">{tr("Eficacia ISK")}</span>
               <span className="rk-value">{data.efficiency.toFixed(1)}%</span>
             </div>
           </div>
 
           <div className="top-list">
-            <h4>Actividad diaria · {MONTH_NAMES[parseInt(curMonth, 10) - 1]} {curYear}</h4>
+            <h4>{tr("Actividad diaria")} · {tr(MONTH_NAMES[parseInt(curMonth, 10) - 1])} {curYear}</h4>
             <KLColumns
               items={data.daily.map((d) => ({
                 label: d.date.slice(8, 10),
@@ -5952,7 +5941,7 @@ function ActividadView({ subject }: { subject: number | "global" }) {
           </div>
 
           <div className="top-list">
-            <h4>🔥 Horas calientes (UTC EVE)</h4>
+            <h4>🔥 {tr("Horas calientes (UTC EVE)")}</h4>
             <KLColumns
               items={data.hourly.map((h) => ({
                 label: String(h.hour).padStart(2, "0"),
@@ -5972,10 +5961,10 @@ function KLLegend() {
   return (
     <div className="kl-legend">
       <span>
-        <span className="kl-dot kl-dot-kill" /> Kills
+        <span className="kl-dot kl-dot-kill" /> {tr("Kills")}
       </span>
       <span>
-        <span className="kl-dot kl-dot-loss" /> Losses
+        <span className="kl-dot kl-dot-loss" /> {tr("Losses")}
       </span>
     </div>
   );
@@ -6036,12 +6025,11 @@ function MineriaView({ subject }: { subject: number | "global" }) {
     };
   }, [subject, period]);
 
-  if (periods === null) return <p className="muted">Cargando…</p>;
+  if (periods === null) return <p className="muted">{tr("Cargando…")}</p>;
   if (periods.length === 0)
     return (
       <p className="muted small">
-        Sin registro de minería. Sincroniza la minería de tus personajes (sección Industria) para
-        ver tu histórico.
+        {tr("Sin registro de minería. Sincroniza la minería de tus personajes (sección Industria) para ver tu histórico.")}
       </p>
     );
 
@@ -6054,7 +6042,7 @@ function MineriaView({ subject }: { subject: number | "global" }) {
   return (
     <>
       <div className="resumen-period">
-        <span className="rp-label">📅 Período</span>
+        <span className="rp-label">📅 {tr("Período")}</span>
         <select
           value={curYear}
           onChange={(e) => {
@@ -6071,13 +6059,13 @@ function MineriaView({ subject }: { subject: number | "global" }) {
         <select value={period} onChange={(e) => setPeriod(e.target.value)}>
           {monthsOfYear.map((p) => (
             <option key={p} value={p}>
-              {MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1]}
+              {tr(MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1])}
             </option>
           ))}
         </select>
         <span className="rp-show">
-          Mostrando {MONTH_NAMES[parseInt(curMonth, 10) - 1]} {curYear}
-          {busy ? " · actualizando…" : ""}
+          {tr("Mostrando")} {tr(MONTH_NAMES[parseInt(curMonth, 10) - 1])} {curYear}
+          {busy ? ` · ${tr("actualizando…")}` : ""}
         </span>
       </div>
 
@@ -6085,22 +6073,22 @@ function MineriaView({ subject }: { subject: number | "global" }) {
         <>
           <div className="resumen-kpis act-kpis">
             <div className="rk-card rk-net">
-              <span className="rk-label">ISK estimado</span>
+              <span className="rk-label">{tr("ISK estimado")}</span>
               <span className="rk-value pos">{fmtIsk(data.est_value)}</span>
             </div>
             <div className="rk-card rk-in">
-              <span className="rk-label">Unidades minadas</span>
+              <span className="rk-label">{tr("Unidades minadas")}</span>
               <span className="rk-value">{fmtSp(data.units)}</span>
             </div>
             <div className="rk-card">
-              <span className="rk-label">Tipos de mineral</span>
+              <span className="rk-label">{tr("Tipos de mineral")}</span>
               <span className="rk-value">{fmtSp(data.ore_types)}</span>
             </div>
           </div>
 
           <div className="resumen-grid">
             <div className="panel resumen-panel">
-              <h4>Distribución de mineral (por ISK)</h4>
+              <h4>{tr("Distribución de mineral (por ISK)")}</h4>
               <Donut
                 items={data.by_ore.map((o) => ({
                   label: o.type_name ?? `#${o.type_id}`,
@@ -6110,16 +6098,16 @@ function MineriaView({ subject }: { subject: number | "global" }) {
               />
             </div>
             <div className="panel resumen-panel">
-              <h4>Mineral extraído</h4>
+              <h4>{tr("Mineral extraído")}</h4>
               {data.by_ore.length === 0 ? (
-                <p className="muted small">Sin minería este mes.</p>
+                <p className="muted small">{tr("Sin minería este mes.")}</p>
               ) : (
                 <table className="km-table cat-table">
                   <thead>
                     <tr>
-                      <th>Mineral</th>
-                      <th style={{ textAlign: "right" }}>Unidades</th>
-                      <th style={{ textAlign: "right" }}>ISK estimado</th>
+                      <th>{tr("Mineral")}</th>
+                      <th style={{ textAlign: "right" }}>{tr("Unidades")}</th>
+                      <th style={{ textAlign: "right" }}>{tr("ISK estimado")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -6140,7 +6128,7 @@ function MineriaView({ subject }: { subject: number | "global" }) {
           </div>
 
           <div className="top-list">
-            <h4>Por sistema</h4>
+            <h4>{tr("Por sistema")}</h4>
             <Bars
               items={data.by_system.map((s) => ({ label: sysName(s.system_id), value: s.units }))}
               color="#4f9cff"
@@ -6149,7 +6137,7 @@ function MineriaView({ subject }: { subject: number | "global" }) {
           </div>
 
           <div className="top-list">
-            <h4>Tendencia mensual (ISK estimado)</h4>
+            <h4>{tr("Tendencia mensual (ISK estimado)")}</h4>
             <Bars
               items={data.monthly.map((m) => ({ label: m.month, value: m.isk }))}
               color="#3fb950"
@@ -6164,11 +6152,11 @@ function MineriaView({ subject }: { subject: number | "global" }) {
 
 /* ---------- PvE: Factional + Abyssals ---------- */
 function FactionalSection({ data, busy }: { data: FactionalData | null; busy: boolean }) {
-  if (!data) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
   if (!data.enlisted)
     return (
       <p className="muted small">
-        Este personaje no está enlistado en la Guerra de Facciones.
+        {tr("Este personaje no está enlistado en la Guerra de Facciones.")}
       </p>
     );
   const fac = data.faction_id ? FW_FACTIONS[data.faction_id] : null;
@@ -6176,15 +6164,15 @@ function FactionalSection({ data, busy }: { data: FactionalData | null; busy: bo
     <table className="km-table cat-table">
       <tbody>
         <tr>
-          <td>Ayer</td>
+          <td>{tr("Ayer")}</td>
           <td style={{ textAlign: "right" }}>{fmtSp(c.yesterday)}</td>
         </tr>
         <tr>
-          <td>Última semana</td>
+          <td>{tr("Última semana")}</td>
           <td style={{ textAlign: "right" }}>{fmtSp(c.last_week)}</td>
         </tr>
         <tr>
-          <td>Total</td>
+          <td>{tr("Total")}</td>
           <td style={{ textAlign: "right" }}>{fmtSp(c.total)}</td>
         </tr>
       </tbody>
@@ -6197,15 +6185,15 @@ function FactionalSection({ data, busy }: { data: FactionalData | null; busy: bo
           <div className="kpi-value">
             {fac?.name ?? (data.faction_id ? `#${data.faction_id}` : "—")}
           </div>
-          <div className="kpi-label">Facción</div>
+          <div className="kpi-label">{tr("Facción")}</div>
         </div>
-        {data.current_rank != null && <Kpi label="Rango actual" value={data.current_rank} />}
-        {data.highest_rank != null && <Kpi label="Rango máximo" value={data.highest_rank} />}
-        {data.enlisted_on && <Kpi label="Enlistado" value={data.enlisted_on.slice(0, 10)} />}
+        {data.current_rank != null && <Kpi label={tr("Rango actual")} value={data.current_rank} />}
+        {data.highest_rank != null && <Kpi label={tr("Rango máximo")} value={data.highest_rank} />}
+        {data.enlisted_on && <Kpi label={tr("Enlistado")} value={data.enlisted_on.slice(0, 10)} />}
       </div>
       <div className="resumen-grid">
         <div className="panel resumen-panel">
-          <h4>Kills</h4>
+          <h4>{tr("Kills")}</h4>
           {counts(data.kills)}
         </div>
         <div className="panel resumen-panel">
@@ -6218,32 +6206,30 @@ function FactionalSection({ data, busy }: { data: FactionalData | null; busy: bo
 }
 
 function AbyssalsSection({ data, busy }: { data: AbyssalsData | null; busy: boolean }) {
-  if (!data) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
   return (
     <>
       <p className="muted small">
-        ⚠️ ESI no expone las runs abisales. Esto es una <b>estimación</b> a partir de tus compras de
-        filamentos, ahora <b>acumuladas en tu PC</b> (cada sync guarda las nuevas; 1 filamento ≈ 1 run).
-        Sincroniza la wallet con frecuencia para no perder transacciones fuera de la ventana de ESI.
+        ⚠️ {tr("ESI no expone las runs abisales. Esto es una estimación a partir de tus compras de filamentos, ahora acumuladas en tu PC (cada sync guarda las nuevas; 1 filamento ≈ 1 run). Sincroniza la wallet con frecuencia para no perder transacciones fuera de la ventana de ESI.")}
       </p>
       {data.by_filament.length === 0 ? (
         <p className="muted small">
-          No se han detectado compras de filamentos en la ventana de transacciones.
+          {tr("No se han detectado compras de filamentos en la ventana de transacciones.")}
         </p>
       ) : (
         <>
           <div className="kpis">
-            <Kpi label="Runs estimadas" value={fmtSp(data.runs_est)} />
-            <Kpi label="ISK en filamentos" value={fmtIsk(data.isk_spent)} tone="neg" />
-            <Kpi label="Tipos de filamento" value={fmtSp(data.by_filament.length)} />
+            <Kpi label={tr("Runs estimadas")} value={fmtSp(data.runs_est)} />
+            <Kpi label={tr("ISK en filamentos")} value={fmtIsk(data.isk_spent)} tone="neg" />
+            <Kpi label={tr("Tipos de filamento")} value={fmtSp(data.by_filament.length)} />
           </div>
           <div className="top-list">
-            <h4>Por filamento</h4>
+            <h4>{tr("Por filamento")}</h4>
             <table className="km-table cat-table">
               <thead>
                 <tr>
-                  <th>Filamento</th>
-                  <th style={{ textAlign: "right" }}>Cantidad</th>
+                  <th>{tr("Filamento")}</th>
+                  <th style={{ textAlign: "right" }}>{tr("Cantidad")}</th>
                   <th style={{ textAlign: "right" }}>ISK</th>
                 </tr>
               </thead>
@@ -6296,28 +6282,28 @@ function ContactosView({
   standings: StandingRow[] | null;
   busy: boolean;
 }) {
-  if (!contacts) return <p className="muted">{busy ? "Cargando…" : "Sin datos."}</p>;
+  if (!contacts) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
   const goodC = contacts.filter((c) => c.standing > 0).length;
   const badC = contacts.filter((c) => c.standing < 0).length;
   return (
     <>
       <div className="kpis">
-        <Kpi label="Contactos" value={fmtSp(contacts.length)} />
-        <Kpi label="Positivos" value={fmtSp(goodC)} tone="pos" />
-        <Kpi label="Negativos" value={fmtSp(badC)} tone="neg" />
-        {standings && <Kpi label="Standings NPC" value={fmtSp(standings.length)} />}
+        <Kpi label={tr("Contactos")} value={fmtSp(contacts.length)} />
+        <Kpi label={tr("Positivos")} value={fmtSp(goodC)} tone="pos" />
+        <Kpi label={tr("Negativos")} value={fmtSp(badC)} tone="neg" />
+        {standings && <Kpi label={tr("Standings NPC")} value={fmtSp(standings.length)} />}
       </div>
 
       <div className="top-list">
-        <h4>Tus contactos</h4>
+        <h4>{tr("Tus contactos")}</h4>
         {contacts.length === 0 ? (
-          <p className="muted small">No tienes contactos.</p>
+          <p className="muted small">{tr("No tienes contactos.")}</p>
         ) : (
           <table className="km-table cat-table">
             <thead>
               <tr>
-                <th>Contacto</th>
-                <th>Tipo</th>
+                <th>{tr("Contacto")}</th>
+                <th>{tr("Tipo")}</th>
                 <th style={{ textAlign: "right" }}>Standing</th>
               </tr>
             </thead>
@@ -6337,10 +6323,10 @@ function ContactosView({
                         />
                       )}
                       {c.name ?? `#${c.id}`}
-                      {c.watched && <span title="En seguimiento"> 👁️</span>}
-                      {c.blocked && <span title="Bloqueado"> 🚫</span>}
+                      {c.watched && <span title={tr("En seguimiento")}> 👁️</span>}
+                      {c.blocked && <span title={tr("Bloqueado")}> 🚫</span>}
                     </td>
-                    <td>{KIND_ES[c.kind] ?? c.kind}</td>
+                    <td>{tr(KIND_ES[c.kind] ?? c.kind)}</td>
                     <td style={{ textAlign: "right", color: standingColor(c.standing), fontWeight: 600 }}>
                       {c.standing.toFixed(1)}
                     </td>
@@ -6353,15 +6339,15 @@ function ContactosView({
       </div>
 
       <div className="top-list">
-        <h4>Standings con NPC</h4>
+        <h4>{tr("Standings con NPC")}</h4>
         {!standings || standings.length === 0 ? (
-          <p className="muted small">Sin standings (o falta el scope de standings; reloguea con acceso).</p>
+          <p className="muted small">{tr("Sin standings (o falta el scope de standings; reloguea con acceso).")}</p>
         ) : (
           <table className="km-table cat-table">
             <thead>
               <tr>
-                <th>Entidad</th>
-                <th>Tipo</th>
+                <th>{tr("Entidad")}</th>
+                <th>{tr("Tipo")}</th>
                 <th style={{ textAlign: "right" }}>Standing</th>
               </tr>
             </thead>
@@ -6369,7 +6355,7 @@ function ContactosView({
               {standings.map((s) => (
                 <tr key={`${s.kind}-${s.id}`}>
                   <td>{s.name ?? `#${s.id}`}</td>
-                  <td>{KIND_ES[s.kind] ?? s.kind}</td>
+                  <td>{tr(KIND_ES[s.kind] ?? s.kind)}</td>
                   <td style={{ textAlign: "right", color: standingColor(s.standing), fontWeight: 600 }}>
                     {s.standing.toFixed(2)}
                   </td>
@@ -6384,24 +6370,24 @@ function ContactosView({
 }
 
 function PlanetologiaView({ planets, busy }: { planets: Planet[] | null; busy: boolean }) {
-  if (!planets) return <p className="muted">{busy ? "Cargando colonias…" : "Sin datos."}</p>;
+  if (!planets) return <p className="muted">{busy ? tr("Cargando colonias…") : tr("Sin datos.")}</p>;
   if (planets.length === 0)
-    return <p className="muted small">No tienes colonias de Planetary Interaction.</p>;
+    return <p className="muted small">{tr("No tienes colonias de Planetary Interaction.")}</p>;
   const totalPins = planets.reduce((s, p) => s + p.num_pins, 0);
   return (
     <>
       <div className="kpis">
-        <Kpi label="Colonias" value={fmtSp(planets.length)} />
-        <Kpi label="Estructuras (pins)" value={fmtSp(totalPins)} />
+        <Kpi label={tr("Colonias")} value={fmtSp(planets.length)} />
+        <Kpi label={tr("Estructuras (pins)")} value={fmtSp(totalPins)} />
       </div>
       <table className="km-table">
         <thead>
           <tr>
-            <th>Sistema</th>
-            <th>Tipo de planeta</th>
-            <th>Nivel</th>
-            <th>Estructuras</th>
-            <th>Última actualización</th>
+            <th>{tr("Sistema")}</th>
+            <th>{tr("Tipo de planeta")}</th>
+            <th>{tr("Nivel")}</th>
+            <th>{tr("Estructuras")}</th>
+            <th>{tr("Última actualización")}</th>
           </tr>
         </thead>
         <tbody>
@@ -6424,9 +6410,9 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "issued", dir: -1 });
   const onSort = (col: string) =>
     setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
-  if (!orders) return <p className="muted">{busy ? "Cargando órdenes…" : "Sin datos."}</p>;
+  if (!orders) return <p className="muted">{busy ? tr("Cargando órdenes…") : tr("Sin datos.")}</p>;
   if (orders.length === 0)
-    return <p className="muted small">No tienes órdenes de mercado abiertas.</p>;
+    return <p className="muted small">{tr("No tienes órdenes de mercado abiertas.")}</p>;
   const sorted = [...orders].sort((a, b) => {
     const d = sort.dir;
     switch (sort.col) {
@@ -6454,21 +6440,21 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
   return (
     <>
       <div className="kpis">
-        <Kpi label="Órdenes" value={fmtSp(orders.length)} />
-        <Kpi label="De compra" value={fmtSp(buys)} tone="pos" />
-        <Kpi label="De venta" value={fmtSp(orders.length - buys)} tone="neg" />
-        <Kpi label="Valor compra" value={fmtIsk(buyValue)} tone="pos" />
-        <Kpi label="Valor venta" value={fmtIsk(sellValue)} tone="neg" />
+        <Kpi label={tr("Órdenes")} value={fmtSp(orders.length)} />
+        <Kpi label={tr("De compra")} value={fmtSp(buys)} tone="pos" />
+        <Kpi label={tr("De venta")} value={fmtSp(orders.length - buys)} tone="neg" />
+        <Kpi label={tr("Valor compra")} value={fmtIsk(buyValue)} tone="pos" />
+        <Kpi label={tr("Valor venta")} value={fmtIsk(sellValue)} tone="neg" />
       </div>
       <table className="km-table">
         <thead>
           <tr>
-            <Th label="Item" col="item" sort={sort} onSort={onSort} />
-            <Th label="Tipo" col="type" sort={sort} onSort={onSort} />
-            <Th label="Precio" col="price" sort={sort} onSort={onSort} />
-            <Th label="Cantidad" col="qty" sort={sort} onSort={onSort} />
-            <Th label="Sistema" col="sys" sort={sort} onSort={onSort} />
-            <Th label="Emitida" col="issued" sort={sort} onSort={onSort} />
+            <Th label={tr("Item")} col="item" sort={sort} onSort={onSort} />
+            <Th label={tr("Tipo")} col="type" sort={sort} onSort={onSort} />
+            <Th label={tr("Precio")} col="price" sort={sort} onSort={onSort} />
+            <Th label={tr("Cantidad")} col="qty" sort={sort} onSort={onSort} />
+            <Th label={tr("Sistema")} col="sys" sort={sort} onSort={onSort} />
+            <Th label={tr("Emitida")} col="issued" sort={sort} onSort={onSort} />
           </tr>
         </thead>
         <tbody>
@@ -6479,7 +6465,7 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
                 <span>{o.type_name ?? `#${o.type_id}`}</span>
               </td>
               <td style={{ color: o.is_buy ? "#3fb950" : "#e5534b" }}>
-                {o.is_buy ? "Compra" : "Venta"}
+                {o.is_buy ? tr("Compra") : tr("Venta")}
               </td>
               <td>{fmtIsk(o.price)}</td>
               <td>
@@ -6631,20 +6617,20 @@ function FitWheel({
               <div>
                 <strong>{hover.name}</strong>
                 {hover.qty > 1 && <span className="muted"> ×{fmtSp(hover.qty)}</span>}
-                <div className="small muted">{FAM_LABEL[hover.fam] ?? hover.fam}</div>
+                <div className="small muted">{tr(FAM_LABEL[hover.fam] ?? hover.fam)}</div>
               </div>
             </>
           ) : (
-            <span className="small muted">Pasa el ratón por un módulo para ver su info.</span>
+            <span className="small muted">{tr("Pasa el ratón por un módulo para ver su info.")}</span>
           )}
         </div>
         {skillReport && (
           <div className={`fitw-skills ${skillReport.canFly ? "ok" : "no"}`}>
             {skillReport.canFly ? (
-              <span>✅ Puedes pilotar este fit con tus skills.</span>
+              <span>✅ {tr("Puedes pilotar este fit con tus skills.")}</span>
             ) : (
               <>
-                <div className="fitw-skills-h">⚠ Te faltan {skillReport.missing.length} skills:</div>
+                <div className="fitw-skills-h">⚠ {tr("Te faltan")} {skillReport.missing.length} skills:</div>
                 {skillReport.missing.map((s, i) => (
                   <div className="fitw-skill" key={i}>
                     <span>{s.name}</span>
@@ -6659,7 +6645,7 @@ function FitWheel({
         )}
         {extra.length > 0 && (
           <div className="fitw-extra">
-            <div className="fit-group-h">Drones / Carga</div>
+            <div className="fit-group-h">{tr("Drones / Carga")}</div>
             {extra.map((m, i) => (
               <div className="fit-mod" key={i} title={m.name}>
                 <img className="type-ico" src={typeIcon(m.type_id)} alt="" loading="lazy" />
@@ -6742,8 +6728,8 @@ function FitsView({ charId, charName }: { charId: number | null; charName: strin
       setFits((prev) => [...imported, ...prev]);
       setNotice(
         imported.length > 0
-          ? `Importados ${imported.length} fits de ${charName ?? "tu personaje"}.`
-          : "No hay fits nuevos que importar."
+          ? `${tr("Importados")} ${imported.length} ${tr("fits de")} ${charName ?? tr("tu personaje")}.`
+          : tr("No hay fits nuevos que importar.")
       );
     } catch (e) {
       setErr(String(e));
@@ -6782,12 +6768,12 @@ function FitsView({ charId, charName }: { charId: number | null; charName: strin
           className="fits-eft"
           value={eft}
           onChange={(e) => setEft(e.target.value)}
-          placeholder={"Pega aquí un fit en formato EFT:\n\n[Thanatos, Mi fit]\nDrone Damage Amplifier II\n..."}
+          placeholder={tr("Pega aquí un fit en formato EFT:") + "\n\n[Thanatos, Mi fit]\nDrone Damage Amplifier II\n..."}
           rows={5}
         />
         <div className="fits-actions">
           <button className="fits-save" onClick={save} disabled={busy || !eft.trim()}>
-            {busy ? "…" : "Importar fit (EFT)"}
+            {busy ? "…" : tr("Importar fit (EFT)")}
           </button>
           <button
             className="fits-import-game"
@@ -6795,11 +6781,11 @@ function FitsView({ charId, charName }: { charId: number | null; charName: strin
             disabled={busy || charId == null}
             title={
               charId == null
-                ? "Selecciona un personaje arriba para importar sus fits del juego"
-                : "Trae tus fits guardados en EVE"
+                ? tr("Selecciona un personaje arriba para importar sus fits del juego")
+                : tr("Trae tus fits guardados en EVE")
             }
           >
-            🚀 Importar fits del juego
+            🚀 {tr("Importar fits del juego")}
           </button>
         </div>
         {err && <span className="fits-err small">{err}</span>}
@@ -6820,7 +6806,7 @@ function FitsView({ charId, charName }: { charId: number | null; charName: strin
               </span>
               <button
                 className="fits-del"
-                title="Borrar fit"
+                title={tr("Borrar fit")}
                 onClick={(e) => {
                   e.stopPropagation();
                   del(f.id);
@@ -6843,8 +6829,7 @@ function FitsView({ charId, charName }: { charId: number | null; charName: strin
       ) : (
         fits.length === 0 && (
           <p className="muted small">
-            Aún no hay fiteos. Pega un EFT (en EVE: clic derecho en el fitting → Copiar al portapapeles)
-            y pulsa Importar.
+            {tr("Aún no hay fiteos. Pega un EFT (en EVE: clic derecho en el fitting → Copiar al portapapeles) y pulsa Importar.")}
           </p>
         )
       )}
@@ -6980,18 +6965,18 @@ function AssetsView(props: {
   }, [detail]);
   return (
     <>
-      {!data && busy && <p className="muted">Cargando… (puede tardar con muchos assets)</p>}
+      {!data && busy && <p className="muted">{tr("Cargando… (puede tardar con muchos assets)")}</p>}
       {data && (
         <>
           <div className="kpis">
-            <Kpi label="Stacks" value={fmtSp(data.stacks)} />
-            <Kpi label="Tipos distintos" value={fmtSp(data.distinct_types)} />
-            <Kpi label="Unidades totales" value={fmtSp(data.total_units)} />
-            {data.est_value > 0 && <Kpi label="Valor estimado" value={fmtIsk(data.est_value)} />}
+            <Kpi label={tr("Stacks")} value={fmtSp(data.stacks)} />
+            <Kpi label={tr("Tipos distintos")} value={fmtSp(data.distinct_types)} />
+            <Kpi label={tr("Unidades totales")} value={fmtSp(data.total_units)} />
+            {data.est_value > 0 && <Kpi label={tr("Valor estimado")} value={fmtIsk(data.est_value)} />}
           </div>
           {detail && detail.length > 0 && catList.length > 1 && (
             <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
-              <h4>Distribución por categoría</h4>
+              <h4>{tr("Distribución por categoría")}</h4>
               <Bars
                 items={Object.entries(
                   detail.reduce<Record<string, number>>((acc, r) => {
@@ -6999,7 +6984,7 @@ function AssetsView(props: {
                     return acc;
                   }, {})
                 )
-                  .map(([label, value]) => ({ label, value }))
+                  .map(([label, value]) => ({ label: tr(label), value }))
                   .sort((a, b) => b.value - a.value)}
                 fmt={fmtSp}
               />
@@ -7008,7 +6993,7 @@ function AssetsView(props: {
           {detail && catList.length > 1 && (
             <div className="tabs" style={{ marginTop: "0.5rem" }}>
               <button className={`tab ${cat === "" ? "active" : ""}`} onClick={() => setCat("")}>
-                Todos
+                {tr("Todos")}
               </button>
               {catList.map((c) => (
                 <button
@@ -7016,16 +7001,16 @@ function AssetsView(props: {
                   className={`tab ${cat === c ? "active" : ""}`}
                   onClick={() => setCat(c)}
                 >
-                  {c}
+                  {tr(c)}
                 </button>
               ))}
             </div>
           )}
           {openContainer && (
             <div className="asset-open-bar">
-              <span>📦 Dentro de: <b>{openContainer.name}</b></span>
+              <span>📦 {tr("Dentro de")}: <b>{openContainer.name}</b></span>
               <button className="asset-open-close" onClick={() => setOpenContainer(null)}>
-                ✕ cerrar
+                ✕ {tr("cerrar")}
               </button>
             </div>
           )}
@@ -7034,13 +7019,13 @@ function AssetsView(props: {
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar por item, sistema, ubicación o contenedor…"
+              placeholder={tr("Buscar por item, sistema, ubicación o contenedor…")}
             />
             {detail && (
               <span className="muted small">
                 {filtered.length === detail.length
-                  ? `${detail.length} entradas`
-                  : `${filtered.length} de ${detail.length}`}
+                  ? `${detail.length} ${tr("entradas")}`
+                  : `${filtered.length} ${tr("de")} ${detail.length}`}
               </span>
             )}
           </div>
@@ -7054,18 +7039,18 @@ function AssetsView(props: {
               skillNames={skillNames}
             />
           ) : !detail ? (
-            <p className="muted small">Cargando inventario…</p>
+            <p className="muted small">{tr("Cargando inventario…")}</p>
           ) : detail.length === 0 ? (
-            <p className="muted small">Sin assets.</p>
+            <p className="muted small">{tr("Sin assets.")}</p>
           ) : (
             <table className="km-table">
               <thead>
                 <tr>
-                  <Th label="Item" col="name" sort={sort} onSort={onSort} />
-                  <Th label="Cantidad" col="qty" sort={sort} onSort={onSort} />
-                  <Th label="Sistema" col="sys" sort={sort} onSort={onSort} />
-                  <th>Ubicación</th>
-                  <th>Contenedor</th>
+                  <Th label={tr("Item")} col="name" sort={sort} onSort={onSort} />
+                  <Th label={tr("Cantidad")} col="qty" sort={sort} onSort={onSort} />
+                  <Th label={tr("Sistema")} col="sys" sort={sort} onSort={onSort} />
+                  <th>{tr("Ubicación")}</th>
+                  <th>{tr("Contenedor")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -7085,11 +7070,11 @@ function AssetsView(props: {
                           className="asset-open"
                           title={
                             shipContainers.has(r.container_id)
-                              ? `Ver fit de ${r.container ?? "la nave"}`
-                              : `Abrir ${r.container ?? "contenedor"}`
+                              ? `${tr("Ver fit de")} ${r.container ?? tr("la nave")}`
+                              : `${tr("Abrir")} ${r.container ?? tr("contenedor")}`
                           }
                           onClick={() =>
-                            setOpenContainer({ id: r.container_id, name: r.container ?? "contenedor" })
+                            setOpenContainer({ id: r.container_id, name: r.container ?? tr("contenedor") })
                           }
                         >
                           {r.container_type_id ? (
@@ -7114,7 +7099,7 @@ function AssetsView(props: {
           )}
           {filtered.length > shown.length && (
             <p className="muted small">
-              Mostrando {shown.length} de {filtered.length}. Afina la búsqueda para ver más.
+              {tr("Mostrando")} {shown.length} {tr("de")} {filtered.length}. {tr("Afina la búsqueda para ver más.")}
             </p>
           )}
         </>
@@ -7133,20 +7118,20 @@ function IndustryView(props: {
   const { jobs, mining, busy, global, onSyncMining } = props;
   return (
     <>
-      {!jobs && !mining && busy && <p className="muted">Cargando…</p>}
+      {!jobs && !mining && busy && <p className="muted">{tr("Cargando…")}</p>}
 
-      <h4>Jobs de industria activos</h4>
-      {jobs && jobs.length === 0 && <p className="muted small">Sin jobs activos.</p>}
+      <h4>{tr("Jobs de industria activos")}</h4>
+      {jobs && jobs.length === 0 && <p className="muted small">{tr("Sin jobs activos.")}</p>}
       {jobs && jobs.length > 0 && (
         <table className="km-table">
           <thead>
             <tr>
-              {global && <th>Personaje</th>}
-              <th>Actividad</th>
-              <th>Producto / Blueprint</th>
-              <th>Runs</th>
-              <th>Estado</th>
-              <th>Termina</th>
+              {global && <th>{tr("Personaje")}</th>}
+              <th>{tr("Actividad")}</th>
+              <th>{tr("Producto / Blueprint")}</th>
+              <th>{tr("Runs")}</th>
+              <th>{tr("Estado")}</th>
+              <th>{tr("Termina")}</th>
             </tr>
           </thead>
           <tbody>
@@ -7165,22 +7150,22 @@ function IndustryView(props: {
       )}
 
       <div className="km-header" style={{ marginTop: "1rem" }}>
-        <h4>Minería (histórico acumulado)</h4>
+        <h4>{tr("Minería (histórico acumulado)")}</h4>
         {!global && (
           <button onClick={onSyncMining} disabled={busy}>
-            {busy ? "Trabajando…" : "Sincronizar minería"}
+            {busy ? tr("Trabajando…") : tr("Sincronizar minería")}
           </button>
         )}
       </div>
       {mining && (
         <>
           <div className="kpis">
-            <Kpi label="Unidades minadas" value={fmtSp(mining.total_units)} />
-            <Kpi label="Entradas" value={mining.entries} />
+            <Kpi label={tr("Unidades minadas")} value={fmtSp(mining.total_units)} />
+            <Kpi label={tr("Entradas")} value={mining.entries} />
           </div>
           <div className="top-list">
-            <h4>Top minerales</h4>
-            {mining.top_ores.length === 0 && <p className="muted small">Sin datos.</p>}
+            <h4>{tr("Top minerales")}</h4>
+            {mining.top_ores.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
             <ol className="with-ico">
               {mining.top_ores.map((o) => (
                 <li key={o.id}>
@@ -7192,7 +7177,7 @@ function IndustryView(props: {
           </div>
         </>
       )}
-      {!mining && !busy && <p className="muted small">Sin datos de minería (¿falta el scope?).</p>}
+      {!mining && !busy && <p className="muted small">{tr("Sin datos de minería (¿falta el scope?).")}</p>}
     </>
   );
 }
