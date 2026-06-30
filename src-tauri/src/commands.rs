@@ -945,6 +945,176 @@ pub async fn get_ratting_global(state: State<'_, AppState>) -> AppResult<Ratting
     state.db.ratting_detail(None)
 }
 
+// ---- Ratas especiales (oficiales / capitales NPC / bonus de faction) ----
+#[derive(Debug, serde::Deserialize)]
+struct NpcTypeInfo {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    group_id: i64,
+}
+#[derive(Debug, serde::Deserialize)]
+struct NpcGroupInfo {
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// Prefijos de nombre de las variantes elite de faction pirata (las "bonus" del rateo).
+const FACTION_PREFIXES: &[&str] = &["Domination", "Dread Guristas", "True Sansha", "Dark Blood", "Shadow"];
+
+/// Desglose "typeID: n,typeID: n…" → [(type_id, count)].
+fn parse_rat_breakdown(reason: &str) -> Vec<(i64, i64)> {
+    reason
+        .split(',')
+        .filter_map(|p| {
+            let mut it = p.split(':');
+            let tid = it.next()?.trim().parse::<i64>().ok()?;
+            let cnt = it.next()?.trim().parse::<i64>().ok()?;
+            Some((tid, cnt))
+        })
+        .collect()
+}
+
+/// Clasifica un NPC por su tipo (tipo→grupo, vía ESI cacheado): 'officer' | 'capital' | 'faction' |
+/// 'normal'. Cachea SOLO si se resolvió (un fallo de red no se persiste como 'normal').
+async fn classify_npc(esi: &EsiClient, db: &Db, type_id: i64) -> (Option<String>, String) {
+    if let Some(c) = db.npc_class_get(type_id) {
+        return c;
+    }
+    let resolved: Option<(Option<String>, String)> = async {
+        let t: NpcTypeInfo = esi
+            .get_cached(db, 0, &format!("/universe/types/{type_id}/"), None)
+            .await
+            .ok()?;
+        let g: NpcGroupInfo = esi
+            .get_cached(db, 0, &format!("/universe/groups/{}/", t.group_id), None)
+            .await
+            .ok()?;
+        let gl = g.name.unwrap_or_default().to_lowercase();
+        let name = t.name.clone().unwrap_or_default();
+        let klass = if gl.contains("officer") {
+            "officer"
+        } else if gl.contains("titan") || gl.contains("dreadnought") || gl.contains("supercarrier") {
+            "capital"
+        } else if FACTION_PREFIXES.iter().any(|p| name.starts_with(p)) {
+            "faction"
+        } else {
+            "normal"
+        };
+        Some((t.name, klass.to_string()))
+    }
+    .await;
+    match resolved {
+        Some((name, klass)) => {
+            db.npc_class_put(type_id, name.as_deref(), &klass);
+            (name, klass)
+        }
+        None => (None, "normal".to_string()), // sin cachear → se reintenta otra vez
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SpecialRat {
+    pub type_id: i64,
+    pub name: Option<String>,
+    pub class: String, // 'officer' | 'capital' | 'faction'
+    pub count: i64,
+}
+#[derive(Debug, Serialize)]
+pub struct SpecialRatSystem {
+    pub system_id: i64,
+    pub total: i64,
+    pub by_type: Vec<SpecialRat>,
+}
+#[derive(Debug, Serialize)]
+pub struct SpecialRatsResult {
+    pub total: i64,
+    pub officers: i64,
+    pub capitals: i64,
+    pub faction: i64,
+    pub by_type: Vec<SpecialRat>,
+    pub by_system: Vec<SpecialRatSystem>,
+}
+
+/// Cuenta las "ratas especiales" (oficiales/capitales/faction bonus) a partir del desglose por tipo
+/// guardado en los bounty_prizes del journal. Clasifica cada tipo vía ESI (cacheado por tipo).
+/// Devuelve total global + desglose por tipo + desglose POR SISTEMA (con qué especiales caen dónde).
+#[tauri::command]
+pub async fn get_special_rats(
+    character_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<SpecialRatsResult> {
+    use std::collections::HashMap;
+    let reasons = state.db.rat_bounty_reasons(character_id)?;
+    let mut counts: HashMap<i64, i64> = HashMap::new(); // typeID -> count (global)
+    let mut sys_counts: HashMap<i64, HashMap<i64, i64>> = HashMap::new(); // system -> typeID -> count
+    for (sys, reason) in &reasons {
+        for (tid, cnt) in parse_rat_breakdown(reason) {
+            *counts.entry(tid).or_insert(0) += cnt;
+            if let Some(s) = sys {
+                *sys_counts.entry(*s).or_default().entry(tid).or_insert(0) += cnt;
+            }
+        }
+    }
+    // Clasifica cada typeID distinto una sola vez (cacheado por tipo).
+    let mut cls: HashMap<i64, (Option<String>, String)> = HashMap::new();
+    for tid in counts.keys() {
+        let c = classify_npc(&state.esi, &state.db, *tid).await;
+        cls.insert(*tid, c);
+    }
+    let is_special = |k: &str| matches!(k, "officer" | "capital" | "faction");
+
+    let mut by_type: Vec<SpecialRat> = Vec::new();
+    let (mut officers, mut capitals, mut faction) = (0i64, 0i64, 0i64);
+    for (tid, cnt) in &counts {
+        let (name, klass) = cls.get(tid).cloned().unwrap_or((None, "normal".into()));
+        match klass.as_str() {
+            "officer" => officers += cnt,
+            "capital" => capitals += cnt,
+            "faction" => faction += cnt,
+            _ => continue,
+        }
+        by_type.push(SpecialRat { type_id: *tid, name, class: klass, count: *cnt });
+    }
+    by_type.sort_by(|a, b| b.count.cmp(&a.count));
+
+    let mut by_system: Vec<SpecialRatSystem> = Vec::new();
+    for (sys, tmap) in sys_counts {
+        let mut types: Vec<SpecialRat> = tmap
+            .iter()
+            .filter_map(|(tid, cnt)| {
+                let (name, klass) = cls.get(tid)?;
+                if is_special(klass) {
+                    Some(SpecialRat {
+                        type_id: *tid,
+                        name: name.clone(),
+                        class: klass.clone(),
+                        count: *cnt,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if types.is_empty() {
+            continue;
+        }
+        types.sort_by(|a, b| b.count.cmp(&a.count));
+        let total = types.iter().map(|t| t.count).sum();
+        by_system.push(SpecialRatSystem { system_id: sys, total, by_type: types });
+    }
+    by_system.sort_by(|a, b| b.total.cmp(&a.total));
+
+    Ok(SpecialRatsResult {
+        total: officers + capitals + faction,
+        officers,
+        capitals,
+        faction,
+        by_type,
+        by_system,
+    })
+}
+
 /// Devuelve "YYYY-MM" del mes anterior a un "YYYY-MM" dado.
 fn prev_month(ym: &str) -> String {
     let y: i32 = ym.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
@@ -1421,6 +1591,17 @@ pub async fn get_rivals(
             e.name = names.get(&e.id).cloned();
         }
     }
+
+    // Sembrar el índice local de nombres con los rivales-PERSONAJE (tus enemigos recurrentes =
+    // justo los que más salen en intel) → resolver pilotos del intel sin pegar a ESI.
+    let seed: Vec<(i64, String)> = rivals
+        .you_kill_chars
+        .iter()
+        .chain(rivals.kills_you_chars.iter())
+        .filter_map(|e| e.name.clone().map(|n| (e.id, n)))
+        .collect();
+    state.db.name_cache_seed(&seed);
+
     Ok(rivals)
 }
 
@@ -2654,7 +2835,7 @@ fn parse_intel_text(text: &str, channel: &str) -> Vec<IntelLine> {
 
 /// Caché de parseo por fichero: ruta → (mtime_ns, tamaño, líneas). Evita re-decodificar/re-parsear
 /// en cada poll los logs que no han cambiado (una carpeta de EVE acumula cientos de ficheros).
-type IntelCache = std::collections::HashMap<std::path::PathBuf, (u128, u64, Vec<IntelLine>)>;
+type IntelCache = std::collections::HashMap<std::path::PathBuf, (u64, Vec<IntelLine>)>;
 fn intel_cache() -> &'static std::sync::Mutex<IntelCache> {
     static C: std::sync::OnceLock<std::sync::Mutex<IntelCache>> = std::sync::OnceLock::new();
     C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
@@ -2685,6 +2866,13 @@ fn collect_intel_lines(
     let mut seen: HashSet<(i64, String, String)> = HashSet::new();
     let skip_before = cutoff - chrono::Duration::minutes(10);
     let cache = intel_cache();
+
+    // 1ª pasada: un canal de intel es el MISMO feed para todos los alts → sus logs son idénticos.
+    // Así que por canal nos quedamos SOLO con el fichero VIVO (el de mtime más reciente = la sesión
+    // abierta del pj que está en ese canal ahora). Evita leer cientos de logs de sesiones viejas.
+    // live[channel] = (mtime_ns, len, path)
+    let mut live: std::collections::HashMap<String, (u128, u64, std::path::PathBuf)> =
+        std::collections::HashMap::new();
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         if !name.ends_with(".txt") {
@@ -2698,26 +2886,40 @@ fn collect_intel_lines(
             Ok(m) => m,
             Err(_) => continue,
         };
-        // Saltar ficheros claramente viejos (mtime muy anterior al cutoff).
         let modt = md.modified().ok();
+        // Saltar ficheros claramente viejos (mtime muy anterior al cutoff).
         if let Some(mt) = modt {
             let mdt: chrono::DateTime<chrono::Utc> = mt.into();
             if mdt < skip_before {
                 continue;
             }
         }
-        let path = e.path();
-        let len = md.len();
         let mtime_ns = modt
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos())
             .unwrap_or(0);
+        let entry = live.entry(ch).or_insert((0, 0, e.path()));
+        if mtime_ns >= entry.0 {
+            *entry = (mtime_ns, md.len(), e.path());
+        }
+    }
 
-        // ¿Caché válida (mismo mtime + tamaño)? Reutiliza el parseo.
+    // 2ª pasada: parsear SOLO el log vivo de cada canal.
+    // IMPORTANTE: en Windows, mientras EVE tiene el log abierto y escribiendo, el tamaño/fecha del
+    // *metadata* del directorio NO se actualiza al vuelo → si cacheáramos por mtime+len del metadata,
+    // la caché creería que el fichero no cambió y devolvería líneas viejas (el feed se "congela" hasta
+    // reabrir Koru). Por eso leemos SIEMPRE el contenido real y cacheamos el parseo por el tamaño en
+    // bytes de lo leído: si el fichero creció, el len cambia y reparseamos; si no, reutilizamos.
+    for (ch, (_mtime_ns, _len, path)) in live {
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let blen = bytes.len() as u64;
         let mut lines: Option<Vec<IntelLine>> = None;
         if let Ok(c) = cache.lock() {
-            if let Some((ct, cl, cv)) = c.get(&path) {
-                if *ct == mtime_ns && *cl == len {
+            if let Some((cl, cv)) = c.get(&path) {
+                if *cl == blen {
                     lines = Some(cv.clone());
                 }
             }
@@ -2725,13 +2927,9 @@ fn collect_intel_lines(
         let lines = match lines {
             Some(v) => v,
             None => {
-                let bytes = match std::fs::read(&path) {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                };
                 let parsed = parse_intel_text(&decode_utf16le(&bytes), &ch);
                 if let Ok(mut c) = cache.lock() {
-                    c.insert(path.clone(), (mtime_ns, len, parsed.clone()));
+                    c.insert(path.clone(), (blen, parsed.clone()));
                 }
                 parsed
             }
@@ -3031,17 +3229,129 @@ pub async fn resolve_intel_entities(
     state: State<'_, AppState>,
     names: Vec<String>,
 ) -> AppResult<IntelEntities> {
-    let (chars, ships) = state.esi.resolve_entities(&names).await?;
+    // Caché negativa: re-preguntar a ESI pasados N días por si el nombre se creó/renombró.
+    const NEG_TTL_DAYS: i64 = 7;
+    let now = chrono::Utc::now();
+    let mut chars: Vec<IntelEntity> = Vec::new();
+    let mut seen_ids: HashSet<i64> = HashSet::new();
+    let mut unknown: Vec<String> = Vec::new();
+
+    // 1) Resolver primero desde el índice local (0 red).
+    for name in &names {
+        let nl = name.trim().to_lowercase();
+        if nl.is_empty() {
+            continue;
+        }
+        match state.db.name_cache_get(&nl) {
+            Some((Some(id), disp, _)) if id > 0 => {
+                if seen_ids.insert(id) {
+                    chars.push(IntelEntity {
+                        id,
+                        name: disp.unwrap_or_else(|| name.trim().to_string()),
+                    });
+                }
+            }
+            Some((Some(id), _, updated)) if id == -1 => {
+                // negativa: válida solo si es reciente; si caducó, reintentar
+                let fresh = updated
+                    .and_then(|u| chrono::DateTime::parse_from_rfc3339(&u).ok())
+                    .map(|t| now.signed_duration_since(t.with_timezone(&chrono::Utc)).num_days() < NEG_TTL_DAYS)
+                    .unwrap_or(false);
+                if !fresh {
+                    unknown.push(name.trim().to_string());
+                }
+            }
+            _ => unknown.push(name.trim().to_string()),
+        }
+    }
+
+    // 2) Los desconocidos → ESI (una sola llamada en lote) y se cachean.
+    if !unknown.is_empty() {
+        let (esi_chars, _ships) = state.esi.resolve_entities(&unknown).await?;
+        let mut resolved_lc: HashSet<String> = HashSet::new();
+        for (id, nm) in esi_chars {
+            state.db.name_cache_put(&nm.to_lowercase(), id, &nm);
+            resolved_lc.insert(nm.to_lowercase());
+            if seen_ids.insert(id) {
+                chars.push(IntelEntity { id, name: nm });
+            }
+        }
+        // Lo que mandamos y ESI NO devolvió como personaje → caché negativa.
+        for n in &unknown {
+            let nl = n.to_lowercase();
+            if !resolved_lc.contains(&nl) {
+                state.db.name_cache_put_negative(&nl);
+            }
+        }
+    }
+
     Ok(IntelEntities {
-        characters: chars
-            .into_iter()
-            .map(|(id, name)| IntelEntity { id, name })
-            .collect(),
-        ships: ships
-            .into_iter()
-            .map(|(id, name)| IntelEntity { id, name })
-            .collect(),
+        characters: chars,
+        ships: Vec::new(),
     })
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct IntelSighting {
+    pub name: String,
+    #[serde(default)]
+    pub system_id: Option<i64>,
+}
+
+/// Registra avistamientos de pilotos del intel (cuenta menciones y último sistema). El frontend
+/// envía SOLO las líneas nuevas (ya clasificadas: nombres que son piloto, no nave/jerga/sistema).
+/// Cuando un nombre cruza `threshold` menciones y sigue sin resolver, se resuelve 1 vez por ESI
+/// (en lote, acotado) → así un cazador habitual que NO está en Rivales/killmails acaba en el índice.
+#[tauri::command]
+pub async fn intel_record_sightings(
+    state: State<'_, AppState>,
+    sightings: Vec<IntelSighting>,
+    threshold: Option<i64>,
+) -> AppResult<usize> {
+    for s in &sightings {
+        let nl = s.name.trim().to_lowercase();
+        if nl.is_empty() {
+            continue;
+        }
+        state
+            .db
+            .name_cache_record_sighting(&nl, s.name.trim(), s.system_id);
+    }
+    // Auto-resolución diferida de los que ya son "habituales" y siguen sin id.
+    let thr = threshold.unwrap_or(5).max(2);
+    let due = state.db.name_cache_due_for_resolve(thr, 20);
+    let mut resolved = 0usize;
+    if !due.is_empty() {
+        if let Ok((esi_chars, _ships)) = state.esi.resolve_entities(&due).await {
+            let mut ok_lc: HashSet<String> = HashSet::new();
+            for (id, nm) in esi_chars {
+                state.db.name_cache_put(&nm.to_lowercase(), id, &nm);
+                ok_lc.insert(nm.to_lowercase());
+                resolved += 1;
+            }
+            // Los que ESI no devolvió como personaje → caché negativa (no reintentar en bucle).
+            for n in &due {
+                let nl = n.to_lowercase();
+                if !ok_lc.contains(&nl) {
+                    state.db.name_cache_put_negative(&nl);
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+/// Ranking de "hostiles habituales": pilotos más mencionados en intel (aprendidos del propio chat).
+/// `last_system_id` lo mapea el frontend a nombre con su índice de sistemas.
+#[tauri::command]
+pub fn get_habitual_hostiles(
+    state: State<'_, AppState>,
+    min_count: Option<i64>,
+    limit: Option<i64>,
+) -> AppResult<Vec<crate::db::HabitualHostile>> {
+    Ok(state
+        .db
+        .name_cache_habitual(min_count.unwrap_or(3).max(1), limit.unwrap_or(100)))
 }
 
 /// Niveles de skill entrenados del personaje (skill_id → nivel activo). Para el skill-check de fits.

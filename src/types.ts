@@ -296,6 +296,7 @@ export type JournalSample = {
 export type RattingSummary = { total: number; entries: number; trend: RattingPoint[] };
 export type RattingSystem = { system_id: number; isk: number; rats: number };
 export type RattingDay = { date: string; bounty: number; ess: number; rats: number };
+export type RatSysDay = { system_id: number; date: string; isk: number };
 export type RattingDetail = {
   total_bounty: number;
   total_ess: number;
@@ -304,6 +305,26 @@ export type RattingDetail = {
   active_hours: number;
   by_system: RattingSystem[];
   daily: RattingDay[];
+  daily_by_system: RatSysDay[];
+};
+export type SpecialRat = {
+  type_id: number;
+  name: string | null;
+  class: "officer" | "capital" | "faction";
+  count: number;
+};
+export type SpecialRatSystem = {
+  system_id: number;
+  total: number;
+  by_type: SpecialRat[];
+};
+export type SpecialRatsResult = {
+  total: number;
+  officers: number;
+  capitals: number;
+  faction: number;
+  by_type: SpecialRat[];
+  by_system: SpecialRatSystem[];
 };
 export type DayKL = { date: string; kills: number; losses: number };
 export type HourKL = { hour: number; kills: number; losses: number };

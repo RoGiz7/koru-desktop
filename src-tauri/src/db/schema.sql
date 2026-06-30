@@ -124,12 +124,37 @@ CREATE TABLE IF NOT EXISTS type_category (
     updated_at TEXT
 );
 
+-- Caché de clasificación de NPC (ratas) para el contador de "ratas especiales" del rateo.
+-- klass: 'officer' | 'capital' | 'faction' | 'normal'. Resuelta vía ESI (tipo→grupo) una vez por tipo.
+CREATE TABLE IF NOT EXISTS npc_class (
+    type_id    INTEGER PRIMARY KEY,
+    name       TEXT,
+    klass      TEXT NOT NULL,
+    updated_at TEXT
+);
+
 -- Caché persistente sistema → región (nombre). Resuelta una vez vía ESI; luego a prueba de
 -- downtime (durante el downtime de TQ, /universe/systems da 504 — con esto no se reintenta).
 CREATE TABLE IF NOT EXISTS system_region (
     system_id  INTEGER PRIMARY KEY,
     region     TEXT NOT NULL,
     updated_at TEXT
+);
+
+-- Índice local de nombres de personaje → id, para resolver pilotos del intel sin pegar a ESI.
+-- character_id NULL = visto pero aún sin resolver; -1 = caché negativa (NO es personaje).
+-- Se siembra de Rivales/killmails y se rellena al resolver por ESI (1 vez por nombre).
+-- seen_count/last_seen permiten "hostiles habituales" y aprender objetivos del propio intel.
+CREATE TABLE IF NOT EXISTS name_cache (
+    name_lower    TEXT PRIMARY KEY,
+    character_id  INTEGER,                 -- NULL=sin resolver · -1=no es personaje (negativa)
+    display_name  TEXT,                    -- nombre canónico (de ESI) para mostrar
+    kind          TEXT,                    -- 'character' | 'none'
+    seen_count    INTEGER NOT NULL DEFAULT 0,
+    first_seen    TEXT,
+    last_seen     TEXT,
+    last_system_id INTEGER,                 -- último sistema donde se le reportó (intel)
+    updated_at    TEXT
 );
 
 -- Gestor de fiteos local (propio): guarda fits importados por EFT. `modules` es JSON.

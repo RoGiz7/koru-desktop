@@ -57,6 +57,8 @@ impl Db {
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN context_id_type TEXT", []);
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN first_party_id INTEGER", []);
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN second_party_id INTEGER", []);
+        // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
+        let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
         Ok(Db {
             conn: Mutex::new(conn),
         })
@@ -391,6 +393,13 @@ pub struct RattingDay {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct RatSysDay {
+    pub system_id: i64,
+    pub date: String, // YYYY-MM-DD
+    pub isk: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RattingDetail {
     pub total_bounty: f64,
     pub total_ess: f64,
@@ -399,6 +408,7 @@ pub struct RattingDetail {
     pub active_hours: i64,
     pub by_system: Vec<RattingSystem>,
     pub daily: Vec<RattingDay>,
+    pub daily_by_system: Vec<RatSysDay>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -514,6 +524,18 @@ pub struct PvpStats {
     /// Top kills más caros (la nave/víctima la rellena el comando desde la caché).
     pub top_expensive: Vec<TopKill>,
     pub recent: Vec<KillmailRow>,
+}
+
+/// Fila del ranking de "hostiles habituales" (intel). `character_id` puede ser NULL si aún no se
+/// ha resuelto por ESI (visto pero por debajo del umbral, o resolución pendiente).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HabitualHostile {
+    pub name_lower: String,
+    pub character_id: Option<i64>,
+    pub name: String,
+    pub seen_count: i64,
+    pub last_seen: Option<String>,
+    pub last_system_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -890,6 +912,7 @@ impl Db {
         let mut entries = 0i64;
         let mut sys: HashMap<i64, (f64, i64)> = HashMap::new(); // system -> (isk, rats)
         let mut days: HashMap<String, (f64, f64, i64)> = HashMap::new(); // day -> (bounty, ess, rats)
+        let mut sys_day: HashMap<(i64, String), f64> = HashMap::new(); // (system, día) -> isk
         let mut active: HashSet<String> = HashSet::new(); // horas distintas con bounty
 
         for (date, ref_type, amount, context_id, reason) in rows {
@@ -910,6 +933,10 @@ impl Db {
                 let e = sys.entry(sid).or_insert((0.0, 0));
                 e.0 += amount;
                 e.1 += rats;
+                if let Some(d) = date.as_deref() {
+                    let day = d.get(0..10).unwrap_or(d).to_string();
+                    *sys_day.entry((sid, day)).or_insert(0.0) += amount;
+                }
             }
             if let Some(d) = date.as_deref() {
                 let day = d.get(0..10).unwrap_or(d).to_string();
@@ -949,6 +976,16 @@ impl Db {
             .collect();
         daily.sort_by(|a, b| a.date.cmp(&b.date));
 
+        let mut daily_by_system: Vec<RatSysDay> = sys_day
+            .into_iter()
+            .map(|((system_id, date), isk)| RatSysDay {
+                system_id,
+                date,
+                isk,
+            })
+            .collect();
+        daily_by_system.sort_by(|a, b| a.date.cmp(&b.date));
+
         Ok(RattingDetail {
             total_bounty,
             total_ess,
@@ -957,6 +994,7 @@ impl Db {
             active_hours: active.len() as i64,
             by_system,
             daily,
+            daily_by_system,
         })
     }
 
@@ -1883,6 +1921,150 @@ impl Db {
             .unwrap_or(0)
     }
 
+    // ---- name_cache: índice local de nombres de personaje (intel) ----
+
+    /// Busca un nombre (en minúsculas) en el índice local. Devuelve (character_id, display_name,
+    /// updated_at). character_id = Some(>0) resuelto · Some(-1) negativa · None visto sin resolver.
+    pub fn name_cache_get(
+        &self,
+        name_lower: &str,
+    ) -> Option<(Option<i64>, Option<String>, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT character_id, display_name, updated_at FROM name_cache WHERE name_lower = ?1",
+            rusqlite::params![name_lower],
+            |r| {
+                Ok((
+                    r.get::<_, Option<i64>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .ok()
+    }
+
+    /// Guarda un personaje resuelto (positivo) en el índice.
+    pub fn name_cache_put(&self, name_lower: &str, character_id: i64, display_name: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO name_cache (name_lower, character_id, display_name, kind, first_seen, last_seen, updated_at)
+             VALUES (?1, ?2, ?3, 'character', ?4, ?4, ?4)
+             ON CONFLICT(name_lower) DO UPDATE SET character_id = excluded.character_id,
+               display_name = excluded.display_name, kind = 'character', updated_at = excluded.updated_at",
+            rusqlite::params![name_lower, character_id, display_name, now],
+        );
+    }
+
+    /// Marca un nombre como NO-personaje (caché negativa) para no volver a preguntarlo a ESI.
+    pub fn name_cache_put_negative(&self, name_lower: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO name_cache (name_lower, character_id, kind, first_seen, last_seen, updated_at)
+             VALUES (?1, -1, 'none', ?2, ?2, ?2)
+             ON CONFLICT(name_lower) DO UPDATE SET character_id = -1, kind = 'none', updated_at = excluded.updated_at",
+            rusqlite::params![name_lower, now],
+        );
+    }
+
+    /// Siembra el índice con pares (character_id, nombre) ya conocidos (Rivales/killmails).
+    /// No pisa entradas ya resueltas/negativas con peor info; simplemente fija el id.
+    pub fn name_cache_seed(&self, pairs: &[(i64, String)]) {
+        let mut conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = match conn.transaction() {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        for (id, name) in pairs {
+            if *id <= 0 || name.trim().is_empty() {
+                continue;
+            }
+            let nl = name.trim().to_lowercase();
+            let _ = tx.execute(
+                "INSERT INTO name_cache (name_lower, character_id, display_name, kind, first_seen, last_seen, updated_at)
+                 VALUES (?1, ?2, ?3, 'character', ?4, ?4, ?4)
+                 ON CONFLICT(name_lower) DO UPDATE SET character_id = excluded.character_id,
+                   display_name = COALESCE(name_cache.display_name, excluded.display_name), kind = 'character'",
+                rusqlite::params![nl, id, name.trim(), now],
+            );
+        }
+        let _ = tx.commit();
+    }
+
+    /// Registra un avistamiento de un piloto en intel: +1 a seen_count, refresca last_seen y el
+    /// último sistema visto. NO toca character_id (lo resuelve aparte el auto-resolver al umbral).
+    /// Para nombres nuevos crea la fila con seen_count=1 y character_id NULL (sin resolver).
+    pub fn name_cache_record_sighting(
+        &self,
+        name_lower: &str,
+        display_name: &str,
+        system_id: Option<i64>,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO name_cache (name_lower, display_name, kind, seen_count, first_seen, last_seen, last_system_id, updated_at)
+             VALUES (?1, ?2, 'pilot', 1, ?3, ?3, ?4, ?3)
+             ON CONFLICT(name_lower) DO UPDATE SET
+               seen_count = name_cache.seen_count + 1,
+               last_seen  = excluded.last_seen,
+               display_name = COALESCE(name_cache.display_name, excluded.display_name),
+               last_system_id = COALESCE(excluded.last_system_id, name_cache.last_system_id),
+               updated_at = excluded.updated_at",
+            rusqlite::params![name_lower, display_name, now, system_id],
+        );
+    }
+
+    /// Nombres vistos ≥ `threshold` veces pero aún SIN resolver (character_id NULL) → candidatos a
+    /// resolver 1 vez por ESI (habituales que no estaban en Rivales/killmails). `limit` acota el lote.
+    pub fn name_cache_due_for_resolve(&self, threshold: i64, limit: i64) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT COALESCE(display_name, name_lower) FROM name_cache
+             WHERE character_id IS NULL AND seen_count >= ?1
+             ORDER BY seen_count DESC LIMIT ?2",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![threshold, limit], |r| r.get::<_, String>(0)) {
+                for n in rows.flatten() {
+                    out.push(n);
+                }
+            }
+        }
+        out
+    }
+
+    /// Ranking de "hostiles habituales": los más mencionados en intel (excluye caché negativa).
+    pub fn name_cache_habitual(&self, min_count: i64, limit: i64) -> Vec<HabitualHostile> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT name_lower, character_id, COALESCE(display_name, name_lower), seen_count, last_seen, last_system_id
+             FROM name_cache
+             WHERE seen_count >= ?1 AND (character_id IS NULL OR character_id > 0)
+             ORDER BY seen_count DESC, last_seen DESC LIMIT ?2",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![min_count, limit], |r| {
+                Ok(HabitualHostile {
+                    name_lower: r.get(0)?,
+                    character_id: r.get(1)?,
+                    name: r.get(2)?,
+                    seen_count: r.get(3)?,
+                    last_seen: r.get(4)?,
+                    last_system_id: r.get(5)?,
+                })
+            }) {
+                for h in rows.flatten() {
+                    out.push(h);
+                }
+            }
+        }
+        out
+    }
+
     /// Inserta un fiteo guardado. `modules` es JSON serializado. Devuelve el id nuevo.
     pub fn fit_insert(
         &self,
@@ -1952,6 +2134,42 @@ impl Db {
             "INSERT INTO system_region (system_id, region, updated_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(system_id) DO UPDATE SET region = excluded.region, updated_at = excluded.updated_at",
             rusqlite::params![system_id, region, now],
+        );
+    }
+
+    /// (context_id=sistema, reason) de bounty_prizes (reason = "typeID: n,…") para contar ratas por
+    /// tipo y por sistema. context_id puede ser NULL (no atribuible a un sistema concreto).
+    pub fn rat_bounty_reasons(&self, character_id: Option<i64>) -> AppResult<Vec<(Option<i64>, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT context_id, reason FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND ref_type = 'bounty_prizes' AND amount > 0 AND reason IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![character_id], |r| {
+            Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?))
+        })?;
+        Ok(rows.flatten().collect())
+    }
+
+    /// Clasificación NPC cacheada: (nombre, klass) o None si aún no resuelto.
+    pub fn npc_class_get(&self, type_id: i64) -> Option<(Option<String>, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT name, klass FROM npc_class WHERE type_id = ?1",
+            rusqlite::params![type_id],
+            |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?)),
+        )
+        .ok()
+    }
+
+    pub fn npc_class_put(&self, type_id: i64, name: Option<&str>, klass: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO npc_class (type_id, name, klass, updated_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(type_id) DO UPDATE SET name = excluded.name, klass = excluded.klass, updated_at = excluded.updated_at",
+            rusqlite::params![type_id, name, klass, now],
         );
     }
 

@@ -59,6 +59,7 @@ import type {
   MarketOrder,
   Planet,
   RattingDetail,
+  SpecialRatsResult,
   FinancialSummary,
   CategorySum,
   PvpActivity,
@@ -335,6 +336,7 @@ function App() {
   const [marketOrders, setMarketOrders] = useState<MarketOrder[] | null>(null);
   const [planets, setPlanets] = useState<Planet[] | null>(null);
   const [ratting, setRatting] = useState<RattingDetail | null>(null);
+  const [specialRats, setSpecialRats] = useState<SpecialRatsResult | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
   const [walletTrend, setWalletTrend] = useState<WalletTrendPoint[] | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
@@ -380,6 +382,34 @@ function App() {
     }
   });
   const [intelOnlyRange, setIntelOnlyRange] = useState<boolean>(() => localStorage.getItem("koru-intel-onlyrange") === "1");
+  // Interruptor maestro "Intel en vivo": si está ON, el vigilante sigue corriendo aunque mires otras
+  // secciones de Koru (no depende de tener abierta la capa intel del mapa). Persistido.
+  const [intelLive, setIntelLive] = useState<boolean>(() => {
+    const v = localStorage.getItem("koru-intel-live");
+    if (v != null) return v === "1";
+    // Migración: quien ya tenía canales configurados → activado por defecto.
+    try {
+      return (JSON.parse(localStorage.getItem("koru-intel-channels") || "[]") as string[]).length > 0;
+    } catch {
+      return false;
+    }
+  });
+  function toggleIntelLive(v?: boolean) {
+    setIntelLive((prev) => {
+      const nv = v ?? !prev;
+      localStorage.setItem("koru-intel-live", nv ? "1" : "0");
+      return nv;
+    });
+  }
+  // Aviso flotante global (toast): visible en cualquier sección cuando salta intel. El sonido y la
+  // notificación nativa los dispara MapView/Rust; aquí solo mostramos el toast.
+  const [globalAlert, setGlobalAlert] = useState<string | null>(null);
+  const globalAlertTimer = useRef<number | null>(null);
+  function showGlobalAlert(text: string) {
+    setGlobalAlert(text);
+    if (globalAlertTimer.current) window.clearTimeout(globalAlertTimer.current);
+    globalAlertTimer.current = window.setTimeout(() => setGlobalAlert(null), 12000);
+  }
   // Sembrar carpeta por defecto la primera vez.
   useEffect(() => {
     if (!intelFolder) {
@@ -687,7 +717,13 @@ function App() {
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders_global"));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets_global"));
-        if (t === "rateo") setRatting(await invoke<RattingDetail>("get_ratting_global"));
+        if (t === "rateo") {
+          setRatting(await invoke<RattingDetail>("get_ratting_global"));
+          setSpecialRats(null);
+          invoke<SpecialRatsResult>("get_special_rats", { characterId: null })
+            .then(setSpecialRats)
+            .catch(() => setSpecialRats(null));
+        }
         if (t === "industria") {
           setJobsData(await invoke<JobView[]>("get_industry_global"));
           setMiningData(await invoke<MiningSummary>("get_mining_global"));
@@ -719,7 +755,13 @@ function App() {
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets", { characterId }));
-        if (t === "rateo") setRatting(await invoke<RattingDetail>("get_ratting", { characterId }));
+        if (t === "rateo") {
+          setRatting(await invoke<RattingDetail>("get_ratting", { characterId }));
+          setSpecialRats(null);
+          invoke<SpecialRatsResult>("get_special_rats", { characterId })
+            .then(setSpecialRats)
+            .catch(() => setSpecialRats(null));
+        }
         if (t === "factional")
           setFactionalData(await invoke<FactionalData>("get_factional", { characterId }));
         if (t === "abyssals")
@@ -1262,6 +1304,14 @@ function App() {
           )}
         </div>
 
+        <button
+          className={`tb-intel-toggle${intelLive ? " on" : ""}`}
+          onClick={() => toggleIntelLive()}
+          title={tr("Mantener el intel activo aunque mires otras secciones")}
+        >
+          🚨 {tr("Intel en vivo")}: {intelLive ? tr("ON") : tr("OFF")}
+        </button>
+
         <div className="tb-login">
           <button
             className={`tb-login-toggle ${loginOpen ? "active" : ""}`}
@@ -1297,6 +1347,28 @@ function App() {
         {error && <p className="error tb-error">{error}</p>}
       </header>
 
+      {/* Aviso flotante global de intel: visible en cualquier sección (no solo en el mapa). */}
+      {globalAlert && (
+        <div
+          className="intel-global-alert"
+          onClick={() => {
+            handleOverlayChange("intel");
+            setGlobalAlert(null);
+            window.setTimeout(
+              () =>
+                document
+                  .querySelector(".map-wrap")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+              50,
+            );
+          }}
+          title={tr("Ir al intel")}
+        >
+          {globalAlert}
+          <span className="intel-alert-cta">{tr("Ir al intel")} ▸</span>
+        </div>
+      )}
+
       {/* ----- STAGE: mapa central + secciones que orbitan ----- */}
       <div className="stage">
         <MapView
@@ -1323,6 +1395,10 @@ function App() {
             onlyRange: intelOnlyRange,
             soundChoice: intelSoundChoice,
             soundFile: intelSoundFile,
+            live: intelLive,
+            onToggleLive: () => toggleIntelLive(),
+            onIntelAlert: showGlobalAlert,
+            onClearAlert: () => setGlobalAlert(null),
             onConfig: setIntelCfg,
             onPickFolder: pickIntelFolder,
             onPickSound: pickIntelSound,
@@ -1475,7 +1551,7 @@ function App() {
           {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
-          {tab === "rateo" && <RateoView data={ratting} busy={sectionBusy} />}
+          {tab === "rateo" && <RateoView data={ratting} special={specialRats} busy={sectionBusy} />}
           {tab === "resumen" && <ResumenView subject={subject} />}
           {tab === "actividad" && <ActividadView subject={subject} />}
           {tab === "mineria" && <MineriaView subject={subject} />}
@@ -1663,6 +1739,170 @@ function Bars({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Path suave (Catmull-Rom → bézier) que pasa por todos los puntos.
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M${pts[0].x} ${pts[0].y}`;
+  let d = `M${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+// Varias curvas suaves superpuestas (ISK por sistema + Total). Leyenda que aísla una serie al
+// pulsarla (clic = solo esa; otra vez o "Todos" = todas). Tooltip con el valor de cada serie visible.
+function MultiLineProgress({
+  labels,
+  series,
+  fmt = fmtIsk,
+}: {
+  labels: string[];
+  series: { name: string; color: string; values: number[] }[];
+  fmt?: (n: number) => string;
+}) {
+  const [iso, setIso] = useState<string | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
+  if (labels.length === 0) return <p className="muted small">Sin datos.</p>;
+  const vis = iso ? series.filter((s) => s.name === iso) : series;
+  const n = labels.length;
+  // Geometría FIJA → el SVG escala al ancho del contenedor (sin scroll horizontal).
+  const W = 760;
+  const H = 250;
+  const PADL = 52; // hueco para etiquetas del eje Y
+  const PADR = 14;
+  const PADTOP = 14;
+  const PADBOT = 26;
+  const plotW = W - PADL - PADR;
+  const plotH = H - PADTOP - PADBOT;
+  const baseY = PADTOP + plotH;
+  const max = Math.max(1, ...vis.flatMap((s) => s.values));
+  const x = (i: number) => (n === 1 ? PADL + plotW / 2 : PADL + (i / (n - 1)) * plotW);
+  const y = (v: number) => baseY - (v / max) * plotH;
+  const step = Math.max(1, Math.ceil(n / 7));
+  const grid = [0, 0.25, 0.5, 0.75, 1];
+  const uid = labels.length + "-" + vis.length; // ids únicos de gradiente por render
+  return (
+    <div className="line-wrap">
+      <div className="multiline-legend">
+        <button className={`mll-chip${iso == null ? " active" : ""}`} onClick={() => setIso(null)}>
+          {tr("Todos")}
+        </button>
+        {series.map((s) => (
+          <button
+            key={s.name}
+            className={`mll-chip${iso === s.name ? " active" : ""}`}
+            onClick={() => setIso((p) => (p === s.name ? null : s.name))}
+            title={s.name}
+          >
+            <i style={{ background: s.color }} /> {s.name}
+          </button>
+        ))}
+      </div>
+      <svg
+        className="ml-svg"
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="xMidYMid meet"
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          {vis.map((s, si) => (
+            <linearGradient key={s.name} id={`mlg-${uid}-${si}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={s.color} stopOpacity="0.32" />
+              <stop offset="100%" stopColor={s.color} stopOpacity="0" />
+            </linearGradient>
+          ))}
+          <filter id={`mlglow-${uid}`} x="-5%" y="-20%" width="110%" height="140%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2.2" floodColor="#000" floodOpacity="0.5" />
+          </filter>
+        </defs>
+        {/* rejilla + eje Y */}
+        {grid.map((g, gi) => {
+          const gy = baseY - g * plotH;
+          return (
+            <g key={gi}>
+              <line x1={PADL} y1={gy} x2={W - PADR} y2={gy} stroke="rgba(255,255,255,0.06)" />
+              <text x={PADL - 8} y={gy + 3} textAnchor="end" className="ml-ylabel">
+                {fmt(max * g)}
+              </text>
+            </g>
+          );
+        })}
+        {/* áreas (solo cuando hay pocas series visibles, para no ensuciar) */}
+        {vis.length <= 2 &&
+          vis.map((s, si) => (
+            <path
+              key={`a-${s.name}`}
+              d={`${smoothPath(s.values.map((v, i) => ({ x: x(i), y: y(v) })))} L${x(n - 1).toFixed(1)} ${baseY} L${x(0).toFixed(1)} ${baseY} Z`}
+              fill={`url(#mlg-${uid}-${si})`}
+            />
+          ))}
+        {/* líneas */}
+        {vis.map((s) => (
+          <path
+            key={s.name}
+            d={smoothPath(s.values.map((v, i) => ({ x: x(i), y: y(v) })))}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={iso ? 2.6 : 2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#mlglow-${uid})`}
+          />
+        ))}
+        {/* puntos + guía + hit-areas */}
+        {labels.map((lab, i) => (
+          <g key={i}>
+            {hover === i && (
+              <line x1={x(i)} y1={PADTOP} x2={x(i)} y2={baseY} stroke="rgba(255,255,255,0.18)" />
+            )}
+            {hover === i &&
+              vis.map((s) => (
+                <circle key={s.name} cx={x(i)} cy={y(s.values[i])} r={3.6} fill={s.color} stroke="#0d121a" strokeWidth={1} />
+              ))}
+            <rect
+              x={i === 0 ? PADL : x(i) - plotW / (n - 1) / 2}
+              y={PADTOP}
+              width={n === 1 ? plotW : plotW / (n - 1)}
+              height={plotH}
+              fill="transparent"
+              onMouseEnter={() => setHover(i)}
+            />
+            {i % step === 0 && (
+              <text
+                x={x(i)}
+                y={H - 8}
+                textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
+                className="combo-xlabel"
+              >
+                {lab}
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+      {hover != null && (
+        <div className="combo-tip">
+          <strong>{labels[hover]}</strong>
+          {vis.map((s) => (
+            <span key={s.name} style={{ color: s.color }}>
+              {s.name}: {fmt(s.values[hover])}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2850,6 +3090,121 @@ async function ensureNotifPerm(): Promise<boolean> {
   return _notifPerm ?? false;
 }
 
+// --- Parser de intel: clasifica cada token de una línea de chat ---
+// Sin marcas en el log → clasificamos por contraste contra datos locales (sistemas + naves SDE
+// + jerga). Convención de la comunidad: tokens separados por DOBLE espacio (sistema/piloto/nave,
+// cualquier orden); con fallback a espacio simple. Devuelve sistemas, pilotos, naves, +N y clear.
+const INTEL_CLEAR = new Set(["clr", "clear", "cleared"]);
+const INTEL_JARGON = new Set([
+  "nv", "neut", "neuts", "neutral", "neutrals", "red", "reds", "hostile", "hostiles",
+  "status", "gate", "gates", "stargate", "dock", "docked", "docking", "station", "pos",
+  "cyno", "near", "on", "the", "in", "at", "and", "is", "to", "a",
+]);
+type IntelParsed = {
+  systems: { id: number; name: string }[];
+  pilots: string[];
+  ships: { id: number; name: string }[];
+  count: number | null;
+  isClear: boolean;
+};
+function classifyIntel(
+  message: string,
+  nameIdx: Map<string, NeSystem>,
+  shipNames: Map<string, number>
+): IntelParsed {
+  const systems: { id: number; name: string }[] = [];
+  const ships: { id: number; name: string }[] = [];
+  const pilots: string[] = [];
+  let count: number | null = null;
+  let isClear = false;
+  const seenSys = new Set<number>();
+  const clean = (s: string) =>
+    s.replace(/[*.,;:!?()]+$/g, "").replace(/^[*([]+/g, "").trim();
+  type Word = { kind: string; id?: number; name?: string; typeId?: number; n?: number; text?: string };
+  const classifyWord = (w: string): Word => {
+    const raw = w.trim();
+    if (!raw) return { kind: "empty" };
+    // Ticker de corp/alianza entre paréntesis o corchetes (p. ej. "(海神级)", "[ABC]") → ignorar:
+    // no es piloto ni nave; suele ir pegado tras el nombre del piloto.
+    if (/^[([{].*[)\]}]$/.test(raw)) return { kind: "ticker" };
+    const c = clean(raw);
+    if (!c) return { kind: "empty" };
+    const lc = c.toLowerCase();
+    if (INTEL_CLEAR.has(lc)) return { kind: "clear" };
+    // Contador de hostiles: acepta "+N" y "N+" (p. ej. "+4" o "14+").
+    const mc = lc.match(/^(?:\+(\d+)|(\d+)\+)$/);
+    if (mc) return { kind: "count", n: +(mc[1] ?? mc[2]) };
+    if (INTEL_JARGON.has(lc)) return { kind: "jargon" };
+    const s = nameIdx.get(lc);
+    if (s) return { kind: "sys", id: s.id, name: s.n };
+    const tid = shipNames.get(lc);
+    if (tid != null) return { kind: "ship", typeId: tid, name: c };
+    return { kind: "other", text: c };
+  };
+  const addSys = (id: number, name: string) => {
+    if (!seenSys.has(id)) {
+      seenSys.add(id);
+      systems.push({ id, name });
+    }
+  };
+  for (const field of message.split(/\s{2,}/).map((f) => f.trim()).filter(Boolean)) {
+    const whole = classifyWord(field);
+    if (whole.kind === "sys") {
+      addSys(whole.id!, whole.name!);
+      continue;
+    }
+    if (whole.kind === "ship") {
+      ships.push({ id: whole.typeId!, name: whole.name! });
+      continue;
+    }
+    if (whole.kind === "clear") {
+      isClear = true;
+      continue;
+    }
+    if (whole.kind === "count") {
+      count = whole.n!;
+      continue;
+    }
+    if (whole.kind === "jargon" || whole.kind === "empty" || whole.kind === "ticker") continue;
+    // 'other': si es 1 palabra → piloto; si son varias (espacio simple) → separar reconocidos.
+    const words = field.split(/\s+/);
+    if (words.length === 1) {
+      pilots.push(whole.text!);
+      continue;
+    }
+    let buf: string[] = [];
+    const flush = () => {
+      if (buf.length) {
+        pilots.push(buf.join(" "));
+        buf = [];
+      }
+    };
+    for (const w of words) {
+      const k = classifyWord(w);
+      if (k.kind === "sys") {
+        flush();
+        addSys(k.id!, k.name!);
+      } else if (k.kind === "ship") {
+        flush();
+        ships.push({ id: k.typeId!, name: k.name! });
+      } else if (k.kind === "clear") {
+        flush();
+        isClear = true;
+      } else if (k.kind === "count") {
+        flush();
+        count = k.n!;
+      } else if (k.kind === "jargon" || k.kind === "empty" || k.kind === "ticker") {
+        // ticker de corp/alianza cierra el nombre del piloto que lo precede
+        flush();
+      } else {
+        buf.push(k.text!);
+      }
+    }
+    flush();
+  }
+  return { systems, ships, pilots, count, isClear };
+}
+
 function MapView(props: {
   data: SysActivity[] | null;
   busy: boolean;
@@ -2874,6 +3229,10 @@ function MapView(props: {
     onlyRange: boolean;
     soundChoice: string;
     soundFile: string;
+    live: boolean;
+    onToggleLive?: () => void;
+    onIntelAlert?: (text: string) => void;
+    onClearAlert?: () => void;
     onConfig: (patch: {
       channels?: string[];
       recency?: number;
@@ -3438,46 +3797,95 @@ function MapView(props: {
   }, [geo, intelOrigins]);
 
   // --- Intel: parsear líneas → reportes por sistema + feed cronológico ---
+  // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
+  const [shipNames, setShipNames] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    fetch("/ship_names.json")
+      .then((r) => r.json())
+      .then((o: Record<string, number>) => setShipNames(new Map(Object.entries(o))))
+      .catch(() => {});
+  }, []);
+
+  type IntelFeedRow = {
+    ts: number;
+    author: string;
+    message: string;
+    sysId: number | null;
+    sysName: string | null;
+    pilots: string[];
+    ships: { id: number; name: string }[];
+    count: number | null;
+  };
+  type IntelRep = {
+    ts: number;
+    author: string;
+    message: string;
+    name: string;
+    pilots: string[];
+    ships: { id: number; name: string }[];
+    count: number | null;
+  };
   const intelReports = useMemo(() => {
     if (!geo || !intel) return null;
-    const rep = new Map<number, { ts: number; author: string; message: string; name: string }>();
-    const feed: {
-      ts: number;
-      author: string;
-      message: string;
-      sysId: number | null;
-      sysName: string | null;
-    }[] = [];
-    const CLEAR = new Set(["clr", "clear", "cleared"]);
+    const rep = new Map<number, IntelRep>();
+    const feed: IntelFeedRow[] = [];
     for (const l of intel.lines) {
-      let isClear = false;
-      const matched: { id: number; name: string }[] = [];
-      for (const tok of l.message.split(/\s+/)) {
-        const c = tok.replace(/[*.,;:!?()]+$/g, "").replace(/^[*([]+/g, "").trim();
-        if (!c) continue;
-        if (CLEAR.has(c.toLowerCase())) {
-          isClear = true;
-          continue;
-        }
-        const s = geo.nameIdx.get(c.toLowerCase());
-        if (s) matched.push({ id: s.id, name: s.n });
-      }
-      const primary = matched[0];
+      const p = classifyIntel(l.message, geo.nameIdx, shipNames);
+      const primary = p.systems[0];
       feed.push({
         ts: l.ts_ms,
         author: l.author,
         message: l.message,
         sysId: primary?.id ?? null,
         sysName: primary?.name ?? null,
+        pilots: p.pilots,
+        ships: p.ships,
+        count: p.count,
       });
-      for (const m of matched) {
-        if (isClear) rep.delete(m.id);
-        else rep.set(m.id, { ts: l.ts_ms, author: l.author, message: l.message, name: m.name });
+      for (const m of p.systems) {
+        if (p.isClear) rep.delete(m.id);
+        else
+          rep.set(m.id, {
+            ts: l.ts_ms,
+            author: l.author,
+            message: l.message,
+            name: m.name,
+            pilots: p.pilots,
+            ships: p.ships,
+            count: p.count,
+          });
       }
     }
     feed.reverse(); // más reciente primero
     return { rep, feed };
-  }, [geo, intel?.lines]);
+  }, [geo, intel?.lines, shipNames]);
+
+  // --- Intel: aprender "hostiles habituales" ---
+  // Cada línea NUEVA aporta sus pilotos al índice (seen_count++ en backend). Dedup por clave de
+  // línea (ts+autor+msg) para no recontar la misma línea en cada poll. El backend auto-resuelve por
+  // ESI a quien cruce el umbral (cazador habitual que no está en Rivales/killmails).
+  const intelSightedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!intelReports) return;
+    const fresh: { name: string; system_id: number | null }[] = [];
+    for (const f of intelReports.feed) {
+      if (!f.pilots || f.pilots.length === 0) continue;
+      const key = `${f.ts}|${f.author}|${f.message}`;
+      if (intelSightedRef.current.has(key)) continue;
+      intelSightedRef.current.add(key);
+      for (const name of f.pilots) fresh.push({ name, system_id: f.sysId });
+    }
+    if (fresh.length === 0) return;
+    // Acotar el set para no crecer sin fin (las claves viejas caen fuera de recencia igualmente).
+    if (intelSightedRef.current.size > 4000) {
+      intelSightedRef.current = new Set(
+        [...intelSightedRef.current].slice(-2000),
+      );
+    }
+    invoke("intel_record_sightings", { sightings: fresh, threshold: 5 }).catch(
+      () => {},
+    );
+  }, [intelReports]);
 
   // --- Intel: círculos en el mapa (rojo, opacidad por recencia) ---
   const intelCircles = useMemo(() => {
@@ -3563,6 +3971,17 @@ function MapView(props: {
     report: { sysId: number; sysName: string; ts: number; author: string; message: string };
   } | null>(null);
 
+  // `clr/clear` = "olvídate de la alerta": si el sistema del banner deja de estar en los reportes
+  // (alguien lo limpió), descartamos el aviso, no solo el círculo del mapa.
+  useEffect(() => {
+    if (!intelAlert || !intelReports) return;
+    const sid = intelAlert.report.sysId;
+    if (sid != null && !intelReports.rep.has(sid)) {
+      setIntelAlert(null);
+      intel?.onClearAlert?.();
+    }
+  }, [intelReports, intelAlert]);
+
   // Enviar el grafo (nombres↔id + aristas) a Rust una vez, en cuanto haya datos del mapa.
   useEffect(() => {
     if (!geo || !ne) return;
@@ -3573,7 +3992,9 @@ function MapView(props: {
 
   // Arrancar / reconfigurar / detener el vigilante de Rust según la capa y la config.
   useEffect(() => {
-    if (overlay !== "intel" || !intel || !intel.folder || intel.channels.length === 0) {
+    // Corre si el interruptor "Intel en vivo" está ON, o si estás viendo la capa intel (back-compat).
+    const shouldRun = !!intel && (intel.live || overlay === "intel");
+    if (!shouldRun || !intel.folder || intel.channels.length === 0) {
       invoke("stop_intel_watch").catch(() => {});
       return;
     }
@@ -3585,9 +4006,10 @@ function MapView(props: {
       alertJumps: intel.alertJumps,
     }).catch(() => {});
     return () => {
-      invoke("stop_intel_watch").catch(() => {});
+      // Solo paramos al desmontar/recambiar si NO está el modo en vivo (si está ON, sigue corriendo).
+      if (!intel?.live) invoke("stop_intel_watch").catch(() => {});
     };
-  }, [overlay, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins]);
+  }, [overlay, intel?.live, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins]);
 
   // Escuchar las alertas que emite el hilo de Rust → banner + sonido (la notificación nativa
   // ya la lanza Rust, así que aquí NO la repetimos).
@@ -3601,10 +4023,12 @@ function MapView(props: {
       ts_ms: number;
     }>("intel-alert", (e) => {
       const a = e.payload;
+      const text = `⚠ ${tr("Intel a")} ${a.jumps} ${tr("salto(s)")}: ${a.system} — ${a.author}`;
       setIntelAlert({
-        text: `⚠ ${tr("Intel a")} ${a.jumps} ${tr("salto(s)")}: ${a.system} — ${a.author}`,
+        text,
         report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
       });
+      intel?.onIntelAlert?.(text); // toast global (visible en cualquier sección)
       if (intel?.sound) playAlertChoice(intel.soundChoice);
       window.setTimeout(() => setIntelAlert(null), 12000);
     });
@@ -3634,6 +4058,35 @@ function MapView(props: {
   } | null>(null);
   const [intelEntLoading, setIntelEntLoading] = useState(false);
   const [intelTrackPilot, setIntelTrackPilot] = useState<string | null>(null);
+  // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
+  type HabitualHostile = {
+    name_lower: string;
+    character_id: number | null;
+    name: string;
+    seen_count: number;
+    last_seen: string | null;
+    last_system_id: number | null;
+  };
+  const [habitualOpen, setHabitualOpen] = useState(false);
+  const [habitual, setHabitual] = useState<HabitualHostile[] | null>(null);
+  async function loadHabitual() {
+    try {
+      const r = await invoke<HabitualHostile[]>("get_habitual_hostiles", {
+        minCount: 3,
+        limit: 100,
+      });
+      setHabitual(r);
+    } catch {
+      setHabitual([]);
+    }
+  }
+  // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
+  const intelDetailCount = useMemo(() => {
+    if (!intelDetail || !geo) return null;
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames);
+    return p.count ?? (p.pilots.length || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intelDetail, shipNames]);
   const [chanOpen, setChanOpen] = useState(false);
   const [cfgOpen, setCfgOpen] = useState(false);
   const [anchorInput, setAnchorInput] = useState("");
@@ -3648,27 +4101,6 @@ function MapView(props: {
   }, [overlay]);
 
   // Genera candidatos (1-3 palabras) de un mensaje, quitando sistemas y palabras de jerga.
-  function intelCandidates(message: string): string[] {
-    if (!geo) return [];
-    const KW = new Set([
-      "clr", "clear", "cleared", "nv", "neut", "neutral", "neutrals", "red", "reds",
-      "hostile", "hostiles", "status", "gate", "station", "x", "and", "in", "is", "at",
-    ]);
-    const toks = message
-      .split(/\s+/)
-      .map((t) => t.replace(/[*.,;:!?()]+$/g, "").replace(/^[*([]+/g, "").trim())
-      .filter(Boolean)
-      .filter((t) => !KW.has(t.toLowerCase()))
-      .filter((t) => !geo.nameIdx.get(t.toLowerCase()));
-    const out = new Set<string>();
-    for (let i = 0; i < toks.length; i++) {
-      out.add(toks[i]);
-      if (i + 1 < toks.length) out.add(`${toks[i]} ${toks[i + 1]}`);
-      if (i + 2 < toks.length) out.add(`${toks[i]} ${toks[i + 1]} ${toks[i + 2]}`);
-    }
-    return [...out].slice(0, 80);
-  }
-
   function openIntelDetail(r: {
     sysId: number | null;
     sysName: string | null;
@@ -3677,48 +4109,35 @@ function MapView(props: {
     message: string;
   }) {
     setSelected(null); // la tarjeta de detalle y el panel de sistema comparten sitio (derecha)
+    setHabitualOpen(false); // y también con la tarjeta de habituales
     setIntelDetail(r);
     setIntelEntities(null);
     setIntelTrackPilot(null);
   }
 
-  // Resuelve entidades cuando se abre la tarjeta.
+  // Resuelve entidades al abrir la tarjeta. Naves = clasificación LOCAL (SDE), pilotos = ESI
+  // solo sobre los candidatos limpios (sin naves ni jerga) → ya no salen Eris/ansi/near como pilotos.
   useEffect(() => {
-    if (!intelDetail) return;
-    const cands = intelCandidates(intelDetail.message);
-    if (cands.length === 0) {
-      setIntelEntities({ characters: [], ships: [] });
+    if (!intelDetail || !geo) return;
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames);
+    // naves locales, deduplicadas por type_id
+    const shipMap = new Map<number, string>();
+    for (const s of p.ships) shipMap.set(s.id, s.name);
+    const ships = [...shipMap].map(([id, name]) => ({ id, name }));
+    const pilots = [...new Set(p.pilots)];
+    if (pilots.length === 0) {
+      setIntelEntities({ characters: [], ships });
       return;
     }
     setIntelEntLoading(true);
-    invoke<{ characters: { id: number; name: string }[]; ships: { id: number; name: string }[] }>(
-      "resolve_intel_entities",
-      { names: cands }
-    )
-      .then((e) => {
-        // Descartar personajes cuyo nombre es sub-frase (palabras contiguas) de otro más largo.
-        // Evita que "Dexter" (otro pj vacío) tape a "Dexter Morgan 0690" → 404 en zKill.
-        const isSubPhrase = (short: string, long: string) => {
-          const a = short.toLowerCase().split(/\s+/);
-          const b = long.toLowerCase().split(/\s+/);
-          if (a.length >= b.length) return false;
-          for (let i = 0; i + a.length <= b.length; i++) {
-            if (a.every((w, k) => w === b[i + k])) return true;
-          }
-          return false;
-        };
-        const sorted = [...e.characters].sort((a, b) => b.name.length - a.name.length);
-        const kept: { id: number; name: string }[] = [];
-        for (const c of sorted) {
-          if (kept.some((k) => isSubPhrase(c.name, k.name))) continue;
-          kept.push(c);
-        }
-        setIntelEntities({ characters: kept, ships: e.ships });
-      })
-      .catch(() => setIntelEntities({ characters: [], ships: [] }))
+    invoke<{ characters: { id: number; name: string }[] }>("resolve_intel_entities", {
+      names: pilots,
+    })
+      .then((e) => setIntelEntities({ characters: e.characters, ships }))
+      .catch(() => setIntelEntities({ characters: [], ships }))
       .finally(() => setIntelEntLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail]);
+  }, [intelDetail, shipNames]);
 
   // Trayectoria de un piloto: sistemas (cronológico) donde aparece su nombre en los reportes.
   function pilotTrack(name: string) {
@@ -4674,6 +5093,13 @@ function MapView(props: {
           <div className="intel-panel">
             <div className="intel-head">
               <strong>🚨 {tr("Intel en vivo")}</strong>
+              <button
+                className={`intel-live-toggle${intel.live ? " on" : ""}`}
+                onClick={() => intel.onToggleLive?.()}
+                title={tr("Mantener el intel activo aunque mires otras secciones")}
+              >
+                {intel.live ? `● ${tr("Activo")}` : `○ ${tr("Apagado")}`}
+              </button>
               <span className="muted small">
                 {(intel.onlyRange
                   ? [...(intelReports?.rep.keys() ?? [])].filter((sid) => {
@@ -4683,6 +5109,21 @@ function MapView(props: {
                   : intelReports?.rep.size ?? 0)}{" "}
                 {tr("sistema(s)")}
               </span>
+              <button
+                className={`intel-gear${habitualOpen ? " active" : ""}`}
+                onClick={() => {
+                  const nv = !habitualOpen;
+                  setHabitualOpen(nv);
+                  if (nv) {
+                    setIntelDetail(null);
+                    setSelected(null);
+                    void loadHabitual();
+                  }
+                }}
+                title={tr("Hostiles habituales")}
+              >
+                🎯
+              </button>
               <button
                 className={`intel-gear${cfgOpen ? " active" : ""}`}
                 onClick={() => setCfgOpen((v) => !v)}
@@ -4900,6 +5341,18 @@ function MapView(props: {
                   >
                     <div className="intel-row-top">
                       <span className="intel-time">{fmtAgo(Date.now() - f.ts)}</span>
+                      {(() => {
+                        const n = f.count ?? (f.pilots.length || null);
+                        if (n == null) return null;
+                        return (
+                          <span
+                            className={`intel-count ${n > 1 ? "fleet" : "solo"}`}
+                            title={n > 1 ? tr("Posible flota") : tr("Cazador individual")}
+                          >
+                            {n > 1 ? `▲ ${n}` : "• 1"}
+                          </span>
+                        );
+                      })()}
                       {f.sysName && (
                         <span className="intel-sys">
                           {f.sysName}
@@ -4927,6 +5380,13 @@ function MapView(props: {
             <div className="muted small">
               {fmtAgo(Date.now() - intelDetail.ts)} · {tr("reportó")} {intelDetail.author}
             </div>
+            {intelDetailCount != null && (
+              <div className={`intel-count-line ${intelDetailCount > 1 ? "fleet" : "solo"}`}>
+                {intelDetailCount > 1
+                  ? `▲ ${intelDetailCount} ${tr("hostiles (posible flota)")}`
+                  : tr("• 1 hostil (cazador individual)")}
+              </div>
+            )}
             <div className="intel-detail-msg">{intelDetail.message}</div>
 
             <div className="intel-detail-sec">
@@ -5019,6 +5479,62 @@ function MapView(props: {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* Tarjeta de "Hostiles habituales" (aprendidos del intel por nº de menciones) */}
+        {overlay === "intel" && habitualOpen && (
+          <div className="intel-detail intel-habitual">
+            <div className="intel-detail-head">
+              <strong>🎯 {tr("Hostiles habituales")}</strong>
+              <button className="sys-close" onClick={() => setHabitualOpen(false)}>✕</button>
+            </div>
+            <div className="muted small">
+              {tr("Los más reportados en intel; se aprenden aunque no estén en Rivales.")}
+            </div>
+            {habitual == null && <div className="muted small">{tr("Cargando…")}</div>}
+            {habitual != null && habitual.length === 0 && (
+              <div className="muted small">{tr("Aún no hay datos. Deja correr el intel un rato.")}</div>
+            )}
+            <div className="intel-hab-list">
+              {habitual?.map((h) => {
+                const sysName = h.last_system_id != null ? geo?.idx.get(h.last_system_id)?.n : null;
+                return (
+                  <div key={h.name_lower} className="intel-hab-row">
+                    {h.character_id != null && h.character_id > 0 ? (
+                      <img
+                        src={`https://images.evetech.net/characters/${h.character_id}/portrait?size=32`}
+                        alt=""
+                        width={26}
+                        height={26}
+                      />
+                    ) : (
+                      <span className="intel-hab-noimg">?</span>
+                    )}
+                    <div className="intel-hab-main">
+                      <span className="intel-hab-name">{h.name}</span>
+                      {sysName && (
+                        <span className="muted small">
+                          {tr("visto en")} {sysName}
+                          {h.last_seen && ` · ${fmtAgo(Date.now() - Date.parse(h.last_seen))}`}
+                        </span>
+                      )}
+                    </div>
+                    <span className="intel-count fleet" title={tr("menciones")}>
+                      ×{h.seen_count}
+                    </span>
+                    {h.character_id != null && h.character_id > 0 && (
+                      <button
+                        title="zKillboard"
+                        onClick={() => openUrl(`https://zkillboard.com/character/${h.character_id}/`)}
+                      >
+                        zKill
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -5344,9 +5860,11 @@ function Th({
 
 function RateoView({
   data,
+  special,
   busy,
 }: {
   data: RattingDetail | null;
+  special: SpecialRatsResult | null;
   busy: boolean;
 }) {
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">("day");
@@ -5393,13 +5911,44 @@ function RateoView({
   }
   let series = [...buckets.entries()].map(([label, v]) => ({ label, isk: v.isk, rats: v.rats }));
   if (cumulative) {
-    let acc = 0;
-    series = series.map((s) => ({ ...s, isk: (acc += s.isk) }));
+    let accI = 0;
+    let accR = 0;
+    series = series.map((s) => ({ ...s, isk: (accI += s.isk), rats: (accR += s.rats) }));
   }
 
   const totalIsk = data.total_bounty + data.total_ess;
   const iskPerHour = data.active_hours > 0 ? totalIsk / data.active_hours : 0;
   const topSystems = data.by_system.slice(0, 12);
+
+  // Series por sistema (top 6) alineadas con los mismos buckets que la línea total.
+  const labels = series.map((s) => s.label);
+  const sysBuckets = new Map<number, Map<string, number>>();
+  for (const r of data.daily_by_system) {
+    if ((from && r.date < from) || (to && r.date > to)) continue;
+    const k = bucketKey(r.date);
+    let m = sysBuckets.get(r.system_id);
+    if (!m) {
+      m = new Map();
+      sysBuckets.set(r.system_id, m);
+    }
+    m.set(k, (m.get(k) ?? 0) + r.isk);
+  }
+  const sysVals = (sysId: number) => {
+    const m = sysBuckets.get(sysId);
+    let acc = 0;
+    return labels.map((lab) => {
+      const v = m?.get(lab) ?? 0;
+      return cumulative ? (acc += v) : v;
+    });
+  };
+  const lineSeries = [
+    { name: tr("Total"), color: "#c8d3df", values: series.map((s) => s.isk) },
+    ...data.by_system.slice(0, 6).map((s, i) => ({
+      name: sysName(s.system_id),
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+      values: sysVals(s.system_id),
+    })),
+  ];
 
   return (
     <>
@@ -5408,6 +5957,11 @@ function RateoView({
         <Kpi label={tr("Bounties")} value={fmtIsk(data.total_bounty)} tone="pos" />
         <Kpi label={tr("ESS")} value={fmtIsk(data.total_ess)} tone="pos" />
         <Kpi label={tr("Ratas eliminadas")} value={fmtSp(data.rats_killed)} />
+        <Kpi
+          label={tr("Ratas especiales")}
+          value={special ? fmtSp(special.total) : "…"}
+          tone={special && special.total > 0 ? "pos" : undefined}
+        />
         <Kpi label={tr("ISK / hora (estim.)")} value={fmtIsk(iskPerHour)} />
       </div>
 
@@ -5448,41 +6002,43 @@ function RateoView({
 
       <div className="top-list">
         <h4>
-          {cumulative ? tr("ISK acumulado") : "ISK"} {tr("por")} {granLabel}
+          {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
         </h4>
-        <Bars
-          items={series.map((s) => ({ label: s.label, value: s.isk }))}
-          color="#3fb950"
-          fmt={fmtIsk}
-        />
+        <MultiLineProgress labels={labels} series={lineSeries} fmt={fmtIsk} />
       </div>
 
-      <div className="top-list">
-        <h4>{tr("Ratas")} {tr("por")} {granLabel}</h4>
-        <Bars
-          items={series.map((s) => ({ label: s.label, value: s.rats }))}
-          color="#d29922"
-          fmt={fmtSp}
-        />
-      </div>
-
-      <div className="resumen-grid">
-        <div className="panel resumen-panel">
-          <h4>{tr("Distribución por sistema")}</h4>
-          <Donut
-            items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
-            fmt={fmtIsk}
-          />
+      {special && special.by_type.length > 0 && (
+        <div className="top-list">
+          <h4>
+            {tr("Ratas especiales")} ·{" "}
+            <span className="muted small">
+              {special.officers} {tr("oficiales")} · {special.capitals} {tr("capitales")} ·{" "}
+              {special.faction} {tr("faction")}
+            </span>
+          </h4>
+          <div className="special-rats">
+            {special.by_type.map((r) => (
+              <div className="special-rat" key={r.type_id} title={r.name ?? `#${r.type_id}`}>
+                <img src={typeIcon(r.type_id, 32)} alt="" width={26} height={26} />
+                <span className="special-rat-name">{r.name ?? `#${r.type_id}`}</span>
+                <span className={`special-rat-tag ${r.class}`}>
+                  {r.class === "officer"
+                    ? tr("Oficial")
+                    : r.class === "capital"
+                      ? tr("Capital")
+                      : tr("Faction")}
+                </span>
+                <span className="special-rat-count">×{fmtSp(r.count)}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="panel resumen-panel">
-          <h4>{tr("ISK por sistema (histórico)")}</h4>
-          <Bars
-            items={topSystems.map((s) => ({ label: sysName(s.system_id), value: s.isk }))}
-            color="#4f9cff"
-            fmt={fmtIsk}
-          />
+      )}
+      {special == null && (
+        <div className="top-list">
+          <p className="muted small">{tr("Calculando ratas especiales… (puede tardar la 1ª vez)")}</p>
         </div>
-      </div>
+      )}
 
       <div className="top-list">
         <h4>{tr("Detalle por sistema")}</h4>
@@ -5492,16 +6048,43 @@ function RateoView({
               <th>{tr("Sistema")}</th>
               <th>ISK</th>
               <th>{tr("Ratas")}</th>
+              <th>{tr("Ratas especiales")}</th>
             </tr>
           </thead>
           <tbody>
-            {topSystems.map((s) => (
-              <tr key={s.system_id}>
-                <td>{sysName(s.system_id)}</td>
-                <td>{fmtIsk(s.isk)}</td>
-                <td>{fmtSp(s.rats)}</td>
-              </tr>
-            ))}
+            {topSystems.map((s) => {
+              const sp = special?.by_system.find((b) => b.system_id === s.system_id);
+              return (
+                <tr key={s.system_id}>
+                  <td>{sysName(s.system_id)}</td>
+                  <td>{fmtIsk(s.isk)}</td>
+                  <td>{fmtSp(s.rats)}</td>
+                  <td>
+                    {sp ? (
+                      <div className="sys-special">
+                        {sp.by_type.map((r) => (
+                          <span
+                            key={r.type_id}
+                            className={`special-rat-tag ${r.class}`}
+                            title={`${r.name ?? `#${r.type_id}`} ×${r.count} (${
+                              r.class === "officer"
+                                ? tr("Oficial")
+                                : r.class === "capital"
+                                  ? tr("Capital")
+                                  : tr("Faction")
+                            })`}
+                          >
+                            {r.name ?? `#${r.type_id}`} ×{r.count}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

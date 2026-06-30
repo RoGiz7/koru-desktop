@@ -265,6 +265,11 @@ const EN: Record<string, string> = {
 
   // --- Intel en vivo ---
   "Intel en vivo": "Live Intel",
+  "Mantener el intel activo aunque mires otras secciones":
+    "Keep intel running even while viewing other sections",
+  Activo: "Active",
+  Apagado: "Off",
+  "Ir al intel": "Go to intel",
   "sistema(s)": "system(s)",
   "Configuración": "Settings",
   "Carpeta de logs": "Logs folder",
@@ -288,6 +293,17 @@ const EN: Record<string, string> = {
   "Abre la ⚙ y elige carpeta y al menos un canal para empezar.":
     "Open ⚙ and choose a folder and at least one channel to start.",
   "Sin actividad reciente.": "No recent activity.",
+  "Posible flota": "Possible fleet",
+  "Cazador individual": "Lone hunter",
+  "hostiles (posible flota)": "hostiles (possible fleet)",
+  "• 1 hostil (cazador individual)": "• 1 hostile (lone hunter)",
+  "Hostiles habituales": "Frequent hostiles",
+  "Los más reportados en intel; se aprenden aunque no estén en Rivales.":
+    "Most reported in intel; learned even if not in Rivals.",
+  "Aún no hay datos. Deja correr el intel un rato.":
+    "No data yet. Let intel run for a while.",
+  "visto en": "seen in",
+  menciones: "mentions",
   Reporte: "Report",
   "reportó": "reported by",
   Pilotos: "Pilots",
@@ -396,8 +412,18 @@ const EN: Record<string, string> = {
   Desde: "From",
   Hasta: "To",
   "ISK acumulado": "Cumulative ISK",
+  acumulado: "cumulative",
   por: "per",
   Ratas: "Rats",
+  "Ratas especiales": "Special rats",
+  oficiales: "officers",
+  capitales: "capitals",
+  faction: "faction",
+  Oficial: "Officer",
+  Capital: "Capital",
+  Faction: "Faction",
+  "Calculando ratas especiales… (puede tardar la 1ª vez)":
+    "Calculating special rats… (may take a while the first time)",
   "Distribución por sistema": "Distribution by system",
   "ISK por sistema (histórico)": "ISK by system (historic)",
   "Detalle por sistema": "Detail by system",
