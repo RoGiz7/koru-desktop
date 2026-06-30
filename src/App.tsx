@@ -33,7 +33,9 @@ import type {
   PvpStats,
   PvpTrendPoint,
   WalletView,
-  WalletTrendPoint,
+  WalletSeries,
+  WalletCatDay,
+  WalletCharDay,
   NetworthPoint,
   NetworthView,
   SkillsSummary,
@@ -41,7 +43,6 @@ import type {
   AssetsSummary,
   AssetDetail,
   JobView,
-  MiningSummary,
   SysActivity,
   Battle,
   RivalEntry,
@@ -63,7 +64,8 @@ import type {
   FinancialSummary,
   CategorySum,
   PvpActivity,
-  MiningDetail,
+  MiningSeries,
+  MineDimDay,
   CharacterDetail,
   FactionalView as FactionalData,
   AbyssalsData,
@@ -338,7 +340,7 @@ function App() {
   const [ratting, setRatting] = useState<RattingDetail | null>(null);
   const [specialRats, setSpecialRats] = useState<SpecialRatsResult | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
-  const [walletTrend, setWalletTrend] = useState<WalletTrendPoint[] | null>(null);
+  const [walletSeries, setWalletSeries] = useState<WalletSeries | null>(null);
   const [networthData, setNetworthData] = useState<NetworthView | null>(null);
   const [skillsData, setSkillsData] = useState<SkillsSummary | null>(null); // por personaje
   const [charDetail, setCharDetail] = useState<CharacterDetail | null>(null); // header rico
@@ -349,7 +351,6 @@ function App() {
   const [gSkills, setGSkills] = useState<GlobalSkills | null>(null); // global (otra forma)
   const [assetsData, setAssetsData] = useState<AssetsSummary | null>(null);
   const [jobsData, setJobsData] = useState<JobView[] | null>(null);
-  const [miningData, setMiningData] = useState<MiningSummary | null>(null);
   const [mapData, setMapData] = useState<SysActivity[] | null>(null);
   const [assetsMap, setAssetsMap] = useState<Map<number, number> | null>(null);
   const [miningMap, setMiningMap] = useState<Map<number, number> | null>(null);
@@ -566,7 +567,7 @@ function App() {
     setPlanets(null);
     setRatting(null);
     setWalletData(null);
-    setWalletTrend(null);
+    setWalletSeries(null);
     setSkillsData(null);
     setCharDetail(null);
     setFactionalData(null);
@@ -576,7 +577,6 @@ function App() {
     setGSkills(null);
     setAssetsData(null);
     setJobsData(null);
-    setMiningData(null);
     setMapData(null);
     setAssetsMap(null);
     setMiningMap(null);
@@ -708,7 +708,7 @@ function App() {
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth_global"));
         if (t === "wallet") {
           setWalletData(await invoke<WalletView>("get_wallet_global"));
-          invoke<WalletTrendPoint[]>("get_wallet_trend_global").then(setWalletTrend).catch(() => {});
+          invoke<WalletSeries>("get_wallet_series_global").then(setWalletSeries).catch(() => {});
         }
         if (t === "skills") setGSkills(await invoke<GlobalSkills>("get_skills_global"));
         if (t === "assets") {
@@ -726,7 +726,6 @@ function App() {
         }
         if (t === "industria") {
           setJobsData(await invoke<JobView[]>("get_industry_global"));
-          setMiningData(await invoke<MiningSummary>("get_mining_global"));
         }
       } else {
         const characterId = subj;
@@ -739,8 +738,8 @@ function App() {
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth", { characterId }));
         if (t === "wallet") {
           setWalletData(await invoke<WalletView>("get_wallet", { characterId }));
-          invoke<WalletTrendPoint[]>("get_wallet_trend", { characterId })
-            .then(setWalletTrend)
+          invoke<WalletSeries>("get_wallet_series", { characterId })
+            .then(setWalletSeries)
             .catch(() => {});
         }
         if (t === "skills") {
@@ -776,8 +775,6 @@ function App() {
           const c = characters.find((x) => x.character_id === subj);
           if (c?.scopes.includes(SCOPE.jobs))
             setJobsData(await invoke<JobView[]>("get_industry", { characterId }));
-          if (c?.scopes.includes(SCOPE.mining))
-            setMiningData(await invoke<MiningSummary>("get_mining", { characterId }));
         }
       }
     } catch (e) {
@@ -985,7 +982,6 @@ function App() {
     setError(null);
     try {
       const n = await invoke<number>("sync_mining", { characterId: id });
-      await loadTab(id, "industria");
       setMiningMap(null); // se recargará si el overlay de minería está activo
       if (mapOverlay === "mineria") loadMiningMap(id);
       alert(`Minería sincronizada. ${n} entradas guardadas/actualizadas.`);
@@ -1515,7 +1511,8 @@ function App() {
           {tab === "wallet" && (
             <WalletViewC
               data={walletData}
-              trend={walletTrend}
+              series={walletSeries}
+              charNames={new Map(Object.values(cards).map((c) => [c.character_id, c.name]))}
               busy={sectionBusy}
               global={isGlobal}
               onSync={() => handleSyncWallet(subjectId)}
@@ -1540,21 +1537,28 @@ function App() {
             />
           )}
           {tab === "industria" && (
-            <IndustryView
-              jobs={jobsData}
-              mining={miningData}
-              busy={sectionBusy}
-              global={isGlobal}
-              onSyncMining={() => handleSyncMining(subjectId)}
-            />
+            <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} />
           )}
           {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
-          {tab === "rateo" && <RateoView data={ratting} special={specialRats} busy={sectionBusy} />}
+          {tab === "rateo" && (
+            <RateoView
+              data={ratting}
+              special={specialRats}
+              charNames={new Map(Object.values(cards).map((c) => [c.character_id, c.name]))}
+              busy={sectionBusy}
+            />
+          )}
           {tab === "resumen" && <ResumenView subject={subject} />}
           {tab === "actividad" && <ActividadView subject={subject} />}
-          {tab === "mineria" && <MineriaView subject={subject} />}
+          {tab === "mineria" && (
+            <MineriaView
+              subject={subject}
+              charNames={new Map(Object.values(cards).map((c) => [c.character_id, c.name]))}
+              onSyncMining={handleSyncMining}
+            />
+          )}
           {tab === "contactos" &&
             (isGlobal ? (
               <p className="muted small">Selecciona un personaje para ver sus contactos y standings.</p>
@@ -1788,9 +1792,13 @@ function MultiLineProgress({
   const plotW = W - PADL - PADR;
   const plotH = H - PADTOP - PADBOT;
   const baseY = PADTOP + plotH;
-  const max = Math.max(1, ...vis.flatMap((s) => s.values));
+  const flat = vis.flatMap((s) => s.values);
+  const dMax = Math.max(1, ...flat);
+  const dMin = Math.min(0, ...flat); // 0 si todo es positivo (pve/minería); negativo en wallet
+  const span = dMax - dMin || 1;
   const x = (i: number) => (n === 1 ? PADL + plotW / 2 : PADL + (i / (n - 1)) * plotW);
-  const y = (v: number) => baseY - (v / max) * plotH;
+  const y = (v: number) => baseY - ((v - dMin) / span) * plotH;
+  const zeroY = y(0); // línea de referencia 0 (solo visible si hay negativos)
   const step = Math.max(1, Math.ceil(n / 7));
   const grid = [0, 0.25, 0.5, 0.75, 1];
   const uid = labels.length + "-" + vis.length; // ids únicos de gradiente por render
@@ -1835,17 +1843,20 @@ function MultiLineProgress({
             <g key={gi}>
               <line x1={PADL} y1={gy} x2={W - PADR} y2={gy} stroke="rgba(255,255,255,0.06)" />
               <text x={PADL - 8} y={gy + 3} textAnchor="end" className="ml-ylabel">
-                {fmt(max * g)}
+                {fmt(dMin + g * span)}
               </text>
             </g>
           );
         })}
+        {dMin < 0 && (
+          <line x1={PADL} y1={zeroY} x2={W - PADR} y2={zeroY} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
+        )}
         {/* áreas (solo cuando hay pocas series visibles, para no ensuciar) */}
         {vis.length <= 2 &&
           vis.map((s, si) => (
             <path
               key={`a-${s.name}`}
-              d={`${smoothPath(s.values.map((v, i) => ({ x: x(i), y: y(v) })))} L${x(n - 1).toFixed(1)} ${baseY} L${x(0).toFixed(1)} ${baseY} Z`}
+              d={`${smoothPath(s.values.map((v, i) => ({ x: x(i), y: y(v) })))} L${x(n - 1).toFixed(1)} ${zeroY.toFixed(1)} L${x(0).toFixed(1)} ${zeroY.toFixed(1)} Z`}
               fill={`url(#mlg-${uid}-${si})`}
             />
           ))}
@@ -2038,112 +2049,6 @@ function TrendScrub({ points }: { points: PvpTrendPoint[] }) {
 }
 
 // Tendencia de Wallet con scrub: ingresos/gastos por mes, ventana deslizante y KPIs del tramo.
-function WalletScrub({ points }: { points: WalletTrendPoint[] }) {
-  const n = points.length;
-  const [range, setRange] = useState<[number, number]>([0, Math.max(0, n - 1)]);
-  useEffect(() => {
-    setRange([0, Math.max(0, n - 1)]);
-  }, [n]);
-  if (n < 2)
-    return <p className="muted small">Hace falta historial de varios meses para ver la tendencia.</p>;
-
-  const lo = Math.min(range[0], range[1]);
-  const hi = Math.max(range[0], range[1]);
-  const sel = points.slice(lo, hi + 1);
-  const income = sel.reduce((a, p) => a + p.income, 0);
-  const expense = sel.reduce((a, p) => a + p.expense, 0);
-  const net = income - expense;
-
-  const years = [...new Set(points.map((p) => p.month.slice(0, 4)))];
-  const curYear = points[lo].month.slice(0, 4);
-  const setToYear = (y: string) => {
-    const idxs = points.map((p, i) => [p.month.slice(0, 4), i] as const).filter(([yy]) => yy === y);
-    if (idxs.length) setRange([idxs[0][1], idxs[idxs.length - 1][1]]);
-  };
-
-  const W = 600;
-  const H = 190;
-  const PAD = 30;
-  const maxY = Math.max(...points.flatMap((p) => [p.income, p.expense]), 1);
-  const x = (i: number) => PAD + (i / (n - 1)) * (W - 2 * PAD);
-  const y = (v: number) => H - PAD - (v / maxY) * (H - 2 * PAD);
-  const path = (key: "income" | "expense") =>
-    points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p[key]).toFixed(1)}`).join(" ");
-  const labels = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
-
-  return (
-    <div className="trend-chart">
-      <div className="resumen-period" style={{ marginBottom: "0.5rem" }}>
-        <span className="rp-label">📅 Ventana</span>
-        <select value={curYear} onChange={(e) => setToYear(e.target.value)}>
-          {years.map((yy) => (
-            <option key={yy} value={yy}>
-              {yy}
-            </option>
-          ))}
-        </select>
-        <button className="rateo-clear" onClick={() => setRange([0, n - 1])}>
-          Todo
-        </button>
-      </div>
-
-      <svg viewBox={`0 0 ${W} ${H}`} className="trend-svg" preserveAspectRatio="none">
-        <rect
-          x={x(lo)}
-          y={PAD - 6}
-          width={Math.max(x(hi) - x(lo), 1)}
-          height={H - PAD - (PAD - 6)}
-          fill="#4f9cff"
-          fillOpacity={0.12}
-        />
-        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#2a3340" strokeWidth={1} />
-        <path d={path("expense")} fill="none" stroke="#e5534b" strokeWidth={2} />
-        <path d={path("income")} fill="none" stroke="#3fb950" strokeWidth={2} />
-        {labels.map((i) => (
-          <text key={i} x={x(i)} y={H - PAD + 16} textAnchor="middle" className="trend-x">
-            {points[i].month}
-          </text>
-        ))}
-      </svg>
-
-      <div className="scrub-sliders">
-        <input
-          type="range"
-          min={0}
-          max={n - 1}
-          value={lo}
-          onChange={(e) => setRange([Math.min(+e.target.value, hi), hi])}
-        />
-        <input
-          type="range"
-          min={0}
-          max={n - 1}
-          value={hi}
-          onChange={(e) => setRange([lo, Math.max(+e.target.value, lo)])}
-        />
-      </div>
-      <div className="muted small">
-        {points[lo].month} → {points[hi].month} · {sel.length} meses
-      </div>
-
-      <div className="kpis" style={{ marginTop: "0.6rem" }}>
-        <Kpi label="Ingresos" value={fmtIsk(income)} tone="pos" />
-        <Kpi label="Gastos" value={fmtIsk(expense)} tone="neg" />
-        <Kpi label="Neto" value={fmtIsk(net)} tone={net >= 0 ? "pos" : "neg"} />
-      </div>
-
-      <div className="trend-legend">
-        <span>
-          <span className="ldot" style={{ background: "#3fb950" }} /> Ingresos
-        </span>
-        <span>
-          <span className="ldot" style={{ background: "#e5534b" }} /> Gastos
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // Conmutador Tabla / Gráfica reutilizable.
 function ViewToggle({ chart, onChange }: { chart: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -2561,13 +2466,28 @@ function NetworthChart(props: { series: NetworthPoint[] }) {
 
 function WalletViewC(props: {
   data: WalletView | null;
-  trend?: WalletTrendPoint[] | null;
+  series?: WalletSeries | null;
+  charNames?: Map<number, string>;
   busy: boolean;
   global?: boolean;
   onSync?: () => void;
 }) {
-  const { data, trend, busy, global, onSync } = props;
-  const [chart, setChart] = useState(false);
+  const { data, series, charNames, busy, global, onSync } = props;
+  const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
+    () => (localStorage.getItem("koru-wallet-gran") as "day" | "week" | "month" | "year") || "month",
+  );
+  const [cumulative, setCumulative] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [dim, setDim] = useState<"flux" | "cat" | "char">(
+    () => (localStorage.getItem("koru-wallet-dim") as "flux" | "cat" | "char") || "flux",
+  );
+  useEffect(() => {
+    localStorage.setItem("koru-wallet-gran", gran);
+  }, [gran]);
+  useEffect(() => {
+    localStorage.setItem("koru-wallet-dim", dim);
+  }, [dim]);
   const [wSort, setWSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
   const onWSort = (col: string) =>
     setWSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
@@ -2584,6 +2504,78 @@ function WalletViewC(props: {
         return (a.date ?? "").localeCompare(b.date ?? "") * d;
     }
   });
+
+  // --- Gráfica unificada (multilínea) ---
+  const granLabel =
+    gran === "day" ? tr("día") : gran === "week" ? tr("semana") : gran === "month" ? tr("mes") : tr("año");
+  const inRange = (date: string) => (!from || date >= from) && (!to || date <= to);
+  const bucketKey = (date: string) =>
+    gran === "year"
+      ? date.slice(0, 4)
+      : gran === "month"
+        ? date.slice(0, 7)
+        : gran === "week"
+          ? weekKey(date)
+          : date;
+  const dayMap = new Map<string, { inc: number; exp: number }>();
+  for (const d of series?.daily ?? []) {
+    if (!inRange(d.date)) continue;
+    const k = bucketKey(d.date);
+    const e = dayMap.get(k) ?? { inc: 0, exp: 0 };
+    e.inc += d.income;
+    e.exp += d.expense;
+    dayMap.set(k, e);
+  }
+  const labels = [...dayMap.keys()];
+  const cum = (arr: number[]) => {
+    if (!cumulative) return arr;
+    let a = 0;
+    return arr.map((v) => (a += v));
+  };
+  const fluxSeries = [
+    { name: tr("Ingresos"), color: "#3fb950", values: cum(labels.map((l) => dayMap.get(l)!.inc)) },
+    { name: tr("Gastos"), color: "#e5534b", values: cum(labels.map((l) => dayMap.get(l)!.exp)) },
+    {
+      name: tr("Neto"),
+      color: "#c8d3df",
+      values: cum(labels.map((l) => dayMap.get(l)!.inc + dayMap.get(l)!.exp)),
+    },
+  ];
+  const buildSigned = (
+    rows: { id: string | number; date: string; net: number }[],
+    nameFn: (id: string | number) => string,
+  ) => {
+    const m = new Map<string | number, Map<string, number>>();
+    for (const r of rows) {
+      if (!inRange(r.date)) continue;
+      const k = bucketKey(r.date);
+      let mm = m.get(r.id);
+      if (!mm) {
+        mm = new Map();
+        m.set(r.id, mm);
+      }
+      mm.set(k, (mm.get(k) ?? 0) + r.net);
+    }
+    const totals = [...m.entries()]
+      .map(([id, mm]) => ({ id, total: Math.abs([...mm.values()].reduce((a, b) => a + b, 0)) }))
+      .sort((a, b) => b.total - a.total);
+    return totals.slice(0, 8).map((t, i) => ({
+      name: nameFn(t.id),
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+      values: cum(labels.map((l) => m.get(t.id)?.get(l) ?? 0)),
+    }));
+  };
+  const catSeries = buildSigned(
+    (series?.by_cat ?? []).map((r: WalletCatDay) => ({ id: r.cat, date: r.date, net: r.net })),
+    (id) => tr(String(id)),
+  );
+  const charSeries = buildSigned(
+    (series?.by_char ?? []).map((r: WalletCharDay) => ({ id: r.character_id, date: r.date, net: r.net })),
+    (id) => charNames?.get(Number(id)) ?? `#${id}`,
+  );
+  const multiChar = new Set((series?.by_char ?? []).map((r) => r.character_id)).size > 1;
+  const lineSeries = dim === "cat" ? catSeries : dim === "char" && multiChar ? charSeries : fluxSeries;
+
   return (
     <>
       {!global && (
@@ -2603,74 +2595,65 @@ function WalletViewC(props: {
             <Kpi label={tr("Neto")} value={fmtIsk(data.stats.net)} tone={data.stats.net >= 0 ? "pos" : "neg"} />
             <Kpi label={tr("Movimientos")} value={data.stats.entries} />
           </div>
-          <ViewToggle chart={chart} onChange={setChart} />
-          {chart ? (
-            <>
-              {trend && trend.length >= 2 && (
-                <div className="top-list">
-                  <h4>{tr("Tendencia (ingresos/gastos por mes) · arrastra para enfocar una ventana")}</h4>
-                  <WalletScrub points={trend} />
-                </div>
-              )}
-              <div className="resumen-grid">
-                <div className="panel resumen-panel">
-                  <h4>{tr("Distribución de ingresos")}</h4>
-                  <Donut
-                    items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
-                    fmt={fmtIsk}
-                  />
-                </div>
-                <div className="panel resumen-panel">
-                  <h4>{tr("Top ingresos")}</h4>
-                  <Bars
-                    items={data.stats.top_income.map((r) => ({ label: r.ref_type, value: r.total }))}
-                    color="#3fb950"
-                    fmt={fmtIsk}
-                  />
-                </div>
-                <div className="panel resumen-panel">
-                  <h4>{tr("Distribución de gastos")}</h4>
-                  <Donut
-                    items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
-                    fmt={fmtIsk}
-                  />
-                </div>
-                <div className="panel resumen-panel">
-                  <h4>{tr("Top gastos")}</h4>
-                  <Bars
-                    items={data.stats.top_expense.map((r) => ({ label: r.ref_type, value: r.total }))}
-                    color="#e5534b"
-                    fmt={fmtIsk}
-                  />
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="tops">
-              <div className="top-list">
-                <h4>{tr("Top ingresos")}</h4>
-                {data.stats.top_income.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
-                <ol>
-                  {data.stats.top_income.map((r, i) => (
-                    <li key={i}>
-                      {r.ref_type} <span className="muted">({fmtIsk(r.total)})</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-              <div className="top-list">
-                <h4>{tr("Top gastos")}</h4>
-                {data.stats.top_expense.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
-                <ol>
-                  {data.stats.top_expense.map((r, i) => (
-                    <li key={i}>
-                      {r.ref_type} <span className="muted">({fmtIsk(r.total)})</span>
-                    </li>
-                  ))}
-                </ol>
+          <div className="rateo-controls">
+            <div className="seg">
+              {(["day", "week", "month", "year"] as const).map((g) => (
+                <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
+                  {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : g === "month" ? tr("Mes") : tr("Año")}
+                </button>
+              ))}
+            </div>
+            <label className="rateo-check">
+              <input type="checkbox" checked={cumulative} onChange={(e) => setCumulative(e.target.checked)} />
+              {tr("Acumulado")}
+            </label>
+            <label className="rateo-date">
+              {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </label>
+            <label className="rateo-date">
+              {tr("Hasta")} <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </label>
+            {(from || to) && (
+              <button
+                className="rateo-clear"
+                onClick={() => {
+                  setFrom("");
+                  setTo("");
+                }}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          <div className="top-list">
+            <div className="rateo-charthead">
+              <h4>
+                {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
+              </h4>
+              <div className="seg seg-sm">
+                <button className={dim === "flux" ? "active" : ""} onClick={() => setDim("flux")}>
+                  {tr("Flujo")}
+                </button>
+                <button className={dim === "cat" ? "active" : ""} onClick={() => setDim("cat")}>
+                  {tr("Por categoría")}
+                </button>
+                {multiChar && (
+                  <button className={dim === "char" ? "active" : ""} onClick={() => setDim("char")}>
+                    {tr("Por personaje")}
+                  </button>
+                )}
               </div>
             </div>
-          )}
+            {!series ? (
+              <p className="muted small">{tr("Cargando…")}</p>
+            ) : labels.length === 0 ? (
+              <p className="muted small">{tr("Sin datos.")}</p>
+            ) : (
+              <MultiLineProgress labels={labels} series={lineSeries} fmt={fmtIsk} />
+            )}
+          </div>
+
           <h4>{tr("Movimientos recientes")}</h4>
           <table className="km-table">
             <thead>
@@ -5861,17 +5844,30 @@ function Th({
 function RateoView({
   data,
   special,
+  charNames,
   busy,
 }: {
   data: RattingDetail | null;
   special: SpecialRatsResult | null;
+  charNames: Map<number, string>;
   busy: boolean;
 }) {
-  const [gran, setGran] = useState<"day" | "week" | "month" | "year">("day");
+  const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
+    () => (localStorage.getItem("koru-rateo-gran") as "day" | "week" | "month" | "year") || "day",
+  );
   const [cumulative, setCumulative] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [dim, setDim] = useState<"sys" | "char">(
+    () => (localStorage.getItem("koru-rateo-dim") as "sys" | "char") || "sys",
+  );
   const [names, setNames] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    localStorage.setItem("koru-rateo-gran", gran);
+  }, [gran]);
+  useEffect(() => {
+    localStorage.setItem("koru-rateo-dim", dim);
+  }, [dim]);
 
   useEffect(() => {
     loadNewEden()
@@ -5941,7 +5937,7 @@ function RateoView({
       return cumulative ? (acc += v) : v;
     });
   };
-  const lineSeries = [
+  const sysLineSeries = [
     { name: tr("Total"), color: "#c8d3df", values: series.map((s) => s.isk) },
     ...data.by_system.slice(0, 6).map((s, i) => ({
       name: sysName(s.system_id),
@@ -5949,6 +5945,40 @@ function RateoView({
       values: sysVals(s.system_id),
     })),
   ];
+
+  // Series por PERSONAJE (quién aporta más ISK). Solo útil en global (varios pj).
+  const charBuckets = new Map<number, Map<string, number>>();
+  for (const r of data.daily_by_char) {
+    if ((from && r.date < from) || (to && r.date > to)) continue;
+    const k = bucketKey(r.date);
+    let m = charBuckets.get(r.character_id);
+    if (!m) {
+      m = new Map();
+      charBuckets.set(r.character_id, m);
+    }
+    m.set(k, (m.get(k) ?? 0) + r.isk);
+  }
+  const charTotals = [...charBuckets.entries()]
+    .map(([id, m]) => ({ id, total: [...m.values()].reduce((a, b) => a + b, 0) }))
+    .sort((a, b) => b.total - a.total);
+  const charVals = (id: number) => {
+    const m = charBuckets.get(id);
+    let acc = 0;
+    return labels.map((lab) => {
+      const v = m?.get(lab) ?? 0;
+      return cumulative ? (acc += v) : v;
+    });
+  };
+  const charLineSeries = [
+    { name: tr("Total"), color: "#c8d3df", values: series.map((s) => s.isk) },
+    ...charTotals.slice(0, 8).map((c, i) => ({
+      name: charNames.get(c.id) ?? `#${c.id}`,
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+      values: charVals(c.id),
+    })),
+  ];
+  const multiChar = charTotals.length > 1; // solo ofrecer "por personaje" si hay varios
+  const lineSeries = dim === "char" && multiChar ? charLineSeries : sysLineSeries;
 
   return (
     <>
@@ -6001,9 +6031,21 @@ function RateoView({
       </div>
 
       <div className="top-list">
-        <h4>
-          {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
-        </h4>
+        <div className="rateo-charthead">
+          <h4>
+            {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
+          </h4>
+          {multiChar && (
+            <div className="seg seg-sm">
+              <button className={dim === "sys" ? "active" : ""} onClick={() => setDim("sys")}>
+                {tr("Por sistema")}
+              </button>
+              <button className={dim === "char" ? "active" : ""} onClick={() => setDim("char")}>
+                {tr("Por personaje")}
+              </button>
+            </div>
+          )}
+        </div>
         <MultiLineProgress labels={labels} series={lineSeries} fmt={fmtIsk} />
       </div>
 
@@ -6583,13 +6625,35 @@ function KLLegend() {
 }
 
 /* ---------- Minería pro ---------- */
-function MineriaView({ subject }: { subject: number | "global" }) {
+function MineriaView({
+  subject,
+  charNames,
+  onSyncMining,
+}: {
+  subject: number | "global";
+  charNames: Map<number, string>;
+  onSyncMining?: (id: number) => Promise<void>;
+}) {
   const isGlobal = subject === "global";
-  const [periods, setPeriods] = useState<string[] | null>(null);
-  const [period, setPeriod] = useState<string>("");
-  const [data, setData] = useState<MiningDetail | null>(null);
+  const [series, setSeries] = useState<MiningSeries | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
   const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
+    () => (localStorage.getItem("koru-mineria-gran") as "day" | "week" | "month" | "year") || "month",
+  );
+  const [cumulative, setCumulative] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [dim, setDim] = useState<"sys" | "char" | "ore">(
+    () => (localStorage.getItem("koru-mineria-dim") as "sys" | "char" | "ore") || "ore",
+  );
+  useEffect(() => {
+    localStorage.setItem("koru-mineria-gran", gran);
+  }, [gran]);
+  useEffect(() => {
+    localStorage.setItem("koru-mineria-dim", dim);
+  }, [dim]);
 
   useEffect(() => {
     loadNewEden()
@@ -6599,35 +6663,15 @@ function MineriaView({ subject }: { subject: number | "global" }) {
 
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const ps = isGlobal
-          ? await invoke<string[]>("get_mining_periods_global")
-          : await invoke<string[]>("get_mining_periods", { characterId: subject });
-        if (!alive) return;
-        setPeriods(ps);
-        setPeriod((p) => (p && ps.includes(p) ? p : ps[0] ?? ""));
-      } catch {
-        if (alive) setPeriods([]);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [subject]);
-
-  useEffect(() => {
-    if (!period) return;
-    let alive = true;
     setBusy(true);
     (async () => {
       try {
         const d = isGlobal
-          ? await invoke<MiningDetail>("get_mining_detail_global", { period })
-          : await invoke<MiningDetail>("get_mining_detail", { characterId: subject, period });
-        if (alive) setData(d);
+          ? await invoke<MiningSeries>("get_mining_series_global")
+          : await invoke<MiningSeries>("get_mining_series", { characterId: subject });
+        if (alive) setSeries(d);
       } catch {
-        if (alive) setData(null);
+        if (alive) setSeries(null);
       } finally {
         if (alive) setBusy(false);
       }
@@ -6635,10 +6679,16 @@ function MineriaView({ subject }: { subject: number | "global" }) {
     return () => {
       alive = false;
     };
-  }, [subject, period]);
+  }, [subject, reload]);
 
-  if (periods === null) return <p className="muted">{tr("Cargando…")}</p>;
-  if (periods.length === 0)
+  async function doSync() {
+    if (typeof subject !== "number" || !onSyncMining) return;
+    await onSyncMining(subject);
+    setReload((r) => r + 1);
+  }
+
+  if (!series) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
+  if (series.daily.length === 0)
     return (
       <p className="muted small">
         {tr("Sin registro de minería. Sincroniza la minería de tus personajes (sección Industria) para ver tu histórico.")}
@@ -6646,118 +6696,185 @@ function MineriaView({ subject }: { subject: number | "global" }) {
     );
 
   const sysName = (id: number) => names.get(id) ?? `#${id}`;
-  const years = [...new Set(periods.map((p) => p.slice(0, 4)))];
-  const curYear = period.slice(0, 4);
-  const curMonth = period.slice(5, 7);
-  const monthsOfYear = periods.filter((p) => p.startsWith(curYear));
+  const oreNames = new Map(series.ore_names);
+  const oreName = (id: number) => oreNames.get(id) ?? `#${id}`;
+  const granLabel =
+    gran === "day" ? tr("día") : gran === "week" ? tr("semana") : gran === "month" ? tr("mes") : tr("año");
+
+  const inRange = (date: string) => (!from || date >= from) && (!to || date <= to);
+  const bucketKey = (date: string) =>
+    gran === "year"
+      ? date.slice(0, 4)
+      : gran === "month"
+        ? date.slice(0, 7)
+        : gran === "week"
+          ? weekKey(date)
+          : date;
+
+  // Serie Total (valor ISK por bucket).
+  const tot = new Map<string, number>();
+  for (const d of series.daily) {
+    if (!inRange(d.date)) continue;
+    const k = bucketKey(d.date);
+    tot.set(k, (tot.get(k) ?? 0) + d.value);
+  }
+  const totalSeries = [...tot.entries()].map(([label, value]) => ({ label, value }));
+  const labels = totalSeries.map((s) => s.label);
+  const totVals = () => {
+    let acc = 0;
+    return totalSeries.map((s) => (cumulative ? (acc += s.value) : s.value));
+  };
+
+  const dimBuckets = (rows: MineDimDay[]) => {
+    const m = new Map<number, Map<string, number>>();
+    for (const r of rows) {
+      if (!inRange(r.date)) continue;
+      const k = bucketKey(r.date);
+      let mm = m.get(r.id);
+      if (!mm) {
+        mm = new Map();
+        m.set(r.id, mm);
+      }
+      mm.set(k, (mm.get(k) ?? 0) + r.value);
+    }
+    return m;
+  };
+  const mkVals = (m: Map<string, number> | undefined) => {
+    let acc = 0;
+    return labels.map((l) => {
+      const v = m?.get(l) ?? 0;
+      return cumulative ? (acc += v) : v;
+    });
+  };
+  const buildDim = (rows: MineDimDay[], nameFn: (id: number) => string) => {
+    const m = dimBuckets(rows);
+    const totals = [...m.entries()]
+      .map(([id, mm]) => ({ id, total: [...mm.values()].reduce((a, b) => a + b, 0) }))
+      .sort((a, b) => b.total - a.total);
+    return totals.slice(0, 8).map((t, i) => ({
+      name: nameFn(t.id),
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+      values: mkVals(m.get(t.id)),
+    }));
+  };
+  const totalLine = { name: tr("Total"), color: "#c8d3df", values: totVals() };
+  const sysSeries = [totalLine, ...buildDim(series.daily_by_system, sysName)];
+  const charSeries = [totalLine, ...buildDim(series.daily_by_char, (id) => charNames.get(id) ?? `#${id}`)];
+  const oreSeries = [totalLine, ...buildDim(series.daily_by_ore, oreName)];
+  const multiChar = new Set(series.daily_by_char.map((r) => r.id)).size > 1;
+  const lineSeries = dim === "char" && multiChar ? charSeries : dim === "ore" ? oreSeries : sysSeries;
+
+  // "Mineral extraído" (agregado al rango filtrado) desde daily_by_ore.
+  const oreAgg = new Map<number, { units: number; value: number }>();
+  for (const r of series.daily_by_ore) {
+    if (!inRange(r.date)) continue;
+    const e = oreAgg.get(r.id) ?? { units: 0, value: 0 };
+    e.units += r.units;
+    e.value += r.value;
+    oreAgg.set(r.id, e);
+  }
+  const oreRows = [...oreAgg.entries()]
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => b.value - a.value);
+  const rangeValue = oreRows.reduce((a, o) => a + o.value, 0);
+  const rangeUnits = oreRows.reduce((a, o) => a + o.units, 0);
 
   return (
     <>
-      <div className="resumen-period">
-        <span className="rp-label">📅 {tr("Período")}</span>
-        <select
-          value={curYear}
-          onChange={(e) => {
-            const first = periods.find((p) => p.startsWith(e.target.value));
-            if (first) setPeriod(first);
-          }}
-        >
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-        <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-          {monthsOfYear.map((p) => (
-            <option key={p} value={p}>
-              {tr(MONTH_NAMES[parseInt(p.slice(5, 7), 10) - 1])}
-            </option>
-          ))}
-        </select>
-        <span className="rp-show">
-          {tr("Mostrando")} {tr(MONTH_NAMES[parseInt(curMonth, 10) - 1])} {curYear}
-          {busy ? ` · ${tr("actualizando…")}` : ""}
-        </span>
+      <div className="km-header">
+        <div className="kpis" style={{ flex: 1 }}>
+          <Kpi label={tr("ISK estimado")} value={fmtIsk(rangeValue)} tone="pos" />
+          <Kpi label={tr("Unidades minadas")} value={fmtSp(rangeUnits)} />
+          <Kpi label={tr("Tipos de mineral")} value={fmtSp(oreRows.length)} />
+        </div>
+        {!isGlobal && (
+          <button onClick={doSync} disabled={busy}>
+            {busy ? tr("Trabajando…") : tr("Sincronizar minería")}
+          </button>
+        )}
       </div>
 
-      {data && (
-        <>
-          <div className="resumen-kpis act-kpis">
-            <div className="rk-card rk-net">
-              <span className="rk-label">{tr("ISK estimado")}</span>
-              <span className="rk-value pos">{fmtIsk(data.est_value)}</span>
-            </div>
-            <div className="rk-card rk-in">
-              <span className="rk-label">{tr("Unidades minadas")}</span>
-              <span className="rk-value">{fmtSp(data.units)}</span>
-            </div>
-            <div className="rk-card">
-              <span className="rk-label">{tr("Tipos de mineral")}</span>
-              <span className="rk-value">{fmtSp(data.ore_types)}</span>
-            </div>
-          </div>
+      <div className="rateo-controls">
+        <div className="seg">
+          {(["day", "week", "month", "year"] as const).map((g) => (
+            <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
+              {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : g === "month" ? tr("Mes") : tr("Año")}
+            </button>
+          ))}
+        </div>
+        <label className="rateo-check">
+          <input type="checkbox" checked={cumulative} onChange={(e) => setCumulative(e.target.checked)} />
+          {tr("Acumulado")}
+        </label>
+        <label className="rateo-date">
+          {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="rateo-date">
+          {tr("Hasta")} <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
+        {(from || to) && (
+          <button
+            className="rateo-clear"
+            onClick={() => {
+              setFrom("");
+              setTo("");
+            }}
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
 
-          <div className="resumen-grid">
-            <div className="panel resumen-panel">
-              <h4>{tr("Distribución de mineral (por ISK)")}</h4>
-              <Donut
-                items={data.by_ore.map((o) => ({
-                  label: o.type_name ?? `#${o.type_id}`,
-                  value: o.isk,
-                }))}
-                fmt={fmtIsk}
-              />
-            </div>
-            <div className="panel resumen-panel">
-              <h4>{tr("Mineral extraído")}</h4>
-              {data.by_ore.length === 0 ? (
-                <p className="muted small">{tr("Sin minería este mes.")}</p>
-              ) : (
-                <table className="km-table cat-table">
-                  <thead>
-                    <tr>
-                      <th>{tr("Mineral")}</th>
-                      <th style={{ textAlign: "right" }}>{tr("Unidades")}</th>
-                      <th style={{ textAlign: "right" }}>{tr("ISK estimado")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.by_ore.map((o, i) => (
-                      <tr key={i}>
-                        <td>
-                          <TypeIcon typeId={o.type_id} />
-                          {o.type_name ?? `#${o.type_id}`}
-                        </td>
-                        <td style={{ textAlign: "right" }}>{fmtSp(o.units)}</td>
-                        <td style={{ textAlign: "right" }}>{fmtIsk(o.isk)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+      <div className="top-list">
+        <div className="rateo-charthead">
+          <h4>
+            {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
+          </h4>
+          <div className="seg seg-sm">
+            <button className={dim === "ore" ? "active" : ""} onClick={() => setDim("ore")}>
+              {tr("Por mineral")}
+            </button>
+            <button className={dim === "sys" ? "active" : ""} onClick={() => setDim("sys")}>
+              {tr("Por sistema")}
+            </button>
+            {multiChar && (
+              <button className={dim === "char" ? "active" : ""} onClick={() => setDim("char")}>
+                {tr("Por personaje")}
+              </button>
+            )}
           </div>
+        </div>
+        <MultiLineProgress labels={labels} series={lineSeries} fmt={fmtIsk} />
+      </div>
 
-          <div className="top-list">
-            <h4>{tr("Por sistema")}</h4>
-            <Bars
-              items={data.by_system.map((s) => ({ label: sysName(s.system_id), value: s.units }))}
-              color="#4f9cff"
-              fmt={fmtSp}
-            />
-          </div>
-
-          <div className="top-list">
-            <h4>{tr("Tendencia mensual (ISK estimado)")}</h4>
-            <Bars
-              items={data.monthly.map((m) => ({ label: m.month, value: m.isk }))}
-              color="#3fb950"
-              fmt={fmtIsk}
-            />
-          </div>
-        </>
-      )}
+      <div className="top-list">
+        <h4>{tr("Mineral extraído")}</h4>
+        {oreRows.length === 0 ? (
+          <p className="muted small">{tr("Sin minería en el rango.")}</p>
+        ) : (
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Mineral")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Unidades")}</th>
+                <th style={{ textAlign: "right" }}>{tr("ISK estimado")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {oreRows.map((o) => (
+                <tr key={o.id}>
+                  <td>
+                    <TypeIcon typeId={o.id} />
+                    {oreName(o.id)}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(o.units)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtIsk(o.value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }
@@ -6821,7 +6938,38 @@ function AbyssalsSection({ data, busy }: { data: AbyssalsData | null; busy: bool
   if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
   return (
     <>
-      <p className="muted small">
+      <h4>💠 {tr("Papeles (Triglavian Survey Database)")}</h4>
+      <div className="kpis">
+        <Kpi label={tr("Papeles en inventario")} value={fmtSp(data.papers_qty)} />
+        <Kpi label={tr("Valor estimado (mercado)")} value={fmtIsk(data.papers_value)} tone="pos" />
+      </div>
+      {data.papers_qty === 0 ? (
+        <p className="muted small">
+          {tr("No tienes papeles en assets (o falta el scope de assets). Es el loot redimible que vendes en el mercado.")}
+        </p>
+      ) : (
+        <div className="top-list">
+          <h4>{tr("Por ubicación")}</h4>
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Ubicación")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Cantidad")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.papers_by_loc.map((p, i) => (
+                <tr key={i}>
+                  <td>{p.location_name || `#${p.system_id}`}</td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(p.quantity)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="muted small" style={{ marginTop: "1rem" }}>
         ⚠️ {tr("ESI no expone las runs abisales. Esto es una estimación a partir de tus compras de filamentos, ahora acumuladas en tu PC (cada sync guarda las nuevas; 1 filamento ≈ 1 run). Sincroniza la wallet con frecuencia para no perder transacciones fuera de la ventana de ESI.")}
       </p>
       {data.by_filament.length === 0 ? (
@@ -7720,21 +7868,72 @@ function AssetsView(props: {
   );
 }
 
-function IndustryView(props: {
-  jobs: JobView[] | null;
-  mining: MiningSummary | null;
-  busy: boolean;
-  global?: boolean;
-  onSyncMining?: () => void;
-}) {
-  const { jobs, mining, busy, global, onSyncMining } = props;
+// Formatea el tiempo restante hasta `end` (futuro). Pasado/igual = "✅ listo".
+function fmtRemain(end: string | null): { text: string; ready: boolean } {
+  if (!end) return { text: "-", ready: false };
+  const ms = Date.parse(end) - Date.now();
+  if (Number.isNaN(ms)) return { text: "-", ready: false };
+  if (ms <= 0) return { text: `✅ ${tr("listo")}`, ready: true };
+  const m = Math.floor(ms / 60000);
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  const mm = m % 60;
+  const text = d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${mm}m` : `${mm}m`;
+  return { text, ready: false };
+}
+
+function IndustryView(props: { jobs: JobView[] | null; busy: boolean; global?: boolean }) {
+  const { jobs, busy, global } = props;
+  const [act, setAct] = useState<string>("all");
+  if (!jobs && busy) return <p className="muted">{tr("Cargando…")}</p>;
+  if (!jobs) return <p className="muted small">{tr("Sin datos.")}</p>;
+
+  const isReady = (j: JobView) =>
+    j.status === "ready" || j.status === "delivered" || fmtRemain(j.end_date).ready;
+  const readyCount = jobs.filter(isReady).length;
+  // Próximo en terminar (entre los que aún no están listos).
+  const upcoming = jobs
+    .filter((j) => j.end_date && !isReady(j))
+    .sort((a, b) => Date.parse(a.end_date!) - Date.parse(b.end_date!));
+  const nextEta = upcoming[0] ? fmtRemain(upcoming[0].end_date).text : "—";
+
+  const activities = [...new Set(jobs.map((j) => j.activity))];
+  const shown = act === "all" ? jobs : jobs.filter((j) => j.activity === act);
+  // Listos primero, luego por fecha de fin.
+  const ordered = [...shown].sort((a, b) => {
+    const ra = isReady(a) ? 0 : 1;
+    const rb = isReady(b) ? 0 : 1;
+    if (ra !== rb) return ra - rb;
+    return Date.parse(a.end_date ?? "9999") - Date.parse(b.end_date ?? "9999");
+  });
+
   return (
     <>
-      {!jobs && !mining && busy && <p className="muted">{tr("Cargando…")}</p>}
+      <div className="kpis">
+        <Kpi label={tr("Jobs activos")} value={fmtSp(jobs.length)} />
+        <Kpi label={tr("Listos para recoger")} value={fmtSp(readyCount)} tone={readyCount > 0 ? "pos" : undefined} />
+        <Kpi label={tr("Próximo en terminar")} value={nextEta} />
+      </div>
 
-      <h4>{tr("Jobs de industria activos")}</h4>
-      {jobs && jobs.length === 0 && <p className="muted small">{tr("Sin jobs activos.")}</p>}
-      {jobs && jobs.length > 0 && (
+      {activities.length > 1 && (
+        <div className="rateo-controls">
+          <div className="seg seg-sm">
+            <button className={act === "all" ? "active" : ""} onClick={() => setAct("all")}>
+              {tr("Todas")}
+            </button>
+            {activities.map((a) => (
+              <button key={a} className={act === a ? "active" : ""} onClick={() => setAct(a)}>
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <h4>{tr("Jobs de industria")}</h4>
+      {ordered.length === 0 ? (
+        <p className="muted small">{tr("Sin jobs activos.")}</p>
+      ) : (
         <table className="km-table">
           <thead>
             <tr>
@@ -7743,53 +7942,26 @@ function IndustryView(props: {
               <th>{tr("Producto / Blueprint")}</th>
               <th>{tr("Runs")}</th>
               <th>{tr("Estado")}</th>
-              <th>{tr("Termina")}</th>
+              <th>{tr("Restante")}</th>
             </tr>
           </thead>
           <tbody>
-            {jobs.map((j) => (
-              <tr key={j.job_id}>
-                {global && <td>{j.character ?? "-"}</td>}
-                <td>{j.activity}</td>
-                <td>{j.product_name ?? j.blueprint_name ?? "-"}</td>
-                <td>{j.runs}</td>
-                <td>{j.status ?? "-"}</td>
-                <td>{j.end_date?.replace("T", " ").slice(0, 16) ?? "-"}</td>
-              </tr>
-            ))}
+            {ordered.map((j) => {
+              const rem = fmtRemain(j.end_date);
+              return (
+                <tr key={j.job_id} className={rem.ready ? "job-ready" : ""}>
+                  {global && <td>{j.character ?? "-"}</td>}
+                  <td>{j.activity}</td>
+                  <td>{j.product_name ?? j.blueprint_name ?? "-"}</td>
+                  <td>{j.runs}</td>
+                  <td>{j.status ?? "-"}</td>
+                  <td>{rem.text}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
-
-      <div className="km-header" style={{ marginTop: "1rem" }}>
-        <h4>{tr("Minería (histórico acumulado)")}</h4>
-        {!global && (
-          <button onClick={onSyncMining} disabled={busy}>
-            {busy ? tr("Trabajando…") : tr("Sincronizar minería")}
-          </button>
-        )}
-      </div>
-      {mining && (
-        <>
-          <div className="kpis">
-            <Kpi label={tr("Unidades minadas")} value={fmtSp(mining.total_units)} />
-            <Kpi label={tr("Entradas")} value={mining.entries} />
-          </div>
-          <div className="top-list">
-            <h4>{tr("Top minerales")}</h4>
-            {mining.top_ores.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
-            <ol className="with-ico">
-              {mining.top_ores.map((o) => (
-                <li key={o.id}>
-                  <img className="type-ico" src={typeIcon(o.id)} alt="" loading="lazy" />
-                  {o.name ?? `#${o.id}`} <span className="muted">({fmtSp(o.count)})</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </>
-      )}
-      {!mining && !busy && <p className="muted small">{tr("Sin datos de minería (¿falta el scope?).")}</p>}
     </>
   );
 }

@@ -1740,6 +1740,83 @@ pub async fn get_wallet_trend_global(
     state.db.wallet_trend(None)
 }
 
+// ---- Serie temporal de wallet (histórico) para gráfica unificada estilo Ingresos PvE ----
+#[derive(Debug, Serialize)]
+pub struct WalletDay {
+    pub date: String,
+    pub income: f64,  // suma de amount > 0
+    pub expense: f64, // suma de amount < 0 (negativo)
+}
+#[derive(Debug, Serialize)]
+pub struct WalletCatDay {
+    pub cat: String,
+    pub date: String,
+    pub net: f64,
+}
+#[derive(Debug, Serialize)]
+pub struct WalletCharDay {
+    pub character_id: i64,
+    pub date: String,
+    pub net: f64,
+}
+#[derive(Debug, Serialize)]
+pub struct WalletSeries {
+    pub daily: Vec<WalletDay>,
+    pub by_cat: Vec<WalletCatDay>,
+    pub by_char: Vec<WalletCharDay>,
+}
+
+fn build_wallet_series(state: &AppState, filter: Option<i64>) -> AppResult<WalletSeries> {
+    use std::collections::HashMap;
+    let rows = state.db.wallet_rows_full(filter)?;
+    let mut daily: HashMap<String, (f64, f64)> = HashMap::new(); // date -> (income, expense)
+    let mut cat_day: HashMap<(String, String), f64> = HashMap::new(); // (cat, date) -> net
+    let mut char_day: HashMap<(i64, String), f64> = HashMap::new(); // (char, date) -> net
+    for (date, ref_type, amount, cid) in rows {
+        let day = date.get(0..10).unwrap_or(&date).to_string();
+        let e = daily.entry(day.clone()).or_insert((0.0, 0.0));
+        if amount >= 0.0 {
+            e.0 += amount;
+        } else {
+            e.1 += amount;
+        }
+        let cat = crate::db::category_of(ref_type.as_deref().unwrap_or(""), amount).to_string();
+        *cat_day.entry((cat, day.clone())).or_insert(0.0) += amount;
+        *char_day.entry((cid, day)).or_insert(0.0) += amount;
+    }
+    let mut dvec: Vec<WalletDay> = daily
+        .into_iter()
+        .map(|(date, (income, expense))| WalletDay { date, income, expense })
+        .collect();
+    dvec.sort_by(|a, b| a.date.cmp(&b.date));
+    let mut cvec: Vec<WalletCatDay> = cat_day
+        .into_iter()
+        .map(|((cat, date), net)| WalletCatDay { cat, date, net })
+        .collect();
+    cvec.sort_by(|a, b| a.date.cmp(&b.date));
+    let mut hvec: Vec<WalletCharDay> = char_day
+        .into_iter()
+        .map(|((character_id, date), net)| WalletCharDay { character_id, date, net })
+        .collect();
+    hvec.sort_by(|a, b| a.date.cmp(&b.date));
+    Ok(WalletSeries { daily: dvec, by_cat: cvec, by_char: hvec })
+}
+
+/// Serie temporal de wallet (histórico) de un personaje.
+#[tauri::command]
+pub async fn get_wallet_series(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<WalletSeries> {
+    build_wallet_series(&state, Some(character_id))
+}
+
+/// Serie temporal de wallet (histórico), global.
+#[tauri::command]
+pub async fn get_wallet_series_global(state: State<'_, AppState>) -> AppResult<WalletSeries> {
+    build_wallet_series(&state, None)
+}
+
 /// Devuelve resumen de skills: SP total, sin asignar, nº de skills y cola (con nombres).
 /// Perfil de salto del personaje: niveles de las skills relevantes + naves de salto que posee.
 /// JDC = Jump Drive Calibration (21611, rango), JFC = Jump Fuel Conservation (21610, fuel).
@@ -2024,11 +2101,24 @@ pub struct FilamentRow {
     pub isk: f64,
 }
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperLoc {
+    pub location_name: String,
+    pub system_id: i64,
+    pub quantity: i64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AbyssalsView {
     pub runs_est: i64,
     pub isk_spent: f64,
     pub by_filament: Vec<FilamentRow>,
+    // Inventario de "papeles" (Triglavian Survey Database) en assets: cantidad, valor y dónde.
+    pub papers_qty: i64,
+    pub papers_value: f64,
+    pub papers_by_loc: Vec<PaperLoc>,
 }
+
+/// typeID del item-loot redimible que vendes en el mercado ("papel" del abyssal/CRAB).
+const PAPER_TYPE_ID: i64 = 48121; // Triglavian Survey Database
 
 /// Abyssals ESTIMADO por compras de filamentos en las transacciones de wallet.
 /// ESI no expone runs abisales; esto es una aproximación (1 filamento ≈ 1 run).
@@ -2075,10 +2165,50 @@ pub async fn get_abyssals(
     let runs_est = by_filament.iter().map(|f| f.count).sum();
     let isk_spent = by_filament.iter().map(|f| f.isk).sum();
 
+    // Inventario de "papeles" (Triglavian Survey Database) leyendo los assets del personaje.
+    let mut papers_qty = 0i64;
+    let mut papers_by_loc: Vec<PaperLoc> = Vec::new();
+    if let Ok(atok) =
+        token_with_scope(&state, character_id, "esi-assets.read_assets.v1", "Assets").await
+    {
+        let all_tokens = structure_tokens(&state).await;
+        if let Ok(rows) =
+            assets::detail(&state.esi, &state.db, character_id, &atok, &all_tokens).await
+        {
+            let mut by: HashMap<(String, i64), i64> = HashMap::new();
+            for r in rows {
+                if r.type_id == PAPER_TYPE_ID {
+                    papers_qty += r.quantity;
+                    *by.entry((r.location_name, r.system_id)).or_insert(0) += r.quantity;
+                }
+            }
+            papers_by_loc = by
+                .into_iter()
+                .map(|((location_name, system_id), quantity)| PaperLoc {
+                    location_name,
+                    system_id,
+                    quantity,
+                })
+                .collect();
+            papers_by_loc.sort_by(|a, b| b.quantity.cmp(&a.quantity));
+        }
+    }
+    let price = state
+        .db
+        .prices_map()
+        .unwrap_or_default()
+        .get(&PAPER_TYPE_ID)
+        .copied()
+        .unwrap_or(0.0);
+    let papers_value = papers_qty as f64 * price;
+
     Ok(AbyssalsView {
         runs_est,
         isk_spent,
         by_filament,
+        papers_qty,
+        papers_value,
+        papers_by_loc,
     })
 }
 
@@ -4064,4 +4194,113 @@ pub async fn get_mining_detail_global(
     state: State<'_, AppState>,
 ) -> AppResult<MiningDetail> {
     build_mining_detail(&state, None, &period).await
+}
+
+// ---- Serie temporal de minería (histórico completo) para gráfica unificada estilo Ingresos PvE ----
+#[derive(Debug, Serialize)]
+pub struct MineDay {
+    pub date: String,
+    pub value: f64,
+    pub units: i64,
+}
+#[derive(Debug, Serialize)]
+pub struct MineDimDay {
+    pub id: i64, // system_id | character_id | type_id según el vector
+    pub date: String,
+    pub value: f64,
+    pub units: i64,
+}
+#[derive(Debug, Serialize)]
+pub struct MiningSeries {
+    pub total_value: f64,
+    pub total_units: i64,
+    pub daily: Vec<MineDay>,
+    pub daily_by_system: Vec<MineDimDay>,
+    pub daily_by_char: Vec<MineDimDay>,
+    pub daily_by_ore: Vec<MineDimDay>,
+    pub ore_names: Vec<(i64, String)>,
+}
+
+async fn build_mining_series(state: &AppState, filter: Option<i64>) -> AppResult<MiningSeries> {
+    use std::collections::{HashMap, HashSet};
+    let prices = state.db.prices_map().unwrap_or_default();
+    let price_of = |t: i64| prices.get(&t).copied().unwrap_or(0.0);
+    let rows = state.db.mining_rows_full(filter)?;
+
+    let mut daily: HashMap<String, (f64, i64)> = HashMap::new();
+    let mut sys_day: HashMap<(i64, String), (f64, i64)> = HashMap::new();
+    let mut char_day: HashMap<(i64, String), (f64, i64)> = HashMap::new();
+    let mut ore_day: HashMap<(i64, String), (f64, i64)> = HashMap::new();
+    let mut ore_ids: HashSet<i64> = HashSet::new();
+    let mut total_value = 0.0f64;
+    let mut total_units = 0i64;
+
+    for (date, sys, tid, qty, cid) in rows {
+        let d = match date.as_deref() {
+            Some(d) => d.get(0..10).unwrap_or(d).to_string(),
+            None => continue,
+        };
+        let val = qty as f64 * price_of(tid);
+        total_value += val;
+        total_units += qty;
+        ore_ids.insert(tid);
+        let e = daily.entry(d.clone()).or_insert((0.0, 0));
+        e.0 += val;
+        e.1 += qty;
+        let es = sys_day.entry((sys, d.clone())).or_insert((0.0, 0));
+        es.0 += val;
+        es.1 += qty;
+        let ec = char_day.entry((cid, d.clone())).or_insert((0.0, 0));
+        ec.0 += val;
+        ec.1 += qty;
+        let eo = ore_day.entry((tid, d)).or_insert((0.0, 0));
+        eo.0 += val;
+        eo.1 += qty;
+    }
+
+    let ids: Vec<i64> = ore_ids.into_iter().collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let ore_names: Vec<(i64, String)> = ids
+        .iter()
+        .map(|id| (*id, names.get(id).cloned().unwrap_or_else(|| format!("#{id}"))))
+        .collect();
+
+    let mut dvec: Vec<MineDay> = daily
+        .into_iter()
+        .map(|(date, (value, units))| MineDay { date, value, units })
+        .collect();
+    dvec.sort_by(|a, b| a.date.cmp(&b.date));
+    let to_dim = |m: HashMap<(i64, String), (f64, i64)>| {
+        let mut v: Vec<MineDimDay> = m
+            .into_iter()
+            .map(|((id, date), (value, units))| MineDimDay { id, date, value, units })
+            .collect();
+        v.sort_by(|a, b| a.date.cmp(&b.date));
+        v
+    };
+
+    Ok(MiningSeries {
+        total_value,
+        total_units,
+        daily: dvec,
+        daily_by_system: to_dim(sys_day),
+        daily_by_char: to_dim(char_day),
+        daily_by_ore: to_dim(ore_day),
+        ore_names,
+    })
+}
+
+/// Serie temporal de minería (histórico) de un personaje.
+#[tauri::command]
+pub async fn get_mining_series(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<MiningSeries> {
+    build_mining_series(&state, Some(character_id)).await
+}
+
+/// Serie temporal de minería (histórico), global.
+#[tauri::command]
+pub async fn get_mining_series_global(state: State<'_, AppState>) -> AppResult<MiningSeries> {
+    build_mining_series(&state, None).await
 }

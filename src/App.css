@@ -444,6 +444,27 @@ button.danger:hover {
   background: #34507a;
   color: #fff;
 }
+.seg.seg-sm button {
+  font-size: 0.74rem;
+  padding: 0.18rem 0.5rem;
+}
+.rateo-charthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.rateo-charthead h4 {
+  margin: 0;
+}
+/* Job de industria listo para recoger */
+tr.job-ready td {
+  background: rgba(63, 185, 80, 0.12);
+}
+tr.job-ready td:first-child {
+  box-shadow: inset 3px 0 0 #3fb950;
+}
 
 .tabs {
   display: flex;

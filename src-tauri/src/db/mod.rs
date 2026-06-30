@@ -291,6 +291,30 @@ impl Db {
         Ok(rows)
     }
 
+    /// Todas las filas de minería (date, system, type, quantity, character) para series temporales.
+    pub fn mining_rows_full(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(Option<String>, i64, i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date, system_id, type_id, quantity, character_id FROM mining_ledger
+             WHERE (?1 IS NULL OR character_id = ?1) AND date IS NOT NULL",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Periodos (YYYY-MM) con minería (desc).
     pub fn mining_periods(&self, character_id: Option<i64>) -> AppResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
@@ -403,6 +427,13 @@ pub struct RatSysDay {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct RatCharDay {
+    pub character_id: i64,
+    pub date: String, // YYYY-MM-DD
+    pub isk: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RattingDetail {
     pub total_bounty: f64,
     pub total_ess: f64,
@@ -412,6 +443,7 @@ pub struct RattingDetail {
     pub by_system: Vec<RattingSystem>,
     pub daily: Vec<RattingDay>,
     pub daily_by_system: Vec<RatSysDay>,
+    pub daily_by_char: Vec<RatCharDay>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -465,6 +497,15 @@ fn categorize_expense(rt: &str) -> &'static str {
         | "jump_clone_activation_fee" | "clone_activation" | "clone_transfer" | "docking_fee" => "Servicios",
         "bounty_prize_corporation_tax" | "corporation_account_withdrawal" => "Impuestos",
         _ => "Otros",
+    }
+}
+
+/// Categoría amistosa de un movimiento según ref_type y signo (ingreso/gasto).
+pub fn category_of(ref_type: &str, amount: f64) -> &'static str {
+    if amount >= 0.0 {
+        categorize_income(ref_type)
+    } else {
+        categorize_expense(ref_type)
     }
 }
 
@@ -890,7 +931,7 @@ impl Db {
     pub fn ratting_detail(&self, character_id: Option<i64>) -> AppResult<RattingDetail> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT date, ref_type, amount, context_id, reason
+            "SELECT date, ref_type, amount, context_id, reason, character_id
              FROM wallet_journal
              WHERE (?1 IS NULL OR character_id = ?1)
                AND ref_type IN ('bounty_prizes', 'ess_escrow_transfer')
@@ -904,6 +945,7 @@ impl Db {
                     r.get::<_, f64>(2)?,             // amount
                     r.get::<_, Option<i64>>(3)?,     // context_id (system)
                     r.get::<_, Option<String>>(4)?,  // reason
+                    r.get::<_, i64>(5)?,             // character_id
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -917,9 +959,10 @@ impl Db {
         let mut sys_hours: HashMap<i64, HashSet<String>> = HashMap::new(); // system -> horas con bounty
         let mut days: HashMap<String, (f64, f64, i64)> = HashMap::new(); // day -> (bounty, ess, rats)
         let mut sys_day: HashMap<(i64, String), f64> = HashMap::new(); // (system, día) -> isk
+        let mut char_day: HashMap<(i64, String), f64> = HashMap::new(); // (personaje, día) -> isk
         let mut active: HashSet<String> = HashSet::new(); // horas distintas con bounty
 
-        for (date, ref_type, amount, context_id, reason) in rows {
+        for (date, ref_type, amount, context_id, reason, char_id) in rows {
             entries += 1;
             let is_bounty = ref_type.as_deref() == Some("bounty_prizes");
             let rats = if is_bounty {
@@ -953,6 +996,7 @@ impl Db {
             }
             if let Some(d) = date.as_deref() {
                 let day = d.get(0..10).unwrap_or(d).to_string();
+                *char_day.entry((char_id, day.clone())).or_insert(0.0) += amount;
                 let e = days.entry(day).or_insert((0.0, 0.0, 0));
                 if is_bounty {
                     e.0 += amount;
@@ -1002,6 +1046,16 @@ impl Db {
             .collect();
         daily_by_system.sort_by(|a, b| a.date.cmp(&b.date));
 
+        let mut daily_by_char: Vec<RatCharDay> = char_day
+            .into_iter()
+            .map(|((character_id, date), isk)| RatCharDay {
+                character_id,
+                date,
+                isk,
+            })
+            .collect();
+        daily_by_char.sort_by(|a, b| a.date.cmp(&b.date));
+
         Ok(RattingDetail {
             total_bounty,
             total_ess,
@@ -1011,6 +1065,7 @@ impl Db {
             by_system,
             daily,
             daily_by_system,
+            daily_by_char,
         })
     }
 
@@ -2171,6 +2226,29 @@ impl Db {
             Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?))
         })?;
         Ok(rows.flatten().collect())
+    }
+
+    /// Todas las filas del journal (date, ref_type, amount, character) para la serie temporal de wallet.
+    pub fn wallet_rows_full(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(String, Option<String>, f64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date, ref_type, amount, character_id FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1) AND date IS NOT NULL",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Clasificación NPC cacheada: (nombre, klass) o None si aún no resuelto.

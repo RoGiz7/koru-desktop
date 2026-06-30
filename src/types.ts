@@ -78,6 +78,14 @@ export type WalletStats = {
 };
 export type WalletView = { balance: number; stats: WalletStats };
 export type WalletTrendPoint = { month: string; income: number; expense: number };
+export type WalletDay = { date: string; income: number; expense: number };
+export type WalletCatDay = { cat: string; date: string; net: number };
+export type WalletCharDay = { character_id: number; date: string; net: number };
+export type WalletSeries = {
+  daily: WalletDay[];
+  by_cat: WalletCatDay[];
+  by_char: WalletCharDay[];
+};
 
 export type NetworthPoint = { date: string; liquid: number; asset_value: number; total: number };
 export type NetworthView = {
@@ -219,6 +227,17 @@ export type MiningSummary = {
   top_ores: NameCount[];
   recent: MiningRow[];
 };
+export type MineDay = { date: string; value: number; units: number };
+export type MineDimDay = { id: number; date: string; value: number; units: number };
+export type MiningSeries = {
+  total_value: number;
+  total_units: number;
+  daily: MineDay[];
+  daily_by_system: MineDimDay[];
+  daily_by_char: MineDimDay[];
+  daily_by_ore: MineDimDay[];
+  ore_names: [number, string][];
+};
 export type SysActivity = {
   system_id: number;
   kills: number;
@@ -304,6 +323,7 @@ export type RattingSystem = {
 };
 export type RattingDay = { date: string; bounty: number; ess: number; rats: number };
 export type RatSysDay = { system_id: number; date: string; isk: number };
+export type RatCharDay = { character_id: number; date: string; isk: number };
 export type RattingDetail = {
   total_bounty: number;
   total_ess: number;
@@ -313,6 +333,7 @@ export type RattingDetail = {
   by_system: RattingSystem[];
   daily: RattingDay[];
   daily_by_system: RatSysDay[];
+  daily_by_char: RatCharDay[];
 };
 export type SpecialRat = {
   type_id: number;
@@ -375,7 +396,15 @@ export type FactionalView = {
   victory_points: FwCountsView;
 };
 export type FilamentRow = { name: string; count: number; isk: number };
-export type AbyssalsData = { runs_est: number; isk_spent: number; by_filament: FilamentRow[] };
+export type PaperLoc = { location_name: string; system_id: number; quantity: number };
+export type AbyssalsData = {
+  runs_est: number;
+  isk_spent: number;
+  by_filament: FilamentRow[];
+  papers_qty: number;
+  papers_value: number;
+  papers_by_loc: PaperLoc[];
+};
 export type CategorySum = { category: string; isk: number; prev_isk: number };
 export type FinancialSummary = {
   income_total: number;

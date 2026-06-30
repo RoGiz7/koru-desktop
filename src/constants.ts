@@ -59,7 +59,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     group: "PvE",
     icon: "🛡️",
     subs: [
-      { key: "rateo", label: "Rateo", scopes: ["esi-wallet.read_character_wallet.v1"] },
+      { key: "rateo", label: "Ingresos PvE", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "factional", label: "Factional", scopes: ["esi-characters.read_fw_stats.v1"] },
     ],
@@ -69,8 +69,8 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     icon: "🏭",
     typeId: 34, // Tritanium (minerales)
     subs: [
-      { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1", "esi-industry.read_character_mining.v1"] },
       { key: "mineria", label: "Minería", scopes: ["esi-industry.read_character_mining.v1"] },
+      { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1"] },
       { key: "planetologia", label: "Planetología", scopes: ["esi-planets.manage_planets.v1"] },
     ],
   },
@@ -171,7 +171,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
   mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
   comercio: { title: "Comercio", subtitle: "Tus órdenes de compra/venta en el mercado" },
-  rateo: { title: "Rateo", subtitle: "Ingresos por bounties (PvE)" },
+  rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
