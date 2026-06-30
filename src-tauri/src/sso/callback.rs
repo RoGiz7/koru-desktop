@@ -4,24 +4,49 @@
 
 use crate::config;
 use crate::error::{AppError, AppResult};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 pub struct CallbackResult {
     pub code: String,
     pub state: String,
 }
 
-/// Bloquea hasta recibir el callback o agotar el timeout. Pensado para correr en
-/// un hilo bloqueante (tokio::task::spawn_blocking).
+/// Bandera para cancelar un login en curso (p. ej. el usuario cerró la pestaña del navegador).
+static LOGIN_CANCEL: AtomicBool = AtomicBool::new(false);
+/// El frontend la activa vía el comando `cancel_login`.
+pub fn request_cancel() {
+    LOGIN_CANCEL.store(true, Ordering::SeqCst);
+}
+/// Se limpia al arrancar cada login.
+pub fn reset_cancel() {
+    LOGIN_CANCEL.store(false, Ordering::SeqCst);
+}
+
+/// Bloquea hasta recibir el callback, agotar el timeout o que el usuario cancele.
+/// Pensado para correr en un hilo bloqueante (tokio::task::spawn_blocking).
 pub fn wait_for_callback(timeout: Duration) -> AppResult<CallbackResult> {
     let addr = format!("127.0.0.1:{}", config::CALLBACK_PORT);
     let server = tiny_http::Server::http(&addr)
         .map_err(|e| AppError::Other(format!("no se pudo abrir el listener {addr}: {e}")))?;
 
-    let request = server
-        .recv_timeout(timeout)
-        .map_err(|e| AppError::Other(format!("error recibiendo callback: {e}")))?
-        .ok_or(AppError::CallbackTimeout)?;
+    // Sondeo en cortos para poder reaccionar a la cancelación sin esperar al timeout completo.
+    let deadline = Instant::now() + timeout;
+    let request = loop {
+        if LOGIN_CANCEL.load(Ordering::SeqCst) {
+            return Err(AppError::Other("login cancelado".to_string()));
+        }
+        if Instant::now() >= deadline {
+            return Err(AppError::CallbackTimeout);
+        }
+        match server.recv_timeout(Duration::from_millis(400)) {
+            Ok(Some(req)) => break req,
+            Ok(None) => continue,
+            Err(e) => {
+                return Err(AppError::Other(format!("error recibiendo callback: {e}")))
+            }
+        }
+    };
 
     // Parseamos la query string del request URL (p. ej. /callback?code=..&state=..)
     let url = request.url().to_string();

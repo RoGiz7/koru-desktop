@@ -80,7 +80,7 @@ function App() {
   const [cards, setCards] = useState<Record<number, CharacterCard>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [feature, setFeature] = useState("identity");
+  const [feature, setFeature] = useState("core");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
   const [settingsOpen, setSettingsOpen] = useState(false); // desplegable ⚙️ Ajustes (datos/backup)
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
@@ -830,6 +830,15 @@ function App() {
     }
   }
 
+  async function handleCancelLogin() {
+    // El backend deja de esperar el callback (~0.4s) → el login() rechaza y se desbloquea la UI.
+    try {
+      await invoke("cancel_login");
+    } catch {
+      /* noop */
+    }
+  }
+
   async function handleLogout(id: number) {
     setError(null);
     try {
@@ -969,21 +978,21 @@ function App() {
   const working = isSyncingHistory || autoBusy || busy || sectionBusy;
   let statusText: string;
   if (isSyncingHistory) {
-    statusText = `Sincronizando histórico… ${fmtSp(progress!.processed)} killmails${
-      progress!.page > 0 ? ` (página ${progress!.page})` : ""
-    } · ${elapsed}s — no cierres la app`;
+    statusText = `${tr("Sincronizando histórico…")} ${fmtSp(progress!.processed)} killmails${
+      progress!.page > 0 ? ` (${tr("página")} ${progress!.page})` : ""
+    } · ${elapsed}s — ${tr("no cierres la app")}`;
   } else if (autoBusy) {
-    statusText = "Sincronizando datos…";
+    statusText = tr("Sincronizando datos…");
   } else if (busy) {
-    statusText = "Esperando inicio de sesión con EVE…";
+    statusText = tr("Esperando inicio de sesión con EVE…");
   } else if (sectionBusy) {
-    statusText = "Cargando sección…";
+    statusText = tr("Cargando sección…");
   } else if (error) {
     statusText = error;
   } else if (lastSync) {
-    statusText = `Listo · última sincronización ${fmtAgo(now - lastSync)}`;
+    statusText = `${tr("Listo · última sincronización")} ${fmtAgo(now - lastSync)}`;
   } else {
-    statusText = "Listo";
+    statusText = tr("Listo");
   }
 
   return (
@@ -1276,6 +1285,11 @@ function App() {
               <button onClick={() => handleLogin()} disabled={busy}>
                 {busy ? tr("Esperando login…") : tr("Iniciar sesión con EVE")}
               </button>
+              {busy && (
+                <button className="danger" onClick={handleCancelLogin}>
+                  {tr("Cancelar login")}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1500,6 +1514,11 @@ function App() {
           {isSyncingHistory && (
             <button className="sb-cancel" onClick={handleCancelSync} title={tr("Cancelar sincronización")}>
               {tr("Cancelar")}
+            </button>
+          )}
+          {busy && (
+            <button className="sb-cancel" onClick={handleCancelLogin} title={tr("Cancelar el inicio de sesión")}>
+              {tr("Cancelar login")}
             </button>
           )}
         </div>

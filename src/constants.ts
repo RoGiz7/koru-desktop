@@ -104,13 +104,13 @@ export type MapOverlay =
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
 
 export const FEATURES = [
-  { key: "identity", label: "Solo identidad (0 scopes)" },
+  { key: "core", label: "Set completo (recomendado)" },
   { key: "pvp", label: "PvP / killmails" },
   { key: "wallet", label: "Wallet" },
   { key: "skills", label: "Skills" },
   { key: "assets", label: "Assets / industria" },
   { key: "location", label: "Ubicación (sistema actual)" },
-  { key: "core", label: "Set completo v1" },
+  { key: "identity", label: "Solo identidad (0 scopes)" },
 ];
 
 export const SCOPE = {

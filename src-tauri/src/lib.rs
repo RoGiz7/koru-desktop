@@ -76,6 +76,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::login,
+            commands::cancel_login,
             commands::list_characters,
             commands::get_character_cards,
             commands::logout,

@@ -68,8 +68,9 @@ pub async fn login(scopes: Vec<String>) -> AppResult<LoginOutcome> {
     )?;
 
     // 1) Arrancamos el listener loopback ANTES de abrir el navegador.
+    callback::reset_cancel(); // limpia una cancelación previa
     let callback_handle =
-        tokio::task::spawn_blocking(|| callback::wait_for_callback(Duration::from_secs(300)));
+        tokio::task::spawn_blocking(|| callback::wait_for_callback(Duration::from_secs(180)));
 
     // 2) Abrimos el navegador del sistema en la URL de autorización.
     open::that(&authorize_url)

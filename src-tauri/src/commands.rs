@@ -369,6 +369,13 @@ pub async fn login(feature: String, state: State<'_, AppState>) -> AppResult<Log
     Ok(outcome)
 }
 
+/// Cancela un login en curso (p. ej. el usuario cerró la pestaña del navegador sin completar).
+/// Libera el listener loopback para que `login` deje de esperar y la UI se desbloquee.
+#[tauri::command]
+pub fn cancel_login() {
+    sso::callback::request_cancel();
+}
+
 /// Lista los personajes guardados.
 #[tauri::command]
 pub fn list_characters(state: State<'_, AppState>) -> AppResult<Vec<CharacterRow>> {
