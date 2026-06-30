@@ -3545,6 +3545,8 @@ pub struct IntelSighting {
     pub name: String,
     #[serde(default)]
     pub system_id: Option<i64>,
+    #[serde(default)]
+    pub ts_ms: Option<i64>,
 }
 
 /// Registra avistamientos de pilotos del intel (cuenta menciones y último sistema). El frontend
@@ -3565,6 +3567,15 @@ pub async fn intel_record_sightings(
         state
             .db
             .name_cache_record_sighting(&nl, s.name.trim(), s.system_id);
+        // Avistamiento persistente (modo cazador): requiere sistema y hora de la línea.
+        if let (Some(system_id), Some(ts_ms)) = (s.system_id, s.ts_ms) {
+            let cid = state
+                .db
+                .name_cache_get(&nl)
+                .and_then(|(id, _, _)| id)
+                .filter(|&x| x > 0);
+            state.db.insert_sighting(&nl, cid, system_id, ts_ms);
+        }
     }
     // Auto-resolución diferida de los que ya son "habituales" y siguen sin id.
     let thr = threshold.unwrap_or(5).max(2);
@@ -3601,6 +3612,28 @@ pub fn get_habitual_hostiles(
     Ok(state
         .db
         .name_cache_habitual(min_count.unwrap_or(3).max(1), limit.unwrap_or(100)))
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct TrackPoint {
+    pub system_id: i64,
+    pub ts_ms: i64,
+}
+
+/// Rastro histórico de un piloto (modo cazador): sus avistamientos persistentes (sistema + hora)
+/// en orden cronológico, para pintar la polilínea del objetivo en el mapa entre sesiones.
+#[tauri::command]
+pub fn get_pilot_track(
+    state: State<'_, AppState>,
+    name: String,
+    limit: Option<i64>,
+) -> AppResult<Vec<TrackPoint>> {
+    let nl = name.trim().to_lowercase();
+    let pts = state.db.pilot_track(&nl, limit.unwrap_or(200).clamp(1, 1000));
+    Ok(pts
+        .into_iter()
+        .map(|(system_id, ts_ms)| TrackPoint { system_id, ts_ms })
+        .collect())
 }
 
 /// Niveles de skill entrenados del personaje (skill_id → nivel activo). Para el skill-check de fits.

@@ -175,6 +175,7 @@ pub fn run() {
             commands::resolve_intel_entities,
             commands::intel_record_sightings,
             commands::get_habitual_hostiles,
+            commands::get_pilot_track,
             commands::set_intel_graph,
             commands::start_intel_watch,
             commands::stop_intel_watch,

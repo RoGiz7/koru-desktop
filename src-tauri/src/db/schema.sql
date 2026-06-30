@@ -171,6 +171,19 @@ CREATE TABLE IF NOT EXISTS name_cache (
     updated_at    TEXT
 );
 
+-- Avistamientos de intel persistentes ("modo cazador"): cada vez que un piloto aparece en un
+-- reporte se guarda (nombre, sistema, hora). Backbone para el rastro histórico entre sesiones.
+-- PK dedup por (nombre, sistema, hora de la línea). character_id/ship_type_id = enriquecido si se sabe.
+CREATE TABLE IF NOT EXISTS intel_sightings (
+    name_lower    TEXT NOT NULL,
+    character_id  INTEGER,                 -- resuelto si se conoce (NULL si no)
+    system_id     INTEGER NOT NULL,
+    ts_ms         INTEGER NOT NULL,        -- timestamp (ms) de la línea de intel
+    ship_type_id  INTEGER,                 -- nave citada junto al piloto (futuro; NULL por ahora)
+    PRIMARY KEY (name_lower, system_id, ts_ms)
+);
+CREATE INDEX IF NOT EXISTS idx_sight_name ON intel_sightings(name_lower, ts_ms);
+
 -- Gestor de fiteos local (propio): guarda fits importados por EFT. `modules` es JSON.
 CREATE TABLE IF NOT EXISTS fits (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

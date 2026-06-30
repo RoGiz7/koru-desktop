@@ -3597,6 +3597,22 @@ h4 {
   padding: 0.15rem 0.4rem;
   flex-shrink: 0;
 }
+/* Botón "Rastro" (modo cazador) — activo = magenta, igual que la polilínea del rastro. */
+.intel-hab-track.active {
+  border-color: #ff6ad5;
+  background: rgba(255, 106, 213, 0.18);
+  color: #ffd1f0;
+}
+/* Chip flotante del objetivo cuyo rastro se muestra en el mapa. */
+.hunt-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-color: #ff6ad5 !important;
+}
+.hunt-chip strong {
+  color: #ffd1f0;
+}
 .intel-detail-msg {
   font-size: 0.85rem;
   word-break: break-word;

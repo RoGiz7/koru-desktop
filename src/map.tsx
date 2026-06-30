@@ -793,13 +793,13 @@ export function MapView(props: {
   const intelSightedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!intelReports) return;
-    const fresh: { name: string; system_id: number | null }[] = [];
+    const fresh: { name: string; system_id: number | null; ts_ms: number }[] = [];
     for (const f of intelReports.feed) {
       if (!f.pilots || f.pilots.length === 0) continue;
       const key = `${f.ts}|${f.author}|${f.message}`;
       if (intelSightedRef.current.has(key)) continue;
       intelSightedRef.current.add(key);
-      for (const name of f.pilots) fresh.push({ name, system_id: f.sysId });
+      for (const name of f.pilots) fresh.push({ name, system_id: f.sysId, ts_ms: f.ts });
     }
     if (fresh.length === 0) return;
     // Acotar el set para no crecer sin fin (las claves viejas caen fuera de recencia igualmente).
@@ -984,6 +984,28 @@ export function MapView(props: {
   } | null>(null);
   const [intelEntLoading, setIntelEntLoading] = useState(false);
   const [intelTrackPilot, setIntelTrackPilot] = useState<string | null>(null);
+  // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
+  const [huntPilot, setHuntPilot] = useState<string | null>(null);
+  const [huntTrack, setHuntTrack] = useState<{ system_id: number; ts_ms: number }[] | null>(null);
+  async function loadHuntTrack(name: string) {
+    if (huntPilot === name) {
+      // Toggle: si ya está activo, lo apagamos.
+      setHuntPilot(null);
+      setHuntTrack(null);
+      return;
+    }
+    setHuntPilot(name);
+    setHuntTrack(null);
+    try {
+      const pts = await invoke<{ system_id: number; ts_ms: number }[]>("get_pilot_track", {
+        name,
+        limit: 200,
+      });
+      setHuntTrack(pts);
+    } catch {
+      setHuntTrack([]);
+    }
+  }
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
   type HabitualHostile = {
     name_lower: string;
@@ -1141,6 +1163,69 @@ export function MapView(props: {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo, overlay, intelTrackPilot, intelReports]);
+
+  // Modo cazador: polilínea del rastro HISTÓRICO del objetivo (de la tabla intel_sightings, persiste
+  // entre sesiones). Color magenta para distinguirlo del rastro de sesión (naranja). Colapsa sistemas
+  // consecutivos repetidos y dibuja flujo direccional + flecha al último avistamiento.
+  const huntTrackLine = useMemo(() => {
+    if (!geo || overlay !== "intel" || !huntTrack || huntTrack.length === 0) return null;
+    const seq: number[] = [];
+    for (const p of huntTrack) {
+      if (seq.length === 0 || seq[seq.length - 1] !== p.system_id) seq.push(p.system_id);
+    }
+    const pts = seq
+      .map((sid) => geo.idx.get(sid))
+      .filter((s): s is NeSystem => !!s)
+      .map((s) => geo.proj(s));
+    if (pts.length < 1) return null;
+    const poly = pts.map((p) => `${p.px},${p.py}`).join(" ");
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    return (
+      <g>
+        {pts.length >= 2 && (
+          <>
+            <defs>
+              <marker
+                id="hunt-arrow"
+                markerWidth="4"
+                markerHeight="4"
+                refX="2.4"
+                refY="2"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0,0 L4,2 L0,4 Z" fill="#ff6ad5" />
+              </marker>
+            </defs>
+            <polyline points={poly} fill="none" stroke="#ff6ad5" strokeOpacity={0.25} strokeWidth={0.6} />
+            <polyline
+              points={poly}
+              fill="none"
+              stroke="#ff6ad5"
+              strokeWidth={0.7}
+              strokeLinecap="round"
+              strokeDasharray="2 2.5"
+              markerEnd="url(#hunt-arrow)"
+            >
+              <animate attributeName="stroke-dashoffset" from="0" to="-4.5" dur="0.7s" repeatCount="indefinite" />
+            </polyline>
+          </>
+        )}
+        {pts.slice(1, -1).map((p, i) => (
+          <circle key={`hunt-${i}`} cx={p.px} cy={p.py} r={0.9} fill="#ff6ad5" />
+        ))}
+        <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ff6ad5" strokeWidth={0.5}>
+          <title>{tr("Primer avistamiento")}</title>
+        </circle>
+        {pts.length >= 2 && (
+          <circle cx={last.px} cy={last.py} r={1.6} fill="#ff6ad5" stroke="#0a0d12" strokeWidth={0.3}>
+            <title>{tr("Último avistamiento")}</title>
+          </circle>
+        )}
+      </g>
+    );
+  }, [geo, overlay, huntTrack]);
 
   // Nave seleccionada (del catálogo del SDE).
   const selShip = useMemo(
@@ -1658,6 +1743,7 @@ export function MapView(props: {
             {/* overlay Intel en vivo (memorizado) */}
             {intelAnchorMarkers}
             {intelTrackLine}
+            {huntTrackLine}
             {intelCircles}
             {/* overlay PvP */}
             {overlay === "pvp" &&
@@ -2345,6 +2431,13 @@ export function MapView(props: {
                           {active ? tr("Ocultar ruta") : `${tr("Ruta")} (${track.length})`}
                         </button>
                       )}
+                      <button
+                        className={`intel-hab-track${huntPilot === c.name ? " active" : ""}`}
+                        title={tr("Ver su rastro histórico en el mapa")}
+                        onClick={() => loadHuntTrack(c.name)}
+                      >
+                        🎯 {huntPilot === c.name ? tr("Seguir ✓") : tr("Seguir")}
+                      </button>
                     </div>
                     {active && track.length > 0 && (
                       <ol className="intel-track">
@@ -2449,6 +2542,13 @@ export function MapView(props: {
                     <span className="intel-count fleet" title={tr("menciones")}>
                       ×{h.seen_count}
                     </span>
+                    <button
+                      className={`intel-hab-track${huntPilot === h.name ? " active" : ""}`}
+                      title={tr("Ver su rastro histórico en el mapa")}
+                      onClick={() => loadHuntTrack(h.name)}
+                    >
+                      🎯 {huntPilot === h.name ? tr("Rastro ✓") : tr("Rastro")}
+                    </button>
                     {h.character_id != null && h.character_id > 0 && (
                       <button
                         title="zKillboard"
@@ -2461,6 +2561,32 @@ export function MapView(props: {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Modo cazador: chip flotante con el objetivo cuyo rastro se está mostrando. */}
+        {overlay === "intel" && huntPilot && (
+          <div className="intel-detail hunt-chip">
+            <span>
+              🎯 {tr("Rastro")}: <strong>{huntPilot}</strong>
+            </span>
+            <span className="muted small">
+              {huntTrack == null
+                ? tr("Cargando…")
+                : huntTrack.length === 0
+                  ? tr("Sin avistamientos guardados todavía (se acumulan según aparezca en intel).")
+                  : `${huntTrack.length} ${tr("avistamientos")}`}
+            </span>
+            <button
+              className="sys-close"
+              title={tr("Quitar rastro")}
+              onClick={() => {
+                setHuntPilot(null);
+                setHuntTrack(null);
+              }}
+            >
+              ✕
+            </button>
           </div>
         )}
 

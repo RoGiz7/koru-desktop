@@ -304,6 +304,17 @@ const EN: Record<string, string> = {
   "Aún no hay datos. Deja correr el intel un rato.":
     "No data yet. Let intel run for a while.",
   "visto en": "seen in",
+  Rastro: "Trail",
+  "Rastro ✓": "Trail ✓",
+  Seguir: "Track",
+  "Seguir ✓": "Tracking ✓",
+  "Ver su rastro histórico en el mapa": "Show their historical trail on the map",
+  "Quitar rastro": "Clear trail",
+  "Primer avistamiento": "First sighting",
+  "Último avistamiento": "Last sighting",
+  avistamientos: "sightings",
+  "Sin avistamientos guardados todavía (se acumulan según aparezca en intel).":
+    "No sightings saved yet (they accumulate as it appears in intel).",
   menciones: "mentions",
   Reporte: "Report",
   "reportó": "reported by",

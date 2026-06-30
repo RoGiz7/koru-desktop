@@ -2150,6 +2150,43 @@ impl Db {
         out
     }
 
+    /// Guarda un avistamiento persistente (modo cazador). Dedup por (nombre, sistema, ts).
+    pub fn insert_sighting(
+        &self,
+        name_lower: &str,
+        character_id: Option<i64>,
+        system_id: i64,
+        ts_ms: i64,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO intel_sightings (name_lower, character_id, system_id, ts_ms)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![name_lower, character_id, system_id, ts_ms],
+        );
+    }
+
+    /// Rastro de un piloto: los `limit` avistamientos más recientes, en orden CRONOLÓGICO ascendente
+    /// (system_id, ts_ms). Para pintar la polilínea histórica del objetivo en el mapa.
+    pub fn pilot_track(&self, name_lower: &str, limit: i64) -> Vec<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out: Vec<(i64, i64)> = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT system_id, ts_ms FROM intel_sightings WHERE name_lower = ?1
+             ORDER BY ts_ms DESC LIMIT ?2",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![name_lower, limit], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            }) {
+                for x in rows.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out.reverse(); // de DESC (recientes primero) a cronológico ascendente
+        out
+    }
+
     /// Inserta un fiteo guardado. `modules` es JSON serializado. Devuelve el id nuevo.
     pub fn fit_insert(
         &self,
