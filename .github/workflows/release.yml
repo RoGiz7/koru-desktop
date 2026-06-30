@@ -43,8 +43,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Koru Desktop ${{ github.ref_name }}"
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: "Koru Desktop ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: "Instalador abajo. Si ya tienes la app, se actualizará sola."
           releaseDraft: true
           prerelease: false
