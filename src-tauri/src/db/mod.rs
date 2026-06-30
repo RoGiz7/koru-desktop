@@ -1941,6 +1941,15 @@ pub struct NetworthPoint {
     pub total: f64,
 }
 
+/// Un punto de la serie histórica de valor de papeles (loot redimible), por día y typeID.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperPoint {
+    pub date: String,
+    pub type_id: i64,
+    pub qty: i64,
+    pub value: f64,
+}
+
 impl Db {
     /// Inserta/actualiza precios de mercado en bloque (type_id, average, adjusted).
     pub fn upsert_prices(&self, rows: &[(i64, Option<f64>, Option<f64>)]) -> AppResult<()> {
@@ -2368,6 +2377,64 @@ impl Db {
             liquid: r.get(1)?,
             asset_value: r.get(2)?,
             total: r.get(3)?,
+        })
+    }
+
+    /// Guarda (o reemplaza) el snapshot de inventario de un papel para un personaje, día y typeID.
+    pub fn insert_paper_snapshot(
+        &self,
+        character_id: i64,
+        date: &str,
+        type_id: i64,
+        qty: i64,
+        value: f64,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO paper_snapshots (character_id, date, type_id, qty, value, taken_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(character_id, date, type_id) DO UPDATE SET
+                qty = excluded.qty,
+                value = excluded.value,
+                taken_at = excluded.taken_at",
+            rusqlite::params![character_id, date, type_id, qty, value, now],
+        )?;
+        Ok(())
+    }
+
+    /// Serie histórica de valor de papeles de un personaje (por typeID, orden cronológico).
+    pub fn paper_history(&self, character_id: i64) -> AppResult<Vec<PaperPoint>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date, type_id, qty, value
+             FROM paper_snapshots WHERE character_id = ?1 ORDER BY date ASC, type_id ASC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], Self::map_paper_point)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Serie histórica GLOBAL de papeles: suma de todos los personajes por día y typeID.
+    pub fn paper_history_global(&self) -> AppResult<Vec<PaperPoint>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date, type_id, COALESCE(SUM(qty), 0), COALESCE(SUM(value), 0.0)
+             FROM paper_snapshots GROUP BY date, type_id ORDER BY date ASC, type_id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], Self::map_paper_point)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    fn map_paper_point(r: &rusqlite::Row) -> rusqlite::Result<PaperPoint> {
+        Ok(PaperPoint {
+            date: r.get(0)?,
+            type_id: r.get(1)?,
+            qty: r.get(2)?,
+            value: r.get(3)?,
         })
     }
 }

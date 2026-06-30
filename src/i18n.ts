@@ -624,7 +624,15 @@ const EN: Record<string, string> = {
   "Tipos distintos": "Distinct types",
   "Unidades totales": "Total units",
   "Valor estimado": "Estimated value",
+  Inventario: "Inventory",
   "Papeles (Triglavian Survey Database)": "Papers (Triglavian Survey Database)",
+  "Papeles (loot redimible — estimado)": "Papers (redeemable loot — estimated)",
+  "Valor ESTIMADO a precio de mercado del loot redimible (Abyssals + CRAB). La gráfica ACUMULA los papeles que vas ganando (detecta las subidas de cantidad en tus assets en cada sync y las suma, como el ISK del wallet); vender no resta. No es ISK realizado: es una estimación a mercado.":
+    "ESTIMATED market value of the redeemable loot (Abyssals + CRAB). The chart ACCUMULATES the papers you earn (it detects increases in your asset quantities on each sync and adds them up, like wallet ISK); selling doesn't subtract. It's not realized ISK: it's a market estimate.",
+  "Papeles acumulados (ganados) · valor estimado a mercado":
+    "Accumulated papers (earned) · estimated market value",
+  "La gráfica acumulada se construye con el tiempo: cada sync (y cada vez que abres esta vista) guarda una foto del inventario y suma lo nuevo. Necesita al menos dos lecturas en días distintos.":
+    "The accumulated chart builds up over time: each sync (and each time you open this view) saves a snapshot of your inventory and adds what's new. It needs at least two readings on different days.",
   "Papeles en inventario": "Papers in inventory",
   "Valor estimado (mercado)": "Estimated value (market)",
   "No tienes papeles en assets (o falta el scope de assets). Es el loot redimible que vendes en el mercado.":

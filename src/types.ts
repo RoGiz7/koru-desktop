@@ -397,6 +397,14 @@ export type FactionalView = {
 };
 export type FilamentRow = { name: string; count: number; isk: number };
 export type PaperLoc = { location_name: string; system_id: number; quantity: number };
+export type PaperGroup = {
+  source: string; // "abyssal" | "crab"
+  type_id: number;
+  name: string;
+  qty: number;
+  value: number;
+  by_loc: PaperLoc[];
+};
 export type AbyssalsData = {
   runs_est: number;
   isk_spent: number;
@@ -404,7 +412,10 @@ export type AbyssalsData = {
   papers_qty: number;
   papers_value: number;
   papers_by_loc: PaperLoc[];
+  papers: PaperGroup[];
 };
+export type PaperDay = { date: string; source: string; value: number };
+export type PaperSeries = { daily: PaperDay[] };
 export type CategorySum = { category: string; isk: number; prev_isk: number };
 export type FinancialSummary = {
   income_total: number;

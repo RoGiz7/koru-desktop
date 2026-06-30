@@ -209,6 +209,7 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
         res.prices = n;
     }
 
+    let prices = state.db.prices_map().unwrap_or_default();
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     for c in state.db.list_characters()? {
         let valid = match state
@@ -274,6 +275,13 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
             {
                 asset_value = s.est_value;
                 have_data = true;
+                // Papeles redimibles: snapshot del stock del día desde el mismo summary (sin ESI extra).
+                for (&tid, &qty) in &s.watched {
+                    let value = qty as f64 * prices.get(&tid).copied().unwrap_or(0.0);
+                    let _ = state
+                        .db
+                        .insert_paper_snapshot(c.character_id, &today, tid, qty, value);
+                }
             }
         }
         if have_data
@@ -2106,19 +2114,34 @@ pub struct PaperLoc {
     pub system_id: i64,
     pub quantity: i64,
 }
+/// Inventario de un tipo de "papel" (loot redimible) por fuente: cantidad, valor y dónde.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperGroup {
+    pub source: String, // "abyssal" | "crab"
+    pub type_id: i64,
+    pub name: String,
+    pub qty: i64,
+    pub value: f64,
+    pub by_loc: Vec<PaperLoc>,
+}
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AbyssalsView {
     pub runs_est: i64,
     pub isk_spent: f64,
     pub by_filament: Vec<FilamentRow>,
-    // Inventario de "papeles" (Triglavian Survey Database) en assets: cantidad, valor y dónde.
+    // Inventario de "papeles" en assets: totales + desglose por fuente (abyssal/CRAB).
     pub papers_qty: i64,
     pub papers_value: f64,
     pub papers_by_loc: Vec<PaperLoc>,
+    pub papers: Vec<PaperGroup>,
 }
 
-/// typeID del item-loot redimible que vendes en el mercado ("papel" del abyssal/CRAB).
-const PAPER_TYPE_ID: i64 = 48121; // Triglavian Survey Database
+/// typeIDs de los items-loot redimibles ("papeles") que se venden en el mercado, por fuente.
+/// (type_id, source, nombre de fallback).
+const PAPER_TYPES: &[(i64, &str, &str)] = &[
+    (48121, "abyssal", "Triglavian Survey Database"),
+    (60459, "crab", "Rogue Drone Infestation Data"),
+];
 
 /// Abyssals ESTIMADO por compras de filamentos en las transacciones de wallet.
 /// ESI no expone runs abisales; esto es una aproximación (1 filamento ≈ 1 run).
@@ -2165,8 +2188,11 @@ pub async fn get_abyssals(
     let runs_est = by_filament.iter().map(|f| f.count).sum();
     let isk_spent = by_filament.iter().map(|f| f.isk).sum();
 
-    // Inventario de "papeles" (Triglavian Survey Database) leyendo los assets del personaje.
+    // Inventario de "papeles" (loot redimible) por fuente, leyendo los assets del personaje.
+    let prices = state.db.prices_map().unwrap_or_default();
+    let mut papers: Vec<PaperGroup> = Vec::new();
     let mut papers_qty = 0i64;
+    let mut papers_value = 0f64;
     let mut papers_by_loc: Vec<PaperLoc> = Vec::new();
     if let Ok(atok) =
         token_with_scope(&state, character_id, "esi-assets.read_assets.v1", "Assets").await
@@ -2175,32 +2201,47 @@ pub async fn get_abyssals(
         if let Ok(rows) =
             assets::detail(&state.esi, &state.db, character_id, &atok, &all_tokens).await
         {
-            let mut by: HashMap<(String, i64), i64> = HashMap::new();
-            for r in rows {
-                if r.type_id == PAPER_TYPE_ID {
-                    papers_qty += r.quantity;
-                    *by.entry((r.location_name, r.system_id)).or_insert(0) += r.quantity;
+            for &(tid, source, name) in PAPER_TYPES {
+                let mut qty = 0i64;
+                let mut by: HashMap<(String, i64), i64> = HashMap::new();
+                for r in &rows {
+                    if r.type_id == tid {
+                        qty += r.quantity;
+                        *by.entry((r.location_name.clone(), r.system_id)).or_insert(0) += r.quantity;
+                    }
                 }
+                let mut by_loc: Vec<PaperLoc> = by
+                    .into_iter()
+                    .map(|((location_name, system_id), quantity)| PaperLoc {
+                        location_name,
+                        system_id,
+                        quantity,
+                    })
+                    .collect();
+                by_loc.sort_by(|a, b| b.quantity.cmp(&a.quantity));
+                let value = qty as f64 * prices.get(&tid).copied().unwrap_or(0.0);
+                papers_qty += qty;
+                papers_value += value;
+                papers_by_loc.extend(by_loc.iter().cloned());
+                papers.push(PaperGroup {
+                    source: source.to_string(),
+                    type_id: tid,
+                    name: name.to_string(),
+                    qty,
+                    value,
+                    by_loc,
+                });
             }
-            papers_by_loc = by
-                .into_iter()
-                .map(|((location_name, system_id), quantity)| PaperLoc {
-                    location_name,
-                    system_id,
-                    quantity,
-                })
-                .collect();
             papers_by_loc.sort_by(|a, b| b.quantity.cmp(&a.quantity));
         }
     }
-    let price = state
-        .db
-        .prices_map()
-        .unwrap_or_default()
-        .get(&PAPER_TYPE_ID)
-        .copied()
-        .unwrap_or(0.0);
-    let papers_value = papers_qty as f64 * price;
+    // Snapshot diario por typeID (acumula histórico: los assets no tienen fecha → foto del stock).
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    for g in &papers {
+        let _ = state
+            .db
+            .insert_paper_snapshot(character_id, &today, g.type_id, g.qty, g.value);
+    }
 
     Ok(AbyssalsView {
         runs_est,
@@ -2209,6 +2250,84 @@ pub async fn get_abyssals(
         papers_qty,
         papers_value,
         papers_by_loc,
+        papers,
+    })
+}
+
+/// Un punto de la serie de valor de papeles (por día y fuente) para la gráfica.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperDay {
+    pub date: String,
+    pub source: String,
+    pub value: f64,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperSeries {
+    pub daily: Vec<PaperDay>,
+}
+
+fn source_of(type_id: i64) -> String {
+    PAPER_TYPES
+        .iter()
+        .find(|t| t.0 == type_id)
+        .map(|t| t.1.to_string())
+        .unwrap_or_else(|| type_id.to_string())
+}
+/// Convierte los snapshots de stock en una serie ACUMULADA de "papeles ganados" (estilo wallet):
+/// por cada typeID, recorre las fechas y suma SOLO los incrementos de unidades respecto a la lectura
+/// anterior (las ventas no restan; bajadas de stock se ignoran). El valor de cada punto = unidades
+/// acumuladas × precio de ese día (último precio conocido si ese día no había stock).
+fn paper_days(pts: Vec<crate::db::PaperPoint>) -> Vec<PaperDay> {
+    use std::collections::HashMap;
+    let mut by_type: HashMap<i64, Vec<crate::db::PaperPoint>> = HashMap::new();
+    for p in pts {
+        by_type.entry(p.type_id).or_default().push(p);
+    }
+    let mut out: Vec<PaperDay> = Vec::new();
+    for (tid, mut points) in by_type {
+        points.sort_by(|a, b| a.date.cmp(&b.date));
+        let source = source_of(tid);
+        let mut prev_qty = 0i64;
+        let mut cum_units = 0i64;
+        let mut last_price = 0f64;
+        for p in points {
+            let price = if p.qty > 0 {
+                p.value / p.qty as f64
+            } else {
+                last_price
+            };
+            if p.qty > 0 {
+                last_price = price;
+            }
+            cum_units += (p.qty - prev_qty).max(0);
+            prev_qty = p.qty;
+            out.push(PaperDay {
+                date: p.date,
+                source: source.clone(),
+                value: cum_units as f64 * price,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.date.cmp(&b.date));
+    out
+}
+
+/// Serie histórica del VALOR ESTIMADO de papeles (snapshot diario del inventario), por fuente.
+#[tauri::command]
+pub async fn get_paper_series(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<PaperSeries> {
+    let pts = state.db.paper_history(character_id).unwrap_or_default();
+    Ok(PaperSeries {
+        daily: paper_days(pts),
+    })
+}
+#[tauri::command]
+pub async fn get_paper_series_global(state: State<'_, AppState>) -> AppResult<PaperSeries> {
+    let pts = state.db.paper_history_global().unwrap_or_default();
+    Ok(PaperSeries {
+        daily: paper_days(pts),
     })
 }
 
@@ -3949,6 +4068,7 @@ pub async fn get_mining(character_id: i64, state: State<'_, AppState>) -> AppRes
 pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSummary> {
     use std::collections::HashMap;
     let mut by_type: HashMap<i64, i64> = HashMap::new();
+    let mut watched_agg: HashMap<i64, i64> = HashMap::new();
     let mut stacks = 0i64;
     let mut total_units = 0i64;
     let mut est_value = 0.0f64;
@@ -3971,6 +4091,9 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
             stacks += s.stacks;
             total_units += s.total_units;
             est_value += s.est_value;
+            for (tid, qty) in s.watched {
+                *watched_agg.entry(tid).or_insert(0) += qty;
+            }
             for nc in s.top_types {
                 *by_type.entry(nc.id).or_insert(0) += nc.count;
             }
@@ -4003,6 +4126,7 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
         total_units,
         est_value,
         top_types: top,
+        watched: watched_agg,
     })
 }
 

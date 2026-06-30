@@ -79,3 +79,12 @@ export function heatColor(t: number): string {
   if (t > 0.33) return "#ff9f40";
   return "#ffd86b";
 }
+
+// Color de standing (-10..10) para contactos y la capa de standings del mapa.
+export function standingColor(s: number): string {
+  if (s >= 5) return "#3fb950";
+  if (s > 0) return "#56b870";
+  if (s === 0) return "#8b949e";
+  if (s > -5) return "#e3a13a";
+  return "#e5534b";
+}

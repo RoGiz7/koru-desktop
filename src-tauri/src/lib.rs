@@ -118,6 +118,8 @@ pub fn run() {
             commands::get_character_detail,
             commands::get_factional,
             commands::get_abyssals,
+            commands::get_paper_series,
+            commands::get_paper_series_global,
             commands::get_contacts,
             commands::get_standings,
             commands::get_assets,

@@ -103,6 +103,11 @@ struct StructureGeo {
     name: Option<String>,
 }
 
+/// typeIDs "vigilados" cuyas cantidades expone `summary` sin coste extra (ya están en `by_type`).
+/// Papeles redimibles: 48121 Triglavian Survey Database (abyssal), 60459 Rogue Drone Infestation
+/// Data (CRAB). Mantener sincronizado con PAPER_TYPES en commands.rs.
+pub const WATCHED_TYPE_IDS: &[i64] = &[48121, 60459];
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AssetsSummary {
     /// Número de stacks/entradas de assets.
@@ -115,6 +120,8 @@ pub struct AssetsSummary {
     pub est_value: f64,
     /// Top tipos por cantidad (sin nombre; lo resuelve el comando).
     pub top_types: Vec<NameCount>,
+    /// Cantidad de los typeIDs vigilados (WATCHED_TYPE_IDS) — para acumular papeles sin coste extra.
+    pub watched: std::collections::HashMap<i64, i64>,
 }
 
 /// Descarga todas las páginas de assets (1000/página) y agrega por tipo.
@@ -143,6 +150,12 @@ pub async fn summary(
         .map(|(tid, qty)| prices.get(tid).copied().unwrap_or(0.0) * (*qty as f64))
         .sum();
 
+    // Cantidades de los typeIDs vigilados (papeles) — desde el mismo by_type, sin paginar de nuevo.
+    let mut watched: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    for &tid in WATCHED_TYPE_IDS {
+        watched.insert(tid, by_type.get(&tid).copied().unwrap_or(0));
+    }
+
     let mut top: Vec<NameCount> = by_type
         .into_iter()
         .map(|(id, count)| NameCount {
@@ -162,6 +175,7 @@ pub async fn summary(
         total_units,
         est_value,
         top_types: top,
+        watched,
     })
 }
 

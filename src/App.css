@@ -458,6 +458,12 @@ button.danger:hover {
 .rateo-charthead h4 {
   margin: 0;
 }
+/* Bloque de papeles (estimado) — separado visualmente del realizado en Ingresos PvE. */
+.papers-block {
+  margin-top: 1.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-accent);
+}
 /* Job de industria listo para recoger */
 tr.job-ready td {
   background: rgba(63, 185, 80, 0.12);
@@ -3148,10 +3154,12 @@ h4 {
 }
 
 /* ---- Intel en vivo ---- */
+/* Pulso compositado en GPU: anima solo transform+opacity de un anillo
+   en ::after (NO box-shadow, que repintaría en CPU cada frame). */
 @keyframes intel-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0.5); }
-  70% { box-shadow: 0 0 0 12px rgba(255, 59, 59, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 59, 59, 0); }
+  0% { transform: scale(1); opacity: 0.55; }
+  70% { transform: scale(1.14); opacity: 0; }
+  100% { transform: scale(1.14); opacity: 0; }
 }
 .intel-alert {
   position: absolute;
@@ -3167,7 +3175,7 @@ h4 {
   font-weight: 600;
   font-size: 0.88rem;
   cursor: pointer;
-  animation: intel-pulse 1.4s ease-out infinite;
+  isolation: isolate;
 }
 /* Toast global de intel: fijo en pantalla, visible en cualquier sección. */
 .intel-global-alert {
@@ -3188,7 +3196,26 @@ h4 {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  isolation: isolate;
+}
+/* Anillo de pulso (GPU): pseudo detrás de la alerta que escala+desvanece.
+   transform/opacity → se compositan en GPU, sin layout ni repaint del texto. */
+.intel-alert::after,
+.intel-global-alert::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 59, 59, 0.5);
+  z-index: -1;
+  pointer-events: none;
+  will-change: transform, opacity;
   animation: intel-pulse 1.4s ease-out infinite;
+}
+/* Respeta "reducir movimiento": sin pulso animado. */
+@media (prefers-reduced-motion: reduce) {
+  .intel-alert::after,
+  .intel-global-alert::after { animation: none; opacity: 0; }
 }
 /* Botón maestro Intel en vivo (cabecera) */
 .tb-intel-toggle {

@@ -108,6 +108,20 @@ CREATE TABLE IF NOT EXISTS networth_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_nw_date ON networth_snapshots(date);
 
+-- Snapshots del inventario de "papeles" (loot redimible de abyssal/CRAB): un registro por
+-- personaje, día y typeID. Como los assets no tienen fecha, acumulamos una foto diaria del stock
+-- (cantidad + valor estimado a precio de mercado) para dibujar la evolución del valor en el tiempo.
+CREATE TABLE IF NOT EXISTS paper_snapshots (
+    character_id   INTEGER NOT NULL,
+    date           TEXT NOT NULL,            -- YYYY-MM-DD
+    type_id        INTEGER NOT NULL,         -- 48121 abyssal | 60459 crab
+    qty            INTEGER NOT NULL DEFAULT 0,
+    value          REAL NOT NULL DEFAULT 0,  -- qty * precio de mercado en el momento de la toma
+    taken_at       TEXT NOT NULL,            -- timestamp RFC3339 de la toma
+    PRIMARY KEY (character_id, date, type_id)
+);
+CREATE INDEX IF NOT EXISTS idx_paper_date ON paper_snapshots(date);
+
 -- Caché persistente de resolución ubicación → sistema (estaciones NPC y estructuras de jugador).
 -- system_id = 0 = "no resuelta" (negative cache): evita reintentar estructuras sin acceso (403) que
 -- agotarían el error budget de ESI. Cada location_id se resuelve como mucho una vez.
