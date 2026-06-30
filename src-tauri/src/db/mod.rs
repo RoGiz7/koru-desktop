@@ -381,7 +381,10 @@ pub struct RattingSummary {
 pub struct RattingSystem {
     pub system_id: i64,
     pub isk: f64,
+    pub bounty: f64,
+    pub ess: f64,
     pub rats: i64,
+    pub active_hours: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -910,7 +913,8 @@ impl Db {
         let mut total_ess = 0.0f64;
         let mut rats_killed = 0i64;
         let mut entries = 0i64;
-        let mut sys: HashMap<i64, (f64, i64)> = HashMap::new(); // system -> (isk, rats)
+        let mut sys: HashMap<i64, (f64, f64, i64)> = HashMap::new(); // system -> (bounty, ess, rats)
+        let mut sys_hours: HashMap<i64, HashSet<String>> = HashMap::new(); // system -> horas con bounty
         let mut days: HashMap<String, (f64, f64, i64)> = HashMap::new(); // day -> (bounty, ess, rats)
         let mut sys_day: HashMap<(i64, String), f64> = HashMap::new(); // (system, día) -> isk
         let mut active: HashSet<String> = HashSet::new(); // horas distintas con bounty
@@ -930,12 +934,21 @@ impl Db {
                 total_ess += amount;
             }
             if let Some(sid) = context_id {
-                let e = sys.entry(sid).or_insert((0.0, 0));
-                e.0 += amount;
-                e.1 += rats;
+                let e = sys.entry(sid).or_insert((0.0, 0.0, 0));
+                if is_bounty {
+                    e.0 += amount;
+                    e.2 += rats;
+                } else {
+                    e.1 += amount;
+                }
                 if let Some(d) = date.as_deref() {
                     let day = d.get(0..10).unwrap_or(d).to_string();
                     *sys_day.entry((sid, day)).or_insert(0.0) += amount;
+                    if is_bounty {
+                        if let Some(h) = d.get(0..13) {
+                            sys_hours.entry(sid).or_default().insert(h.to_string());
+                        }
+                    }
                 }
             }
             if let Some(d) = date.as_deref() {
@@ -957,10 +970,13 @@ impl Db {
 
         let mut by_system: Vec<RattingSystem> = sys
             .into_iter()
-            .map(|(system_id, (isk, rats))| RattingSystem {
+            .map(|(system_id, (bounty, ess, rats))| RattingSystem {
                 system_id,
-                isk,
+                isk: bounty + ess,
+                bounty,
+                ess,
                 rats,
+                active_hours: sys_hours.get(&system_id).map(|h| h.len() as i64).unwrap_or(0),
             })
             .collect();
         by_system.sort_by(|a, b| b.isk.partial_cmp(&a.isk).unwrap_or(std::cmp::Ordering::Equal));
@@ -1459,7 +1475,12 @@ impl Db {
                 (id, character_id, date, ref_type, amount, balance, description,
                  reason, context_id, context_id_type, first_party_id, second_party_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-             ON CONFLICT(id) DO NOTHING",
+             ON CONFLICT(id) DO UPDATE SET
+                 reason = COALESCE(wallet_journal.reason, excluded.reason),
+                 context_id = COALESCE(wallet_journal.context_id, excluded.context_id),
+                 context_id_type = COALESCE(wallet_journal.context_id_type, excluded.context_id_type),
+                 first_party_id = COALESCE(wallet_journal.first_party_id, excluded.first_party_id),
+                 second_party_id = COALESCE(wallet_journal.second_party_id, excluded.second_party_id)",
             rusqlite::params![
                 id, character_id, date, ref_type, amount, balance, description,
                 reason, context_id, context_id_type, first_party_id, second_party_id

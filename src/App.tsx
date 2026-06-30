@@ -6047,6 +6047,10 @@ function RateoView({
             <tr>
               <th>{tr("Sistema")}</th>
               <th>ISK</th>
+              <th>%</th>
+              <th>ISK/h</th>
+              <th>Bounty</th>
+              <th>ESS</th>
               <th>{tr("Ratas")}</th>
               <th>{tr("Ratas especiales")}</th>
             </tr>
@@ -6054,10 +6058,16 @@ function RateoView({
           <tbody>
             {topSystems.map((s) => {
               const sp = special?.by_system.find((b) => b.system_id === s.system_id);
+              const pct = totalIsk > 0 ? (s.isk / totalIsk) * 100 : 0;
+              const iskH = s.active_hours > 0 ? s.isk / s.active_hours : 0;
               return (
                 <tr key={s.system_id}>
                   <td>{sysName(s.system_id)}</td>
                   <td>{fmtIsk(s.isk)}</td>
+                  <td className="muted">{pct.toFixed(1)}%</td>
+                  <td>{s.active_hours > 0 ? fmtIsk(iskH) : "—"}</td>
+                  <td>{fmtIsk(s.bounty)}</td>
+                  <td>{fmtIsk(s.ess)}</td>
                   <td>{fmtSp(s.rats)}</td>
                   <td>
                     {sp ? (

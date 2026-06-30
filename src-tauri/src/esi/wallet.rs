@@ -123,9 +123,10 @@ pub async fn sync_journal(
             break;
         }
         for e in &entries {
-            if existing.contains(&e.id) {
-                continue;
-            }
+            // No saltamos las existentes: insert_journal es un UPSERT que rellena (COALESCE) los
+            // campos nuevos (context_id, reason…) en entradas viejas guardadas cuando aún no se
+            // capturaban → backfill del histórico por sistema dentro de la ventana de ESI (~30 días).
+            let is_new = !existing.contains(&e.id);
             db.insert_journal(
                 e.id,
                 character_id,
@@ -140,7 +141,9 @@ pub async fn sync_journal(
                 e.first_party_id,
                 e.second_party_id,
             )?;
-            new_count += 1;
+            if is_new {
+                new_count += 1;
+            }
         }
     }
 

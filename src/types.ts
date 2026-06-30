@@ -294,7 +294,14 @@ export type JournalSample = {
   second_party_id: number | null;
 };
 export type RattingSummary = { total: number; entries: number; trend: RattingPoint[] };
-export type RattingSystem = { system_id: number; isk: number; rats: number };
+export type RattingSystem = {
+  system_id: number;
+  isk: number;
+  bounty: number;
+  ess: number;
+  rats: number;
+  active_hours: number;
+};
 export type RattingDay = { date: string; bounty: number; ess: number; rats: number };
 export type RatSysDay = { system_id: number; date: string; isk: number };
 export type RattingDetail = {
