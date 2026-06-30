@@ -77,6 +77,42 @@ import type {
   IntelLine,
 } from "./types";
 
+/* ---------- relojes/contadores aislados (tic propio para NO re-renderizar toda la app) ---------- */
+// Hook de "ahora" con su propio intervalo, encapsulado en componentes pequeños de la barra de estado.
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+function EveClock() {
+  const now = useNow(1000);
+  return (
+    <span className="sb-badge" title={tr("Hora EVE (UTC)")}>
+      🕓 {new Date(now).toISOString().substring(11, 16)} EVE
+    </span>
+  );
+}
+function SyncBadge({ lastSync, autoBusy }: { lastSync: number | null; autoBusy: boolean }) {
+  const now = useNow(1000);
+  return (
+    <span className="sb-badge" title={tr("Estado de la sincronización automática")}>
+      <span className={`sb-dot ${autoBusy ? "busy" : ""}`} />
+      {autoBusy
+        ? tr("Sincronizando…")
+        : lastSync
+          ? `${tr("Sync")} ${fmtAgo(now - lastSync)} · ${tr("próxima")} ${fmtMMSS(lastSync + AUTO_SYNC_MS - now)}`
+          : tr("Sin sincronizar")}
+    </span>
+  );
+}
+function LastSyncText({ lastSync }: { lastSync: number }) {
+  const now = useNow(15000); // resolución de minutos: 15s sobra
+  return <>{`${tr("Listo · última sincronización")} ${fmtAgo(now - lastSync)}`}</>;
+}
+
 /* ---------- app ---------- */
 function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -521,7 +557,6 @@ function App() {
   // Auto-sincronización
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
-  const [now, setNow] = useState(Date.now());
 
   const isGlobal = subject === "global";
 
@@ -845,10 +880,8 @@ function App() {
     loadKillmails("global", "all", 0);
     runAutoSync();
     const sync = window.setInterval(() => autoSyncRef.current(), AUTO_SYNC_MS);
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       window.clearInterval(sync);
-      window.clearInterval(tick);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1015,6 +1048,7 @@ function App() {
   const isSyncingHistory = progress !== null;
   const working = isSyncingHistory || autoBusy || busy || sectionBusy;
   let statusText: string;
+  let liveSync = false;
   if (isSyncingHistory) {
     statusText = `${tr("Sincronizando histórico…")} ${fmtSp(progress!.processed)} killmails${
       progress!.page > 0 ? ` (${tr("página")} ${progress!.page})` : ""
@@ -1028,7 +1062,8 @@ function App() {
   } else if (error) {
     statusText = error;
   } else if (lastSync) {
-    statusText = `${tr("Listo · última sincronización")} ${fmtAgo(now - lastSync)}`;
+    statusText = tr("Listo");
+    liveSync = true;
   } else {
     statusText = tr("Listo");
   }
@@ -1589,7 +1624,7 @@ function App() {
         <div className="statusbar-activity">
           {working && <span className="spinner" />}
           <span className="sb-text" title={statusText}>
-            {statusText}
+            {liveSync && lastSync ? <LastSyncText lastSync={lastSync} /> : statusText}
           </span>
           {isSyncingHistory && (
             <button className="sb-cancel" onClick={handleCancelSync} title={tr("Cancelar sincronización")}>
@@ -1603,9 +1638,7 @@ function App() {
           )}
         </div>
         <div className="statusbar-meta">
-          <span className="sb-badge" title={tr("Hora EVE (UTC)")}>
-            🕓 {new Date(now).toISOString().substring(11, 16)} EVE
-          </span>
+          <EveClock />
           <span className="sb-sep" />
           <span
             className="sb-badge"
@@ -1637,14 +1670,7 @@ function App() {
             {tr("SDE local")}
           </span>
           <span className="sb-sep" />
-          <span className="sb-badge" title={tr("Estado de la sincronización automática")}>
-            <span className={`sb-dot ${autoBusy ? "busy" : ""}`} />
-            {autoBusy
-              ? tr("Sincronizando…")
-              : lastSync
-              ? `${tr("Sync")} ${fmtAgo(now - lastSync)} · ${tr("próxima")} ${fmtMMSS(lastSync + AUTO_SYNC_MS - now)}`
-              : tr("Sin sincronizar")}
-          </span>
+          <SyncBadge lastSync={lastSync} autoBusy={autoBusy} />
           <span className="sb-sep" />
           <button
             className="sb-kofi"
@@ -6648,12 +6674,18 @@ function MineriaView({
   const [dim, setDim] = useState<"sys" | "char" | "ore">(
     () => (localStorage.getItem("koru-mineria-dim") as "sys" | "char" | "ore") || "ore",
   );
+  const [mode, setMode] = useState<"units" | "m3" | "bruto" | "comp" | "reproc">(
+    () => (localStorage.getItem("koru-mineria-mode") as "units" | "m3" | "bruto" | "comp" | "reproc") || "bruto",
+  );
   useEffect(() => {
     localStorage.setItem("koru-mineria-gran", gran);
   }, [gran]);
   useEffect(() => {
     localStorage.setItem("koru-mineria-dim", dim);
   }, [dim]);
+  useEffect(() => {
+    localStorage.setItem("koru-mineria-mode", mode);
+  }, [mode]);
 
   useEffect(() => {
     loadNewEden()
@@ -6667,8 +6699,8 @@ function MineriaView({
     (async () => {
       try {
         const d = isGlobal
-          ? await invoke<MiningSeries>("get_mining_series_global")
-          : await invoke<MiningSeries>("get_mining_series", { characterId: subject });
+          ? await invoke<MiningSeries>("get_mining_series_global", { mode })
+          : await invoke<MiningSeries>("get_mining_series", { characterId: subject, mode });
         if (alive) setSeries(d);
       } catch {
         if (alive) setSeries(null);
@@ -6679,7 +6711,7 @@ function MineriaView({
     return () => {
       alive = false;
     };
-  }, [subject, reload]);
+  }, [subject, reload, mode]);
 
   async function doSync() {
     if (typeof subject !== "number" || !onSyncMining) return;
@@ -6700,6 +6732,23 @@ function MineriaView({
   const oreName = (id: number) => oreNames.get(id) ?? `#${id}`;
   const granLabel =
     gran === "day" ? tr("día") : gran === "week" ? tr("semana") : gran === "month" ? tr("mes") : tr("año");
+  // Formato y etiqueta según el modo de valoración.
+  const valFmt =
+    mode === "units"
+      ? (n: number) => fmtSp(Math.round(n))
+      : mode === "m3"
+        ? (n: number) => `${fmtSp(Math.round(n))} m³`
+        : fmtIsk;
+  const modeLabel =
+    mode === "units"
+      ? tr("Unidades")
+      : mode === "m3"
+        ? "m³"
+        : mode === "comp"
+          ? tr("Valor comprimido")
+          : mode === "reproc"
+            ? tr("Valor reprocesado 85%")
+            : tr("Valor bruto");
 
   const inRange = (date: string) => (!from || date >= from) && (!to || date <= to);
   const bucketKey = (date: string) =>
@@ -6783,7 +6832,7 @@ function MineriaView({
     <>
       <div className="km-header">
         <div className="kpis" style={{ flex: 1 }}>
-          <Kpi label={tr("ISK estimado")} value={fmtIsk(rangeValue)} tone="pos" />
+          <Kpi label={modeLabel} value={valFmt(rangeValue)} tone={mode === "units" || mode === "m3" ? undefined : "pos"} />
           <Kpi label={tr("Unidades minadas")} value={fmtSp(rangeUnits)} />
           <Kpi label={tr("Tipos de mineral")} value={fmtSp(oreRows.length)} />
         </div>
@@ -6823,12 +6872,28 @@ function MineriaView({
             Limpiar
           </button>
         )}
+        <div className="seg seg-sm" title={tr("Cómo valorar lo minado")}>
+          {(
+            [
+              ["units", "U"],
+              ["m3", "m³"],
+              ["bruto", tr("Bruto")],
+              ["comp", tr("Comp.")],
+              ["reproc", "85%"],
+            ] as const
+          ).map(([m, lbl]) => (
+            <button key={m} className={mode === m ? "active" : ""} onClick={() => setMode(m)}>
+              {lbl}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="top-list">
         <div className="rateo-charthead">
           <h4>
-            {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
+            {modeLabel}
+            {cumulative ? ` (${tr("acumulado")})` : ""} {tr("por")} {granLabel}
           </h4>
           <div className="seg seg-sm">
             <button className={dim === "ore" ? "active" : ""} onClick={() => setDim("ore")}>
@@ -6844,7 +6909,7 @@ function MineriaView({
             )}
           </div>
         </div>
-        <MultiLineProgress labels={labels} series={lineSeries} fmt={fmtIsk} />
+        <MultiLineProgress labels={labels} series={lineSeries} fmt={valFmt} />
       </div>
 
       <div className="top-list">
@@ -6857,7 +6922,7 @@ function MineriaView({
               <tr>
                 <th>{tr("Mineral")}</th>
                 <th style={{ textAlign: "right" }}>{tr("Unidades")}</th>
-                <th style={{ textAlign: "right" }}>{tr("ISK estimado")}</th>
+                <th style={{ textAlign: "right" }}>{modeLabel}</th>
               </tr>
             </thead>
             <tbody>
@@ -6868,7 +6933,7 @@ function MineriaView({
                     {oreName(o.id)}
                   </td>
                   <td style={{ textAlign: "right" }}>{fmtSp(o.units)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtIsk(o.value)}</td>
+                  <td style={{ textAlign: "right" }}>{valFmt(o.value)}</td>
                 </tr>
               ))}
             </tbody>

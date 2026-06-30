@@ -4221,10 +4221,52 @@ pub struct MiningSeries {
     pub ore_names: Vec<(i64, String)>,
 }
 
-async fn build_mining_series(state: &AppState, filter: Option<i64>) -> AppResult<MiningSeries> {
+// Datos de ore del SDE (volumen, portionSize, comprimido, materiales de reprocesado) embebidos.
+#[derive(Debug, serde::Deserialize)]
+struct OreInfo {
+    #[allow(dead_code)]
+    n: String,
+    v: f64,        // volumen por unidad (m³)
+    p: i64,        // portionSize (lote de reprocesado)
+    c: i64,        // typeID comprimido (0 si no)
+    r: Vec<(i64, i64)>, // materiales de reprocesado [(materialTypeID, cantidad por lote)]
+}
+fn ore_data() -> &'static std::collections::HashMap<i64, OreInfo> {
+    static D: std::sync::OnceLock<std::collections::HashMap<i64, OreInfo>> =
+        std::sync::OnceLock::new();
+    D.get_or_init(|| serde_json::from_str(include_str!("../ore_data.json")).unwrap_or_default())
+}
+/// Valor por UNIDAD de un ore según el modo de valoración elegido.
+/// modos: "units" | "m3" | "bruto" | "comp" | "reproc" (reprocesado al 85%).
+fn ore_per_unit(raw_id: i64, mode: &str, prices: &std::collections::HashMap<i64, f64>) -> f64 {
+    let price = |t: i64| prices.get(&t).copied().unwrap_or(0.0);
+    let info = ore_data().get(&raw_id);
+    match mode {
+        "units" => 1.0,
+        "m3" => info.map(|i| i.v).unwrap_or(0.0),
+        "comp" => match info {
+            Some(i) if i.c > 0 && i.p > 0 => price(i.c) / i.p as f64,
+            _ => price(raw_id),
+        },
+        "reproc" => match info {
+            Some(i) if i.p > 0 && !i.r.is_empty() => i
+                .r
+                .iter()
+                .map(|(m, q)| (*q as f64 / i.p as f64) * 0.85 * price(*m))
+                .sum(),
+            _ => price(raw_id),
+        },
+        _ => price(raw_id), // "bruto"
+    }
+}
+
+async fn build_mining_series(
+    state: &AppState,
+    filter: Option<i64>,
+    mode: &str,
+) -> AppResult<MiningSeries> {
     use std::collections::{HashMap, HashSet};
     let prices = state.db.prices_map().unwrap_or_default();
-    let price_of = |t: i64| prices.get(&t).copied().unwrap_or(0.0);
     let rows = state.db.mining_rows_full(filter)?;
 
     let mut daily: HashMap<String, (f64, i64)> = HashMap::new();
@@ -4240,7 +4282,7 @@ async fn build_mining_series(state: &AppState, filter: Option<i64>) -> AppResult
             Some(d) => d.get(0..10).unwrap_or(d).to_string(),
             None => continue,
         };
-        let val = qty as f64 * price_of(tid);
+        let val = qty as f64 * ore_per_unit(tid, mode, &prices);
         total_value += val;
         total_units += qty;
         ore_ids.insert(tid);
@@ -4294,13 +4336,17 @@ async fn build_mining_series(state: &AppState, filter: Option<i64>) -> AppResult
 #[tauri::command]
 pub async fn get_mining_series(
     character_id: i64,
+    mode: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<MiningSeries> {
-    build_mining_series(&state, Some(character_id)).await
+    build_mining_series(&state, Some(character_id), mode.as_deref().unwrap_or("bruto")).await
 }
 
 /// Serie temporal de minería (histórico), global.
 #[tauri::command]
-pub async fn get_mining_series_global(state: State<'_, AppState>) -> AppResult<MiningSeries> {
-    build_mining_series(&state, None).await
+pub async fn get_mining_series_global(
+    mode: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<MiningSeries> {
+    build_mining_series(&state, None, mode.as_deref().unwrap_or("bruto")).await
 }

@@ -2028,7 +2028,7 @@ dependencies = [
 
 [[package]]
 name = "koru-desktop"
-version = "0.11.3"
+version = "0.11.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
