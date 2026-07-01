@@ -118,10 +118,26 @@ pub struct AssetsSummary {
     pub total_units: i64,
     /// Valor estimado total (precio medio de mercado × cantidad). 0 si no hay precios aún.
     pub est_value: f64,
+    /// Valor de assets EXCLUYENDO blueprints (categoría 9). El average_price de ESI para BPO/BPC es
+    /// su valor BASE (a menudo decenas/cientos de B) → inflaba el patrimonio. Este es el "limpio".
+    pub est_value_clean: f64,
+    /// Top tipos por VALOR estimado (con categoría) — diagnóstico de dónde sale el valor de assets.
+    pub top_value: Vec<TypeValue>,
     /// Top tipos por cantidad (sin nombre; lo resuelve el comando).
     pub top_types: Vec<NameCount>,
     /// Cantidad de los typeIDs vigilados (WATCHED_TYPE_IDS) — para acumular papeles sin coste extra.
     pub watched: std::collections::HashMap<i64, i64>,
+}
+
+/// Un tipo valorado (para el desglose "top assets por valor" y para excluir blueprints).
+#[derive(Debug, Clone, Serialize)]
+pub struct TypeValue {
+    pub type_id: i64,
+    pub qty: i64,
+    pub value: f64,
+    pub category: String,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// Descarga todas las páginas de assets (1000/página) y agrega por tipo.
@@ -145,15 +161,46 @@ pub async fn summary(
 
     // Valoración con precios medios de mercado (si ya se sincronizaron).
     let prices = db.prices_map().unwrap_or_default();
-    let est_value: f64 = by_type
-        .iter()
-        .map(|(tid, qty)| prices.get(tid).copied().unwrap_or(0.0) * (*qty as f64))
-        .sum();
 
     // Cantidades de los typeIDs vigilados (papeles) — desde el mismo by_type, sin paginar de nuevo.
     let mut watched: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     for &tid in WATCHED_TYPE_IDS {
         watched.insert(tid, by_type.get(&tid).copied().unwrap_or(0));
+    }
+
+    // Valor por tipo (qty × precio medio), ordenado desc. La categoría solo la resolvemos para los
+    // tipos de MÁS valor (donde estarían los blueprints inflados); el resto es cola irrelevante.
+    let mut valued: Vec<(i64, i64, f64)> = by_type
+        .iter()
+        .filter_map(|(&tid, &qty)| {
+            let v = prices.get(&tid).copied().unwrap_or(0.0) * qty as f64;
+            if v > 0.0 {
+                Some((tid, qty, v))
+            } else {
+                None
+            }
+        })
+        .collect();
+    valued.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    let est_value: f64 = valued.iter().map(|x| x.2).sum();
+
+    let top_n = valued.len().min(50);
+    let mut est_value_clean = est_value;
+    let mut top_value: Vec<TypeValue> = Vec::new();
+    for &(tid, qty, v) in valued.iter().take(top_n) {
+        let category = resolve_category(esi, db, tid).await;
+        if category == "Blueprints" {
+            est_value_clean -= v; // los blueprints no cuentan para el patrimonio "real"
+        }
+        if top_value.len() < 30 {
+            top_value.push(TypeValue {
+                type_id: tid,
+                qty,
+                value: v,
+                category,
+                name: None,
+            });
+        }
     }
 
     let mut top: Vec<NameCount> = by_type
@@ -174,6 +221,8 @@ pub async fn summary(
         distinct_types,
         total_units,
         est_value,
+        est_value_clean,
+        top_value,
         top_types: top,
         watched,
     })

@@ -458,11 +458,54 @@ button.danger:hover {
 .rateo-charthead h4 {
   margin: 0;
 }
+/* Presets de rango de las gráficas (90 días / Este año / año X / Todo). */
+.range-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.range-year {
+  font-size: 0.78rem;
+  padding: 0.12rem 0.3rem;
+}
 /* Bloque de papeles (estimado) — separado visualmente del realizado en Ingresos PvE. */
 .papers-block {
   margin-top: 1.6rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border-accent);
+}
+/* Comercio: estado de competencia de una orden. */
+.ord-best {
+  color: #3fb950;
+  font-weight: 600;
+}
+.ord-cut {
+  color: #e5534b;
+  font-weight: 600;
+}
+/* Filas de blueprints en el top-por-valor de assets: atenuadas y valor tachado (excluidas del patrimonio). */
+.asset-bp {
+  opacity: 0.55;
+}
+.asset-bp td:last-child {
+  text-decoration: line-through;
+}
+/* Mensaje de resultado del importador dentro del popup de Ajustes. */
+.tb-settings-item-msg {
+  padding: 0 0.6rem 0.4rem;
+  line-height: 1.3;
+}
+/* Resumen tras importar el CSV de wallet (corptools). */
+.import-result {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border-accent);
+  border-radius: 8px;
+  background: rgba(63, 185, 80, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 /* Job de industria listo para recoger */
 tr.job-ready td {
@@ -3526,6 +3569,46 @@ h4 {
   background: rgba(10, 14, 20, 0.6);
 }
 /* Tarjeta de detalle */
+/* Columna apilable de las tarjetas flotantes de intel (derecha): se auto-ajustan sin solaparse
+   (chip Rastro arriba; debajo, detalle/habituales/ficha). */
+.intel-rstack {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 300px;
+  max-height: calc(100% - 16px);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: none;
+}
+.intel-rstack > * {
+  pointer-events: auto;
+}
+/* Dentro de la columna las tarjetas fluyen (no absolutas) y se apilan con gap. */
+.intel-rstack .intel-detail {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 100%;
+  max-height: none;
+  overflow: hidden; /* sin scroll interno; la columna scrollea si hace falta (evita barra horizontal) */
+  z-index: auto;
+  flex: 0 0 auto;
+}
+/* El contenido de texto puede encoger para no forzar ancho (KPIs, filas de sistemas). */
+.intel-prof-kpis > div,
+.intel-prof-row {
+  min-width: 0;
+}
+.intel-prof-row span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .intel-detail {
   position: absolute;
   top: 8px;
@@ -3557,7 +3640,8 @@ h4 {
 .intel-hab-row {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   border: 1px solid #2a3340;
   border-radius: 7px;
   padding: 0.3rem 0.4rem;
@@ -3613,6 +3697,194 @@ h4 {
 .hunt-chip strong {
   color: #ffd1f0;
 }
+/* Ficha del hostil (modo cazador) */
+.intel-profile {
+  max-width: 340px;
+}
+.intel-prof-head-btns {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.intel-prof-expand {
+  padding: 0.1rem 0.35rem;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.intel-prof-kpis {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0.2rem;
+}
+.intel-prof-kpis > div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.intel-prof-kpis b {
+  font-size: 0.95rem;
+}
+.hourbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 48px;
+  margin-top: 0.25rem;
+}
+.hourbar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+}
+.hourbar-fill {
+  width: 100%;
+  min-height: 1px;
+  background: #ff6ad5;
+  border-radius: 1px 1px 0 0;
+}
+.hourbar-lbl {
+  font-size: 0.55rem;
+  color: #6b7684;
+  height: 0.7rem;
+  line-height: 0.7rem;
+}
+.hourbar-lbl.now {
+  color: #ffd1f0;
+  font-weight: 700;
+}
+.intel-prof-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.intel-prof-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.intel-prof-ships {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.intel-prof-ship {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+/* ---------- Sección PvP → Cazador (ficha del hostil a pantalla completa) ---------- */
+.cazador {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+.cazador-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cazador-tools {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.cazador-search {
+  flex: 1;
+  min-width: 0;
+}
+.cazador-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.cazador-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.cazador-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.cazador-row.active {
+  background: rgba(255, 106, 213, 0.14);
+  border-color: #ff6ad5;
+}
+.cazador-row-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.15;
+}
+.cazador-row-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cazador-ficha {
+  min-width: 0;
+}
+.cazador-ficha-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cazador-ficha-head h3 {
+  margin: 0;
+}
+.cazador-ficha-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+.cazador-track-btn {
+  border-color: #ff6ad5 !important;
+  color: #ffd1f0;
+}
+.cazador-sec {
+  margin-top: 1rem;
+}
+.cazador-sec h4 {
+  margin: 0 0 0.4rem;
+}
+.cazador-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.hourbars.big {
+  height: 92px;
+}
+.cazador-ships {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cazador-ship {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.cazador-ship-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .intel-detail-msg {
   font-size: 0.85rem;
   word-break: break-word;
@@ -3636,7 +3908,8 @@ h4 {
 .intel-pilot-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 .intel-pilot-row img {
   border-radius: 4px;

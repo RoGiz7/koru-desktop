@@ -184,11 +184,20 @@ export type GlobalSkills = {
   training: CharTraining[];
 };
 
+export type TypeValue = {
+  type_id: number;
+  qty: number;
+  value: number;
+  category: string;
+  name: string | null;
+};
 export type AssetsSummary = {
   stacks: number;
   distinct_types: number;
   total_units: number;
   est_value: number;
+  est_value_clean: number;
+  top_value: TypeValue[];
   top_types: NameCount[];
 };
 export type AssetDetail = {
@@ -416,6 +425,15 @@ export type AbyssalsData = {
 };
 export type PaperDay = { date: string; source: string; value: number };
 export type PaperSeries = { daily: PaperDay[] };
+export type ImportResult = {
+  total_rows: number;
+  imported: number;
+  skipped_dup: number;
+  skipped_unknown: number;
+  date_min: string | null;
+  date_max: string | null;
+  by_char: [string, number][];
+};
 export type CategorySum = { category: string; isk: number; prev_isk: number };
 export type FinancialSummary = {
   income_total: number;
@@ -445,6 +463,31 @@ export type MarketOrder = {
   system_id: number;
   system_name: string | null;
   issued: string | null;
+  duration: number;
+  best_competitor: number | null;
+  is_best: boolean;
+  competitors: number;
+};
+export type TradePnlItem = {
+  type_id: number;
+  name: string | null;
+  bought_qty: number;
+  sold_qty: number;
+  avg_buy: number;
+  avg_sell: number;
+  revenue: number;
+  cost: number;
+  profit: number;
+  margin: number;
+};
+export type PnlDay = { date: string; profit: number };
+export type TradePnl = {
+  total_profit: number;
+  total_revenue: number;
+  total_cost: number;
+  total_tax: number;
+  items: TradePnlItem[];
+  daily: PnlDay[];
 };
 export type ServerStatus = {
   players: number;

@@ -11,6 +11,7 @@ import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, shipIcon, zkillUrl, secColor,
 import { Kpi, Bars, MultiLineProgress, Donut, Th, DONUT_COLORS, TypeIcon, TopList } from "./charts";
 import { FitsView, ShipFit, FIT_SLOTS_RE } from "./fit";
 import { MapView } from "./map";
+import { CazadorView } from "./cazador";
 import { loadNewEden } from "./neweden";
 import {
   FEATURES,
@@ -51,6 +52,7 @@ import type {
   Incursion,
   ServerStatus,
   MarketOrder,
+  TradePnl,
   Planet,
   RattingDetail,
   SpecialRatsResult,
@@ -63,6 +65,7 @@ import type {
   FactionalView as FactionalData,
   AbyssalsData,
   PaperSeries,
+  ImportResult,
   ContactRow,
   StandingRow,
   WhConn,
@@ -115,6 +118,10 @@ function App() {
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
   const [settingsOpen, setSettingsOpen] = useState(false); // desplegable ⚙️ Ajustes (datos/backup)
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  // Importador de histórico CSV (corptools) — vive en ⚙️ Ajustes para no tenerlo siempre a mano.
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importErr, setImportErr] = useState<string | null>(null);
   // Posición calculada del popup (fixed) para que nunca se salga del viewport, caiga donde
   // caiga el botón ⚙️ (la topbar se reordena en ventanas estrechas).
   const [settingsPos, setSettingsPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -331,6 +338,28 @@ function App() {
     }
   }
 
+  async function doImportCsv() {
+    const sel = await openDialog({
+      title: tr("Importar CSV de wallet (corptools)"),
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+      multiple: false,
+      directory: false,
+    });
+    if (!sel || typeof sel !== "string") return;
+    setImporting(true);
+    setImportErr(null);
+    setImportResult(null);
+    try {
+      const res = await invoke<ImportResult>("import_wallet_csv", { path: sel });
+      setImportResult(res);
+      loadTab(subject, tab, true); // refresca la vista actual (wallet/patrimonio) en segundo plano
+    } catch (e) {
+      setImportErr(String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   // Tema visual seleccionable (persistido en local). "nebula" = por defecto.
   const [theme, setTheme] = useState<string>(
     () => localStorage.getItem("koru-theme") || "nebula"
@@ -375,6 +404,10 @@ function App() {
   const [factionalData, setFactionalData] = useState<FactionalData | null>(null);
   const [abyssalsData, setAbyssalsData] = useState<AbyssalsData | null>(null);
   const [paperSeries, setPaperSeries] = useState<PaperSeries | null>(null);
+  // Piloto a preseleccionar en la sección Cazador (puente desde la ficha del mapa).
+  const [cazadorPilot, setCazadorPilot] = useState<string | null>(null);
+  // Petición de "pintar rastro en el mapa" desde la sección Cazador (nonce fuerza re-disparo).
+  const [mapTrackReq, setMapTrackReq] = useState<{ name: string; nonce: number } | null>(null);
   const [contactsData, setContactsData] = useState<ContactRow[] | null>(null);
   const [standingsData, setStandingsData] = useState<StandingRow[] | null>(null);
   const [gSkills, setGSkills] = useState<GlobalSkills | null>(null); // global (otra forma)
@@ -1266,6 +1299,27 @@ function App() {
                   </span>
                 </span>
               </button>
+              <button className="tb-settings-item" onClick={doImportCsv} disabled={importing}>
+                <span className="tb-si-ic">📥</span>
+                <span className="tb-si-tx">
+                  <strong>
+                    {importing ? tr("Importando…") : tr("Importar histórico (CSV corptools)")}
+                  </strong>
+                  <span className="small muted">
+                    {tr("Backfillea años de wallet desde un export de corptools/Alliance Auth. No duplica al reimportar.")}
+                  </span>
+                </span>
+              </button>
+              {importErr && <div className="tb-settings-item-msg fits-err small">{importErr}</div>}
+              {importResult && (
+                <div className="tb-settings-item-msg small muted">
+                  ✅ {fmtSp(importResult.imported)} {tr("movimientos nuevos")}
+                  {importResult.skipped_dup > 0 &&
+                    ` · ${fmtSp(importResult.skipped_dup)} ${tr("ya existían")}`}
+                  {importResult.date_min &&
+                    ` · ${importResult.date_min.slice(0, 10)} → ${importResult.date_max?.slice(0, 10)}`}
+                </div>
+              )}
 
               <div className="tb-settings-auto">
                 <label className="tb-auto-toggle">
@@ -1448,6 +1502,19 @@ function App() {
             setAssetQuery(name);
             changeTab("assets");
           }}
+          onOpenCazador={(name) => {
+            setCazadorPilot(name ?? null);
+            changeTab("cazador");
+            // El mapa está arriba y las secciones abajo → hacer scroll a la sección tras cambiar.
+            window.setTimeout(
+              () =>
+                document
+                  .querySelector(".panel")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+              50,
+            );
+          }}
+          openTrack={mapTrackReq}
           hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
           charLocations={(isGlobal
             ? Object.values(cards)
@@ -1552,6 +1619,23 @@ function App() {
           )}
           {tab === "rivales" && <RivalsView data={rivalsData} busy={sectionBusy} />}
           {tab === "batallas" && <BattlesView data={battlesData} busy={sectionBusy} />}
+          {tab === "cazador" && (
+            <CazadorView
+              initialPilot={cazadorPilot}
+              onTrackOnMap={(name) => {
+                handleOverlayChange("intel");
+                setMapTrackReq({ name, nonce: Date.now() });
+                // El mapa está arriba; subir hasta él para ver el rastro.
+                window.setTimeout(
+                  () =>
+                    document
+                      .querySelector(".map-wrap")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                  50,
+                );
+              }}
+            />
+          )}
           {tab === "patrimonio" && <NetworthViewC data={networthData} busy={sectionBusy} />}
           {tab === "wallet" && (
             <WalletViewC
@@ -1584,7 +1668,9 @@ function App() {
           {tab === "industria" && (
             <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} />
           )}
-          {tab === "comercio" && <ComercioView orders={marketOrders} busy={sectionBusy} />}
+          {tab === "comercio" && (
+            <ComercioView orders={marketOrders} busy={sectionBusy} subject={subject} />
+          )}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (
@@ -2182,7 +2268,7 @@ function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
 
       {s.length >= 2 && (
         <p className="muted" style={{ marginTop: 8, fontSize: "0.78rem" }}>
-          {tr("Valor de assets estimado con el precio medio de mercado (average price de ESI), no con órdenes reales de Jita. Útil como tendencia, no como liquidación exacta.")}
+          {tr("Valor de assets estimado con el precio medio de mercado (average price de ESI), no con órdenes reales de Jita, y EXCLUYENDO blueprints (su precio base infla el total). Útil como tendencia, no como liquidación exacta. Los snapshots anteriores a esta versión aún incluyen blueprints (verás un escalón).")}
         </p>
       )}
     </>
@@ -2256,8 +2342,8 @@ function WalletViewC(props: {
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
     () => (localStorage.getItem("koru-wallet-gran") as "day" | "week" | "month" | "year") || "month",
   );
-  const [cumulative, setCumulative] = useState(false);
-  const [from, setFrom] = useState("");
+  const cumulative: boolean = false; // "Acumulado" retirado; los presets de rango lo sustituyen.
+  const [from, setFrom] = useState(daysAgo(90));
   const [to, setTo] = useState("");
   const [dim, setDim] = useState<"flux" | "cat" | "char">(
     () => (localStorage.getItem("koru-wallet-dim") as "flux" | "cat" | "char") || "flux",
@@ -2306,6 +2392,16 @@ function WalletViewC(props: {
     e.exp += d.expense;
     dayMap.set(k, e);
   }
+  // KPIs del RANGO seleccionado (Ingresos/Gastos/Neto) en vez del histórico completo.
+  const rangeInc = (series?.daily ?? [])
+    .filter((d) => inRange(d.date))
+    .reduce((a, d) => a + d.income, 0);
+  const rangeExp = (series?.daily ?? [])
+    .filter((d) => inRange(d.date))
+    .reduce((a, d) => a + d.expense, 0);
+  const walletYears = [...new Set((series?.daily ?? []).map((d) => +d.date.slice(0, 4)))]
+    .filter((y) => y > 0)
+    .sort((a, b) => b - a);
   const labels = [...dayMap.keys()];
   const cum = (arr: number[]) => {
     if (!cumulative) return arr;
@@ -2370,23 +2466,24 @@ function WalletViewC(props: {
         <>
           <div className="kpis">
             <Kpi label={tr("Balance")} value={fmtIsk(data.balance)} />
-            <Kpi label={tr("Ingresos")} value={fmtIsk(data.stats.income)} tone="pos" />
-            <Kpi label={tr("Gastos")} value={fmtIsk(data.stats.expense)} tone="neg" />
-            <Kpi label={tr("Neto")} value={fmtIsk(data.stats.net)} tone={data.stats.net >= 0 ? "pos" : "neg"} />
+            <Kpi label={tr("Ingresos")} value={fmtIsk(rangeInc)} tone="pos" />
+            <Kpi label={tr("Gastos")} value={fmtIsk(rangeExp)} tone="neg" />
+            <Kpi
+              label={tr("Neto")}
+              value={fmtIsk(rangeInc - rangeExp)}
+              tone={rangeInc - rangeExp >= 0 ? "pos" : "neg"}
+            />
             <Kpi label={tr("Movimientos")} value={data.stats.entries} />
           </div>
           <div className="rateo-controls">
             <div className="seg">
-              {(["day", "week", "month", "year"] as const).map((g) => (
+              {(["day", "week", "month"] as const).map((g) => (
                 <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
                   {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : g === "month" ? tr("Mes") : tr("Año")}
                 </button>
               ))}
             </div>
-            <label className="rateo-check">
-              <input type="checkbox" checked={cumulative} onChange={(e) => setCumulative(e.target.checked)} />
-              {tr("Acumulado")}
-            </label>
+            <RangePresets from={from} to={to} setFrom={setFrom} setTo={setTo} years={walletYears} />
             <label className="rateo-date">
               {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             </label>
@@ -2764,6 +2861,77 @@ function GlobalSkillsView(props: { data: GlobalSkills | null; busy: boolean }) {
   );
 }
 
+// Fecha (YYYY-MM-DD) de hace N días, para acotar las gráficas a una ventana reciente por defecto.
+function daysAgo(n: number): string {
+  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+}
+// Presets de rango reutilizables para todas las gráficas temporales: 90 días (defecto) · Este año ·
+// selector de año concreto · Todo. Evita mostrar de golpe el acumulado histórico (poco fiel a "ahora").
+function RangePresets({
+  from,
+  to,
+  setFrom,
+  setTo,
+  years,
+}: {
+  from: string;
+  to: string;
+  setFrom: (s: string) => void;
+  setTo: (s: string) => void;
+  years?: number[];
+}) {
+  const year = new Date().getUTCFullYear();
+  const isAll = !from && !to;
+  const pickedYear = from.endsWith("-01-01") && to.endsWith("-12-31") && from.slice(0, 4) === to.slice(0, 4) ? from.slice(0, 4) : "";
+  return (
+    <div className="range-presets">
+      <div className="seg seg-sm">
+        <button
+          className={from === daysAgo(90) && !to ? "active" : ""}
+          onClick={() => {
+            setFrom(daysAgo(90));
+            setTo("");
+          }}
+        >
+          {tr("90 días")}
+        </button>
+        <button
+          className={from === `${year}-01-01` && !to ? "active" : ""}
+          onClick={() => {
+            setFrom(`${year}-01-01`);
+            setTo("");
+          }}
+        >
+          {tr("Este año")}
+        </button>
+        <button className={isAll ? "active" : ""} onClick={() => { setFrom(""); setTo(""); }}>
+          {tr("Todo")}
+        </button>
+      </div>
+      {years && years.length > 0 && (
+        <select
+          className="range-year"
+          value={pickedYear}
+          onChange={(e) => {
+            const y = e.target.value;
+            if (y) {
+              setFrom(`${y}-01-01`);
+              setTo(`${y}-12-31`);
+            }
+          }}
+        >
+          <option value="">{tr("Año…")}</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 // Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
 function RateoView({
   data,
@@ -2783,8 +2951,8 @@ function RateoView({
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
     () => (localStorage.getItem("koru-rateo-gran") as "day" | "week" | "month" | "year") || "day",
   );
-  const [cumulative, setCumulative] = useState(false);
-  const [from, setFrom] = useState("");
+  const cumulative: boolean = false; // "Acumulado" retirado; los presets de rango lo sustituyen.
+  const [from, setFrom] = useState(daysAgo(90));
   const [to, setTo] = useState("");
   const [dim, setDim] = useState<"sys" | "char">(
     () => (localStorage.getItem("koru-rateo-dim") as "sys" | "char") || "sys",
@@ -2849,8 +3017,20 @@ function RateoView({
     series = series.map((s) => ({ ...s, isk: (accI += s.isk), rats: (accR += s.rats) }));
   }
 
-  const totalIsk = data.total_bounty + data.total_ess;
-  const iskPerHour = data.active_hours > 0 ? totalIsk / data.active_hours : 0;
+  // KPIs del RANGO seleccionado (no del histórico entero) → más fiel a "lo de ahora".
+  const rangeBounty = daily.reduce((a, d) => a + d.bounty, 0);
+  const rangeEss = daily.reduce((a, d) => a + d.ess, 0);
+  const rangeRats = daily.reduce((a, d) => a + d.rats, 0);
+  const totalIsk = rangeBounty + rangeEss;
+  // Total histórico (para el % del "Detalle por sistema", que sigue siendo all-time por datos).
+  const allTimeIsk = data.total_bounty + data.total_ess;
+  // ISK/hora estimado: escala las horas activas totales por la fracción de días activos en el rango.
+  const totalActiveDays = data.daily.filter((d) => d.bounty + d.ess > 0).length;
+  const rangeActiveDays = daily.filter((d) => d.bounty + d.ess > 0).length;
+  const rangeHours =
+    totalActiveDays > 0 ? (data.active_hours * rangeActiveDays) / totalActiveDays : 0;
+  const iskPerHour = rangeHours > 0 ? totalIsk / rangeHours : 0;
+  const rateoYears = [...new Set(data.daily.map((d) => +d.date.slice(0, 4)))].sort((a, b) => b - a);
   const topSystems = data.by_system.slice(0, 12);
 
   // Series por sistema (top 6) alineadas con los mismos buckets que la línea total.
@@ -2921,9 +3101,9 @@ function RateoView({
     <>
       <div className="kpis">
         <Kpi label={tr("ISK total (bounty + ESS)")} value={fmtIsk(totalIsk)} tone="pos" />
-        <Kpi label={tr("Bounties")} value={fmtIsk(data.total_bounty)} tone="pos" />
-        <Kpi label={tr("ESS")} value={fmtIsk(data.total_ess)} tone="pos" />
-        <Kpi label={tr("Ratas eliminadas")} value={fmtSp(data.rats_killed)} />
+        <Kpi label={tr("Bounties")} value={fmtIsk(rangeBounty)} tone="pos" />
+        <Kpi label={tr("ESS")} value={fmtIsk(rangeEss)} tone="pos" />
+        <Kpi label={tr("Ratas eliminadas")} value={fmtSp(rangeRats)} />
         <Kpi
           label={tr("Ratas especiales")}
           value={special ? fmtSp(special.total) : "…"}
@@ -2934,20 +3114,13 @@ function RateoView({
 
       <div className="rateo-controls">
         <div className="seg">
-          {(["day", "week", "month", "year"] as const).map((g) => (
+          {(["day", "week", "month"] as const).map((g) => (
             <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
               {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : g === "month" ? tr("Mes") : tr("Año")}
             </button>
           ))}
         </div>
-        <label className="rateo-check">
-          <input
-            type="checkbox"
-            checked={cumulative}
-            onChange={(e) => setCumulative(e.target.checked)}
-          />
-          {tr("Acumulado")}
-        </label>
+        <RangePresets from={from} to={to} setFrom={setFrom} setTo={setTo} years={rateoYears} />
         <label className="rateo-date">
           {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
@@ -3037,7 +3210,7 @@ function RateoView({
           <tbody>
             {topSystems.map((s) => {
               const sp = special?.by_system.find((b) => b.system_id === s.system_id);
-              const pct = totalIsk > 0 ? (s.isk / totalIsk) * 100 : 0;
+              const pct = allTimeIsk > 0 ? (s.isk / allTimeIsk) * 100 : 0;
               const iskH = s.active_hours > 0 ? s.isk / s.active_hours : 0;
               return (
                 <tr key={s.system_id}>
@@ -3472,8 +3645,8 @@ function MineriaView({
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
     () => (localStorage.getItem("koru-mineria-gran") as "day" | "week" | "month" | "year") || "month",
   );
-  const [cumulative, setCumulative] = useState(false);
-  const [from, setFrom] = useState("");
+  const cumulative: boolean = false; // "Acumulado" retirado; los presets de rango lo sustituyen.
+  const [from, setFrom] = useState(daysAgo(90));
   const [to, setTo] = useState("");
   const [dim, setDim] = useState<"sys" | "char" | "ore">(
     () => (localStorage.getItem("koru-mineria-dim") as "sys" | "char" | "ore") || "ore",
@@ -3631,6 +3804,9 @@ function MineriaView({
     .sort((a, b) => b.value - a.value);
   const rangeValue = oreRows.reduce((a, o) => a + o.value, 0);
   const rangeUnits = oreRows.reduce((a, o) => a + o.units, 0);
+  const mineriaYears = [...new Set(series.daily_by_ore.map((r) => +r.date.slice(0, 4)))]
+    .filter((y) => y > 0)
+    .sort((a, b) => b - a);
 
   return (
     <>
@@ -3649,16 +3825,13 @@ function MineriaView({
 
       <div className="rateo-controls">
         <div className="seg">
-          {(["day", "week", "month", "year"] as const).map((g) => (
+          {(["day", "week", "month"] as const).map((g) => (
             <button key={g} className={gran === g ? "active" : ""} onClick={() => setGran(g)}>
               {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : g === "month" ? tr("Mes") : tr("Año")}
             </button>
           ))}
         </div>
-        <label className="rateo-check">
-          <input type="checkbox" checked={cumulative} onChange={(e) => setCumulative(e.target.checked)} />
-          {tr("Acumulado")}
-        </label>
+        <RangePresets from={from} to={to} setFrom={setFrom} setTo={setTo} years={mineriaYears} />
         <label className="rateo-date">
           {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
@@ -4082,14 +4255,43 @@ function PlanetologiaView({ planets, busy }: { planets: Planet[] | null; busy: b
   );
 }
 
-function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: boolean }) {
+function ComercioView({
+  orders,
+  busy,
+  subject,
+}: {
+  orders: MarketOrder[] | null;
+  busy: boolean;
+  subject: number | "global";
+}) {
+  const [view, setView] = useState<"orders" | "pnl">("orders");
+  const [pnl, setPnl] = useState<TradePnl | null>(null);
+  const [pnlBusy, setPnlBusy] = useState(false);
+  const [pGran, setPGran] = useState<"day" | "week" | "month">("month");
+  const [pFrom, setPFrom] = useState(daysAgo(90));
+  const [pTo, setPTo] = useState("");
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "issued", dir: -1 });
   const onSort = (col: string) =>
     setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
-  if (!orders) return <p className="muted">{busy ? tr("Cargando órdenes…") : tr("Sin datos.")}</p>;
-  if (orders.length === 0)
-    return <p className="muted small">{tr("No tienes órdenes de mercado abiertas.")}</p>;
-  const sorted = [...orders].sort((a, b) => {
+  useEffect(() => {
+    if (view !== "pnl") return;
+    setPnlBusy(true);
+    setPnl(null);
+    const p =
+      subject === "global"
+        ? invoke<TradePnl>("get_trading_pnl_global")
+        : invoke<TradePnl>("get_trading_pnl", { characterId: subject });
+    p.then(setPnl)
+      .catch(() => setPnl(null))
+      .finally(() => setPnlBusy(false));
+  }, [view, subject]);
+
+  const daysLeft = (o: MarketOrder) =>
+    o.issued
+      ? Math.ceil((new Date(o.issued).getTime() + o.duration * 86400000 - Date.now()) / 86400000)
+      : null;
+  const list = orders ?? [];
+  const sorted = [...list].sort((a, b) => {
     const d = sort.dir;
     switch (sort.col) {
       case "item":
@@ -4106,53 +4308,194 @@ function ComercioView({ orders, busy }: { orders: MarketOrder[] | null; busy: bo
         return (a.issued ?? "").localeCompare(b.issued ?? "") * d;
     }
   });
-  const buys = orders.filter((o) => o.is_buy).length;
-  const buyValue = orders
-    .filter((o) => o.is_buy)
-    .reduce((s, o) => s + o.price * o.volume_remain, 0);
-  const sellValue = orders
-    .filter((o) => !o.is_buy)
-    .reduce((s, o) => s + o.price * o.volume_remain, 0);
+  const buys = list.filter((o) => o.is_buy).length;
+  const buyValue = list.filter((o) => o.is_buy).reduce((s, o) => s + o.price * o.volume_remain, 0);
+  const sellValue = list.filter((o) => !o.is_buy).reduce((s, o) => s + o.price * o.volume_remain, 0);
+  const undercut = list.filter((o) => !o.is_best).length; // órdenes que hay que repricear
+
+  // Serie de beneficio realizado por día (fecha de venta), bucketizada por granularidad + rango.
+  const pDaily = (pnl?.daily ?? []).filter((d) => (!pFrom || d.date >= pFrom) && (!pTo || d.date <= pTo));
+  const pBucket = new Map<string, number>();
+  for (const d of pDaily) {
+    const k = pGran === "month" ? d.date.slice(0, 7) : pGran === "week" ? weekKey(d.date) : d.date;
+    pBucket.set(k, (pBucket.get(k) ?? 0) + d.profit);
+  }
+  const pLabels = [...pBucket.keys()];
+  const pSeries = [
+    { name: tr("Beneficio"), color: "#3fb950", values: pLabels.map((l) => pBucket.get(l) ?? 0) },
+  ];
+  const pYears = [...new Set((pnl?.daily ?? []).map((d) => +d.date.slice(0, 4)))]
+    .filter((y) => y > 0)
+    .sort((a, b) => b - a);
+
   return (
     <>
-      <div className="kpis">
-        <Kpi label={tr("Órdenes")} value={fmtSp(orders.length)} />
-        <Kpi label={tr("De compra")} value={fmtSp(buys)} tone="pos" />
-        <Kpi label={tr("De venta")} value={fmtSp(orders.length - buys)} tone="neg" />
-        <Kpi label={tr("Valor compra")} value={fmtIsk(buyValue)} tone="pos" />
-        <Kpi label={tr("Valor venta")} value={fmtIsk(sellValue)} tone="neg" />
+      <div className="seg seg-sm" style={{ marginBottom: "0.7rem" }}>
+        <button className={view === "orders" ? "active" : ""} onClick={() => setView("orders")}>
+          {tr("Órdenes abiertas")}
+        </button>
+        <button className={view === "pnl" ? "active" : ""} onClick={() => setView("pnl")}>
+          {tr("Rentabilidad (P&L)")}
+        </button>
       </div>
-      <table className="km-table">
-        <thead>
-          <tr>
-            <Th label={tr("Item")} col="item" sort={sort} onSort={onSort} />
-            <Th label={tr("Tipo")} col="type" sort={sort} onSort={onSort} />
-            <Th label={tr("Precio")} col="price" sort={sort} onSort={onSort} />
-            <Th label={tr("Cantidad")} col="qty" sort={sort} onSort={onSort} />
-            <Th label={tr("Sistema")} col="sys" sort={sort} onSort={onSort} />
-            <Th label={tr("Emitida")} col="issued" sort={sort} onSort={onSort} />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((o, i) => (
-            <tr key={i}>
-              <td className="ship-cell">
-                <TypeIcon typeId={o.type_id} />
-                <span>{o.type_name ?? `#${o.type_id}`}</span>
-              </td>
-              <td style={{ color: o.is_buy ? "#3fb950" : "#e5534b" }}>
-                {o.is_buy ? tr("Compra") : tr("Venta")}
-              </td>
-              <td>{fmtIsk(o.price)}</td>
-              <td>
-                {fmtSp(o.volume_remain)} / {fmtSp(o.volume_total)}
-              </td>
-              <td>{o.system_name ?? (o.system_id ? `#${o.system_id}` : "—")}</td>
-              <td>{o.issued?.replace("T", " ").slice(0, 16) ?? "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {view === "orders" ? (
+        !orders ? (
+          <p className="muted">{busy ? tr("Cargando órdenes…") : tr("Sin datos.")}</p>
+        ) : orders.length === 0 ? (
+          <p className="muted small">{tr("No tienes órdenes de mercado abiertas.")}</p>
+        ) : (
+          <>
+            <div className="kpis">
+              <Kpi label={tr("Órdenes")} value={fmtSp(list.length)} />
+              <Kpi label={tr("De compra")} value={fmtSp(buys)} tone="pos" />
+              <Kpi label={tr("De venta")} value={fmtSp(list.length - buys)} tone="neg" />
+              <Kpi
+                label={tr("Pisadas (a repricear)")}
+                value={fmtSp(undercut)}
+                tone={undercut > 0 ? "neg" : "pos"}
+              />
+              <Kpi label={tr("Valor compra")} value={fmtIsk(buyValue)} tone="pos" />
+              <Kpi label={tr("Valor venta")} value={fmtIsk(sellValue)} tone="neg" />
+            </div>
+            <table className="km-table">
+              <thead>
+                <tr>
+                  <Th label={tr("Item")} col="item" sort={sort} onSort={onSort} />
+                  <Th label={tr("Tipo")} col="type" sort={sort} onSort={onSort} />
+                  <Th label={tr("Precio")} col="price" sort={sort} onSort={onSort} />
+                  <th>{tr("Estado")}</th>
+                  <Th label={tr("Cantidad")} col="qty" sort={sort} onSort={onSort} />
+                  <th>{tr("Vendido")}</th>
+                  <Th label={tr("Sistema")} col="sys" sort={sort} onSort={onSort} />
+                  <th>{tr("Caduca")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((o, i) => {
+                  const filled = o.volume_total > 0 ? 1 - o.volume_remain / o.volume_total : 0;
+                  const left = daysLeft(o);
+                  return (
+                    <tr key={i}>
+                      <td className="ship-cell">
+                        <TypeIcon typeId={o.type_id} />
+                        <span>{o.type_name ?? `#${o.type_id}`}</span>
+                      </td>
+                      <td style={{ color: o.is_buy ? "#3fb950" : "#e5534b" }}>
+                        {o.is_buy ? tr("Compra") : tr("Venta")}
+                      </td>
+                      <td>{fmtIsk(o.price)}</td>
+                      <td>
+                        {o.is_best ? (
+                          <span className="ord-best">✓ {tr("Mejor")}</span>
+                        ) : (
+                          <span
+                            className="ord-cut"
+                            title={
+                              o.best_competitor != null
+                                ? `${tr("Mejor rival")}: ${fmtIsk(o.best_competitor)}`
+                                : ""
+                            }
+                          >
+                            ⚠ {tr("Pisada")}
+                            {o.best_competitor != null && (
+                              <span className="muted small"> · {fmtIsk(o.best_competitor)}</span>
+                            )}
+                          </span>
+                        )}
+                        {o.competitors > 0 && (
+                          <span className="muted small"> · {o.competitors} {tr("riv.")}</span>
+                        )}
+                      </td>
+                      <td>
+                        {fmtSp(o.volume_remain)} / {fmtSp(o.volume_total)}
+                      </td>
+                      <td>{(filled * 100).toFixed(0)}%</td>
+                      <td>{o.system_name ?? (o.system_id ? `#${o.system_id}` : "—")}</td>
+                      <td>{left == null ? "—" : left <= 0 ? tr("caducada") : `${left} ${tr("d")}`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )
+      ) : pnlBusy && !pnl ? (
+        <p className="muted">{tr("Cargando…")}</p>
+      ) : !pnl || pnl.items.length === 0 ? (
+        <p className="muted small">
+          {tr("Sin transacciones de mercado para calcular el P&L. Se van acumulando al sincronizar la wallet.")}
+        </p>
+      ) : (
+        <>
+          <div className="kpis">
+            <Kpi
+              label={tr("Beneficio realizado")}
+              value={fmtIsk(pnl.total_profit)}
+              tone={pnl.total_profit >= 0 ? "pos" : "neg"}
+            />
+            <Kpi label={tr("Facturación (ventas)")} value={fmtIsk(pnl.total_revenue)} />
+            <Kpi label={tr("Coste de lo vendido")} value={fmtIsk(pnl.total_cost)} tone="neg" />
+            <Kpi label={tr("Impuestos y comisiones")} value={fmtIsk(pnl.total_tax)} tone="neg" />
+            <Kpi
+              label={tr("Neto tras impuestos")}
+              value={fmtIsk(pnl.total_profit - pnl.total_tax)}
+              tone={pnl.total_profit - pnl.total_tax >= 0 ? "pos" : "neg"}
+            />
+          </div>
+          <div className="rateo-controls">
+            <div className="seg">
+              {(["day", "week", "month"] as const).map((g) => (
+                <button key={g} className={pGran === g ? "active" : ""} onClick={() => setPGran(g)}>
+                  {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : tr("Mes")}
+                </button>
+              ))}
+            </div>
+            <RangePresets from={pFrom} to={pTo} setFrom={setPFrom} setTo={setPTo} years={pYears} />
+          </div>
+          <div className="rateo-charthead">
+            <span className="muted small">
+              {tr("Beneficio realizado por")}{" "}
+              {pGran === "day" ? tr("día") : pGran === "week" ? tr("semana") : tr("mes")}
+            </span>
+          </div>
+          <MultiLineProgress labels={pLabels} series={pSeries} fmt={fmtIsk} />
+          <p className="muted small">
+            {tr("Beneficio realizado por item (coste medio ponderado): ingreso de ventas − coste de lo vendido. Los impuestos/comisiones son del wallet (globales, no por item).")}
+          </p>
+          <table className="km-table">
+            <thead>
+              <tr>
+                <th>{tr("Item")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Comprado")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Vendido")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Compra media")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Venta media")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Beneficio")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Margen")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pnl.items.map((it) => (
+                <tr key={it.type_id}>
+                  <td className="ship-cell">
+                    <TypeIcon typeId={it.type_id} />
+                    <span>{it.name ?? `#${it.type_id}`}</span>
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(it.bought_qty)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(it.sold_qty)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtIsk(it.avg_buy)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtIsk(it.avg_sell)}</td>
+                  <td style={{ textAlign: "right", color: it.profit >= 0 ? "#3fb950" : "#e5534b" }}>
+                    {fmtIsk(it.profit)}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{it.margin.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </>
   );
 }
@@ -4253,8 +4596,51 @@ function AssetsView(props: {
             <Kpi label={tr("Stacks")} value={fmtSp(data.stacks)} />
             <Kpi label={tr("Tipos distintos")} value={fmtSp(data.distinct_types)} />
             <Kpi label={tr("Unidades totales")} value={fmtSp(data.total_units)} />
-            {data.est_value > 0 && <Kpi label={tr("Valor estimado")} value={fmtIsk(data.est_value)} />}
+            {data.est_value_clean > 0 && (
+              <Kpi label={tr("Valor estimado")} value={fmtIsk(data.est_value_clean)} />
+            )}
+            {data.est_value - data.est_value_clean > 0 && (
+              <Kpi
+                label={tr("Blueprints (excluidos)")}
+                value={fmtIsk(data.est_value - data.est_value_clean)}
+                tone="neg"
+              />
+            )}
           </div>
+          {data.top_value && data.top_value.length > 0 && (
+            <div className="panel resumen-panel" style={{ maxWidth: 580, marginBottom: "0.8rem" }}>
+              <h4>💰 {tr("Top assets por valor estimado")}</h4>
+              <p className="muted small">
+                {tr("Los blueprints NO cuentan para el patrimonio: el average_price de ESI para un BPO/BPC es su valor base, no lo que sacarías vendiéndolo.")}
+              </p>
+              <table className="km-table cat-table">
+                <thead>
+                  <tr>
+                    <th>{tr("Item")}</th>
+                    <th>{tr("Categoría")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Cantidad")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Valor")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.top_value.map((t) => (
+                    <tr key={t.type_id} className={t.category === "Blueprints" ? "asset-bp" : ""}>
+                      <td>
+                        <TypeIcon typeId={t.type_id} />{" "}
+                        {t.name ?? `#${t.type_id}`}
+                      </td>
+                      <td>
+                        {tr(t.category)}
+                        {t.category === "Blueprints" && ` · ${tr("excluido")}`}
+                      </td>
+                      <td style={{ textAlign: "right" }}>{fmtSp(t.qty)}</td>
+                      <td style={{ textAlign: "right" }}>{fmtIsk(t.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {detail && detail.length > 0 && catList.length > 1 && (
             <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
               <h4>{tr("Distribución por categoría")}</h4>

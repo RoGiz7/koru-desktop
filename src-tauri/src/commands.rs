@@ -273,7 +273,7 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
             if let Ok(s) =
                 assets::summary(&state.esi, &state.db, c.character_id, &valid.access_token).await
             {
-                asset_value = s.est_value;
+                asset_value = s.est_value_clean; // patrimonio sin blueprints inflados
                 have_data = true;
                 // Papeles redimibles: snapshot del stock del día desde el mismo summary (sin ESI extra).
                 for (&tid, &qty) in &s.watched {
@@ -2592,10 +2592,18 @@ pub async fn get_assets(character_id: i64, state: State<'_, AppState>) -> AppRes
     )
     .await?;
     let mut summary = assets::summary(&state.esi, &state.db, character_id, &token).await?;
-    let ids: Vec<i64> = summary.top_types.iter().map(|n| n.id).collect();
+    let ids: Vec<i64> = summary
+        .top_types
+        .iter()
+        .map(|n| n.id)
+        .chain(summary.top_value.iter().map(|t| t.type_id))
+        .collect();
     if let Ok(names) = state.esi.resolve_names(&ids).await {
         for n in summary.top_types.iter_mut() {
             n.name = names.get(&n.id).cloned();
+        }
+        for t in summary.top_value.iter_mut() {
+            t.name = names.get(&t.type_id).cloned();
         }
     }
     Ok(summary)
@@ -3547,6 +3555,8 @@ pub struct IntelSighting {
     pub system_id: Option<i64>,
     #[serde(default)]
     pub ts_ms: Option<i64>,
+    #[serde(default)]
+    pub ship_type_id: Option<i64>,
 }
 
 /// Registra avistamientos de pilotos del intel (cuenta menciones y último sistema). El frontend
@@ -3574,7 +3584,9 @@ pub async fn intel_record_sightings(
                 .name_cache_get(&nl)
                 .and_then(|(id, _, _)| id)
                 .filter(|&x| x > 0);
-            state.db.insert_sighting(&nl, cid, system_id, ts_ms);
+            state
+                .db
+                .insert_sighting(&nl, cid, system_id, ts_ms, s.ship_type_id);
         }
     }
     // Auto-resolución diferida de los que ya son "habituales" y siguen sin id.
@@ -3634,6 +3646,177 @@ pub fn get_pilot_track(
         .into_iter()
         .map(|(system_id, ts_ms)| TrackPoint { system_id, ts_ms })
         .collect())
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CountItem {
+    pub id: i64,
+    pub count: i64,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct PilotProfile {
+    pub name: String,
+    pub character_id: Option<i64>,
+    pub total: i64,
+    pub first_ms: Option<i64>,
+    pub last_ms: Option<i64>,
+    pub by_system: Vec<CountItem>, // id = system_id
+    pub by_ship: Vec<CountItem>,   // id = ship_type_id
+    pub by_hour: Vec<i64>,         // 24 buckets (hora UTC 0-23)
+}
+
+/// Ficha del hostil (modo cazador): perfil agregado de un objetivo a partir de sus avistamientos
+/// persistentes — total, primer/último visto, sistemas favoritos, naves y horas activas UTC.
+#[tauri::command]
+pub fn get_pilot_profile(state: State<'_, AppState>, name: String) -> AppResult<PilotProfile> {
+    let nl = name.trim().to_lowercase();
+    let (total, first_ms, last_ms, character_id) = state.db.pilot_stats(&nl);
+    let by_system = state
+        .db
+        .pilot_by_system(&nl, 12)
+        .into_iter()
+        .map(|(id, count)| CountItem { id, count })
+        .collect();
+    let by_ship = state
+        .db
+        .pilot_by_ship(&nl, 10)
+        .into_iter()
+        .map(|(id, count)| CountItem { id, count })
+        .collect();
+    let by_hour = state.db.pilot_by_hour(&nl).to_vec();
+    Ok(PilotProfile {
+        name: name.trim().to_string(),
+        character_id,
+        total,
+        first_ms,
+        last_ms,
+        by_system,
+        by_ship,
+        by_hour,
+    })
+}
+
+/// Resultado de importar el CSV de wallet de corptools.
+#[derive(Debug, serde::Serialize)]
+pub struct ImportResult {
+    pub total_rows: usize,        // filas leídas del CSV
+    pub imported: usize,          // filas NUEVAS insertadas
+    pub skipped_dup: usize,       // ya existían (dedup por id sintético)
+    pub skipped_unknown: usize,   // Character no está entre tus personajes de Koru
+    pub date_min: Option<String>, // rango del histórico importable
+    pub date_max: Option<String>,
+    pub by_char: Vec<(String, usize)>, // filas por personaje (de las reconocidas)
+}
+
+/// Fila del CSV de corptools. Solo mapeamos lo que va a wallet_journal; First/Second Party (nombres,
+/// no ids) y Reason (texto libre, no formato ESI typeID:count) se ignoran a propósito.
+#[derive(serde::Deserialize)]
+struct CorptoolsRow {
+    #[serde(rename = "Character")]
+    character: String,
+    #[serde(rename = "Date")]
+    date: String,
+    #[serde(rename = "Type")]
+    ref_type: String,
+    #[serde(rename = "amount", default)]
+    amount: Option<f64>,
+    #[serde(rename = "balance", default)]
+    balance: Option<f64>,
+    #[serde(rename = "Description", default)]
+    description: String,
+}
+
+/// Importa el histórico de wallet exportado por corptools (Alliance Auth) a `wallet_journal`,
+/// backfilleando años más allá de la ventana de ESI. Mapea Character(nombre)→character_id de TUS
+/// personajes; genera un id SINTÉTICO NEGATIVO determinista (hash de char+fecha+tipo+amount+balance)
+/// para dedup y para no colisionar con los ids reales de ESI (positivos). No trae reason/context_id
+/// (el desglose por sistema y las ratas especiales del histórico no se pueden reconstruir del CSV).
+#[tauri::command]
+pub async fn import_wallet_csv(path: String, state: State<'_, AppState>) -> AppResult<ImportResult> {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+
+    // Mapa nombre(minúsculas) → character_id de tus personajes.
+    let name_to_id: HashMap<String, i64> = state
+        .db
+        .list_characters()?
+        .into_iter()
+        .map(|c| (c.name.trim().to_lowercase(), c.character_id))
+        .collect();
+
+    let bytes = std::fs::read(&path)
+        .map_err(|e| AppError::Other(format!("no se pudo leer el CSV: {e}")))?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .flexible(true)
+        .from_reader(bytes.as_slice());
+
+    let mut rows: Vec<crate::db::JournalImportRow> = Vec::new();
+    let mut total = 0usize;
+    let mut skipped_unknown = 0usize;
+    let mut by_char: HashMap<String, usize> = HashMap::new();
+    let mut date_min: Option<String> = None;
+    let mut date_max: Option<String> = None;
+
+    for rec in rdr.deserialize::<CorptoolsRow>() {
+        let r = match rec {
+            Ok(r) => r,
+            Err(_) => continue, // fila malformada → saltar
+        };
+        total += 1;
+        let cid = match name_to_id.get(r.character.trim().to_lowercase().as_str()) {
+            Some(&id) => id,
+            None => {
+                skipped_unknown += 1;
+                continue;
+            }
+        };
+        // id sintético negativo determinista.
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        cid.hash(&mut h);
+        r.date.hash(&mut h);
+        r.ref_type.hash(&mut h);
+        r.amount.unwrap_or(0.0).to_bits().hash(&mut h);
+        r.balance.unwrap_or(0.0).to_bits().hash(&mut h);
+        let id: i64 = -((h.finish() >> 1) as i64) - 1;
+
+        if date_min.as_deref().map_or(true, |d| r.date.as_str() < d) {
+            date_min = Some(r.date.clone());
+        }
+        if date_max.as_deref().map_or(true, |d| r.date.as_str() > d) {
+            date_max = Some(r.date.clone());
+        }
+        *by_char.entry(r.character.clone()).or_insert(0) += 1;
+
+        let desc = r.description.trim();
+        rows.push(crate::db::JournalImportRow {
+            id,
+            character_id: cid,
+            date: r.date,
+            ref_type: r.ref_type,
+            amount: r.amount,
+            balance: r.balance,
+            description: if desc.is_empty() {
+                None
+            } else {
+                Some(desc.to_string())
+            },
+        });
+    }
+
+    let imported = state.db.import_journal_rows(&rows).unwrap_or(0);
+    let skipped_dup = rows.len().saturating_sub(imported);
+    let mut by_char_v: Vec<(String, usize)> = by_char.into_iter().collect();
+    by_char_v.sort_by(|a, b| b.1.cmp(&a.1));
+
+    Ok(ImportResult {
+        total_rows: total,
+        imported,
+        skipped_dup,
+        skipped_unknown,
+        date_min,
+        date_max,
+        by_char: by_char_v,
+    })
 }
 
 /// Niveles de skill entrenados del personaje (skill_id → nivel activo). Para el skill-check de fits.
@@ -3726,6 +3909,10 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
 struct OrderRaw {
     type_id: i64,
     #[serde(default)]
+    order_id: i64,
+    #[serde(default)]
+    region_id: i64,
+    #[serde(default)]
     is_buy_order: bool,
     #[serde(default)]
     price: f64,
@@ -3735,6 +3922,8 @@ struct OrderRaw {
     volume_total: i64,
     #[serde(default)]
     location_id: i64,
+    #[serde(default)]
+    duration: i64,
     #[serde(default)]
     issued: Option<String>,
 }
@@ -3751,6 +3940,11 @@ pub struct MarketOrderView {
     pub system_id: i64,
     pub system_name: Option<String>,
     pub issued: Option<String>,
+    pub duration: i64, // días de la orden (para calcular el vencimiento)
+    // Competencia en TU misma estación (mismo tipo/lado, excluyendo tus órdenes):
+    pub best_competitor: Option<f64>, // mejor precio rival (menor sell / mayor buy); None si no hay
+    pub is_best: bool,                // ¿eres el mejor (no te han pisado)?
+    pub competitors: i64,             // nº de órdenes rivales en tu estación
 }
 
 /// Resuelve sistema (caché) y nombres para una lista de órdenes.
@@ -3760,7 +3954,21 @@ async fn resolve_orders(
     token: &str,
     orders: Vec<OrderRaw>,
 ) -> AppResult<Vec<MarketOrderView>> {
-    let mut sys_of: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    use std::collections::HashMap;
+    // --- Competencia: libro público por (región, tipo, lado), una vez por combinación. ---
+    let own_ids: HashSet<i64> = orders.iter().map(|o| o.order_id).collect();
+    let mut books: HashMap<(i64, i64, bool), Vec<crate::esi::market::BookOrder>> = HashMap::new();
+    for o in &orders {
+        let key = (o.region_id, o.type_id, o.is_buy_order);
+        if o.region_id != 0 && !books.contains_key(&key) {
+            let ot = if o.is_buy_order { "buy" } else { "sell" };
+            let book = crate::esi::market::region_orders(esi, db, o.region_id, o.type_id, ot).await;
+            books.insert(key, book);
+        }
+    }
+
+    // --- Sistemas (caché) + nombres. ---
+    let mut sys_of: HashMap<i64, i64> = HashMap::new();
     for o in &orders {
         if !sys_of.contains_key(&o.location_id) {
             let s = crate::esi::assets::resolve_location_system_cached(esi, db, o.location_id, token)
@@ -3782,10 +3990,39 @@ async fn resolve_orders(
         .resolve_names(&ids.into_iter().collect::<Vec<_>>())
         .await
         .unwrap_or_default();
+
     Ok(orders
         .into_iter()
         .map(|o| {
             let sid = *sys_of.get(&o.location_id).unwrap_or(&0);
+            // Competencia en TU MISMA estación, mismo lado, excluyendo tus propias órdenes.
+            let empty: Vec<crate::esi::market::BookOrder> = Vec::new();
+            let book = books
+                .get(&(o.region_id, o.type_id, o.is_buy_order))
+                .unwrap_or(&empty);
+            let comp: Vec<f64> = book
+                .iter()
+                .filter(|b| b.location_id == o.location_id && !own_ids.contains(&b.order_id))
+                .map(|b| b.price)
+                .collect();
+            let competitors = comp.len() as i64;
+            let best_competitor = if comp.is_empty() {
+                None
+            } else if o.is_buy_order {
+                Some(comp.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+            } else {
+                Some(comp.iter().cloned().fold(f64::INFINITY, f64::min))
+            };
+            let is_best = match best_competitor {
+                None => true,
+                Some(bc) => {
+                    if o.is_buy_order {
+                        o.price >= bc
+                    } else {
+                        o.price <= bc
+                    }
+                }
+            };
             MarketOrderView {
                 type_id: o.type_id,
                 type_name: names.get(&o.type_id).cloned(),
@@ -3796,6 +4033,10 @@ async fn resolve_orders(
                 system_id: sid,
                 system_name: if sid != 0 { names.get(&sid).cloned() } else { None },
                 issued: o.issued,
+                duration: o.duration,
+                best_competitor,
+                is_best,
+                competitors,
             }
         })
         .collect())
@@ -3865,6 +4106,165 @@ pub async fn get_market_orders_global(
         }
     }
     Ok(all)
+}
+
+/// Beneficio de trading REALIZADO por item (coste medio ponderado) desde las wallet_transactions.
+#[derive(Debug, serde::Serialize)]
+pub struct TradePnlItem {
+    pub type_id: i64,
+    pub name: Option<String>,
+    pub bought_qty: i64,
+    pub sold_qty: i64,
+    pub avg_buy: f64,
+    pub avg_sell: f64,
+    pub revenue: f64, // total vendido
+    pub cost: f64,    // coste (medio ponderado) de lo vendido
+    pub profit: f64,  // revenue - cost (realizado, antes de impuestos)
+    pub margin: f64,  // profit / revenue * 100
+}
+#[derive(Debug, serde::Serialize)]
+pub struct PnlDay {
+    pub date: String,
+    pub profit: f64,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct TradePnl {
+    pub total_profit: f64,
+    pub total_revenue: f64,
+    pub total_cost: f64,
+    pub total_tax: f64, // transaction_tax + brokers_fee del journal
+    pub items: Vec<TradePnlItem>,
+    pub daily: Vec<PnlDay>, // beneficio realizado por día (fecha de venta)
+}
+
+#[derive(Default)]
+struct PnlAcc {
+    qty: i64,
+    cost: f64,
+    bought_qty: i64,
+    bought_cost: f64,
+    sold_qty: i64,
+    revenue: f64,
+    cogs: f64,
+}
+
+/// Coste medio ponderado: cada compra aumenta inventario+coste; cada venta realiza beneficio
+/// (ingreso − coste medio de lo vendido). Si se vende más de lo comprado (histórico incompleto),
+/// el inventario no baja de 0 (ese beneficio queda sobreestimado por falta de base de coste).
+/// Devuelve (por-tipo, beneficio diario) — el diario atribuye el beneficio a la fecha de VENTA.
+fn compute_pnl(
+    txs: Vec<(String, i64, i64, f64, bool)>,
+) -> (
+    std::collections::HashMap<i64, PnlAcc>,
+    std::collections::BTreeMap<String, f64>,
+) {
+    use std::collections::{BTreeMap, HashMap};
+    let mut m: HashMap<i64, PnlAcc> = HashMap::new();
+    let mut daily: BTreeMap<String, f64> = BTreeMap::new();
+    for (date, type_id, quantity, price, is_buy) in txs {
+        let a = m.entry(type_id).or_default();
+        if is_buy {
+            a.qty += quantity;
+            a.cost += quantity as f64 * price;
+            a.bought_qty += quantity;
+            a.bought_cost += quantity as f64 * price;
+        } else {
+            let avg = if a.qty > 0 { a.cost / a.qty as f64 } else { 0.0 };
+            let cogs = avg * quantity as f64;
+            let profit_sale = quantity as f64 * price - cogs;
+            a.sold_qty += quantity;
+            a.revenue += quantity as f64 * price;
+            a.cogs += cogs;
+            a.qty -= quantity;
+            a.cost -= cogs;
+            if a.qty < 0 {
+                a.qty = 0;
+                a.cost = 0.0;
+            }
+            if date.len() >= 10 {
+                *daily.entry(date[..10].to_string()).or_insert(0.0) += profit_sale;
+            }
+        }
+    }
+    (m, daily)
+}
+
+async fn build_pnl(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: Option<i64>,
+) -> AppResult<TradePnl> {
+    let txs = db.wallet_transactions_full(character_id)?;
+    let (accs, daily_map) = compute_pnl(txs);
+    let daily: Vec<PnlDay> = daily_map
+        .into_iter()
+        .map(|(date, profit)| PnlDay { date, profit })
+        .collect();
+    let mut items: Vec<TradePnlItem> = accs
+        .into_iter()
+        .filter(|(_, a)| a.sold_qty > 0) // solo lo realizado (vendido)
+        .map(|(type_id, a)| {
+            let profit = a.revenue - a.cogs;
+            TradePnlItem {
+                type_id,
+                name: None,
+                bought_qty: a.bought_qty,
+                sold_qty: a.sold_qty,
+                avg_buy: if a.bought_qty > 0 {
+                    a.bought_cost / a.bought_qty as f64
+                } else {
+                    0.0
+                },
+                avg_sell: if a.sold_qty > 0 {
+                    a.revenue / a.sold_qty as f64
+                } else {
+                    0.0
+                },
+                revenue: a.revenue,
+                cost: a.cogs,
+                profit,
+                margin: if a.revenue > 0.0 {
+                    profit / a.revenue * 100.0
+                } else {
+                    0.0
+                },
+            }
+        })
+        .collect();
+    items.sort_by(|x, y| y.profit.partial_cmp(&x.profit).unwrap_or(std::cmp::Ordering::Equal));
+    let total_profit: f64 = items.iter().map(|i| i.profit).sum();
+    let total_revenue: f64 = items.iter().map(|i| i.revenue).sum();
+    let total_cost: f64 = items.iter().map(|i| i.cost).sum();
+    let total_tax = db.trading_tax(character_id);
+    items.truncate(100); // el desglose muestra el top; los totales son de todo
+    let ids: Vec<i64> = items.iter().map(|i| i.type_id).collect();
+    if let Ok(names) = esi.resolve_names(&ids).await {
+        for it in items.iter_mut() {
+            it.name = names.get(&it.type_id).cloned();
+        }
+    }
+    Ok(TradePnl {
+        total_profit,
+        total_revenue,
+        total_cost,
+        total_tax,
+        items,
+        daily,
+    })
+}
+
+/// P&L de trading de un personaje (realizado por item, desde sus transacciones).
+#[tauri::command]
+pub async fn get_trading_pnl(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<TradePnl> {
+    build_pnl(&state.esi, &state.db, Some(character_id)).await
+}
+/// P&L de trading GLOBAL (todas las transacciones de todos los personajes).
+#[tauri::command]
+pub async fn get_trading_pnl_global(state: State<'_, AppState>) -> AppResult<TradePnl> {
+    build_pnl(&state.esi, &state.db, None).await
 }
 
 /// Una colonia de Planetary Interaction tal cual la devuelve ESI.
@@ -4105,6 +4505,8 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
     let mut stacks = 0i64;
     let mut total_units = 0i64;
     let mut est_value = 0.0f64;
+    let mut est_value_clean = 0.0f64;
+    let mut tv_agg: HashMap<i64, (i64, f64, String)> = HashMap::new();
 
     for c in state.db.list_characters()? {
         if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
@@ -4124,6 +4526,12 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
             stacks += s.stacks;
             total_units += s.total_units;
             est_value += s.est_value;
+            est_value_clean += s.est_value_clean;
+            for tv in s.top_value {
+                let e = tv_agg.entry(tv.type_id).or_insert((0, 0.0, tv.category));
+                e.0 += tv.qty;
+                e.1 += tv.value;
+            }
             for (tid, qty) in s.watched {
                 *watched_agg.entry(tid).or_insert(0) += qty;
             }
@@ -4153,11 +4561,33 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
         }
     }
 
+    // Top por VALOR agregado entre personajes (para el desglose del patrimonio).
+    let mut top_value: Vec<crate::esi::assets::TypeValue> = tv_agg
+        .into_iter()
+        .map(|(type_id, (qty, value, category))| crate::esi::assets::TypeValue {
+            type_id,
+            qty,
+            value,
+            category,
+            name: None,
+        })
+        .collect();
+    top_value.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
+    top_value.truncate(30);
+    let tv_ids: Vec<i64> = top_value.iter().map(|t| t.type_id).collect();
+    if let Ok(names) = state.esi.resolve_names(&tv_ids).await {
+        for t in top_value.iter_mut() {
+            t.name = names.get(&t.type_id).cloned();
+        }
+    }
+
     Ok(AssetsSummary {
         stacks,
         distinct_types,
         total_units,
         est_value,
+        est_value_clean,
+        top_value,
         top_types: top,
         watched: watched_agg,
     })

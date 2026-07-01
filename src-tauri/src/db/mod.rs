@@ -1544,6 +1544,35 @@ impl Db {
         Ok(())
     }
 
+    /// Inserta en lote filas de journal importadas (CSV corptools). `INSERT OR IGNORE` por id
+    /// sintético (negativo) → reimportar NO duplica y NO pisa lo de ESI. Una sola transacción.
+    /// Devuelve cuántas filas NUEVAS se insertaron.
+    pub fn import_journal_rows(&self, rows: &[JournalImportRow]) -> AppResult<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut inserted = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR IGNORE INTO wallet_journal
+                    (id, character_id, date, ref_type, amount, balance, description)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for r in rows {
+                inserted += stmt.execute(rusqlite::params![
+                    r.id,
+                    r.character_id,
+                    r.date,
+                    r.ref_type,
+                    r.amount,
+                    r.balance,
+                    r.description
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(inserted)
+    }
+
     pub fn existing_transaction_ids(
         &self,
         character_id: i64,
@@ -1606,6 +1635,45 @@ impl Db {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Todas las transacciones (compras y ventas) en orden cronológico, para el P&L de trading.
+    /// Devuelve (date, type_id, quantity, unit_price, is_buy).
+    pub fn wallet_transactions_full(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(String, i64, i64, f64, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(date,''), type_id, quantity, unit_price, is_buy FROM wallet_transactions
+             WHERE (?1 IS NULL OR character_id = ?1) ORDER BY date ASC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, f64>(3)?,
+                    r.get::<_, i64>(4)? != 0,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Suma de impuestos/comisiones de trading del journal (transaction_tax + brokers_fee), en
+    /// valor absoluto (son gastos). Para restar al beneficio de trading.
+    pub fn trading_tax(&self, character_id: Option<i64>) -> f64 {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COALESCE(SUM(-amount), 0.0) FROM wallet_journal
+             WHERE (?1 IS NULL OR character_id = ?1)
+               AND ref_type IN ('transaction_tax', 'brokers_fee')",
+            rusqlite::params![character_id],
+            |r| r.get::<_, f64>(0),
+        )
+        .unwrap_or(0.0)
     }
 
     pub fn wallet_stats(&self, character_id: i64) -> AppResult<WalletStats> {
@@ -1950,6 +2018,17 @@ pub struct PaperPoint {
     pub value: f64,
 }
 
+/// Fila de journal a importar desde el CSV de corptools (id = sintético; sin reason/context/partes).
+pub struct JournalImportRow {
+    pub id: i64,
+    pub character_id: i64,
+    pub date: String,
+    pub ref_type: String,
+    pub amount: Option<f64>,
+    pub balance: Option<f64>,
+    pub description: Option<String>,
+}
+
 impl Db {
     /// Inserta/actualiza precios de mercado en bloque (type_id, average, adjusted).
     pub fn upsert_prices(&self, rows: &[(i64, Option<f64>, Option<f64>)]) -> AppResult<()> {
@@ -2151,18 +2230,20 @@ impl Db {
     }
 
     /// Guarda un avistamiento persistente (modo cazador). Dedup por (nombre, sistema, ts).
+    /// `ship_type_id` = nave que volaba (solo se atribuye en líneas de UN piloto; NULL si ambiguo).
     pub fn insert_sighting(
         &self,
         name_lower: &str,
         character_id: Option<i64>,
         system_id: i64,
         ts_ms: i64,
+        ship_type_id: Option<i64>,
     ) {
         let conn = self.conn.lock().unwrap();
         let _ = conn.execute(
-            "INSERT OR IGNORE INTO intel_sightings (name_lower, character_id, system_id, ts_ms)
-             VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![name_lower, character_id, system_id, ts_ms],
+            "INSERT OR IGNORE INTO intel_sightings (name_lower, character_id, system_id, ts_ms, ship_type_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![name_lower, character_id, system_id, ts_ms, ship_type_id],
         );
     }
 
@@ -2185,6 +2266,87 @@ impl Db {
         }
         out.reverse(); // de DESC (recientes primero) a cronológico ascendente
         out
+    }
+
+    /// Ficha del hostil (modo cazador): estadísticas de sus avistamientos persistentes.
+    /// Devuelve (total, first_ms, last_ms, character_id_conocido).
+    pub fn pilot_stats(&self, name_lower: &str) -> (i64, Option<i64>, Option<i64>, Option<i64>) {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*), MIN(ts_ms), MAX(ts_ms), MAX(character_id)
+             FROM intel_sightings WHERE name_lower = ?1",
+            rusqlite::params![name_lower],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .unwrap_or((0, None, None, None))
+    }
+
+    /// Sistemas favoritos de un piloto (dónde más se le ve): (system_id, nº) top `limit`.
+    pub fn pilot_by_system(&self, name_lower: &str, limit: i64) -> Vec<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT system_id, COUNT(*) c FROM intel_sightings WHERE name_lower = ?1
+             GROUP BY system_id ORDER BY c DESC LIMIT ?2",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![name_lower, limit], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            }) {
+                for x in rows.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
+    /// Naves que suele volar (solo avistamientos con ship_type_id atribuido): (ship_type_id, nº).
+    pub fn pilot_by_ship(&self, name_lower: &str, limit: i64) -> Vec<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT ship_type_id, COUNT(*) c FROM intel_sightings
+             WHERE name_lower = ?1 AND ship_type_id IS NOT NULL
+             GROUP BY ship_type_id ORDER BY c DESC LIMIT ?2",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![name_lower, limit], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            }) {
+                for x in rows.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
+    /// Histograma de horas activas UTC (0-23): nº de avistamientos por hora del día.
+    /// ts_ms es epoch (UTC), así que (ts_ms/3600000) % 24 = hora UTC del día.
+    pub fn pilot_by_hour(&self, name_lower: &str) -> [i64; 24] {
+        let conn = self.conn.lock().unwrap();
+        let mut hours = [0i64; 24];
+        if let Ok(mut st) = conn.prepare(
+            "SELECT (ts_ms/3600000) % 24 AS hr, COUNT(*) FROM intel_sightings
+             WHERE name_lower = ?1 GROUP BY hr",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![name_lower], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            }) {
+                for (hr, c) in rows.flatten() {
+                    if (0..24).contains(&hr) {
+                        hours[hr as usize] = c;
+                    }
+                }
+            }
+        }
+        hours
     }
 
     /// Inserta un fiteo guardado. `modules` es JSON serializado. Devuelve el id nuevo.

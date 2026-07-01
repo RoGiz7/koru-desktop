@@ -33,3 +33,49 @@ pub async fn sync_prices(esi: &EsiClient, db: &Db) -> AppResult<usize> {
     }
     Ok(rows.len())
 }
+
+/// Una orden del LIBRO PÚBLICO de una región (endpoint /markets/{region}/orders/, sin token).
+#[derive(Debug, Clone, Deserialize)]
+pub struct BookOrder {
+    #[serde(default)]
+    pub order_id: i64,
+    #[serde(default)]
+    pub type_id: i64,
+    #[serde(default)]
+    pub is_buy_order: bool,
+    #[serde(default)]
+    pub price: f64,
+    #[serde(default)]
+    pub location_id: i64,
+    #[serde(default)]
+    pub volume_remain: i64,
+}
+
+/// Libro público de una región para UN tipo y lado ("buy"/"sell"). Público y cacheado (~5 min);
+/// una sola llamada por (región, tipo, lado) — barato porque solo hay tus pocas docenas de tipos.
+/// Para cruzar tus órdenes con la competencia (¿te han pisado el precio?).
+pub async fn region_orders(
+    esi: &EsiClient,
+    db: &Db,
+    region_id: i64,
+    type_id: i64,
+    order_type: &str,
+) -> Vec<BookOrder> {
+    let mut all: Vec<BookOrder> = Vec::new();
+    for page in 1..=10u32 {
+        let path = format!(
+            "/markets/{region_id}/orders/?order_type={order_type}&type_id={type_id}&page={page}"
+        );
+        match esi.get_cached::<Vec<BookOrder>>(db, 0, &path, None).await {
+            Ok(v) => {
+                let n = v.len();
+                all.extend(v);
+                if n < 1000 {
+                    break; // página incompleta = última (ESI pagina de 1000 en 1000)
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    all
+}

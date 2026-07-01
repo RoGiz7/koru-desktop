@@ -6,6 +6,7 @@ export type Tab =
   | "actividad"
   | "rivales"
   | "batallas"
+  | "cazador"
   | "mapa"
   | "patrimonio"
   | "wallet"
@@ -53,6 +54,8 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
       { key: "actividad", label: "Actividad", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "rivales", label: "Rivales", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "batallas", label: "Batallas", scopes: ["esi-killmails.read_killmails.v1"] },
+      // Cazador: análisis de hostiles desde el intel local (no depende de scopes ESI).
+      { key: "cazador", label: "Cazador" },
     ],
   },
   {
@@ -164,13 +167,14 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   actividad: { title: "Actividad", subtitle: "Actividad diaria y horas calientes (UTC EVE)" },
   rivales: { title: "Rivales", subtitle: "A quién matas y quién te mata (por personaje y corp)" },
   batallas: { title: "Batallas", subtitle: "Concentraciones de killmails por sistema y momento" },
+  cazador: { title: "Cazador", subtitle: "Fichas de hostiles del intel: horas activas, sistemas, naves y rastro" },
   patrimonio: { title: "Patrimonio", subtitle: "Líquido + valor de assets y su evolución en el tiempo" },
   wallet: { title: "Wallet", subtitle: "Balance, ingresos, gastos y movimientos recientes" },
   skills: { title: "Skills", subtitle: "SP totales y cola de entrenamiento" },
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
   mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
-  comercio: { title: "Comercio", subtitle: "Tus órdenes de compra/venta en el mercado" },
+  comercio: { title: "Comercio", subtitle: "Tus órdenes: competencia (¿te han pisado?), % vendido y vencimiento" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
