@@ -17,6 +17,14 @@ const EN: Record<string, string> = {
   Wallet: "Wallet",
   Assets: "Assets",
   Comercio: "Market",
+  Rentabilidad: "P&L",
+  "Watchlist de mercado": "Market watchlist",
+  "Tus órdenes abiertas: competencia, % vendido y vencimiento":
+    "Your open orders: competition, % filled and expiry",
+  "Beneficio realizado de tu trading (coste medio ponderado)":
+    "Realized profit from your trading (weighted average cost)",
+  "Precios, spread y libro por hub · arbitraje entre hubs · buscador de oportunidades":
+    "Prices, spread and order book by hub · hub arbitrage · opportunity finder",
   Actividad: "Activity",
   Rivales: "Rivals",
   Batallas: "Battles",

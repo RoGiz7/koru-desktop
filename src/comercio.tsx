@@ -608,12 +608,13 @@ export function ComercioView({
   orders,
   busy,
   subject,
+  view,
 }: {
   orders: MarketOrder[] | null;
   busy: boolean;
   subject: number | "global";
+  view: "orders" | "pnl" | "watch";
 }) {
-  const [view, setView] = useState<"orders" | "pnl" | "watch">("orders");
   const [pnl, setPnl] = useState<TradePnl | null>(null);
   const [pnlBusy, setPnlBusy] = useState(false);
   const [pGran, setPGran] = useState<"day" | "week" | "month">("month");
@@ -679,18 +680,6 @@ export function ComercioView({
 
   return (
     <>
-      <div className="seg seg-sm" style={{ marginBottom: "0.7rem" }}>
-        <button className={view === "orders" ? "active" : ""} onClick={() => setView("orders")}>
-          {tr("Órdenes abiertas")}
-        </button>
-        <button className={view === "pnl" ? "active" : ""} onClick={() => setView("pnl")}>
-          {tr("Rentabilidad (P&L)")}
-        </button>
-        <button className={view === "watch" ? "active" : ""} onClick={() => setView("watch")}>
-          {tr("Watchlist")}
-        </button>
-      </div>
-
       {view === "watch" ? (
         <WatchlistPanel />
       ) : view === "orders" ? (

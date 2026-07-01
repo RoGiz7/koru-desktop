@@ -14,6 +14,8 @@ export type Tab =
   | "assets"
   | "industria"
   | "comercio"
+  | "comercio_pnl"
+  | "comercio_watch"
   | "rateo"
   | "abyssals"
   | "factional"
@@ -42,7 +44,15 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
       { key: "patrimonio", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1", "esi-assets.read_assets.v1"] },
       { key: "wallet", label: "Wallet", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "assets", label: "Assets", scopes: ["esi-assets.read_assets.v1"] },
-      { key: "comercio", label: "Comercio", scopes: ["esi-markets.read_character_orders.v1"] },
+    ],
+  },
+  {
+    group: "Comercio",
+    icon: "📈",
+    subs: [
+      { key: "comercio", label: "Órdenes", scopes: ["esi-markets.read_character_orders.v1"] },
+      { key: "comercio_pnl", label: "Rentabilidad", scopes: ["esi-markets.read_character_orders.v1"] },
+      { key: "comercio_watch", label: "Watchlist", scopes: ["esi-markets.read_character_orders.v1"] },
     ],
   },
   {
@@ -174,7 +184,9 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
   mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
-  comercio: { title: "Comercio", subtitle: "Órdenes (competencia), rentabilidad realizada y watchlist de mercado" },
+  comercio: { title: "Comercio", subtitle: "Tus órdenes abiertas: competencia, % vendido y vencimiento" },
+  comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },
+  comercio_watch: { title: "Watchlist de mercado", subtitle: "Precios, spread y libro por hub · arbitraje entre hubs · buscador de oportunidades" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },

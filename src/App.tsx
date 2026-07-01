@@ -1669,8 +1669,13 @@ function App() {
           {tab === "industria" && (
             <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} />
           )}
-          {tab === "comercio" && (
-            <ComercioView orders={marketOrders} busy={sectionBusy} subject={subject} />
+          {(tab === "comercio" || tab === "comercio_pnl" || tab === "comercio_watch") && (
+            <ComercioView
+              orders={marketOrders}
+              busy={sectionBusy}
+              subject={subject}
+              view={tab === "comercio_pnl" ? "pnl" : tab === "comercio_watch" ? "watch" : "orders"}
+            />
           )}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
