@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, secColor, ownerColor, heatColor, typeIcon } from "./format";
@@ -11,18 +10,19 @@ import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc
 import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
-import { ALERT_SOUNDS, playAlertChoice, loadCustomSound, beep, ensureNotifPerm } from "./sound";
-import { classifyIntel, buildIntelReports } from "./intel";
+import { useIntel } from "./useIntel";
+import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
+import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay } from "./constants";
 import type {
+  IntelConfig,
   SysActivity,
   SovSystem,
   FwSystem,
   Incursion,
   WhConn,
-  IntelLine,
   CharLoc,
   Character,
   NewEden,
@@ -97,36 +97,7 @@ export function MapView(props: {
   factionStandings?: Map<number, number> | null;
   incursions?: Incursion[] | null;
   theraConns?: WhConn[] | null;
-  intel?: {
-    lines: IntelLine[];
-    availChannels: string[];
-    channels: string[];
-    folder: string;
-    recency: number;
-    alertJumps: number;
-    sound: boolean;
-    anchors: number[];
-    onlyRange: boolean;
-    soundChoice: string;
-    soundFile: string;
-    live: boolean;
-    onToggleLive?: () => void;
-    onIntelAlert?: (text: string) => void;
-    onClearAlert?: () => void;
-    onConfig: (patch: {
-      channels?: string[];
-      recency?: number;
-      alertJumps?: number;
-      sound?: boolean;
-      folder?: string;
-      anchors?: number[];
-      onlyRange?: boolean;
-      soundChoice?: string;
-      soundFile?: string;
-    }) => void;
-    onPickFolder: () => void;
-    onPickSound: () => void;
-  };
+  intel?: IntelConfig;
   hereSystemId?: number | null;
   charLocations?: CharLoc[];
   characters?: Character[];
@@ -550,41 +521,6 @@ export function MapView(props: {
     [geo, intel?.lines, shipNames],
   );
 
-  // --- Intel: aprender "hostiles habituales" ---
-  // Cada línea NUEVA aporta sus pilotos al índice (seen_count++ en backend). Dedup por clave de
-  // línea (ts+autor+msg) para no recontar la misma línea en cada poll. El backend auto-resuelve por
-  // ESI a quien cruce el umbral (cazador habitual que no está en Rivales/killmails).
-  const intelSightedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!intelReports) return;
-    const fresh: {
-      name: string;
-      system_id: number | null;
-      ts_ms: number;
-      ship_type_id: number | null;
-    }[] = [];
-    for (const f of intelReports.feed) {
-      if (!f.pilots || f.pilots.length === 0) continue;
-      const key = `${f.ts}|${f.author}|${f.message}`;
-      if (intelSightedRef.current.has(key)) continue;
-      intelSightedRef.current.add(key);
-      // Solo atribuimos nave si la línea tiene UN único piloto (si no, no se sabe de quién es).
-      const shipId = f.pilots.length === 1 && f.ships.length >= 1 ? f.ships[0].id : null;
-      for (const name of f.pilots)
-        fresh.push({ name, system_id: f.sysId, ts_ms: f.ts, ship_type_id: shipId });
-    }
-    if (fresh.length === 0) return;
-    // Acotar el set para no crecer sin fin (las claves viejas caen fuera de recencia igualmente).
-    if (intelSightedRef.current.size > 4000) {
-      intelSightedRef.current = new Set(
-        [...intelSightedRef.current].slice(-2000),
-      );
-    }
-    invoke("intel_record_sightings", { sightings: fresh, threshold: 5 }).catch(
-      () => {},
-    );
-  }, [intelReports]);
-
   // --- Intel: círculos en el mapa (rojo, opacidad por recencia) ---
   const intelCircles = useMemo(() => {
     if (!geo || overlay !== "intel" || !intelReports) return null;
@@ -662,86 +598,6 @@ export function MapView(props: {
     });
   }, [geo, overlay, intel?.anchors, view.z]);
 
-  // --- Intel: banner de alerta. La DETECCIÓN ahora la hace un hilo en Rust (start_intel_watch),
-  // que dispara la notificación nativa y emite "intel-alert"; aquí solo mostramos banner + sonido. ---
-  const [intelAlert, setIntelAlert] = useState<{
-    text: string;
-    report: { sysId: number; sysName: string; ts: number; author: string; message: string };
-  } | null>(null);
-
-  // `clr/clear` = "olvídate de la alerta": si el sistema del banner deja de estar en los reportes
-  // (alguien lo limpió), descartamos el aviso, no solo el círculo del mapa.
-  useEffect(() => {
-    if (!intelAlert || !intelReports) return;
-    const sid = intelAlert.report.sysId;
-    if (sid != null && !intelReports.rep.has(sid)) {
-      setIntelAlert(null);
-      intel?.onClearAlert?.();
-    }
-  }, [intelReports, intelAlert]);
-
-  // Enviar el grafo (nombres↔id + aristas) a Rust una vez, en cuanto haya datos del mapa.
-  useEffect(() => {
-    if (!geo || !ne) return;
-    const names: [string, number][] = [...geo.nameIdx.entries()].map(([n, s]) => [n, s.id]);
-    const edges: [number, number][] = ne.jumps as [number, number][];
-    invoke("set_intel_graph", { names, edges }).catch(() => {});
-  }, [geo, ne]);
-
-  // Arrancar / reconfigurar / detener el vigilante de Rust según la capa y la config.
-  useEffect(() => {
-    // Corre si el interruptor "Intel en vivo" está ON, o si estás viendo la capa intel (back-compat).
-    const shouldRun = !!intel && (intel.live || overlay === "intel");
-    if (!shouldRun || !intel.folder || intel.channels.length === 0) {
-      invoke("stop_intel_watch").catch(() => {});
-      return;
-    }
-    invoke("start_intel_watch", {
-      folder: intel.folder,
-      channels: intel.channels,
-      recencyMinutes: intel.recency,
-      origins: intelOrigins,
-      alertJumps: intel.alertJumps,
-    }).catch(() => {});
-    return () => {
-      // Solo paramos al desmontar/recambiar si NO está el modo en vivo (si está ON, sigue corriendo).
-      if (!intel?.live) invoke("stop_intel_watch").catch(() => {});
-    };
-  }, [overlay, intel?.live, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins]);
-
-  // Escuchar las alertas que emite el hilo de Rust → banner + sonido (la notificación nativa
-  // ya la lanza Rust, así que aquí NO la repetimos).
-  useEffect(() => {
-    const un = listen<{
-      sys_id: number;
-      system: string;
-      jumps: number;
-      author: string;
-      message: string;
-      ts_ms: number;
-    }>("intel-alert", (e) => {
-      const a = e.payload;
-      const text = `⚠ ${tr("Intel a")} ${a.jumps} ${tr("salto(s)")}: ${a.system} — ${a.author}`;
-      setIntelAlert({
-        text,
-        report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
-      });
-      intel?.onIntelAlert?.(text); // toast global (visible en cualquier sección)
-      if (intel?.sound) playAlertChoice(intel.soundChoice);
-      window.setTimeout(() => setIntelAlert(null), 12000);
-    });
-    return () => {
-      un.then((f) => f());
-    };
-  }, [intel?.sound, intel?.soundChoice]);
-
-  // Cargar el sonido personalizado cuando se elige/ cambia el archivo.
-  useEffect(() => {
-    if (intel?.soundChoice === "custom" && intel?.soundFile) {
-      void loadCustomSound(intel.soundFile);
-    }
-  }, [intel?.soundChoice, intel?.soundFile]);
-
   // --- Intel: tarjeta de detalle (piloto/nave/ruta/zKill) ---
   const [intelDetail, setIntelDetail] = useState<{
     sysId: number | null;
@@ -750,12 +606,23 @@ export function MapView(props: {
     author: string;
     message: string;
   } | null>(null);
-  const [intelEntities, setIntelEntities] = useState<{
-    characters: { id: number; name: string }[];
-    ships: { id: number; name: string }[];
-  } | null>(null);
-  const [intelEntLoading, setIntelEntLoading] = useState(false);
-  const [intelTrackPilot, setIntelTrackPilot] = useState<string | null>(null);
+  // Capa de Intel: ficha de detalle + panel de config (hook useIntel, Tanda A).
+  const {
+    intelEntities,
+    setIntelEntities,
+    intelEntLoading,
+    intelTrackPilot,
+    setIntelTrackPilot,
+    chanOpen,
+    setChanOpen,
+    cfgOpen,
+    setCfgOpen,
+    anchorInput,
+    setAnchorInput,
+    intelDetailCount,
+    intelAlert,
+    setIntelAlert,
+  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, intelReports, intelOrigins });
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
   const { huntPilot, huntTrack, loadHuntTrack, clearHuntTrack } = useHuntTrack(openTrack);
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
@@ -782,25 +649,6 @@ export function MapView(props: {
       setHabitual([]);
     }
   }
-  // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
-  const intelDetailCount = useMemo(() => {
-    if (!intelDetail || !geo) return null;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames);
-    return p.count ?? (p.pilots.length || null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail, shipNames]);
-  const [chanOpen, setChanOpen] = useState(false);
-  const [cfgOpen, setCfgOpen] = useState(false);
-  const [anchorInput, setAnchorInput] = useState("");
-  // Abrir la config automáticamente si la capa intel está activa y aún no hay canales elegidos.
-  // Y pedir permiso de notificación al entrar (para que el SO pregunte en buen momento).
-  useEffect(() => {
-    if (overlay === "intel" && intel) {
-      if (intel.channels.length === 0) setCfgOpen(true);
-      void ensureNotifPerm();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlay]);
 
   // Genera candidatos (1-3 palabras) de un mensaje, quitando sistemas y palabras de jerga.
   function openIntelDetail(r: {
@@ -817,47 +665,12 @@ export function MapView(props: {
     setIntelTrackPilot(null);
   }
 
-  // Resuelve entidades al abrir la tarjeta. Naves = clasificación LOCAL (SDE), pilotos = ESI
-  // solo sobre los candidatos limpios (sin naves ni jerga) → ya no salen Eris/ansi/near como pilotos.
-  useEffect(() => {
-    if (!intelDetail || !geo) return;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames);
-    // naves locales, deduplicadas por type_id
-    const shipMap = new Map<number, string>();
-    for (const s of p.ships) shipMap.set(s.id, s.name);
-    const ships = [...shipMap].map(([id, name]) => ({ id, name }));
-    const pilots = [...new Set(p.pilots)];
-    if (pilots.length === 0) {
-      setIntelEntities({ characters: [], ships });
-      return;
-    }
-    setIntelEntLoading(true);
-    invoke<{ characters: { id: number; name: string }[] }>("resolve_intel_entities", {
-      names: pilots,
-    })
-      .then((e) => setIntelEntities({ characters: e.characters, ships }))
-      .catch(() => setIntelEntities({ characters: [], ships }))
-      .finally(() => setIntelEntLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail, shipNames]);
 
-  // Trayectoria de un piloto: sistemas (cronológico) donde aparece su nombre en los reportes.
-  function pilotTrack(name: string) {
-    const lower = name.toLowerCase();
-    const asc = [...(intelReports?.feed ?? [])].reverse(); // feed es newest-first
-    const track: { ts: number; sysId: number; sysName: string }[] = [];
-    for (const f of asc) {
-      if (f.sysId != null && f.message.toLowerCase().includes(lower)) {
-        track.push({ ts: f.ts, sysId: f.sysId, sysName: f.sysName! });
-      }
-    }
-    return track;
-  }
 
   // Polilínea de la ruta del piloto seleccionado (sobre el grafo del mapa).
   const intelTrackLine = useMemo(() => {
     if (!geo || overlay !== "intel" || !intelTrackPilot) return null;
-    const track = pilotTrack(intelTrackPilot);
+    const track = pilotTrack(intelTrackPilot, intelReports?.feed ?? []);
     const pts = track
       .map((t) => geo.idx.get(t.sysId))
       .filter((s): s is NeSystem => !!s)
@@ -2149,7 +1962,7 @@ export function MapView(props: {
                 <div className="muted small">{tr("Ningún piloto reconocido en el reporte.")}</div>
               )}
               {intelEntities?.characters.map((c) => {
-                const track = pilotTrack(c.name);
+                const track = pilotTrack(c.name, intelReports?.feed ?? []);
                 const active = intelTrackPilot === c.name;
                 return (
                   <div key={c.id} className={`intel-pilot${active ? " active" : ""}`}>

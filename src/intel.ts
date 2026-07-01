@@ -176,3 +176,21 @@ export function buildIntelReports(
   feed.reverse(); // más reciente primero
   return { rep, feed };
 }
+
+
+// Trayectoria de un piloto: sistemas (orden cronológico) donde su nombre aparece en el feed de
+// reportes. `feed` viene newest-first (como lo devuelve buildIntelReports) → se invierte.
+export function pilotTrack(
+  name: string,
+  feed: IntelFeedRow[],
+): { ts: number; sysId: number; sysName: string }[] {
+  const lower = name.toLowerCase();
+  const asc = [...feed].reverse();
+  const track: { ts: number; sysId: number; sysName: string }[] = [];
+  for (const f of asc) {
+    if (f.sysId != null && f.message.toLowerCase().includes(lower)) {
+      track.push({ ts: f.ts, sysId: f.sysId, sysName: f.sysName! });
+    }
+  }
+  return track;
+}

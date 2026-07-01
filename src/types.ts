@@ -546,3 +546,35 @@ export type Incursion = {
   state: string | null;
   kind: string | null;
 };
+
+// Config + callbacks de la capa de Intel en vivo (props de MapView, compartida con useIntel).
+export type IntelConfig = {
+  lines: IntelLine[];
+  availChannels: string[];
+  channels: string[];
+  folder: string;
+  recency: number;
+  alertJumps: number;
+  sound: boolean;
+  anchors: number[];
+  onlyRange: boolean;
+  soundChoice: string;
+  soundFile: string;
+  live: boolean;
+  onToggleLive?: () => void;
+  onIntelAlert?: (text: string) => void;
+  onClearAlert?: () => void;
+  onConfig: (patch: {
+    channels?: string[];
+    recency?: number;
+    alertJumps?: number;
+    sound?: boolean;
+    folder?: string;
+    anchors?: number[];
+    onlyRange?: boolean;
+    soundChoice?: string;
+    soundFile?: string;
+  }) => void;
+  onPickFolder: () => void;
+  onPickSound: () => void;
+};
