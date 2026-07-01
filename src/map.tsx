@@ -460,7 +460,12 @@ export function MapView(props: {
   }, [ne]);
 
   // Fondo de estrellas memorizado (no se reconstruye al mover el ratón / hover).
-  const backdropCircles = useMemo(() => renderBackdrop(geo, ne, overlay), [geo, ne, overlay]);
+  // LOD del backdrop: en vista galaxia (muy alejado) pinta 1 de cada 3 sistemas (se solapan igual).
+  const bgStride = view.z < 1.8 ? 3 : 1;
+  const backdropCircles = useMemo(
+    () => renderBackdrop(geo, ne, overlay, bgStride),
+    [geo, ne, overlay, bgStride],
+  );
 
   // Soberanía memorizada (círculos coloreados por dueño).
   const sovCircles = useMemo(
@@ -1262,7 +1267,11 @@ export function MapView(props: {
                   </text>
                 );
               })}
-            <path d={geo.jumpsPath} stroke="#243040" strokeWidth={0.5} fill="none" opacity={0.6} />
+            {/* LOD: en la vista galaxia (muy alejado) la maraña de saltos es ilegible y cara de
+                pintar → se oculta; reaparece al acercar el zoom. */}
+            {view.z >= 1.8 && (
+              <path d={geo.jumpsPath} stroke="#243040" strokeWidth={0.5} fill="none" opacity={0.6} />
+            )}
             {/* backdrop de sistemas (memorizado) */}
             {backdropCircles}
             {/* overlay de soberanía (memorizado) */}

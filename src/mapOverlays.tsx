@@ -18,10 +18,18 @@ export type Geo = {
 };
 
 // Fondo de estrellas (todos los sistemas). En la capa de seguridad, coloreado y algo mayor.
-export function renderBackdrop(geo: Geo | null, ne: NewEden | null, overlay: MapOverlay) {
+export function renderBackdrop(
+  geo: Geo | null,
+  ne: NewEden | null,
+  overlay: MapOverlay,
+  stride = 1,
+) {
   if (!geo || !ne) return null;
   const isSec = overlay === "security";
-  return ne.systems.map((s) => {
+  // LOD: muy alejado (vista galaxia) los sistemas se solapan en pocos píxeles → pintar 1 de cada
+  // `stride` se ve casi igual y baja mucho el nº de nodos a pintar. stride=1 = todos (zoom normal).
+  const sys = stride > 1 ? ne.systems.filter((_, i) => i % stride === 0) : ne.systems;
+  return sys.map((s) => {
     const p = geo.proj(s);
     return (
       <circle
