@@ -481,6 +481,32 @@ export type TradePnlItem = {
   margin: number;
 };
 export type PnlDay = { date: string; profit: number };
+export type HistPoint = { date: string; average: number; volume: number };
+export type BookLevel = { price: number; volume: number; orders: number; cum: number };
+export type WatchItem = {
+  type_id: number;
+  name: string | null;
+  best_buy: number;
+  best_sell: number;
+  spread: number;
+  margin: number;
+  day_volume: number;
+  avg_volume: number;
+  history: HistPoint[];
+  buy_levels: BookLevel[];
+  sell_levels: BookLevel[];
+};
+export type ArbItem = {
+  type_id: number;
+  name: string | null;
+  buy_hub: string;
+  buy_price: number;
+  sell_hub: string;
+  sell_price: number;
+  profit: number;
+  margin: number;
+  dest_volume: number;
+};
 export type TradePnl = {
   total_profit: number;
   total_revenue: number;

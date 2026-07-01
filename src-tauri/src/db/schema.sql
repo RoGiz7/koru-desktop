@@ -184,6 +184,13 @@ CREATE TABLE IF NOT EXISTS intel_sightings (
 );
 CREATE INDEX IF NOT EXISTS idx_sight_name ON intel_sightings(name_lower, ts_ms);
 
+-- Watchlist de mercado (Comercio → inteligencia de mercado): tipos que el usuario vigila.
+-- Solo el typeID; el precio/spread/volumen se piden en vivo a ESI (públicos, cacheados).
+CREATE TABLE IF NOT EXISTS market_watch (
+    type_id    INTEGER PRIMARY KEY,
+    added_at   TEXT NOT NULL             -- RFC3339 de cuándo se añadió
+);
+
 -- Gestor de fiteos local (propio): guarda fits importados por EFT. `modules` es JSON.
 CREATE TABLE IF NOT EXISTS fits (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

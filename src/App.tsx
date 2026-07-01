@@ -53,6 +53,8 @@ import type {
   ServerStatus,
   MarketOrder,
   TradePnl,
+  WatchItem,
+  ArbItem,
   Planet,
   RattingDetail,
   SpecialRatsResult,
@@ -4255,6 +4257,375 @@ function PlanetologiaView({ planets, busy }: { planets: Planet[] | null; busy: b
   );
 }
 
+// Botón reutilizable "➕ a watchlist": añade un typeID a la watchlist de mercado (optimista).
+function WatchAddBtn({ typeId }: { typeId: number }) {
+  const [added, setAdded] = useState(false);
+  return (
+    <button
+      className="watch-add-btn"
+      title={added ? tr("Añadido a la watchlist") : tr("Añadir a la watchlist")}
+      disabled={added}
+      onClick={(e) => {
+        e.stopPropagation();
+        invoke("watch_add", { typeId })
+          .then(() => setAdded(true))
+          .catch(() => {});
+      }}
+    >
+      {added ? "✓" : "➕"}
+    </button>
+  );
+}
+
+// Regiones comerciales principales (hub entre paréntesis). El backend mapea región→estación hub.
+const TRADE_REGIONS: { id: number; label: string }[] = [
+  { id: 10000002, label: "Jita (The Forge)" },
+  { id: 10000043, label: "Amarr (Domain)" },
+  { id: 10000032, label: "Dodixie (Sinq Laison)" },
+  { id: 10000030, label: "Rens (Heimatar)" },
+  { id: 10000042, label: "Hek (Metropolis)" },
+];
+type MType = { i: number; n: string; g: number };
+
+// Watchlist de mercado: vigila ítems y ve su spread en el hub + tendencia de precio.
+function WatchlistPanel() {
+  const [region, setRegion] = useState<number>(() => {
+    const v = Number(localStorage.getItem("koru-trade-region"));
+    return TRADE_REGIONS.some((r) => r.id === v) ? v : 10000002;
+  });
+  const [items, setItems] = useState<WatchItem[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sel, setSel] = useState<number | null>(null);
+  const [mtypes, setMtypes] = useState<MType[] | null>(null);
+  const [q, setQ] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [mode, setMode] = useState<"market" | "arb">("market");
+  const [arb, setArb] = useState<ArbItem[] | null>(null);
+  const [arbBusy, setArbBusy] = useState(false);
+
+  const loadArb = () => {
+    setArbBusy(true);
+    invoke<ArbItem[]>("get_arbitrage")
+      .then(setArb)
+      .catch(() => setArb([]))
+      .finally(() => setArbBusy(false));
+  };
+  useEffect(() => {
+    if (mode === "arb" && arb === null && !arbBusy) loadArb();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  const load = () => {
+    setBusy(true);
+    invoke<WatchItem[]>("get_watchlist", { regionId: region })
+      .then((v) => setItems(v))
+      .catch(() => setItems([]))
+      .finally(() => setBusy(false));
+  };
+  useEffect(() => {
+    load();
+    localStorage.setItem("koru-trade-region", String(region));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [region]);
+
+  // El catálogo de tipos (1 MB) se carga perezosamente al empezar a buscar.
+  const ensureTypes = () => {
+    if (mtypes) return;
+    fetch("/market_types.json")
+      .then((r) => r.json())
+      .then(setMtypes)
+      .catch(() => setMtypes([]));
+  };
+  const ql = q.trim().toLowerCase();
+  const watched = new Set((items ?? []).map((i) => i.type_id));
+  const matches =
+    ql.length >= 2 && mtypes
+      ? mtypes.filter((t) => t.n.toLowerCase().includes(ql)).slice(0, 25)
+      : [];
+
+  const add = (tid: number) => {
+    setAdding(true);
+    setQ("");
+    invoke("watch_add", { typeId: tid })
+      .then(() => load())
+      .finally(() => setAdding(false));
+  };
+  const remove = (tid: number) => {
+    invoke("watch_remove", { typeId: tid }).then(() => {
+      if (sel === tid) setSel(null);
+      load();
+    });
+  };
+
+  const selItem = items?.find((i) => i.type_id === sel) ?? null;
+  const hLabels = (selItem?.history ?? []).map((h) => h.date.slice(5));
+  const hSeries = selItem
+    ? [{ name: tr("Precio medio"), color: "#58a6ff", values: selItem.history.map((h) => h.average) }]
+    : [];
+
+  const arbList = arb ?? [];
+
+  return (
+    <>
+      <div className="seg seg-sm" style={{ marginBottom: "0.6rem" }}>
+        <button className={mode === "market" ? "active" : ""} onClick={() => setMode("market")}>
+          {tr("Mercado")}
+        </button>
+        <button className={mode === "arb" ? "active" : ""} onClick={() => setMode("arb")}>
+          {tr("Arbitraje entre hubs")}
+        </button>
+      </div>
+
+      {mode === "arb" ? (
+        <>
+          <div className="watch-controls">
+            <span className="muted small" style={{ flex: 1 }}>
+              {tr("Mejor ruta de compra→venta entre Jita, Amarr, Dodixie, Rens y Hek para cada ítem vigilado.")}
+            </span>
+            <button onClick={loadArb} disabled={arbBusy}>
+              {arbBusy ? tr("Calculando…") : tr("Recalcular")}
+            </button>
+          </div>
+          {!arb ? (
+            <p className="muted">{arbBusy ? tr("Analizando los 5 hubs… (puede tardar)") : tr("Sin datos.")}</p>
+          ) : arbList.length === 0 ? (
+            <p className="muted small">
+              {(items && items.length === 0)
+                ? tr("Tu watchlist está vacía. Añade ítems en la pestaña Mercado.")
+                : tr("No hay rutas rentables entre hubs para tus ítems vigilados ahora mismo.")}
+            </p>
+          ) : (
+            <>
+              <table className="km-table">
+                <thead>
+                  <tr>
+                    <th>{tr("Item")}</th>
+                    <th>{tr("Comprar en")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Precio compra")}</th>
+                    <th>{tr("Vender en")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Precio venta")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Beneficio/ud")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Margen")}</th>
+                    <th style={{ textAlign: "right" }}>{tr("Vol/día dest.")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {arbList.map((a) => (
+                    <tr key={a.type_id}>
+                      <td className="ship-cell">
+                        <TypeIcon typeId={a.type_id} />
+                        <span>{a.name ?? `#${a.type_id}`}</span>
+                      </td>
+                      <td>{a.buy_hub}</td>
+                      <td style={{ textAlign: "right", color: "#3fb950" }}>{fmtIsk(a.buy_price)}</td>
+                      <td>{a.sell_hub}</td>
+                      <td style={{ textAlign: "right", color: "#e5534b" }}>{fmtIsk(a.sell_price)}</td>
+                      <td style={{ textAlign: "right", color: "#3fb950" }}>{fmtIsk(a.profit)}</td>
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color: a.margin >= 0.2 ? "#3fb950" : a.margin >= 0.05 ? "#d29922" : "inherit",
+                        }}
+                      >
+                        {(a.margin * 100).toFixed(1)}%
+                      </td>
+                      <td style={{ textAlign: "right" }}>{fmtSp(a.dest_volume)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="muted small">
+                {tr("Comprar al mejor precio de venta en el hub origen, llevar y vender al mejor precio de compra en el destino. Beneficio antes de impuestos, comisiones y transporte. El volumen del destino indica si podrás colocarlo.")}
+              </p>
+            </>
+          )}
+        </>
+      ) : (
+      <>
+      <div className="watch-controls">
+        <label className="watch-region">
+          <span className="muted small">{tr("Región")}</span>
+          <select value={region} onChange={(e) => setRegion(Number(e.target.value))}>
+            {TRADE_REGIONS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="watch-search">
+          <input
+            value={q}
+            onFocus={ensureTypes}
+            onChange={(e) => {
+              ensureTypes();
+              setQ(e.target.value);
+            }}
+            placeholder={tr("Buscar ítem para añadir…")}
+          />
+          {ql.length >= 2 && (
+            <div className="watch-ac">
+              {!mtypes ? (
+                <div className="muted small watch-ac-msg">{tr("Cargando catálogo…")}</div>
+              ) : matches.length === 0 ? (
+                <div className="muted small watch-ac-msg">{tr("Sin coincidencias")}</div>
+              ) : (
+                matches.map((m) => (
+                  <button
+                    key={m.i}
+                    disabled={watched.has(m.i) || adding}
+                    onClick={() => add(m.i)}
+                  >
+                    <TypeIcon typeId={m.i} />
+                    <span>{m.n}</span>
+                    {watched.has(m.i) && <span className="muted small"> · {tr("ya vigilado")}</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!items ? (
+        <p className="muted">{busy ? tr("Cargando mercado…") : tr("Sin datos.")}</p>
+      ) : items.length === 0 ? (
+        <p className="muted small">
+          {tr("Tu watchlist está vacía. Busca ítems arriba para vigilar su precio, spread y volumen.")}
+        </p>
+      ) : (
+        <>
+          <table className="km-table">
+            <thead>
+              <tr>
+                <th>{tr("Item")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Compra")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Venta")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Spread")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Margen")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Vol/día")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Vol medio")}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => (
+                <tr
+                  key={it.type_id}
+                  className={sel === it.type_id ? "watch-row sel" : "watch-row"}
+                  onClick={() => setSel(sel === it.type_id ? null : it.type_id)}
+                >
+                  <td className="ship-cell">
+                    <TypeIcon typeId={it.type_id} />
+                    <span>{it.name ?? `#${it.type_id}`}</span>
+                  </td>
+                  <td style={{ textAlign: "right", color: "#3fb950" }}>
+                    {it.best_buy > 0 ? fmtIsk(it.best_buy) : "—"}
+                  </td>
+                  <td style={{ textAlign: "right", color: "#e5534b" }}>
+                    {it.best_sell > 0 ? fmtIsk(it.best_sell) : "—"}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{it.spread > 0 ? fmtIsk(it.spread) : "—"}</td>
+                  <td
+                    style={{
+                      textAlign: "right",
+                      color: it.margin >= 0.1 ? "#3fb950" : it.margin > 0 ? "#d29922" : "inherit",
+                    }}
+                  >
+                    {it.margin > 0 ? `${(it.margin * 100).toFixed(1)}%` : "—"}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(it.day_volume)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(it.avg_volume)}</td>
+                  <td style={{ textAlign: "right" }}>
+                    <button
+                      className="watch-rm"
+                      title={tr("Quitar de la watchlist")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        remove(it.type_id);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {selItem && (
+            <div className="watch-detail">
+              <div className="rateo-charthead">
+                <span className="muted small">
+                  {tr("Libro (hub)")} · {selItem.name ?? `#${selItem.type_id}`}
+                </span>
+              </div>
+              {selItem.buy_levels.length === 0 && selItem.sell_levels.length === 0 ? (
+                <p className="muted small">{tr("Sin órdenes en el hub para este ítem.")}</p>
+              ) : (
+                (() => {
+                  const maxCum = Math.max(
+                    1,
+                    ...selItem.buy_levels.map((l) => l.cum),
+                    ...selItem.sell_levels.map((l) => l.cum),
+                  );
+                  const pct = (c: number) => `${(c / maxCum) * 100}%`;
+                  return (
+                    <div className="watch-book">
+                      <div className="book-side book-buy">
+                        <div className="book-caption muted small">{tr("Compradores")}</div>
+                        {selItem.buy_levels.map((l) => (
+                          <div className="book-row" key={`b${l.price}`} title={`${l.orders} ${tr("órdenes")} · ${tr("acum.")} ${fmtSp(l.cum)}`}>
+                            <div className="book-bar" style={{ width: pct(l.cum) }} />
+                            <span className="book-vol">{fmtSp(l.volume)}</span>
+                            <span className="book-price">{fmtIsk(l.price)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="book-mid">
+                        <span className="muted small">{tr("Spread")}</span>
+                        <strong>{selItem.spread > 0 ? fmtIsk(selItem.spread) : "—"}</strong>
+                        <span className="muted small">
+                          {selItem.margin > 0 ? `${(selItem.margin * 100).toFixed(1)}%` : ""}
+                        </span>
+                      </div>
+                      <div className="book-side book-sell">
+                        <div className="book-caption muted small">{tr("Vendedores")}</div>
+                        {selItem.sell_levels.map((l) => (
+                          <div className="book-row" key={`s${l.price}`} title={`${l.orders} ${tr("órdenes")} · ${tr("acum.")} ${fmtSp(l.cum)}`}>
+                            <div className="book-bar" style={{ width: pct(l.cum) }} />
+                            <span className="book-price">{fmtIsk(l.price)}</span>
+                            <span className="book-vol">{fmtSp(l.volume)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+              <div className="rateo-charthead" style={{ marginTop: "0.6rem" }}>
+                <span className="muted small">
+                  {tr("Precio medio")} ·{" "}
+                  {tr("últimos")} {selItem.history.length} {tr("días")}
+                </span>
+              </div>
+              {selItem.history.length === 0 ? (
+                <p className="muted small">{tr("Sin histórico para este ítem en esta región.")}</p>
+              ) : (
+                <MultiLineProgress labels={hLabels} series={hSeries} fmt={fmtIsk} />
+              )}
+            </div>
+          )}
+          <p className="muted small">
+            {tr("Compra/venta = mejor precio en el hub de la región. Spread = venta − compra. Margen = spread ÷ venta (antes de impuestos). Volumen del histórico de mercado de la región.")}
+          </p>
+        </>
+      )}
+      </>
+      )}
+    </>
+  );
+}
+
 function ComercioView({
   orders,
   busy,
@@ -4264,7 +4635,7 @@ function ComercioView({
   busy: boolean;
   subject: number | "global";
 }) {
-  const [view, setView] = useState<"orders" | "pnl">("orders");
+  const [view, setView] = useState<"orders" | "pnl" | "watch">("orders");
   const [pnl, setPnl] = useState<TradePnl | null>(null);
   const [pnlBusy, setPnlBusy] = useState(false);
   const [pGran, setPGran] = useState<"day" | "week" | "month">("month");
@@ -4337,9 +4708,14 @@ function ComercioView({
         <button className={view === "pnl" ? "active" : ""} onClick={() => setView("pnl")}>
           {tr("Rentabilidad (P&L)")}
         </button>
+        <button className={view === "watch" ? "active" : ""} onClick={() => setView("watch")}>
+          {tr("Watchlist")}
+        </button>
       </div>
 
-      {view === "orders" ? (
+      {view === "watch" ? (
+        <WatchlistPanel />
+      ) : view === "orders" ? (
         !orders ? (
           <p className="muted">{busy ? tr("Cargando órdenes…") : tr("Sin datos.")}</p>
         ) : orders.length === 0 ? (
@@ -4369,6 +4745,7 @@ function ComercioView({
                   <th>{tr("Vendido")}</th>
                   <Th label={tr("Sistema")} col="sys" sort={sort} onSort={onSort} />
                   <th>{tr("Caduca")}</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -4413,6 +4790,9 @@ function ComercioView({
                       <td>{(filled * 100).toFixed(0)}%</td>
                       <td>{o.system_name ?? (o.system_id ? `#${o.system_id}` : "—")}</td>
                       <td>{left == null ? "—" : left <= 0 ? tr("caducada") : `${left} ${tr("d")}`}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <WatchAddBtn typeId={o.type_id} />
+                      </td>
                     </tr>
                   );
                 })}
@@ -4473,6 +4853,7 @@ function ComercioView({
                 <th style={{ textAlign: "right" }}>{tr("Venta media")}</th>
                 <th style={{ textAlign: "right" }}>{tr("Beneficio")}</th>
                 <th style={{ textAlign: "right" }}>{tr("Margen")}</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -4490,6 +4871,9 @@ function ComercioView({
                     {fmtIsk(it.profit)}
                   </td>
                   <td style={{ textAlign: "right" }}>{it.margin.toFixed(1)}%</td>
+                  <td style={{ textAlign: "right" }}>
+                    <WatchAddBtn typeId={it.type_id} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -4620,6 +5004,7 @@ function AssetsView(props: {
                     <th>{tr("Categoría")}</th>
                     <th style={{ textAlign: "right" }}>{tr("Cantidad")}</th>
                     <th style={{ textAlign: "right" }}>{tr("Valor")}</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4635,6 +5020,9 @@ function AssetsView(props: {
                       </td>
                       <td style={{ textAlign: "right" }}>{fmtSp(t.qty)}</td>
                       <td style={{ textAlign: "right" }}>{fmtIsk(t.value)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <WatchAddBtn typeId={t.type_id} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

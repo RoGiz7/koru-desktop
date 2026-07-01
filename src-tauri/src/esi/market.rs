@@ -79,3 +79,35 @@ pub async fn region_orders(
     }
     all
 }
+
+/// Un día del histórico de mercado de una región para un tipo (/markets/{region}/history/).
+/// Público, sin token; ESI lo cachea ~1 día (una entrada por día, hasta ~13 meses).
+#[derive(Debug, Clone, Deserialize)]
+pub struct HistoryEntry {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub average: f64,
+    #[serde(default)]
+    pub highest: f64,
+    #[serde(default)]
+    pub lowest: f64,
+    #[serde(default)]
+    pub volume: i64,
+    #[serde(default)]
+    pub order_count: i64,
+}
+
+/// Histórico diario de precio/volumen de una región para UN tipo. Público y cacheado (~1 día).
+/// Devuelve la serie completa que da ESI (orden cronológico ascendente).
+pub async fn region_history(
+    esi: &EsiClient,
+    db: &Db,
+    region_id: i64,
+    type_id: i64,
+) -> Vec<HistoryEntry> {
+    let path = format!("/markets/{region_id}/history/?type_id={type_id}");
+    esi.get_cached::<Vec<HistoryEntry>>(db, 0, &path, None)
+        .await
+        .unwrap_or_default()
+}

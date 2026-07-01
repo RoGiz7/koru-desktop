@@ -174,7 +174,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
   mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
-  comercio: { title: "Comercio", subtitle: "Tus órdenes: competencia (¿te han pisado?), % vendido y vencimiento" },
+  comercio: { title: "Comercio", subtitle: "Órdenes (competencia), rentabilidad realizada y watchlist de mercado" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },

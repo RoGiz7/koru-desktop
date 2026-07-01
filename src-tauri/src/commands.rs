@@ -4267,6 +4267,324 @@ pub async fn get_trading_pnl_global(state: State<'_, AppState>) -> AppResult<Tra
     build_pnl(&state.esi, &state.db, None).await
 }
 
+// ===================== Watchlist de mercado (Comercio Nivel 3) =====================
+
+/// Estación principal (hub) de cada región comercial. Para dar precios de hub reales
+/// (p.ej. Jita 4-4) en vez del mejor de toda la región (que mezcla estaciones lejanas).
+fn hub_station_for_region(region_id: i64) -> i64 {
+    match region_id {
+        10000002 => 60003760, // The Forge  → Jita IV-4 CNAP
+        10000043 => 60008494, // Domain     → Amarr VIII (Oris)
+        10000032 => 60011866, // Sinq Laison→ Dodixie IX-20
+        10000030 => 60004588, // Heimatar   → Rens VI-8
+        10000042 => 60005686, // Metropolis → Hek VIII-12
+        _ => 0,
+    }
+}
+
+/// Un punto del histórico de precio/volumen (para la gráfica de tendencia).
+#[derive(Debug, Serialize)]
+pub struct HistPoint {
+    pub date: String,
+    pub average: f64,
+    pub volume: i64,
+}
+
+/// Un nivel de precio del libro (órdenes agregadas al mismo precio), con volumen acumulado.
+#[derive(Debug, Serialize)]
+pub struct BookLevel {
+    pub price: f64,
+    pub volume: i64, // unidades a ese precio
+    pub orders: i64, // nº de órdenes apiladas a ese precio
+    pub cum: i64,    // volumen acumulado desde el mejor precio (para la barra de profundidad)
+}
+
+/// Un ítem vigilado con su foto de mercado (spread en el hub + tendencia histórica + libro).
+#[derive(Debug, Serialize)]
+pub struct WatchItem {
+    pub type_id: i64,
+    pub name: Option<String>,
+    pub best_buy: f64,     // mejor compra en el hub (0 si no hay órdenes)
+    pub best_sell: f64,    // mejor venta en el hub (0 si no hay órdenes)
+    pub spread: f64,       // best_sell - best_buy
+    pub margin: f64,       // (sell - buy) / sell  (fracción; UI la muestra en %)
+    pub day_volume: i64,   // volumen del último día del histórico (región)
+    pub avg_volume: i64,   // volumen medio de los últimos ~30 días (región)
+    pub history: Vec<HistPoint>, // últimos ~120 días
+    pub buy_levels: Vec<BookLevel>,  // paredes de compra (mayor precio primero), top niveles
+    pub sell_levels: Vec<BookLevel>, // paredes de venta (menor precio primero), top niveles
+}
+
+/// Agrega órdenes por precio en niveles y calcula el volumen acumulado.
+/// `is_buy` ordena mayor→menor (bids); si no, menor→mayor (asks). Devuelve los `top` mejores.
+fn aggregate_levels(
+    orders: &[crate::esi::market::BookOrder],
+    is_buy: bool,
+    top: usize,
+) -> Vec<BookLevel> {
+    use std::collections::HashMap;
+    let mut by_price: HashMap<u64, (f64, i64, i64)> = HashMap::new();
+    for o in orders {
+        let e = by_price.entry(o.price.to_bits()).or_insert((o.price, 0, 0));
+        e.1 += o.volume_remain;
+        e.2 += 1;
+    }
+    let mut levels: Vec<(f64, i64, i64)> = by_price.into_values().collect();
+    levels.sort_by(|a, b| {
+        if is_buy {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        } else {
+            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+    levels.truncate(top);
+    let mut cum = 0i64;
+    levels
+        .into_iter()
+        .map(|(price, volume, orders)| {
+            cum += volume;
+            BookLevel {
+                price,
+                volume,
+                orders,
+                cum,
+            }
+        })
+        .collect()
+}
+
+async fn build_watch_item(
+    esi: &EsiClient,
+    db: &Db,
+    region_id: i64,
+    type_id: i64,
+    hub: i64,
+    name: Option<String>,
+) -> WatchItem {
+    // Libro público del hub: mejor compra (máx) y mejor venta (mín) en la estación principal.
+    let buys = crate::esi::market::region_orders(esi, db, region_id, type_id, "buy").await;
+    let sells = crate::esi::market::region_orders(esi, db, region_id, type_id, "sell").await;
+    // Filtra al hub; si el hub no tiene órdenes, cae a toda la región para no dar 0 engañoso.
+    let hub_buy_orders: Vec<crate::esi::market::BookOrder> = {
+        let f: Vec<_> = buys
+            .iter()
+            .filter(|b| b.location_id == hub)
+            .cloned()
+            .collect();
+        if hub != 0 && !f.is_empty() { f } else { buys.clone() }
+    };
+    let hub_sell_orders: Vec<crate::esi::market::BookOrder> = {
+        let f: Vec<_> = sells
+            .iter()
+            .filter(|s| s.location_id == hub)
+            .cloned()
+            .collect();
+        if hub != 0 && !f.is_empty() { f } else { sells.clone() }
+    };
+    let best_buy = hub_buy_orders
+        .iter()
+        .map(|b| b.price)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let best_sell = hub_sell_orders
+        .iter()
+        .map(|s| s.price)
+        .fold(f64::INFINITY, f64::min);
+    let best_buy = if best_buy.is_finite() { best_buy } else { 0.0 };
+    let best_sell = if best_sell.is_finite() { best_sell } else { 0.0 };
+    // Paredes del libro (top 12 niveles a cada lado) para el visor de profundidad.
+    let buy_levels = aggregate_levels(&hub_buy_orders, true, 12);
+    let sell_levels = aggregate_levels(&hub_sell_orders, false, 12);
+    let spread = if best_sell > 0.0 && best_buy > 0.0 {
+        best_sell - best_buy
+    } else {
+        0.0
+    };
+    let margin = if best_sell > 0.0 && best_buy > 0.0 {
+        (best_sell - best_buy) / best_sell
+    } else {
+        0.0
+    };
+
+    // Histórico (región): tendencia de precio y volumen.
+    let hist = crate::esi::market::region_history(esi, db, region_id, type_id).await;
+    let day_volume = hist.last().map(|h| h.volume).unwrap_or(0);
+    let tail: Vec<&crate::esi::market::HistoryEntry> = hist.iter().rev().take(30).collect();
+    let avg_volume = if tail.is_empty() {
+        0
+    } else {
+        (tail.iter().map(|h| h.volume).sum::<i64>()) / (tail.len() as i64)
+    };
+    let history: Vec<HistPoint> = hist
+        .iter()
+        .rev()
+        .take(120)
+        .rev()
+        .map(|h| HistPoint {
+            date: h.date.clone(),
+            average: h.average,
+            volume: h.volume,
+        })
+        .collect();
+
+    WatchItem {
+        type_id,
+        name,
+        best_buy,
+        best_sell,
+        spread,
+        margin,
+        day_volume,
+        avg_volume,
+        history,
+        buy_levels,
+        sell_levels,
+    }
+}
+
+/// Watchlist de mercado: para cada tipo vigilado, spread en el hub de la región elegida
+/// + tendencia histórica. Todo ESI público (libro + /history/), cacheado.
+#[tauri::command]
+pub async fn get_watchlist(
+    region_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<WatchItem>> {
+    let ids = state.db.watch_list()?;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let hub = hub_station_for_region(region_id);
+    let mut out: Vec<WatchItem> = Vec::with_capacity(ids.len());
+    for tid in ids {
+        let item = build_watch_item(
+            &state.esi,
+            &state.db,
+            region_id,
+            tid,
+            hub,
+            names.get(&tid).cloned(),
+        )
+        .await;
+        out.push(item);
+    }
+    Ok(out)
+}
+
+/// Añade un tipo a la watchlist de mercado.
+#[tauri::command]
+pub async fn watch_add(type_id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.watch_add(type_id)
+}
+
+/// Quita un tipo de la watchlist de mercado.
+#[tauri::command]
+pub async fn watch_remove(type_id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.watch_remove(type_id)
+}
+
+// ===================== Arbitraje entre hubs (Comercio Nivel 3d) =====================
+
+/// Los 5 hubs comerciales (región, etiqueta). La estación se saca de hub_station_for_region.
+const ARB_REGIONS: [(i64, &str); 5] = [
+    (10000002, "Jita"),
+    (10000043, "Amarr"),
+    (10000032, "Dodixie"),
+    (10000030, "Rens"),
+    (10000042, "Hek"),
+];
+
+/// Mejor ruta de arbitraje/hauling de un ítem entre hubs: comprar al ask más barato,
+/// vender al bid más caro (en hubs distintos).
+#[derive(Debug, Serialize)]
+pub struct ArbItem {
+    pub type_id: i64,
+    pub name: Option<String>,
+    pub buy_hub: String,  // dónde compras (mejor venta = ask más bajo)
+    pub buy_price: f64,
+    pub sell_hub: String, // dónde vendes (mejor compra = bid más alto)
+    pub sell_price: f64,
+    pub profit: f64,      // por unidad (bid_destino - ask_origen)
+    pub margin: f64,      // profit / buy_price (fracción; UI en %)
+    pub dest_volume: i64, // volumen diario del ítem en la región destino (¿podrás colocarlo?)
+}
+
+/// Arbitraje entre hubs para los ítems vigilados. Para cada uno mira el mejor ask y bid
+/// en cada hub y devuelve la mejor ruta cruzada (comprar en A, vender en B, A≠B).
+/// PESADO: 5 regiones × 2 lados por ítem (todo ESI público y cacheado). Se pide bajo demanda.
+#[tauri::command]
+pub async fn get_arbitrage(state: State<'_, AppState>) -> AppResult<Vec<ArbItem>> {
+    let ids = state.db.watch_list()?;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let n = ARB_REGIONS.len();
+    let mut out: Vec<ArbItem> = Vec::new();
+    for tid in ids {
+        let mut asks = vec![0f64; n]; // mejor venta (ask) por hub
+        let mut bids = vec![0f64; n]; // mejor compra (bid) por hub
+        for (i, (region, _)) in ARB_REGIONS.iter().enumerate() {
+            let station = hub_station_for_region(*region);
+            let buys =
+                crate::esi::market::region_orders(&state.esi, &state.db, *region, tid, "buy").await;
+            let sells =
+                crate::esi::market::region_orders(&state.esi, &state.db, *region, tid, "sell").await;
+            let bid = buys
+                .iter()
+                .filter(|b| b.location_id == station)
+                .map(|b| b.price)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let ask = sells
+                .iter()
+                .filter(|s| s.location_id == station)
+                .map(|s| s.price)
+                .fold(f64::INFINITY, f64::min);
+            bids[i] = if bid.is_finite() { bid } else { 0.0 };
+            asks[i] = if ask.is_finite() { ask } else { 0.0 };
+        }
+        // Mejor ruta cruzada: comprar al ask en b, vender al bid en s, con b≠s.
+        let mut best: Option<(usize, usize, f64)> = None;
+        for b in 0..n {
+            for s in 0..n {
+                if b == s {
+                    continue;
+                }
+                let ask = asks[b];
+                let bid = bids[s];
+                if ask > 0.0 && bid > 0.0 {
+                    let profit = bid - ask;
+                    if profit > 0.0 && best.map_or(true, |(_, _, p)| profit > p) {
+                        best = Some((b, s, profit));
+                    }
+                }
+            }
+        }
+        if let Some((b, s, profit)) = best {
+            let dest_region = ARB_REGIONS[s].0;
+            let hist =
+                crate::esi::market::region_history(&state.esi, &state.db, dest_region, tid).await;
+            let dest_volume = hist.last().map(|h| h.volume).unwrap_or(0);
+            out.push(ArbItem {
+                type_id: tid,
+                name: names.get(&tid).cloned(),
+                buy_hub: ARB_REGIONS[b].1.to_string(),
+                buy_price: asks[b],
+                sell_hub: ARB_REGIONS[s].1.to_string(),
+                sell_price: bids[s],
+                profit,
+                margin: if asks[b] > 0.0 { profit / asks[b] } else { 0.0 },
+                dest_volume,
+            });
+        }
+    }
+    out.sort_by(|a, b| {
+        b.margin
+            .partial_cmp(&a.margin)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(out)
+}
+
 /// Una colonia de Planetary Interaction tal cual la devuelve ESI.
 #[derive(Debug, Clone, serde::Deserialize)]
 struct PlanetRaw {

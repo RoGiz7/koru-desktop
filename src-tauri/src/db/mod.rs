@@ -2636,4 +2636,37 @@ impl Db {
             value: r.get(3)?,
         })
     }
+
+    /// Añade un tipo a la watchlist de mercado (idempotente).
+    pub fn watch_add(&self, type_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO market_watch (type_id, added_at) VALUES (?1, ?2)
+             ON CONFLICT(type_id) DO NOTHING",
+            rusqlite::params![type_id, now],
+        )?;
+        Ok(())
+    }
+
+    /// Quita un tipo de la watchlist de mercado.
+    pub fn watch_remove(&self, type_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM market_watch WHERE type_id = ?1",
+            rusqlite::params![type_id],
+        )?;
+        Ok(())
+    }
+
+    /// Tipos vigilados (más recientes primero).
+    pub fn watch_list(&self) -> AppResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT type_id FROM market_watch ORDER BY added_at DESC")?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
