@@ -3445,6 +3445,27 @@ h4 {
   .intel-alert::after,
   .intel-global-alert::after { animation: none; opacity: 0; }
 }
+
+/* Anillo de intel en el MAPA (sistemas cercanos): pulso compositado en GPU.
+   Antes animaba r + stroke-opacity con SMIL (repinta cada frame → con muchos
+   sistemas en rango = repintado continuo, ~14s Rendering). Ahora transform:scale +
+   opacity (se compone en GPU, sin layout ni repaint), con non-scaling-stroke para
+   que el grosor del trazo NO cambie al escalar (idéntico al SMIL original). */
+@keyframes intel-ring-pulse {
+  0% { transform: scale(1); opacity: var(--intel-op, 0.7); }
+  50% { transform: scale(2.3); opacity: 0; }
+  100% { transform: scale(1); opacity: var(--intel-op, 0.7); }
+}
+.intel-ring-pulse {
+  /* La circle va en (0,0) dentro de un <g> trasladado al sistema → escalar desde su
+     propio centro sin depender de fill-box (que con fill:none no centra en el webview).
+     Timing LINEAL = barrido suave hacia fuera, idéntico al SMIL original (calcMode linear). */
+  transform-origin: 0 0;
+  animation: intel-ring-pulse 1.1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .intel-ring-pulse { animation: none; }
+}
 /* Botón maestro Intel en vivo (cabecera) */
 .tb-intel-toggle {
   border: 1px solid #4a3030;

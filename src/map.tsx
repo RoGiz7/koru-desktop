@@ -548,10 +548,16 @@ export function MapView(props: {
           {/* Solo los sistemas cercanos pulsan (animación). Los lejanos = anillo estático
               → reduce drásticamente el nº de animaciones SMIL y el repintado del SVG. */}
           {near ? (
-            <circle cx={p.px} cy={p.py} r={1.4} fill="none" stroke="#ff3b3b" strokeOpacity={op * 0.7} strokeWidth={0.5} pointerEvents="none">
-              <animate attributeName="r" values="1.4;3.2;1.4" dur="1.1s" repeatCount="indefinite" />
-              <animate attributeName="stroke-opacity" values={`${op * 0.7};0;${op * 0.7}`} dur="1.1s" repeatCount="indefinite" />
-            </circle>
+            <g transform={`translate(${p.px} ${p.py})`} pointerEvents="none">
+              <circle
+                className="intel-ring-pulse"
+                r={1.4}
+                fill="none"
+                stroke="#ff3b3b"
+                strokeWidth={0.7}
+                style={{ ["--intel-op"]: op * 0.85 } as React.CSSProperties}
+              />
+            </g>
           ) : (
             <circle cx={p.px} cy={p.py} r={2.1} fill="none" stroke="#ff3b3b" strokeOpacity={op * 0.3} strokeWidth={0.4} pointerEvents="none" />
           )}
