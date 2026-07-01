@@ -507,6 +507,21 @@ export type ArbItem = {
   margin: number;
   dest_volume: number;
 };
+// Buscador de oportunidades (Comercio Nivel 4): oportunidad de station-trading detectada en un hub.
+export type OppItem = {
+  type_id: number;
+  name: string | null;
+  avg_volume: number;
+  avg_price: number;
+  isk_volume: number;
+  best_buy: number;
+  best_sell: number;
+  spread: number;
+  margin: number;
+  daily_potential: number;
+};
+// Un grupo de mercado del SDE (market_groups.json). p = grupo padre, h = tiene tipos directos.
+export type MGroup = { i: number; n: string; ne: string; p: number | null; h: boolean };
 export type TradePnl = {
   total_profit: number;
   total_revenue: number;

@@ -4585,6 +4585,142 @@ pub async fn get_arbitrage(state: State<'_, AppState>) -> AppResult<Vec<ArbItem>
     Ok(out)
 }
 
+// ===================== Buscador de oportunidades (Comercio Nivel 4) =====================
+
+/// Una oportunidad de trading detectada al escanear un grupo de mercado en un hub.
+/// Combina liquidez (histórico) con el spread real del libro del hub.
+#[derive(Debug, Serialize)]
+pub struct OppItem {
+    pub type_id: i64,
+    pub name: Option<String>,
+    pub avg_volume: i64,       // volumen diario medio (30d, histórico de la región)
+    pub avg_price: f64,        // precio medio reciente (30d)
+    pub isk_volume: f64,       // liquidez diaria en ISK = avg_volume * avg_price
+    pub best_buy: f64,         // mejor compra en el hub (bid más alto)
+    pub best_sell: f64,        // mejor venta en el hub (ask más bajo)
+    pub spread: f64,           // best_sell - best_buy
+    pub margin: f64,           // spread / best_sell (fracción; UI en %)
+    pub daily_potential: f64,  // spread * avg_volume → ISK/día teórico si capturas el spread
+}
+
+/// Escanea un grupo de mercado buscando oportunidades de station-trading en un hub.
+/// Dos pasadas para respetar ESI:
+///   1) Histórico por tipo (1 llamada/tipo, cache ~1 día) → filtra por liquidez (avg_volume).
+///   2) Libro real del hub SOLO para los `top_books` más líquidos (2 llamadas/tipo, cache ~5min).
+/// Devuelve los ítems con libro real, ordenados por potencial diario (spread × volumen).
+/// El frontend pasa los type_ids del grupo (acotado); aquí se limita por seguridad.
+#[tauri::command]
+pub async fn scan_opportunities(
+    region_id: i64,
+    type_ids: Vec<i64>,
+    min_volume: i64,
+    top_books: usize,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<OppItem>> {
+    if type_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Tope de seguridad: no escanear grupos enormes de un tirón (protege el rate limit de ESI).
+    const MAX_TYPES: usize = 400;
+    const MAX_BOOKS: usize = 40;
+    let scan: Vec<i64> = type_ids.into_iter().take(MAX_TYPES).collect();
+    let top_books = top_books.clamp(1, MAX_BOOKS);
+    let min_volume = min_volume.max(0);
+    let hub = hub_station_for_region(region_id);
+
+    // ---- Pasada 1: liquidez desde el histórico (barata, cache ~1 día) ----
+    struct Liq {
+        type_id: i64,
+        avg_volume: i64,
+        avg_price: f64,
+        isk_volume: f64,
+    }
+    let mut liq: Vec<Liq> = Vec::new();
+    for tid in scan {
+        let hist = crate::esi::market::region_history(&state.esi, &state.db, region_id, tid).await;
+        if hist.is_empty() {
+            continue;
+        }
+        let tail: Vec<&crate::esi::market::HistoryEntry> = hist.iter().rev().take(30).collect();
+        let days = tail.len() as i64;
+        if days == 0 {
+            continue;
+        }
+        let avg_volume = tail.iter().map(|h| h.volume).sum::<i64>() / days;
+        if avg_volume < min_volume {
+            continue;
+        }
+        let avg_price = tail.iter().map(|h| h.average).sum::<f64>() / days as f64;
+        liq.push(Liq {
+            type_id: tid,
+            avg_volume,
+            avg_price,
+            isk_volume: avg_volume as f64 * avg_price,
+        });
+    }
+    // Los más líquidos primero: solo a estos les pedimos el libro real.
+    liq.sort_by(|a, b| {
+        b.isk_volume
+            .partial_cmp(&a.isk_volume)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    liq.truncate(top_books);
+    if liq.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // ---- Pasada 2: spread real del libro del hub para los supervivientes ----
+    let ids: Vec<i64> = liq.iter().map(|l| l.type_id).collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut out: Vec<OppItem> = Vec::with_capacity(liq.len());
+    for l in liq {
+        let buys =
+            crate::esi::market::region_orders(&state.esi, &state.db, region_id, l.type_id, "buy")
+                .await;
+        let sells =
+            crate::esi::market::region_orders(&state.esi, &state.db, region_id, l.type_id, "sell")
+                .await;
+        let best_buy = buys
+            .iter()
+            .filter(|b| hub == 0 || b.location_id == hub)
+            .map(|b| b.price)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let best_sell = sells
+            .iter()
+            .filter(|s| hub == 0 || s.location_id == hub)
+            .map(|s| s.price)
+            .fold(f64::INFINITY, f64::min);
+        let best_buy = if best_buy.is_finite() { best_buy } else { 0.0 };
+        let best_sell = if best_sell.is_finite() { best_sell } else { 0.0 };
+        let (spread, margin) = if best_sell > 0.0 && best_buy > 0.0 && best_sell >= best_buy {
+            (best_sell - best_buy, (best_sell - best_buy) / best_sell)
+        } else {
+            (0.0, 0.0)
+        };
+        // Potencial diario: spread capturable sobre el volumen diario.
+        let daily_potential = spread * l.avg_volume as f64;
+        out.push(OppItem {
+            type_id: l.type_id,
+            name: names.get(&l.type_id).cloned(),
+            avg_volume: l.avg_volume,
+            avg_price: l.avg_price,
+            isk_volume: l.isk_volume,
+            best_buy,
+            best_sell,
+            spread,
+            margin,
+            daily_potential,
+        });
+    }
+    // Ordena por potencial diario (spread × volumen): las que más ISK/día pueden dar.
+    out.sort_by(|a, b| {
+        b.daily_potential
+            .partial_cmp(&a.daily_potential)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(out)
+}
+
 /// Una colonia de Planetary Interaction tal cual la devuelve ESI.
 #[derive(Debug, Clone, serde::Deserialize)]
 struct PlanetRaw {

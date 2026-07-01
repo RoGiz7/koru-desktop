@@ -743,6 +743,26 @@ const EN: Record<string, string> = {
   "Vol/día dest.": "Dest. vol/day",
   "Comprar al mejor precio de venta en el hub origen, llevar y vender al mejor precio de compra en el destino. Beneficio antes de impuestos, comisiones y transporte. El volumen del destino indica si podrás colocarlo.":
     "Buy at the best sell price in the origin hub, haul it, and sell at the best buy price in the destination. Profit before taxes, fees and transport. Destination volume tells you if you can offload it.",
+
+  // --- Buscador de oportunidades (Comercio Nivel 4) ---
+  Oportunidades: "Opportunities",
+  "Buscar grupo de mercado… (p. ej. Frigates)": "Search a market group… (e.g. Frigates)",
+  "ítems": "items",
+  "Vol/día mín.": "Min vol/day",
+  "ítems en el grupo": "items in the group",
+  "Elige un grupo de mercado y escanea las mejores oportunidades del hub.":
+    "Pick a market group and scan the hub's best opportunities.",
+  "Escaneando…": "Scanning…",
+  Escanear: "Scan",
+  "Analizando liquidez y libros del hub… (puede tardar)":
+    "Analyzing liquidity and hub order books… (may take a while)",
+  "Sin datos. Elige un grupo y pulsa Escanear.": "No data. Pick a group and hit Scan.",
+  "Ninguna oportunidad con esa liquidez mínima. Baja el volumen mínimo o prueba otro grupo.":
+    "No opportunities at that minimum liquidity. Lower the minimum volume or try another group.",
+  "Potencial/día": "Potential/day",
+  "Escaneo en dos fases: liquidez del histórico (vol/día) y luego spread real del libro del hub para los más líquidos. Potencial/día = spread × volumen diario (bruto, antes de impuestos y comisiones). Añade con ➕ a la watchlist para ver su libro completo.":
+    "Two-phase scan: history liquidity (vol/day), then the real hub order-book spread for the most liquid ones. Potential/day = spread × daily volume (gross, before taxes and fees). Add with ➕ to the watchlist to see its full order book.",
+
   "Minería (histórico acumulado)": "Mining (accumulated history)",
   "Sincronizar minería": "Sync mining",
   Entradas: "Entries",
@@ -801,6 +821,15 @@ const EN: Record<string, string> = {
   "No hay fits nuevos que importar.": "No new fits to import.",
   "Pega aquí un fit en formato EFT:": "Paste a fit in EFT format here:",
   "Importar fit (EFT)": "Import fit (EFT)",
+  "Aún no hay personajes.": "No characters yet.",
+  "Selecciona un personaje para ver sus contactos y standings.":
+    "Select a character to see their contacts and standings.",
+  "Selecciona un personaje para ver sus stats de Guerra de Facciones.":
+    "Select a character to see their Faction Warfare stats.",
+  "Selecciona un personaje para ver la estimación de Abyssals.":
+    "Select a character to see the Abyssals estimate.",
+  "Sin actividad.": "No activity.",
+  "Ver detalle": "View detail",
   "Selecciona un personaje arriba para importar sus fits del juego":
     "Select a character above to import their in-game fits",
   "Trae tus fits guardados en EVE": "Bring your fits saved in EVE",
@@ -836,6 +865,9 @@ export function t(s: string, lang: Lang): string {
 let _lang: Lang = "es";
 export function setLang(l: Lang) {
   _lang = l;
+}
+export function getLang(): Lang {
+  return _lang;
 }
 export function tr(s: string): string {
   return t(s, _lang);

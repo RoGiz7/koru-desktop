@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fmtSp, fmtIsk, typeIcon, typeRender } from "./format";
+import { fmtSp, fmtIsk, typeIcon, typeRender, daysAgo } from "./format";
 import { tr } from "./i18n";
 import type { NameCount } from "./types";
 
@@ -411,6 +411,73 @@ export function Donut({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+// Presets de rango reutilizables para todas las gráficas temporales: 90 días (defecto) · Este año ·
+// selector de año concreto · Todo. Evita mostrar de golpe el acumulado histórico (poco fiel a "ahora").
+export function RangePresets({
+  from,
+  to,
+  setFrom,
+  setTo,
+  years,
+}: {
+  from: string;
+  to: string;
+  setFrom: (s: string) => void;
+  setTo: (s: string) => void;
+  years?: number[];
+}) {
+  const year = new Date().getUTCFullYear();
+  const isAll = !from && !to;
+  const pickedYear = from.endsWith("-01-01") && to.endsWith("-12-31") && from.slice(0, 4) === to.slice(0, 4) ? from.slice(0, 4) : "";
+  return (
+    <div className="range-presets">
+      <div className="seg seg-sm">
+        <button
+          className={from === daysAgo(90) && !to ? "active" : ""}
+          onClick={() => {
+            setFrom(daysAgo(90));
+            setTo("");
+          }}
+        >
+          {tr("90 días")}
+        </button>
+        <button
+          className={from === `${year}-01-01` && !to ? "active" : ""}
+          onClick={() => {
+            setFrom(`${year}-01-01`);
+            setTo("");
+          }}
+        >
+          {tr("Este año")}
+        </button>
+        <button className={isAll ? "active" : ""} onClick={() => { setFrom(""); setTo(""); }}>
+          {tr("Todo")}
+        </button>
+      </div>
+      {years && years.length > 0 && (
+        <select
+          className="range-year"
+          value={pickedYear}
+          onChange={(e) => {
+            const y = e.target.value;
+            if (y) {
+              setFrom(`${y}-01-01`);
+              setTo(`${y}-12-31`);
+            }
+          }}
+        >
+          <option value="">{tr("Año…")}</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }

@@ -3,10 +3,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
-import { fmtAgo, fmtIsk, fmtSp, fmtMin, secColor, ownerColor, heatColor, standingColor, typeIcon } from "./format";
+import { fmtAgo, fmtIsk, fmtSp, fmtMin, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon } from "./charts";
+import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
+import { renderBackdrop, renderSov, renderFw, renderStandings, renderIncursions, renderThera } from "./mapOverlays";
+import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
+import { useJumpPlanner } from "./useJumpPlanner";
+import { useRoutePlanner } from "./useRoutePlanner";
+import { useHuntTrack } from "./useHuntTrack";
 import { ALERT_SOUNDS, playAlertChoice, loadCustomSound, beep, ensureNotifPerm } from "./sound";
-import { classifyIntel } from "./intel";
+import { classifyIntel, buildIntelReports } from "./intel";
 import { loadNewEden } from "./neweden";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay } from "./constants";
@@ -30,58 +36,6 @@ const MAP_W = 1000;
 const MAP_H = 760;
 const MAP_PAD = 16;
 
-type RouteMode = "shortest" | "safer" | "insecure";
-
-/** Dijkstra sobre el grafo de stargates. mode pondera seguridad. */
-function findRoute(
-  adj: Map<number, number[]>,
-  idx: Map<number, NeSystem>,
-  from: number,
-  to: number,
-  mode: RouteMode
-): number[] | null {
-  if (from === to) return [from];
-  const weight = (n: number) => {
-    const sec = idx.get(n)?.s ?? 0;
-    const hi = sec >= 0.45;
-    if (mode === "safer") return 1 + (hi ? 0 : 60);
-    if (mode === "insecure") return 1 + (hi ? 60 : 0);
-    return 1;
-  };
-  const dist = new Map<number, number>([[from, 0]]);
-  const prev = new Map<number, number>();
-  const visited = new Set<number>();
-  const frontier = new Map<number, number>([[from, 0]]);
-  while (frontier.size) {
-    let u = -1;
-    let best = Infinity;
-    for (const [k, d] of frontier) if (d < best) ((best = d), (u = k));
-    frontier.delete(u);
-    if (u === to) break;
-    if (visited.has(u)) continue;
-    visited.add(u);
-    for (const v of adj.get(u) ?? []) {
-      if (visited.has(v)) continue;
-      const nd = best + weight(v);
-      if (nd < (dist.get(v) ?? Infinity)) {
-        dist.set(v, nd);
-        prev.set(v, u);
-        frontier.set(v, nd);
-      }
-    }
-  }
-  if (!prev.has(to)) return null;
-  const path = [to];
-  let c = to;
-  while (c !== from) {
-    const p = prev.get(c);
-    if (p === undefined) return null;
-    path.push(p);
-    c = p;
-  }
-  path.reverse();
-  return path;
-}
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.
 function SystemSearch(props: {
@@ -211,59 +165,33 @@ export function MapView(props: {
   useEffect(() => setSubFilter("all"), [overlay]); // reset al cambiar de capa
   const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
   const [ctxCollapsed, setCtxCollapsed] = useState(false); // panel de contexto plegado
-  // Planificador de rutas
-  const [routeActive, setRouteActive] = useState(false);
-  const [routeMode, setRouteMode] = useState<RouteMode>("shortest");
-  // Paradas de la ruta: [origen, destino1, destino2, ...]. null = casilla vacía.
-  const [routeStops, setRouteStops] = useState<(number | null)[]>([null]);
-  // Planificador de saltos de capital (jump drive)
-  const [jumpActive, setJumpActive] = useState(false);
-  const [jumpOrigin, setJumpOrigin] = useState<number | null>(null);
-  const [jumpDest, setJumpDest] = useState<number | null>(null);
-  const [jumpRange, setJumpRange] = useState(5);
-  // Naves de salto (del SDE: rango base, fuel/LY, isótopo) + skills del piloto.
-  const [jumpShips, setJumpShips] = useState<JumpShip[]>([]);
-  const [jumpShip, setJumpShip] = useState<string>(""); // nombre de la nave elegida
-  const [jdcLevel, setJdcLevel] = useState(5); // Jump Drive Calibration → +20% rango/nivel (×2 a V)
-  const [jfcLevel, setJfcLevel] = useState(5); // Jump Fuel Conservation → −10% fuel/nivel
-  const [jumpChar, setJumpChar] = useState<number | null>(null); // pj del que cargar skills/naves
-  const [jumpOwned, setJumpOwned] = useState<Set<number>>(new Set()); // type_ids de naves propias
-  const [jumpFatigue, setJumpFatigue] = useState<{ expire: string | null } | null>(null);
-  const [jumpFatMissing, setJumpFatMissing] = useState(false); // falta el scope de fatiga
-  const [fatNow, setFatNow] = useState(Date.now()); // tick para el contador de fatiga
-  // Al elegir personaje: cargar sus niveles JDC/JFC, naves que posee y la fatiga actual.
-  useEffect(() => {
-    if (jumpChar == null) {
-      setJumpOwned(new Set());
-      setJumpFatigue(null);
-      setJumpFatMissing(false);
-      return;
-    }
-    invoke<{ jdc: number; jfc: number; owned: number[] }>("get_jump_profile", {
-      characterId: jumpChar,
-    })
-      .then((p) => {
-        setJdcLevel(p.jdc);
-        setJfcLevel(p.jfc);
-        setJumpOwned(new Set(p.owned));
-      })
-      .catch(() => setJumpOwned(new Set()));
-    invoke<{ jump_fatigue_expire_date: string | null }>("get_fatigue", { characterId: jumpChar })
-      .then((f) => {
-        setJumpFatigue({ expire: f.jump_fatigue_expire_date });
-        setJumpFatMissing(false);
-      })
-      .catch(() => {
-        setJumpFatigue(null);
-        setJumpFatMissing(true);
-      });
-  }, [jumpChar]);
-  // Contador de fatiga: refresca cada 30 s mientras el modo salto está activo.
-  useEffect(() => {
-    if (!jumpActive) return;
-    const id = window.setInterval(() => setFatNow(Date.now()), 30000);
-    return () => window.clearInterval(id);
-  }, [jumpActive]);
+  // Planificador de rutas: estado (modo + paradas) encapsulado en su hook.
+  const { routeActive, setRouteActive, routeMode, setRouteMode, routeStops, setRouteStops } =
+    useRoutePlanner();
+  // Planificador de saltos de capital (jump drive): estado + skills/fatiga encapsulados en su hook.
+  const {
+    jumpActive,
+    setJumpActive,
+    jumpOrigin,
+    setJumpOrigin,
+    jumpDest,
+    setJumpDest,
+    jumpRange,
+    setJumpRange,
+    jumpShips,
+    jumpShip,
+    setJumpShip,
+    jdcLevel,
+    setJdcLevel,
+    jfcLevel,
+    setJfcLevel,
+    jumpChar,
+    setJumpChar,
+    jumpOwned,
+    jumpFatMissing,
+    selShip,
+    curFatMin,
+  } = useJumpPlanner();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const clickTimer = useRef<number | null>(null);
@@ -310,11 +238,6 @@ export function MapView(props: {
     fetch("/system-factions.json")
       .then((r) => r.json())
       .then(setFactionMap)
-      .catch(() => {});
-    // Naves de salto (rango/fuel/isótopo) extraídas del SDE.
-    fetch("/jumpships.json")
-      .then((r) => r.json())
-      .then((d) => setJumpShips(d.ships || []))
       .catch(() => {});
     // Actividad en vivo (1h) para tooltips, siempre disponible.
     invoke<SystemKills[]>("get_system_kills")
@@ -566,132 +489,37 @@ export function MapView(props: {
   }, [ne]);
 
   // Fondo de estrellas memorizado (no se reconstruye al mover el ratón / hover).
-  const backdropCircles = useMemo(() => {
-    if (!geo || !ne) return null;
-    const isSec = overlay === "security";
-    return ne.systems.map((s) => {
-      const p = geo.proj(s);
-      return (
-        <circle
-          key={s.id}
-          cx={p.px}
-          cy={p.py}
-          r={isSec ? 1.4 : 0.7}
-          fill={isSec ? secColor(s.s) : "#3a4654"}
-          fillOpacity={isSec ? 0.9 : 1}
-        />
-      );
-    });
-  }, [geo, ne, overlay]);
+  const backdropCircles = useMemo(() => renderBackdrop(geo, ne, overlay), [geo, ne, overlay]);
 
   // Soberanía memorizada (círculos coloreados por dueño).
-  const sovCircles = useMemo(() => {
-    if (!geo || overlay !== "soberania" || !sovBySystem) return null;
-    return [...sovBySystem.values()].map((sv) => {
-      if (sv.owner_id == null) return null;
-      // sub-filtro: Alianzas (alliance/corp) vs Facciones (faction)
-      if (subFilter === "alliance" && !(sv.kind === "alliance" || sv.kind === "corporation")) return null;
-      if (subFilter === "faction" && sv.kind !== "faction") return null;
-      const s = geo.idx.get(sv.system_id);
-      if (!s) return null;
-      const p = geo.proj(s);
-      return <circle key={`sov-${sv.system_id}`} cx={p.px} cy={p.py} r={1.6} fill={ownerColor(sv.owner_id)} fillOpacity={0.85} />;
-    });
-  }, [geo, overlay, sovBySystem, subFilter]);
+  const sovCircles = useMemo(
+    () => renderSov(geo, overlay, sovBySystem, subFilter),
+    [geo, overlay, sovBySystem, subFilter],
+  );
 
   // Guerra de facciones: color = imperio que controla; radio/intensidad = cuán disputado.
-  const fwCircles = useMemo(() => {
-    if (!geo || overlay !== "fw" || !fwBySystem) return null;
-    return [...fwBySystem.values()].map((f) => {
-      if (subFilter !== "all" && f.owner_faction_id !== Number(subFilter)) return null;
-      const s = geo.idx.get(f.solar_system_id);
-      if (!s) return null;
-      const p = geo.proj(s);
-      const col = FW_FACTIONS[f.owner_faction_id]?.color ?? "#888";
-      const pct =
-        f.victory_points_threshold > 0 ? f.victory_points / f.victory_points_threshold : 0;
-      const r = 1.6 + Math.min(Math.max(pct, 0), 1) * 1.6;
-      const op = f.contested === "vulnerable" ? 1 : f.contested === "contested" ? 0.85 : 0.55;
-      return <circle key={`fw-${f.solar_system_id}`} cx={p.px} cy={p.py} r={r} fill={col} fillOpacity={op} />;
-    });
-  }, [geo, overlay, fwBySystem, subFilter]);
+  const fwCircles = useMemo(
+    () => renderFw(geo, overlay, fwBySystem, subFilter),
+    [geo, overlay, fwBySystem, subFilter],
+  );
 
   // Standings por sistema: color = tu standing con la facción NPC que controla el sistema.
-  const standingCircles = useMemo(() => {
-    if (!geo || overlay !== "standings" || !factionMap || !factionStandings) return null;
-    return Object.entries(factionMap).map(([sidStr, fac]) => {
-      if (!factionStandings.has(fac)) return null;
-      const s = geo.idx.get(Number(sidStr));
-      if (!s) return null;
-      const std = factionStandings.get(fac) as number;
-      const p = geo.proj(s);
-      return (
-        <circle
-          key={`std-${sidStr}`}
-          cx={p.px}
-          cy={p.py}
-          r={1.8}
-          fill={standingColor(std)}
-          fillOpacity={0.85}
-        />
-      );
-    });
-  }, [geo, overlay, factionMap, factionStandings]);
+  const standingCircles = useMemo(
+    () => renderStandings(geo, overlay, factionMap, factionStandings),
+    [geo, overlay, factionMap, factionStandings],
+  );
 
   // Incursiones de Sansha: sistemas infestados; el de staging más grande. Color = estado.
-  const incursionCircles = useMemo(() => {
-    if (!geo || overlay !== "incursion" || !incursions) return null;
-    const stateColor = (st: string | null) =>
-      st === "withdrawing" ? "#e0c84a" : st === "mobilizing" ? "#e08a3a" : "#e05a5a";
-    return incursions.flatMap((inc) => {
-      const col = stateColor(inc.state);
-      return inc.infested_solar_systems.map((sid) => {
-        const s = geo.idx.get(sid);
-        if (!s) return null;
-        const p = geo.proj(s);
-        const staging = sid === inc.staging_solar_system_id;
-        return (
-          <circle
-            key={`inc-${sid}`}
-            cx={p.px}
-            cy={p.py}
-            r={staging ? 2.6 : 1.6}
-            fill={col}
-            fillOpacity={staging ? 1 : 0.7}
-            stroke={staging ? "#0a0d12" : undefined}
-            strokeWidth={staging ? 0.6 : undefined}
-          >
-            <title>{`${s.n}${staging ? " (staging)" : ""} — incursión ${inc.state ?? ""}`}</title>
-          </circle>
-        );
-      });
-    });
-  }, [geo, overlay, incursions]);
+  const incursionCircles = useMemo(
+    () => renderIncursions(geo, overlay, incursions),
+    [geo, overlay, incursions],
+  );
 
   // Capa de wormholes (eve-scout): marca los sistemas con conexión Thera/Turnur.
-  const theraCircles = useMemo(() => {
-    if (!geo || overlay !== "wormholes" || !theraConns) return null;
-    return theraConns.map((c, i) => {
-      const s = geo.idx.get(c.system_id);
-      if (!s) return null;
-      const p = geo.proj(s);
-      const col = c.hub === "Turnur" ? "#e0863a" : "#3ad6e0"; // Turnur naranja · Thera cian
-      return (
-        <circle
-          key={`wh-${c.system_id}-${i}`}
-          cx={p.px}
-          cy={p.py}
-          r={2.4}
-          fill={col}
-          fillOpacity={0.85}
-          stroke="#0a0d12"
-          strokeWidth={0.5}
-        >
-          <title>{`${s.n} — ${c.hub} (${c.wh_type || "WH"}) · ${c.max_ship_size || "?"} · ~${c.remaining_hours}h`}</title>
-        </circle>
-      );
-    });
-  }, [geo, overlay, theraConns]);
+  const theraCircles = useMemo(
+    () => renderThera(geo, overlay, theraConns),
+    [geo, overlay, theraConns],
+  );
 
   // Orígenes de proximidad: sistema del pj + puntos de ancla elegidos (sin duplicados).
   const intelOrigins = useMemo(() => {
@@ -702,29 +530,10 @@ export function MapView(props: {
   }, [hereSystemId, intel?.anchors]);
 
   // --- Intel: proximidad (BFS multi-origen: distancia al más cercano de los orígenes) ---
-  const jumpsFrom = useMemo(() => {
-    if (!geo || intelOrigins.length === 0) return null;
-    const dist = new Map<number, number>();
-    const q: number[] = [];
-    for (const o of intelOrigins) {
-      if (!dist.has(o)) {
-        dist.set(o, 0);
-        q.push(o);
-      }
-    }
-    let head = 0;
-    while (head < q.length) {
-      const cur = q[head++];
-      const d = dist.get(cur)!;
-      for (const nb of geo.adj.get(cur) ?? []) {
-        if (!dist.has(nb)) {
-          dist.set(nb, d + 1);
-          q.push(nb);
-        }
-      }
-    }
-    return dist;
-  }, [geo, intelOrigins]);
+  const jumpsFrom = useMemo(
+    () => (!geo || intelOrigins.length === 0 ? null : proximityBFS(geo.adj, intelOrigins)),
+    [geo, intelOrigins],
+  );
 
   // --- Intel: parsear líneas → reportes por sistema + feed cronológico ---
   // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
@@ -736,59 +545,10 @@ export function MapView(props: {
       .catch(() => {});
   }, []);
 
-  type IntelFeedRow = {
-    ts: number;
-    author: string;
-    message: string;
-    sysId: number | null;
-    sysName: string | null;
-    pilots: string[];
-    ships: { id: number; name: string }[];
-    count: number | null;
-  };
-  type IntelRep = {
-    ts: number;
-    author: string;
-    message: string;
-    name: string;
-    pilots: string[];
-    ships: { id: number; name: string }[];
-    count: number | null;
-  };
-  const intelReports = useMemo(() => {
-    if (!geo || !intel) return null;
-    const rep = new Map<number, IntelRep>();
-    const feed: IntelFeedRow[] = [];
-    for (const l of intel.lines) {
-      const p = classifyIntel(l.message, geo.nameIdx, shipNames);
-      const primary = p.systems[0];
-      feed.push({
-        ts: l.ts_ms,
-        author: l.author,
-        message: l.message,
-        sysId: primary?.id ?? null,
-        sysName: primary?.name ?? null,
-        pilots: p.pilots,
-        ships: p.ships,
-        count: p.count,
-      });
-      for (const m of p.systems) {
-        if (p.isClear) rep.delete(m.id);
-        else
-          rep.set(m.id, {
-            ts: l.ts_ms,
-            author: l.author,
-            message: l.message,
-            name: m.name,
-            pilots: p.pilots,
-            ships: p.ships,
-            count: p.count,
-          });
-      }
-    }
-    feed.reverse(); // más reciente primero
-    return { rep, feed };
-  }, [geo, intel?.lines, shipNames]);
+  const intelReports = useMemo(
+    () => (geo && intel ? buildIntelReports(intel.lines, geo.nameIdx, shipNames) : null),
+    [geo, intel?.lines, shipNames],
+  );
 
   // --- Intel: aprender "hostiles habituales" ---
   // Cada línea NUEVA aporta sus pilotos al índice (seen_count++ en backend). Dedup por clave de
@@ -997,36 +757,7 @@ export function MapView(props: {
   const [intelEntLoading, setIntelEntLoading] = useState(false);
   const [intelTrackPilot, setIntelTrackPilot] = useState<string | null>(null);
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
-  const [huntPilot, setHuntPilot] = useState<string | null>(null);
-  const [huntTrack, setHuntTrack] = useState<{ system_id: number; ts_ms: number }[] | null>(null);
-  // Activa el rastro de un piloto (sin toggle). Usado por el botón del mapa y por el puente desde Cazador.
-  async function activateHuntTrack(name: string) {
-    setHuntPilot(name);
-    setHuntTrack(null);
-    try {
-      const pts = await invoke<{ system_id: number; ts_ms: number }[]>("get_pilot_track", {
-        name,
-        limit: 200,
-      });
-      setHuntTrack(pts);
-    } catch {
-      setHuntTrack([]);
-    }
-  }
-  function loadHuntTrack(name: string) {
-    if (huntPilot === name) {
-      // Toggle: si ya está activo, lo apagamos.
-      setHuntPilot(null);
-      setHuntTrack(null);
-      return;
-    }
-    void activateHuntTrack(name);
-  }
-  // Puente desde la sección Cazador: cuando cambia la petición, activar ese rastro en el mapa.
-  useEffect(() => {
-    if (openTrack?.name) void activateHuntTrack(openTrack.name);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openTrack?.nonce]);
+  const { huntPilot, huntTrack, loadHuntTrack, clearHuntTrack } = useHuntTrack(openTrack);
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -1250,66 +981,27 @@ export function MapView(props: {
     );
   }, [geo, overlay, huntTrack]);
 
-  // Nave seleccionada (del catálogo del SDE).
-  const selShip = useMemo(
-    () => jumpShips.find((s) => s.name === jumpShip) || null,
-    [jumpShips, jumpShip]
-  );
-  // Rango efectivo = base × (1 + 20%·Jump Drive Calibration). A nivel V se dobla (SDE: attr 870
-  // jumpDriveRangeBonus = 20/nivel). Autorrellena la burbuja LY.
-  useEffect(() => {
-    if (selShip) setJumpRange(+(selShip.range * (1 + 0.2 * jdcLevel)).toFixed(2));
-  }, [selShip, jdcLevel]);
-
   // Combustible (isótopos) y distancia al destino elegido.
   // fuel = dist(LY) × fuelPerLy × (1 − 10%·Jump Fuel Conservation).
-  const jumpFuel = useMemo(() => {
-    if (!geo || !selShip || jumpOrigin == null || jumpDest == null) return null;
-    const o = geo.idx.get(jumpOrigin);
-    const d = geo.idx.get(jumpDest);
-    if (!o || !d) return null;
-    const dist = Math.hypot(d.gx - o.gx, d.gy - o.gy, d.gz - o.gz);
-    const fuel = Math.ceil(dist * selShip.fuelPerLy * (1 - 0.1 * jfcLevel));
-    return { dist, fuel, isotope: selShip.isotope, inRange: dist <= jumpRange + 1e-6 };
-  }, [geo, selShip, jumpOrigin, jumpDest, jfcLevel, jumpRange]);
-
-  // Fatiga actual del personaje (minutos restantes del timer azul).
-  const curFatMin = useMemo(() => {
-    if (!jumpFatigue?.expire) return 0;
-    const ms = Date.parse(jumpFatigue.expire) - fatNow;
-    return ms > 0 ? ms / 60000 : 0;
-  }, [jumpFatigue, fatNow]);
+  const jumpFuel = useMemo(
+    () => computeJumpFuel(geo, selShip, jumpOrigin, jumpDest, jfcLevel, jumpRange),
+    [geo, selShip, jumpOrigin, jumpDest, jfcLevel, jumpRange],
+  );
 
   // Estimación del salto al destino: cooldown de activación y fatiga resultante.
   // Fórmula EVE (EVE Uni): cooldown = max(1+LY, fatigaPre/10) [máx 30 min];
   // fatiga nueva = max(10·(1+LY), fatigaPre·(1+LY)) [máx 5 h]. Las JF/Rorqual reducen
   // mucho la fatiga (bono de rol −90% sobre la distancia efectiva): mostramos el máximo.
-  const jumpFatEst = useMemo(() => {
-    if (!selShip || !jumpFuel) return null;
-    const ly = jumpFuel.dist;
-    const reduced =
-      selShip.group === "Jump Freighter" || selShip.group === "Capital Industrial Ship";
-    const effLy = reduced ? ly * 0.1 : ly;
-    const cooldown = Math.min(30, Math.max(1 + ly, curFatMin / 10));
-    const newFat = Math.min(300, Math.max(10 * (1 + effLy), curFatMin * (1 + effLy)));
-    return { cooldown, newFat, reduced };
-  }, [selShip, jumpFuel, curFatMin]);
+  const jumpFatEst = useMemo(
+    () => computeJumpFatEst(selShip, jumpFuel, curFatMin),
+    [selShip, jumpFuel, curFatMin],
+  );
 
   // Sistemas alcanzables por salto de capital (low/null dentro del rango LY).
-  const jumpReach = useMemo(() => {
-    if (!geo || jumpOrigin == null) return null;
-    const o = geo.idx.get(jumpOrigin);
-    if (!o) return null;
-    const out = new Map<number, number>();
-    for (const s of geo.idx.values()) {
-      if (s.id === o.id) continue;
-      if (s.s >= 0.45) continue; // no se puede saltar a high-sec
-      if (s.r === 10000070) continue; // Pochven
-      const d = Math.hypot(s.gx - o.gx, s.gy - o.gy, s.gz - o.gz);
-      if (d <= jumpRange) out.set(s.id, d);
-    }
-    return out;
-  }, [geo, jumpOrigin, jumpRange]);
+  const jumpReach = useMemo(
+    () => computeJumpReach(geo, jumpOrigin, jumpRange),
+    [geo, jumpOrigin, jumpRange],
+  );
 
   const routePath = useMemo(() => {
     if (!geo) return null;
@@ -1680,7 +1372,7 @@ export function MapView(props: {
               setSelected(intelAlert.report.sysId);
               setIntelAlert(null);
             }}
-            title="Ver detalle"
+            title={tr("Ver detalle")}
           >
             {intelAlert.text}
             <span className="intel-alert-cta">{tr("ver detalle")} ▸</span>
@@ -2424,10 +2116,7 @@ export function MapView(props: {
             <button
               className="sys-close"
               title={tr("Quitar rastro")}
-              onClick={() => {
-                setHuntPilot(null);
-                setHuntTrack(null);
-              }}
+              onClick={clearHuntTrack}
             >
               ✕
             </button>

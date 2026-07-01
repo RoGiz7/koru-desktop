@@ -88,3 +88,30 @@ export function standingColor(s: number): string {
   if (s > -5) return "#e3a13a";
   return "#e5534b";
 }
+
+// Clave de semana ISO (año-Sxx) para bucketizar series temporales por semana.
+export function weekKey(date: string): string {
+  const dt = new Date(date + "T00:00:00Z");
+  const dayNr = (dt.getUTCDay() + 6) % 7;
+  dt.setUTCDate(dt.getUTCDate() - dayNr + 3); // jueves de esa semana
+  const firstThursday = new Date(Date.UTC(dt.getUTCFullYear(), 0, 4));
+  const week =
+    1 +
+    Math.round(
+      (dt.getTime() - firstThursday.getTime()) / 86400000 / 7 -
+        ((firstThursday.getUTCDay() + 6) % 7) / 7,
+    );
+  return `${dt.getUTCFullYear()}-S${String(week).padStart(2, "0")}`;
+}
+
+// Fecha ISO (YYYY-MM-DD) de hace n días. Para los presets de rango de las gráficas.
+export function daysAgo(n: number): string {
+  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+}
+
+// Nombres de mes (texto-fuente ES; se traducen con tr() en cada vista). Compartido por las
+// vistas con selector mensual (PvP, Rateo, Actividad).
+export const MONTH_NAMES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];

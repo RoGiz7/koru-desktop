@@ -133,6 +133,7 @@ pub fn run() {
             commands::get_arbitrage,
             commands::watch_add,
             commands::watch_remove,
+            commands::scan_opportunities,
             commands::get_planets,
             commands::get_planets_global,
             commands::get_industry,

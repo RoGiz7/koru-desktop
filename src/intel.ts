@@ -1,4 +1,4 @@
-import type { NeSystem } from "./types";
+import type { NeSystem, IntelLine } from "./types";
 
 // --- Parser de intel: clasifica cada token de una línea de chat ---
 // Sin marcas en el log → clasificamos por contraste contra datos locales (sistemas + naves SDE
@@ -113,4 +113,66 @@ export function classifyIntel(
     flush();
   }
   return { systems, ships, pilots, count, isClear };
+}
+
+
+// --- Reportes de intel por sistema + feed cronológico (a partir de las líneas de chat) ---
+export type IntelFeedRow = {
+  ts: number;
+  author: string;
+  message: string;
+  sysId: number | null;
+  sysName: string | null;
+  pilots: string[];
+  ships: { id: number; name: string }[];
+  count: number | null;
+};
+export type IntelRep = {
+  ts: number;
+  author: string;
+  message: string;
+  name: string;
+  pilots: string[];
+  ships: { id: number; name: string }[];
+  count: number | null;
+};
+
+// Parsea las líneas del log en: `rep` = último reporte vigente por sistema (una línea "clear"
+// borra el sistema) y `feed` = todas las líneas en orden cronológico inverso (más reciente primero).
+export function buildIntelReports(
+  lines: IntelLine[],
+  nameIdx: Map<string, NeSystem>,
+  shipNames: Map<string, number>,
+): { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } {
+  const rep = new Map<number, IntelRep>();
+  const feed: IntelFeedRow[] = [];
+  for (const l of lines) {
+    const p = classifyIntel(l.message, nameIdx, shipNames);
+    const primary = p.systems[0];
+    feed.push({
+      ts: l.ts_ms,
+      author: l.author,
+      message: l.message,
+      sysId: primary?.id ?? null,
+      sysName: primary?.name ?? null,
+      pilots: p.pilots,
+      ships: p.ships,
+      count: p.count,
+    });
+    for (const m of p.systems) {
+      if (p.isClear) rep.delete(m.id);
+      else
+        rep.set(m.id, {
+          ts: l.ts_ms,
+          author: l.author,
+          message: l.message,
+          name: m.name,
+          pilots: p.pilots,
+          ships: p.ships,
+          count: p.count,
+        });
+    }
+  }
+  feed.reverse(); // más reciente primero
+  return { rep, feed };
 }
