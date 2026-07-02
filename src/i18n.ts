@@ -115,13 +115,8 @@ const EN: Record<string, string> = {
   "Hora EVE": "EVE time",
   "Cargando…": "Loading…",
   "Sin datos.": "No data.",
-  // --- Bitácora: niveles de medalla + aviso de desbloqueo ---
-  Bronce: "Bronze",
-  Plata: "Silver",
-  Oro: "Gold",
+  // --- Bitácora: aviso de desbloqueo + inmersión (Bronce/Plata/Oro/Bitácora ya existen más abajo) ---
   "¡Logro desbloqueado!": "Achievement unlocked!",
-  // --- Bitácora: inmersión (puntuación, home, dominios) ---
-  "Bitácora": "Logbook",
   "generada de tu propia historia": "generated from your own history",
   "Suma de puntos por medalla (bronce 1 · plata 3 · oro 8)":
     "Sum of points per medal (bronze 1 · silver 3 · gold 8)",
