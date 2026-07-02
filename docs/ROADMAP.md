@@ -7,7 +7,8 @@
 
 ## 📌 Estado actual (v0.16.1 · 2026-07-02)
 
-> Puesta al día tras la revisión de proyecto (`REVISION_2026-07-02.md`). El bloque v0.8.0 de
+> Puesta al día tras la revisión de proyecto (`../documentacion/koru-desktop-REVISION_2026-07-02.md`,
+> fuera del repo). El bloque v0.8.0 de
 > abajo se conserva como histórico; varios de sus "pendientes" ya están hechos.
 
 ### Hecho desde v0.8.0 (resumen por versión)
@@ -41,7 +42,8 @@
 3. **Repo público + firma de código** (SignPath Foundation) — mitiga SmartScreen.
 4. Menores: contador +N intel · `useAppData()` · tematización por evento · feed de noticias ·
    merge de BD de dos PCs · Fabricación (aplazada).
-5. Del patrón del mapa oficial aún sin adoptar (ver comparativa en `REVISION_2026-07-02.md` §docs):
+5. Del patrón del mapa oficial aún sin adoptar (comparativa en
+   `../documentacion/koru-desktop-REVISION_2026-07-02.md` §8, fuera del repo):
    breadcrumb hover Región/Constelación/Sistema · barras de control FW (Caldari/Gallente,
    Minmatar/Amarr) · sub-filtro "franja de seguridad" · minimapa/inset al hacer zoom.
 6. De EVE Carbon aún sin adoptar: calculadora de refinado/ore · biblioteca de blueprints ME/TE
