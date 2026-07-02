@@ -862,6 +862,37 @@ const EN: Record<string, string> = {
   Sonar: "Sonar",
   Sirena: "Siren",
   "Personalizado (archivo)": "Custom (file)",
+
+  "Tu nave": "Your ship",
+  Ventana: "Window",
+  semanas: "weeks",
+  Eficacia: "Efficiency",
+  "Tendencia (kills/losses por semana)": "Trend (kills/losses per week)",
+  "Hace falta historial de varias semanas para ver la tendencia.":
+    "You need several weeks of history to see the trend.",
+  "Sin datos en el rango elegido.": "No data in the selected range.",
+  "evolución semanal": "weekly evolution",
+  "Con las que vuelas": "Ships you fly",
+  Destruidas: "Destroyed",
+  "Actividad PvP": "PvP activity",
+  "semanal · combina series en la leyenda": "weekly · combine series in the legend",
+  "Naves: con las que vuelas": "Ships: the ones you fly",
+  "Naves: destruidas": "Ships: destroyed",
+  Tendencia: "Trend",
+  Naves: "Ships",
+  Sistemas: "Systems",
+  "Elige al menos una serie en la leyenda.": "Pick at least one series in the legend.",
+  "Esta semana": "This week",
+  pilotos: "pilots",
+  "Datos de tu histórico local · pasa el ratón para pausar":
+    "Data from your local history · hover to pause",
+  // inmersión (tema ambiental, nave actual, downtime)
+  "Ambiente (donde estás)": "Ambient (where you are)",
+  "Nave actual": "Current ship",
+  "Downtime en curso": "Downtime in progress",
+  "Downtime diario de Tranquility (11:00 UTC)": "Tranquility daily downtime (11:00 UTC)",
+  "Cuenta atrás para el downtime diario (11:00 UTC)":
+    "Countdown to daily downtime (11:00 UTC)",
 };
 
 export function t(s: string, lang: Lang): string {

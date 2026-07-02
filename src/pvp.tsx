@@ -1,157 +1,199 @@
 // Sección PvP: killmails (eficacia ISK, actividad de combate) con scrub temporal de tendencia
 // y vista tabla/gráfica. Extraído de App.tsx. TrendScrub/ViewToggle son internos de esta vista.
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
-import { fmtIsk, fmtSp, shipIcon, zkillUrl, MONTH_NAMES } from "./format";
-import { Kpi, Bars, Th, TopList } from "./charts";
-import type { PvpStats, PvpTrendPoint, KillmailRow } from "./types";
+import { fmtIsk, fmtSp, shipIcon, zkillUrl, daysAgo, weekKey } from "./format";
+import { Kpi, Bars, Th, MultiLineProgress, RangePresets } from "./charts";
+import { loadNewEden } from "./neweden";
+import type { PvpStats, PvpTrendPoint, KillmailRow, NameCount, TopSeriesPoint } from "./types";
 
-// la gráfica sombrea el tramo elegido y los KPIs se recalculan para esa ventana.
-function TrendScrub({ points }: { points: PvpTrendPoint[] }) {
-  const n = points.length;
-  const [range, setRange] = useState<[number, number]>([0, Math.max(0, n - 1)]);
-  useEffect(() => {
-    setRange([0, Math.max(0, n - 1)]);
-  }, [n]);
+// ---- Gráfica ÚNICA de actividad PvP ----
+// Unifica tendencia (Kills/Losses) + top naves + top sistemas en una sola multilínea.
+// Todas las series se alinean por semana ISO (weekKey) y se eligen con chips por grupo.
 
-  if (n < 2)
-    return <p className="muted small">Hace falta historial de varias semanas para ver la tendencia.</p>;
+// Paletas locales: evitan chocar con el verde de Kills y el rojo de Losses.
+const SHIP_COLORS = ["#4f9cff", "#a371f7", "#d29922", "#db61a2", "#6e7681"];
+const SYS_COLORS = ["#2dd4bf", "#f0883e", "#c9adf9", "#8b949e", "#58d0ff"];
 
-  const lo = Math.min(range[0], range[1]);
-  const hi = Math.max(range[0], range[1]);
-  const sel = points.slice(lo, hi + 1);
-  const sum = (k: "kills" | "losses" | "isk_destroyed" | "isk_lost") =>
-    sel.reduce((a, p) => a + p[k], 0);
-  const kills = sum("kills");
-  const losses = sum("losses");
-  const iskD = sum("isk_destroyed");
-  const iskL = sum("isk_lost");
+type USeries = {
+  key: string;
+  name: string;
+  color: string;
+  counts: Map<string, number>;
+  dates: Map<string, string>;
+};
+
+function mkSeries(key: string, name: string, color: string): USeries {
+  return { key, name, color, counts: new Map(), dates: new Map() };
+}
+
+function addPt(s: USeries, date: string, count: number) {
+  const w = weekKey(date);
+  s.counts.set(w, (s.counts.get(w) ?? 0) + count);
+  const c = s.dates.get(w);
+  if (!c || date < c) s.dates.set(w, date);
+}
+
+/// Convierte los puntos de un top (naves/sistemas) en series: rankea DENTRO del rango
+/// (el backend manda 12 candidatos del histórico) y se queda con los 5 mayores.
+function topOf(
+  points: TopSeriesPoint[] | null,
+  names: NameCount[],
+  from: string,
+  to: string,
+  colors: string[],
+  prefix: string
+): USeries[] {
+  if (!points) return [];
+  const nameOf = new Map(names.map((n) => [n.id, n.name ?? `#${n.id}`]));
+  const pts = points.filter((p) => (!from || p.date >= from) && (!to || p.date <= to));
+  const totals = new Map<number, number>();
+  for (const p of pts) totals.set(p.id, (totals.get(p.id) ?? 0) + p.count);
+  const ids = [...totals.keys()].sort((a, b) => totals.get(b)! - totals.get(a)!).slice(0, 5);
+  const nameById = new Map<number, string>();
+  for (const p of pts) if (p.name) nameById.set(p.id, p.name);
+  const defs = ids.map((id, i) =>
+    mkSeries(`${prefix}${id}`, nameById.get(id) ?? nameOf.get(id) ?? `#${id}`, colors[i % colors.length])
+  );
+  const byId = new Map(ids.map((id, i) => [id, defs[i]]));
+  for (const p of pts) {
+    const d = byId.get(p.id);
+    if (d) addPt(d, p.date, p.count);
+  }
+  return defs;
+}
+
+function UnifiedPvpChart({
+  trend,
+  shipSeries,
+  sysSeries,
+  shipNames,
+  sysNames,
+  from,
+  to,
+}: {
+  trend: PvpTrendPoint[];
+  shipSeries: TopSeriesPoint[] | null;
+  sysSeries: TopSeriesPoint[] | null;
+  shipNames: NameCount[];
+  sysNames: NameCount[];
+  from: string;
+  to: string;
+}) {
+  // Series visibles (por clave). Por defecto, la tendencia.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(["kills", "losses"]));
+  const toggle = (k: string) =>
+    setSelected((prev) => {
+      const nx = new Set(prev);
+      if (nx.has(k)) nx.delete(k);
+      else nx.add(k);
+      return nx;
+    });
+
+  if (trend.length < 2)
+    return <p className="muted small">{tr("Hace falta historial de varias semanas para ver la tendencia.")}</p>;
+
+  const trendSel = trend.filter((p) => (!from || p.date >= from) && (!to || p.date <= to));
+  const kills = trendSel.reduce((a, p) => a + p.kills, 0);
+  const losses = trendSel.reduce((a, p) => a + p.losses, 0);
+  const iskD = trendSel.reduce((a, p) => a + p.isk_destroyed, 0);
+  const iskL = trendSel.reduce((a, p) => a + p.isk_lost, 0);
   const eff = iskD + iskL > 0 ? (iskD / (iskD + iskL)) * 100 : 0;
 
-  const years = [...new Set(points.map((p) => p.date.slice(0, 4)))];
-  const curYear = points[lo].date.slice(0, 4);
-  const curMonth = points[lo].date.slice(0, 7);
-  const monthsOfYear = [
-    ...new Set(points.filter((p) => p.date.startsWith(curYear)).map((p) => p.date.slice(0, 7))),
-  ];
-  const setToYear = (y: string) => {
-    const idxs = points.map((p, i) => [p.date.slice(0, 4), i] as const).filter(([yy]) => yy === y);
-    if (idxs.length) setRange([idxs[0][1], idxs[idxs.length - 1][1]]);
-  };
-  const setToMonth = (ym: string) => {
-    const idxs = points.map((p, i) => [p.date.slice(0, 7), i] as const).filter(([mm]) => mm === ym);
-    if (idxs.length) setRange([idxs[0][1], idxs[idxs.length - 1][1]]);
-  };
+  const sKills = mkSeries("kills", "Kills", "#3fb950");
+  const sLosses = mkSeries("losses", "Losses", "#e5534b");
+  for (const p of trendSel) {
+    addPt(sKills, p.date, p.kills);
+    addPt(sLosses, p.date, p.losses);
+  }
+  const ships = topOf(shipSeries, shipNames, from, to, SHIP_COLORS, "n");
+  const systems = topOf(sysSeries, sysNames, from, to, SYS_COLORS, "s");
+  const active = [sKills, sLosses, ...ships, ...systems].filter((s) => selected.has(s.key));
 
-  const W = 600;
-  const H = 190;
-  const PAD = 30;
-  const maxY = Math.max(...points.flatMap((p) => [p.kills, p.losses]), 1);
-  const x = (i: number) => PAD + (i / (n - 1)) * (W - 2 * PAD);
-  const y = (v: number) => H - PAD - (v / maxY) * (H - 2 * PAD);
-  const path = (key: "kills" | "losses") =>
-    points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p[key]).toFixed(1)}`).join(" ");
-  const labels = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+  // Semanas = unión de las series activas; etiqueta = primera fecha vista en esa semana.
+  const weekDates = new Map<string, string>();
+  for (const s of active)
+    for (const [w, d] of s.dates) {
+      const c = weekDates.get(w);
+      if (!c || d < c) weekDates.set(w, d);
+    }
+  const weeks = [...weekDates.keys()].sort((a, b) =>
+    weekDates.get(a)! < weekDates.get(b)! ? -1 : 1
+  );
+  const labels = weeks.map((w) => weekDates.get(w)!);
+  const series = active.map((s) => ({
+    name: s.name,
+    color: s.color,
+    values: weeks.map((w) => s.counts.get(w) ?? 0),
+  }));
+
+  const chip = (s: USeries) => (
+    <button
+      key={s.key}
+      className={`mll-chip${selected.has(s.key) ? " active" : ""}`}
+      onClick={() => toggle(s.key)}
+      title={s.name}
+    >
+      <i style={{ background: s.color }} /> {s.name}
+    </button>
+  );
 
   return (
     <div className="trend-chart">
-      <div className="resumen-period" style={{ marginBottom: "0.5rem" }}>
-        <span className="rp-label">📅 Ventana</span>
-        <select value={curYear} onChange={(e) => setToYear(e.target.value)}>
-          {years.map((yy) => (
-            <option key={yy} value={yy}>
-              {yy}
-            </option>
-          ))}
-        </select>
-        <select value={curMonth} onChange={(e) => setToMonth(e.target.value)}>
-          {monthsOfYear.map((m) => (
-            <option key={m} value={m}>
-              {MONTH_NAMES[parseInt(m.slice(5, 7), 10) - 1]}
-            </option>
-          ))}
-        </select>
-        <button className="rateo-clear" onClick={() => setRange([0, n - 1])}>
-          Todo
-        </button>
+      <div className="multiline-legend">
+        <span className="muted small">{tr("Tendencia")}:</span>
+        {chip(sKills)}
+        {chip(sLosses)}
+        {ships.length > 0 && <span className="muted small">· {tr("Naves")}:</span>}
+        {ships.map(chip)}
+        {systems.length > 0 && <span className="muted small">· {tr("Sistemas")}:</span>}
+        {systems.map(chip)}
       </div>
 
-      <svg viewBox={`0 0 ${W} ${H}`} className="trend-svg" preserveAspectRatio="none">
-        <rect
-          x={x(lo)}
-          y={PAD - 6}
-          width={Math.max(x(hi) - x(lo), 1)}
-          height={H - PAD - (PAD - 6)}
-          fill="#4f9cff"
-          fillOpacity={0.12}
-        />
-        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#2a3340" strokeWidth={1} />
-        <path d={path("losses")} fill="none" stroke="#e5534b" strokeWidth={2} />
-        <path d={path("kills")} fill="none" stroke="#3fb950" strokeWidth={2} />
-        {labels.map((i) => (
-          <text key={i} x={x(i)} y={H - PAD + 16} textAnchor="middle" className="trend-x">
-            {points[i].date}
-          </text>
-        ))}
-      </svg>
-
-      <div className="scrub-sliders">
-        <input
-          type="range"
-          min={0}
-          max={n - 1}
-          value={lo}
-          onChange={(e) => setRange([Math.min(+e.target.value, hi), hi])}
-        />
-        <input
-          type="range"
-          min={0}
-          max={n - 1}
-          value={hi}
-          onChange={(e) => setRange([lo, Math.max(+e.target.value, lo)])}
-        />
-      </div>
-      <div className="muted small">
-        {points[lo].date} → {points[hi].date} · {sel.length} semanas
-      </div>
+      {active.length === 0 ? (
+        <p className="muted small">{tr("Elige al menos una serie en la leyenda.")}</p>
+      ) : weeks.length >= 2 ? (
+        <MultiLineProgress labels={labels} series={series} fmt={fmtSp} legend={false} />
+      ) : (
+        <p className="muted small">{tr("Sin datos en el rango elegido.")}</p>
+      )}
+      {labels.length > 0 && (
+        <div className="muted small">
+          {labels[0]} → {labels[labels.length - 1]} · {labels.length} {tr("semanas")}
+        </div>
+      )}
 
       <div className="kpis" style={{ marginTop: "0.6rem" }}>
         <Kpi label="Kills" value={fmtSp(kills)} tone="pos" />
         <Kpi label="Losses" value={fmtSp(losses)} tone="neg" />
-        <Kpi label="ISK destruido" value={fmtIsk(iskD)} tone="pos" />
-        <Kpi label="ISK perdido" value={fmtIsk(iskL)} tone="neg" />
-        <Kpi label="Eficacia" value={`${eff.toFixed(0)}%`} tone={eff >= 50 ? "pos" : "neg"} />
-      </div>
-
-      <div className="trend-legend">
-        <span>
-          <span className="ldot" style={{ background: "#3fb950" }} /> Kills
-        </span>
-        <span>
-          <span className="ldot" style={{ background: "#e5534b" }} /> Losses
-        </span>
+        <Kpi label={tr("ISK destruido")} value={fmtIsk(iskD)} tone="pos" />
+        <Kpi label={tr("ISK perdido")} value={fmtIsk(iskL)} tone="neg" />
+        <Kpi label={tr("Eficacia")} value={`${eff.toFixed(0)}%`} tone={eff >= 50 ? "pos" : "neg"} />
       </div>
     </div>
   );
 }
 
-// Tendencia de Wallet con scrub: ingresos/gastos por mes, ventana deslizante y KPIs del tramo.
-// Conmutador Tabla / Gráfica reutilizable.
-function ViewToggle({ chart, onChange }: { chart: boolean; onChange: (v: boolean) => void }) {
+// Botón "ver en Dotlan" reutilizable (kills más caros, killmails). Para el nonbre de región
+// se usa el SDE local (neweden.json), a prueba de downtime y sin llamadas ESI.
+function DotlanBtn({ system }: { system: string | null | undefined }) {
+  if (!system) return null;
   return (
-    <div className="view-toggle">
-      <div className="seg">
-        <button className={!chart ? "active" : ""} onClick={() => onChange(false)}>
-          {tr("Tabla")}
-        </button>
-        <button className={chart ? "active" : ""} onClick={() => onChange(true)}>
-          {tr("Gráfica")}
-        </button>
-      </div>
-    </div>
+    <button
+      className="dotlan-link"
+      title={`${tr("Ver")} ${system} ${tr("en Dotlan")}`}
+      onClick={(e) => {
+        e.stopPropagation(); // la fila abre zKill; este botón solo Dotlan
+        openUrl(`https://evemaps.dotlan.net/system/${system.replace(/ /g, "_")}`);
+      }}
+    >
+      🗺
+    </button>
   );
 }
+
 
 export function PvpView(props: {
   stats: PvpStats | null;
@@ -172,6 +214,8 @@ export function PvpView(props: {
   kmLimit: number;
   onKmKind: (k: "all" | "kill" | "loss") => void;
   onKmPage: (offset: number) => void;
+  /// id del personaje activo, o null en Global (para las series de tops).
+  subjectChar?: number | null;
 }) {
   const {
     stats,
@@ -192,20 +236,78 @@ export function PvpView(props: {
     kmLimit,
     onKmKind,
     onKmPage,
+    subjectChar,
   } = props;
-  const [chart, setChart] = useState(true); // PvP por defecto en Gráfica
+
+  // Rango compartido por las tres gráficas de líneas (tendencia + tops). 90 días por defecto.
+  const [from, setFrom] = useState(daysAgo(90));
+  const [to, setTo] = useState("");
+  const rangeYears = trend
+    ? [...new Set(trend.map((p) => +p.date.slice(0, 4)))].sort((a, b) => a - b)
+    : [];
+
+  // Series semanales de los tops (del histórico local). Naves con conmutador:
+  // "ship" = con las que vuelas · "victim" = las que destruyes.
+  const [shipDim, setShipDim] = useState<"ship" | "victim">("ship");
+  const [shipSeries, setShipSeries] = useState<TopSeriesPoint[] | null>(null);
+  const [sysSeries, setSysSeries] = useState<TopSeriesPoint[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setShipSeries(null);
+    invoke<TopSeriesPoint[]>("get_pvp_top_series", { characterId: subjectChar ?? null, dim: shipDim })
+      .then((r) => {
+        if (alive) setShipSeries(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [subjectChar, shipDim]);
+  useEffect(() => {
+    let alive = true;
+    setSysSeries(null);
+    invoke<TopSeriesPoint[]>("get_pvp_top_series", { characterId: subjectChar ?? null, dim: "system" })
+      .then((r) => {
+        if (alive) setSysSeries(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [subjectChar]);
+  // Región por sistema desde el SDE local (para kills más caros y killmails).
+  const [regionOf, setRegionOf] = useState<Map<number, string> | null>(null);
+  useEffect(() => {
+    loadNewEden()
+      .then((ne) => {
+        const rn = new Map(ne.regions.map((r) => [r.id, r.n]));
+        setRegionOf(new Map(ne.systems.map((s) => [s.id, rn.get(s.r) ?? ""])));
+      })
+      .catch(() => {});
+  }, []);
+  const regionName = (sysId: number | null) =>
+    (sysId != null ? regionOf?.get(sysId) : undefined) || null;
+
   const [kmSort, setKmSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "date", dir: -1 });
   const onKmSort = (col: string) =>
     setKmSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: 1 }));
+  // Columna Nave: en un KILL lo relevante es lo que DESTRUISTE (nave víctima, como zKill);
+  // en una LOSS, lo que perdiste (tu nave). Tu nave en kills queda en el tooltip.
+  const shownShipId = (k: (typeof kmRows)[number]) =>
+    k.is_loss ? k.ship_type_id : k.victim_ship_id ?? k.ship_type_id;
+  const shownShipName = (k: (typeof kmRows)[number]) =>
+    k.is_loss ? k.ship_name : k.victim_ship_name ?? k.ship_name;
   const kmSorted = [...kmRows].sort((a, b) => {
     const d = kmSort.dir;
     switch (kmSort.col) {
       case "type":
         return ((a.is_loss ? 1 : 0) - (b.is_loss ? 1 : 0)) * d;
       case "ship":
-        return (a.ship_name ?? "").localeCompare(b.ship_name ?? "") * d;
+        return (shownShipName(a) ?? "").localeCompare(shownShipName(b) ?? "") * d;
       case "sys":
         return (a.system_name ?? "").localeCompare(b.system_name ?? "") * d;
+      case "region":
+        return (regionName(a.system_id) ?? "").localeCompare(regionName(b.system_id) ?? "") * d;
       case "dmg":
         return ((a.char_damage ?? 0) - (b.char_damage ?? 0)) * d;
       case "isk":
@@ -256,78 +358,66 @@ export function PvpView(props: {
             <Kpi label={tr("ISK destruido")} value={fmtIsk(stats.isk_destroyed)} tone="pos" />
             <Kpi label={tr("ISK perdido")} value={fmtIsk(stats.isk_lost)} tone="neg" />
           </div>
-          <ViewToggle chart={chart} onChange={setChart} />
-          {chart ? (
-            <>
-              <div className="top-list">
-                <h4>{tr("Tendencia (kills/losses por semana) · arrastra para enfocar una ventana")}</h4>
-                {trend ? <TrendScrub points={trend} /> : <p className="muted small">{tr("Cargando…")}</p>}
-              </div>
-              <div className="tops">
-                <div className="top-list">
-                  <h4>{tr("Top naves")}</h4>
-                  <Bars items={stats.top_ships.map((s) => ({ label: s.name ?? `#${s.id}`, value: s.count }))} />
-                </div>
-                <div className="top-list">
-                  <h4>{tr("Top sistemas")}</h4>
-                  <Bars
-                    items={stats.top_systems.map((s) => ({ label: s.name ?? `#${s.id}`, value: s.count }))}
-                    color="#e3a13a"
-                  />
-                </div>
-              </div>
-              <div className="tops">
-                <div className="top-list">
-                  <h4>{tr("Kills vs Losses")}</h4>
-                  <Bars
-                    items={[
-                      { label: tr("Kills"), value: stats.kills },
-                      { label: tr("Losses"), value: stats.losses },
-                    ]}
-                    color="#3fb950"
-                  />
-                </div>
-                <div className="top-list">
-                  <h4>{tr("ISK destruido vs perdido")}</h4>
-                  <Bars
-                    items={[
-                      { label: tr("Destruido"), value: stats.isk_destroyed },
-                      { label: tr("Perdido"), value: stats.isk_lost },
-                    ]}
-                    color="#e5534b"
-                    fmt={fmtIsk}
-                  />
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="tops">
-              <TopList title={tr("Top naves")} items={stats.top_ships} icon="render" />
-              <div className="top-list">
-                <h4>{tr("Top sistemas")}</h4>
-                {stats.top_systems.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
-                <ol>
-                  {stats.top_systems.map((it) => (
-                    <li key={it.id}>
-                      {it.name ?? `#${it.id}`} <span className="muted">({it.count})</span>
-                      {it.region && <span className="region"> · {it.region}</span>}
-                      {it.name && (
-                        <button
-                          className="dotlan-link"
-                          title={`${tr("Ver")} ${it.name} ${tr("en Dotlan")}`}
-                          onClick={() =>
-                            openUrl(`https://evemaps.dotlan.net/system/${it.name!.replace(/ /g, "_")}`)
-                          }
-                        >
-                          🗺
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              </div>
+          {/* Vista única (Tabla+Gráfica integradas): rango → tendencia → tops → tablas. */}
+          <div className="rateo-controls">
+            <RangePresets from={from} to={to} setFrom={setFrom} setTo={setTo} years={rangeYears} />
+            <label className="rateo-date">
+              {tr("Desde")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </label>
+            <label className="rateo-date">
+              {tr("Hasta")} <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </label>
+          </div>
+          <div className="top-list">
+            <h4>
+              {tr("Actividad PvP")}{" "}
+              <span className="muted small">· {tr("semanal · combina series en la leyenda")}</span>
+            </h4>
+            <div className="seg seg-sm" style={{ marginBottom: "0.4rem" }}>
+              <button className={shipDim === "ship" ? "active" : ""} onClick={() => setShipDim("ship")}>
+                {tr("Naves: con las que vuelas")}
+              </button>
+              <button className={shipDim === "victim" ? "active" : ""} onClick={() => setShipDim("victim")}>
+                {tr("Naves: destruidas")}
+              </button>
             </div>
-          )}
+            {trend ? (
+              <UnifiedPvpChart
+                trend={trend}
+                shipSeries={shipSeries}
+                sysSeries={sysSeries}
+                shipNames={stats.top_ships}
+                sysNames={stats.top_systems}
+                from={from}
+                to={to}
+              />
+            ) : (
+              <p className="muted small">{tr("Cargando…")}</p>
+            )}
+          </div>
+          <div className="tops">
+            <div className="top-list">
+              <h4>{tr("Kills vs Losses")}</h4>
+              <Bars
+                items={[
+                  { label: tr("Kills"), value: stats.kills },
+                  { label: tr("Losses"), value: stats.losses },
+                ]}
+                color="#3fb950"
+              />
+            </div>
+            <div className="top-list">
+              <h4>{tr("ISK destruido vs perdido")}</h4>
+              <Bars
+                items={[
+                  { label: tr("Destruido"), value: stats.isk_destroyed },
+                  { label: tr("Perdido"), value: stats.isk_lost },
+                ]}
+                color="#e5534b"
+                fmt={fmtIsk}
+              />
+            </div>
+          </div>
 
           {stats.top_expensive.length > 0 && (
             <>
@@ -337,6 +427,7 @@ export function PvpView(props: {
                   <tr>
                     <th>{tr("Nave destruida")}</th>
                     <th>{tr("Sistema")}</th>
+                    <th>{tr("Región")}</th>
                     <th>ISK</th>
                     <th>{tr("Fecha")}</th>
                   </tr>
@@ -355,7 +446,11 @@ export function PvpView(props: {
                         )}
                         <span>{k.victim_ship_name ?? (k.victim_ship_id ?? "-")}</span>
                       </td>
-                      <td>{k.system_name ?? (k.system_id ?? "-")}</td>
+                      <td>
+                        {k.system_name ?? (k.system_id ?? "-")}
+                        <DotlanBtn system={k.system_name} />
+                      </td>
+                      <td className="muted">{regionName(k.system_id) ?? "-"}</td>
                       <td>{k.isk_value ? fmtIsk(k.isk_value) : "-"}</td>
                       <td>{k.killed_at?.replace("T", " ").slice(0, 16) ?? "-"}</td>
                     </tr>
@@ -387,6 +482,7 @@ export function PvpView(props: {
             <Th label={tr("Tipo")} col="type" sort={kmSort} onSort={onKmSort} />
             <Th label={tr("Nave")} col="ship" sort={kmSort} onSort={onKmSort} />
             <Th label={tr("Sistema")} col="sys" sort={kmSort} onSort={onKmSort} />
+            <Th label={tr("Región")} col="region" sort={kmSort} onSort={onKmSort} />
             <Th label={tr("Daño")} col="dmg" sort={kmSort} onSort={onKmSort} />
             <Th label="ISK" col="isk" sort={kmSort} onSort={onKmSort} />
             <Th label={tr("Fecha")} col="date" sort={kmSort} onSort={onKmSort} />
@@ -406,13 +502,20 @@ export function PvpView(props: {
                 {k.final_blow && <span className="badge fb">FB</span>}
                 {k.top_damage && <span className="badge td">TD</span>}
               </td>
-              <td className="ship-cell">
-                {shipIcon(k.ship_type_id) && (
-                  <img className="ship-img" src={shipIcon(k.ship_type_id)!} alt="" loading="lazy" />
+              <td
+                className="ship-cell"
+                title={!k.is_loss && k.ship_name ? `${tr("Tu nave")}: ${k.ship_name}` : undefined}
+              >
+                {shipIcon(shownShipId(k)) && (
+                  <img className="ship-img" src={shipIcon(shownShipId(k))!} alt="" loading="lazy" />
                 )}
-                <span>{k.ship_name ?? (k.ship_type_id ?? "-")}</span>
+                <span>{shownShipName(k) ?? (shownShipId(k) ?? "-")}</span>
               </td>
-              <td>{k.system_name ?? (k.system_id ?? "-")}</td>
+              <td>
+                {k.system_name ?? (k.system_id ?? "-")}
+                <DotlanBtn system={k.system_name} />
+              </td>
+              <td className="muted">{regionName(k.system_id) ?? "-"}</td>
               <td>{k.char_damage != null ? fmtSp(k.char_damage) : "-"}</td>
               <td>{k.isk_value ? fmtIsk(k.isk_value) : "-"}</td>
               <td>{k.killed_at?.replace("T", " ").slice(0, 16) ?? "-"}</td>

@@ -63,10 +63,18 @@ impl EsiClient {
         access_token: Option<&str>,
     ) -> AppResult<T> {
         // 1) ¿Tenemos cache vigente? Si Expires está en el futuro, no llamamos siquiera.
+        //    DEFENSA: para endpoints por personaje (character_id != 0) no confiamos en un
+        //    Expires a más de 1h vista — una cabecera anómala (o un desfase de reloj) podría
+        //    congelar el dato indefinidamente (p. ej. killmails que dejan de refrescarse).
+        //    Pasada la hora revalidamos con ETag: si no cambió, ESI responde 304 (baratísimo).
+        //    El namespace 0 (públicos inmutables, p. ej. detalle de killmail) sí confía siempre.
         let cached = db.get_cache(character_id, path)?;
         if let Some(ref c) = cached {
             if let Some(exp) = c.expires.as_deref().and_then(parse_http_or_rfc3339) {
-                if exp > Utc::now() {
+                let now = Utc::now();
+                let trustworthy =
+                    character_id == 0 || exp <= now + chrono::Duration::hours(1);
+                if exp > now && trustworthy {
                     return Ok(serde_json::from_str::<T>(&c.payload)?);
                 }
             }

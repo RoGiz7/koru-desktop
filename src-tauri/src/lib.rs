@@ -92,6 +92,8 @@ pub fn run() {
             commands::get_pvp_stats,
             commands::get_pvp_trend,
             commands::get_pvp_trend_global,
+            commands::get_pvp_top_series,
+            commands::get_ticker,
             commands::get_pvp_periods,
             commands::get_pvp_periods_global,
             commands::get_pvp_activity,

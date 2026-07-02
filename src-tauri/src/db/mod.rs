@@ -178,6 +178,17 @@ impl Db {
         }
     }
 
+    /// Borra una entrada de caché concreta: fuerza que la próxima petición sea un GET
+    /// fresco sin If-None-Match (para el "sincronizar AHORA" manual).
+    pub fn delete_cache(&self, character_id: i64, endpoint: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM esi_cache WHERE character_id = ?1 AND endpoint = ?2",
+            rusqlite::params![character_id, endpoint],
+        )?;
+        Ok(())
+    }
+
     pub fn put_cache(
         &self,
         character_id: i64,
@@ -607,11 +618,38 @@ pub struct TopKill {
     pub killed_at: Option<String>,
 }
 
+/// Datos "vivos" para el ticker del dock. TODO sale de la BD local (cero ESI):
+/// deltas de la semana, patrimonio vs snapshot anterior, balance del mes y PLEX.
+#[derive(Debug, serde::Serialize)]
+pub struct TickerData {
+    pub kills_week: i64,
+    pub kills_prev_week: i64,
+    pub isk_destroyed_week: f64,
+    pub networth: Option<f64>,
+    pub networth_prev: Option<f64>,
+    pub month_net: Option<f64>,
+    pub prev_month_net: Option<f64>,
+    pub plex_price: Option<f64>,
+}
+
+/// Punto de serie semanal por entidad (nave/sistema) para las líneas de "tops" de PvP.
+#[derive(Debug, serde::Serialize)]
+pub struct TopSeriesPoint {
+    pub week: String,
+    pub date: String,
+    pub id: i64,
+    pub count: i64,
+    /// Nombre resuelto (lo rellena el comando vía /universe/names, cacheado).
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct KillmailRow {
     pub killmail_id: i64,
     pub is_loss: bool,
     pub ship_type_id: Option<i64>,
+    /// Nave de la VÍCTIMA (lo que se destruyó) — para mostrar en kills, como zKill.
+    pub victim_ship_id: Option<i64>,
     pub system_id: Option<i64>,
     pub isk_value: Option<f64>,
     pub killed_at: Option<String>,
@@ -621,6 +659,8 @@ pub struct KillmailRow {
     pub top_damage: bool,
     #[serde(default)]
     pub ship_name: Option<String>,
+    #[serde(default)]
+    pub victim_ship_name: Option<String>,
     #[serde(default)]
     pub system_name: Option<String>,
 }
@@ -792,7 +832,7 @@ impl Db {
 
         let mut stmt = conn.prepare(
             "SELECT killmail_id, is_loss, ship_type_id, system_id, isk_value, killed_at, solo,
-                    char_damage, final_blow, top_damage
+                    char_damage, final_blow, top_damage, victim_ship_type_id
              FROM killmails WHERE character_id = ?1
              ORDER BY killed_at DESC LIMIT 50",
         )?;
@@ -809,7 +849,9 @@ impl Db {
                     char_damage: r.get(7)?,
                     final_blow: r.get::<_, i64>(8)? != 0,
                     top_damage: r.get::<_, i64>(9)? != 0,
+                    victim_ship_id: r.get(10)?,
                     ship_name: None,
+                    victim_ship_name: None,
                     system_name: None,
                 })
             })?
@@ -1169,6 +1211,131 @@ impl Db {
     }
 
     /// Tendencia temporal: kills/losses/ISK agrupados por semana. Para el gráfico de líneas.
+    /// Datos del ticker: consultas ligeras SOLO sobre la BD local (sin ESI).
+    /// `character_id` None = global (suma de todos los personajes).
+    pub fn ticker(&self, character_id: Option<i64>) -> AppResult<TickerData> {
+        let conn = self.conn.lock().unwrap();
+        let who = character_id
+            .map(|c| format!("AND character_id = {c}"))
+            .unwrap_or_default();
+
+        let count = |sql: &str| -> i64 {
+            conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0)
+        };
+        let fsum = |sql: &str| -> Option<f64> {
+            conn.query_row(sql, [], |r| r.get::<_, Option<f64>>(0)).ok().flatten()
+        };
+
+        // Kills de esta semana vs la anterior (fecha por substr: killed_at es RFC3339).
+        let kills_week = count(&format!(
+            "SELECT COUNT(*) FROM killmails
+             WHERE is_loss = 0 AND substr(killed_at,1,10) >= date('now','-7 day') {who}"
+        ));
+        let kills_prev_week = count(&format!(
+            "SELECT COUNT(*) FROM killmails
+             WHERE is_loss = 0 AND substr(killed_at,1,10) >= date('now','-14 day')
+               AND substr(killed_at,1,10) < date('now','-7 day') {who}"
+        ));
+        let isk_destroyed_week = fsum(&format!(
+            "SELECT SUM(isk_value) FROM killmails
+             WHERE is_loss = 0 AND substr(killed_at,1,10) >= date('now','-7 day') {who}"
+        ))
+        .unwrap_or(0.0);
+
+        // Patrimonio: últimos 2 días con snapshot (global = suma por día).
+        let mut networth = None;
+        let mut networth_prev = None;
+        {
+            let sql = format!(
+                "SELECT SUM(total) FROM networth_snapshots WHERE 1=1 {who}
+                 GROUP BY date ORDER BY date DESC LIMIT 2"
+            );
+            if let Ok(mut stmt) = conn.prepare(&sql) {
+                if let Ok(rows) = stmt.query_map([], |r| r.get::<_, f64>(0)) {
+                    let vals: Vec<f64> = rows.flatten().collect();
+                    networth = vals.first().copied();
+                    networth_prev = vals.get(1).copied();
+                }
+            }
+        }
+
+        // Balance neto del mes actual vs el anterior (journal acumulado en local).
+        let month_net = fsum(&format!(
+            "SELECT SUM(amount) FROM wallet_journal
+             WHERE substr(date,1,7) = strftime('%Y-%m','now') {who}"
+        ));
+        let prev_month_net = fsum(&format!(
+            "SELECT SUM(amount) FROM wallet_journal
+             WHERE substr(date,1,7) = strftime('%Y-%m', date('now','start of month','-1 day')) {who}"
+        ));
+
+        // PLEX (type 44992) a precio medio de mercado (tabla local, sync ~1h).
+        let plex_price = fsum(
+            "SELECT average_price FROM market_prices WHERE type_id = 44992",
+        );
+
+        Ok(TickerData {
+            kills_week,
+            kills_prev_week,
+            isk_destroyed_week,
+            networth,
+            networth_prev,
+            month_net,
+            prev_month_net,
+            plex_price,
+        })
+    }
+
+    /// Serie semanal por entidad (nave usada o sistema) para los 5 más frecuentes.
+    /// Alimenta las gráficas de líneas "Top naves"/"Top sistemas" de PvP.
+    /// `week` = clave de agrupación (alinear series), `date` = fecha representativa (etiqueta).
+    pub fn pvp_top_series(
+        &self,
+        character_id: Option<i64>,
+        dim: &str,
+    ) -> AppResult<Vec<TopSeriesPoint>> {
+        // dim se mapea a columnas fijas (nunca texto del usuario).
+        let col = match dim {
+            "system" => "system_id",
+            "victim" => "victim_ship_type_id",
+            _ => "ship_type_id",
+        };
+        let who = character_id
+            .map(|c| format!("AND character_id = {c}"))
+            .unwrap_or_default();
+        let conn = self.conn.lock().unwrap();
+        // 12 candidatos (no 5): el frontend rankea DENTRO del rango elegido; si el top-5
+        // histórico no tiene actividad reciente, la gráfica de "90 días" saldría vacía.
+        let sql = format!(
+            "WITH top_ids AS (
+                SELECT {col} AS id FROM killmails
+                WHERE {col} IS NOT NULL AND killed_at IS NOT NULL {who}
+                GROUP BY {col} ORDER BY COUNT(*) DESC LIMIT 12
+            )
+            SELECT strftime('%Y-%W', killed_at) AS w,
+                   MIN(substr(killed_at,1,10)) AS d,
+                   {col} AS id,
+                   COUNT(*)
+             FROM killmails
+             WHERE {col} IN (SELECT id FROM top_ids) AND killed_at IS NOT NULL {who}
+             GROUP BY w, {col}
+             ORDER BY d ASC"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(TopSeriesPoint {
+                    week: r.get(0)?,
+                    date: r.get(1)?,
+                    id: r.get(2)?,
+                    count: r.get(3)?,
+                    name: None,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn pvp_trend(&self, character_id: i64) -> AppResult<Vec<PvpTrendPoint>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -1403,7 +1570,7 @@ impl Db {
 
         let sql = format!(
             "SELECT killmail_id, is_loss, ship_type_id, system_id, isk_value, killed_at, solo,
-                    char_damage, final_blow, top_damage
+                    char_damage, final_blow, top_damage, victim_ship_type_id
              FROM killmails {where_sql}
              ORDER BY killed_at DESC LIMIT ?1 OFFSET ?2"
         );
@@ -1421,7 +1588,9 @@ impl Db {
                     char_damage: r.get(7)?,
                     final_blow: r.get::<_, i64>(8)? != 0,
                     top_damage: r.get::<_, i64>(9)? != 0,
+                    victim_ship_id: r.get(10)?,
                     ship_name: None,
+                    victim_ship_name: None,
                     system_name: None,
                 })
             })?
@@ -1434,7 +1603,7 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT killmail_id, is_loss, ship_type_id, system_id, isk_value, killed_at, solo,
-                    char_damage, final_blow, top_damage
+                    char_damage, final_blow, top_damage, victim_ship_type_id
              FROM killmails WHERE character_id = ?1 ORDER BY killed_at DESC",
         )?;
         let rows = stmt
@@ -1450,7 +1619,9 @@ impl Db {
                     char_damage: r.get(7)?,
                     final_blow: r.get::<_, i64>(8)? != 0,
                     top_damage: r.get::<_, i64>(9)? != 0,
+                    victim_ship_id: r.get(10)?,
                     ship_name: None,
+                    victim_ship_name: None,
                     system_name: None,
                 })
             })?
@@ -1830,7 +2001,7 @@ impl Db {
 
         let mut stmt = conn.prepare(
             "SELECT killmail_id, is_loss, ship_type_id, system_id, isk_value, killed_at, solo,
-                    char_damage, final_blow, top_damage
+                    char_damage, final_blow, top_damage, victim_ship_type_id
              FROM killmails ORDER BY killed_at DESC LIMIT 50",
         )?;
         let recent = stmt
@@ -1846,7 +2017,9 @@ impl Db {
                     char_damage: r.get(7)?,
                     final_blow: r.get::<_, i64>(8)? != 0,
                     top_damage: r.get::<_, i64>(9)? != 0,
+                    victim_ship_id: r.get(10)?,
                     ship_name: None,
+                    victim_ship_name: None,
                     system_name: None,
                 })
             })?

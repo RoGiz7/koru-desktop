@@ -16,10 +16,21 @@ export type CharacterCard = {
   alliance_name: string | null;
   system_id: number | null;
   system_name: string | null;
+  ship_type_id: number | null;
+  ship_type_name: string | null;
+  ship_name: string | null;
   scopes: string[];
 };
 
 export type NameCount = { id: number; count: number; name: string | null; region: string | null };
+/// Punto de serie semanal por entidad (nave/sistema) para las líneas de "tops" de PvP.
+export type TopSeriesPoint = {
+  week: string;
+  date: string;
+  id: number;
+  count: number;
+  name: string | null;
+};
 export type TopKill = {
   killmail_id: number;
   isk_value: number | null;
@@ -33,6 +44,7 @@ export type KillmailRow = {
   killmail_id: number;
   is_loss: boolean;
   ship_type_id: number | null;
+  victim_ship_id: number | null;
   system_id: number | null;
   isk_value: number | null;
   killed_at: string | null;
@@ -41,6 +53,7 @@ export type KillmailRow = {
   final_blow: boolean;
   top_damage: boolean;
   ship_name: string | null;
+  victim_ship_name: string | null;
   system_name: string | null;
 };
 export type PvpStats = {
@@ -530,6 +543,18 @@ export type TradePnl = {
   items: TradePnlItem[];
   daily: PnlDay[];
 };
+/// Datos vivos del ticker del dock (comando get_ticker, solo BD local).
+export type TickerData = {
+  kills_week: number;
+  kills_prev_week: number;
+  isk_destroyed_week: number;
+  networth: number | null;
+  networth_prev: number | null;
+  month_net: number | null;
+  prev_month_net: number | null;
+  plex_price: number | null;
+};
+
 export type ServerStatus = {
   players: number;
   server_version: string;

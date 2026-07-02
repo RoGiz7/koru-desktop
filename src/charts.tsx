@@ -172,15 +172,18 @@ export function MultiLineProgress({
   labels,
   series,
   fmt = fmtIsk,
+  legend = true,
 }: {
   labels: string[];
   series: { name: string; color: string; values: number[] }[];
   fmt?: (n: number) => string;
+  /// false = sin leyenda propia (el contenedor gestiona qué series entran).
+  legend?: boolean;
 }) {
   const [iso, setIso] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   if (labels.length === 0) return <p className="muted small">Sin datos.</p>;
-  const vis = iso ? series.filter((s) => s.name === iso) : series;
+  const vis = legend && iso ? series.filter((s) => s.name === iso) : series;
   const n = labels.length;
   const W = 760;
   const H = 250;
@@ -203,21 +206,23 @@ export function MultiLineProgress({
   const uid = labels.length + "-" + vis.length;
   return (
     <div className="line-wrap">
-      <div className="multiline-legend">
-        <button className={`mll-chip${iso == null ? " active" : ""}`} onClick={() => setIso(null)}>
-          {tr("Todos")}
-        </button>
-        {series.map((s) => (
-          <button
-            key={s.name}
-            className={`mll-chip${iso === s.name ? " active" : ""}`}
-            onClick={() => setIso((p) => (p === s.name ? null : s.name))}
-            title={s.name}
-          >
-            <i style={{ background: s.color }} /> {s.name}
+      {legend && (
+        <div className="multiline-legend">
+          <button className={`mll-chip${iso == null ? " active" : ""}`} onClick={() => setIso(null)}>
+            {tr("Todos")}
           </button>
-        ))}
-      </div>
+          {series.map((s) => (
+            <button
+              key={s.name}
+              className={`mll-chip${iso === s.name ? " active" : ""}`}
+              onClick={() => setIso((p) => (p === s.name ? null : s.name))}
+              title={s.name}
+            >
+              <i style={{ background: s.color }} /> {s.name}
+            </button>
+          ))}
+        </div>
+      )}
       <svg
         className="ml-svg"
         viewBox={`0 0 ${W} ${H}`}

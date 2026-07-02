@@ -189,6 +189,10 @@ pub struct AutoSyncResult {
     pub mining: usize,
     pub prices: usize,
     pub snapshots: usize,
+    /// Errores por personaje/paso. Antes se tragaban en silencio y un fallo persistente
+    /// (token caducado, scope revocado, 4xx de ESI) podía dejar una sección congelada
+    /// días sin que nadie lo viera (p. ej. killmails parados desde el 26-06).
+    pub errors: Vec<String>,
 }
 
 /// Sincroniza incrementalmente lo ligero de todos los personajes (killmails recientes,
@@ -202,6 +206,7 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
         mining: 0,
         prices: 0,
         snapshots: 0,
+        errors: Vec::new(),
     };
 
     // Precios de mercado primero (público, cacheado ≈1h) para valorar assets en los snapshots.
@@ -218,14 +223,38 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
             .await
         {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                let msg = format!("{}: token: {e}", c.name);
+                eprintln!("auto_sync {msg}");
+                res.errors.push(msg);
+                continue;
+            }
         };
         let has = |scope: &str| c.scopes.iter().any(|s| s == scope);
         if has("esi-killmails.read_killmails.v1") {
-            if let Ok(n) =
-                killmails::sync(&state.esi, &state.db, c.character_id, &valid.access_token).await
+            match killmails::sync(&state.esi, &state.db, c.character_id, &valid.access_token).await
             {
-                res.killmails += n;
+                Ok(n) => res.killmails += n,
+                Err(e) => {
+                    let msg = format!("{}: killmails: {e}", c.name);
+                    eprintln!("auto_sync {msg}");
+                    res.errors.push(msg);
+                }
+            }
+            // Kills de PARTICIPACIÓN: un killmail solo "pertenece" a la víctima y al que da
+            // el golpe final, y ESI /killmails/recent/ solo devuelve esos. Las kills donde
+            // participas sin final blow SOLO están en zKillboard (las agrega de los logs de
+            // todos los implicados) → 1 página ligera por personaje y sync (respetuoso).
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            match killmails::sync_full(&state.esi, &state.db, c.character_id, 1, &cancel, |_, _| {})
+                .await
+            {
+                Ok(n) => res.killmails += n,
+                Err(e) => {
+                    let msg = format!("{}: killmails zKill: {e}", c.name);
+                    eprintln!("auto_sync {msg}");
+                    res.errors.push(msg);
+                }
             }
         }
         if has("esi-wallet.read_character_wallet.v1") {
@@ -401,6 +430,11 @@ pub struct CharacterCard {
     pub alliance_name: Option<String>,
     pub system_id: Option<i64>,
     pub system_name: Option<String>,
+    /// Nave actual (scope esi-location.read_ship_type.v1). Best-effort.
+    pub ship_type_id: Option<i64>,
+    pub ship_type_name: Option<String>,
+    /// Nombre propio que el jugador le puso a la nave (puede ser None).
+    pub ship_name: Option<String>,
     pub scopes: Vec<String>,
 }
 
@@ -416,6 +450,59 @@ struct PublicChar {
 struct LocationInfo {
     #[serde(default)]
     solar_system_id: Option<i64>,
+}
+
+#[derive(serde::Deserialize)]
+struct ShipInfo {
+    #[serde(default)]
+    ship_type_id: Option<i64>,
+    #[serde(default)]
+    ship_name: Option<String>,
+}
+
+/// ESI devuelve a veces el nombre de la nave como repr de Python (quirk conocido del
+/// endpoint /ship/ con caracteres no-ASCII): `u'C\xe1psula: SieteHierros'`.
+/// Detectamos el envoltorio u'...'/u"..." y decodificamos los escapes \xNN / \uNNNN.
+fn clean_ship_name(s: &str) -> String {
+    let t = s.trim();
+    let inner = t
+        .strip_prefix("u'")
+        .and_then(|x| x.strip_suffix('\''))
+        .or_else(|| t.strip_prefix("u\"").and_then(|x| x.strip_suffix('"')));
+    let Some(inner) = inner else {
+        return s.to_string();
+    };
+    let mut out = String::with_capacity(inner.len());
+    let mut it = inner.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('x') => {
+                let h: String = it.by_ref().take(2).collect();
+                if let Ok(v) = u8::from_str_radix(&h, 16) {
+                    out.push(v as char); // \xNN = punto de código latin-1
+                }
+            }
+            Some('u') => {
+                let h: String = it.by_ref().take(4).collect();
+                if let Some(ch) = u32::from_str_radix(&h, 16).ok().and_then(char::from_u32) {
+                    out.push(ch);
+                }
+            }
+            Some('\'') => out.push('\''),
+            Some('"') => out.push('"'),
+            Some('\\') => out.push('\\'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 /// Tarjetas de todos los personajes con corp/alianza y sistema actual (si hay scope).
@@ -440,33 +527,64 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
         let corporation_id = info.as_ref().and_then(|i| i.corporation_id);
         let alliance_id = info.as_ref().and_then(|i| i.alliance_id);
 
-        // Sistema actual (requiere scope de localización). Best-effort.
+        // Sistema actual + nave actual (requieren scopes de localización). Best-effort.
         let mut system_id = None;
-        if c.scopes
+        let mut ship_type_id = None;
+        let mut ship_name = None;
+        let has_loc = c
+            .scopes
             .iter()
-            .any(|s| s == "esi-location.read_location.v1")
-        {
+            .any(|s| s == "esi-location.read_location.v1");
+        let has_ship = c
+            .scopes
+            .iter()
+            .any(|s| s == "esi-location.read_ship_type.v1");
+        if has_loc || has_ship {
             if let Ok(valid) = state
                 .tokens
                 .access_token(state.esi.http(), c.character_id)
                 .await
             {
-                if let Ok(loc) = state
-                    .esi
-                    .get_cached::<LocationInfo>(
-                        &state.db,
-                        c.character_id,
-                        &format!("/characters/{}/location/", c.character_id),
-                        Some(&valid.access_token),
-                    )
-                    .await
-                {
-                    system_id = loc.solar_system_id;
+                if has_loc {
+                    if let Ok(loc) = state
+                        .esi
+                        .get_cached::<LocationInfo>(
+                            &state.db,
+                            c.character_id,
+                            &format!("/characters/{}/location/", c.character_id),
+                            Some(&valid.access_token),
+                        )
+                        .await
+                    {
+                        system_id = loc.solar_system_id;
+                    }
+                }
+                if has_ship {
+                    if let Ok(ship) = state
+                        .esi
+                        .get_cached::<ShipInfo>(
+                            &state.db,
+                            c.character_id,
+                            &format!("/characters/{}/ship/", c.character_id),
+                            Some(&valid.access_token),
+                        )
+                        .await
+                    {
+                        ship_type_id = ship.ship_type_id;
+                        // Nombre custom: decodificamos el posible repr de Python y ocultamos
+                        // el nombre por defecto del juego ("Tipo: NombrePersonaje"), que es ruido.
+                        ship_name = ship
+                            .ship_name
+                            .as_deref()
+                            .map(clean_ship_name)
+                            .filter(|n| !n.is_empty())
+                            .filter(|n| !n.ends_with(&format!(": {}", c.name)));
+                    }
                 }
             }
         }
 
-        for x in [corporation_id, alliance_id, system_id]
+        for x in [corporation_id, alliance_id, system_id, ship_type_id]
             .into_iter()
             .flatten()
         {
@@ -482,6 +600,9 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
             alliance_name: None,
             system_id,
             system_name: None,
+            ship_type_id,
+            ship_type_name: None,
+            ship_name,
             scopes: c.scopes.clone(),
         });
     }
@@ -495,6 +616,11 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
             card.corporation_name = card.corporation_id.and_then(|x| names.get(&x).cloned());
             card.alliance_name = card.alliance_id.and_then(|x| names.get(&x).cloned());
             card.system_name = card.system_id.and_then(|x| names.get(&x).cloned());
+            card.ship_type_name = card.ship_type_id.and_then(|x| names.get(&x).cloned());
+            // Si el nombre custom es igual al del tipo, no lo repetimos.
+            if card.ship_name.as_deref() == card.ship_type_name.as_deref() {
+                card.ship_name = None;
+            }
         }
     }
 
@@ -539,6 +665,19 @@ pub async fn sync_killmails(character_id: i64, state: State<'_, AppState>) -> Ap
             "este personaje no concedió el scope de killmails. Inicia sesión con la feature 'PvP'."
                 .into(),
         ));
+    }
+
+    // Sync MANUAL = el usuario quiere el dato AHORA: borramos las entradas de caché de la
+    // lista (todas las páginas) para forzar GETs frescos (sin If-None-Match). Descarta que
+    // un ETag/Expires "pegado" deje la lista congelada aunque zKill ya muestre kills nuevas.
+    let _ = state
+        .db
+        .delete_cache(character_id, &format!("/characters/{character_id}/killmails/recent/"));
+    for page in 1..=20 {
+        let _ = state.db.delete_cache(
+            character_id,
+            &format!("/characters/{character_id}/killmails/recent/?page={page}"),
+        );
     }
 
     killmails::sync(&state.esi, &state.db, character_id, &valid.access_token).await
@@ -1269,6 +1408,34 @@ pub async fn get_pvp_trend(character_id: i64, state: State<'_, AppState>) -> App
     state.db.pvp_trend(character_id)
 }
 
+/// Datos vivos del ticker del dock. Solo BD local, cero ESI: seguro llamarlo a menudo.
+#[tauri::command]
+pub async fn get_ticker(
+    character_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::TickerData> {
+    state.db.ticker(character_id)
+}
+
+/// Serie semanal de los tops (naves usadas, naves destruidas o sistemas) para las líneas
+/// de PvP. `character_id` None = global. `dim` = "ship" | "victim" | "system".
+/// Resuelve los nombres aquí (cacheado) para no depender del top-10 de stats.
+#[tauri::command]
+pub async fn get_pvp_top_series(
+    character_id: Option<i64>,
+    dim: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::TopSeriesPoint>> {
+    let mut rows = state.db.pvp_top_series(character_id, &dim)?;
+    let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    if let Ok(names) = state.esi.resolve_names(&ids).await {
+        for r in rows.iter_mut() {
+            r.name = names.get(&r.id).cloned();
+        }
+    }
+    Ok(rows)
+}
+
 /// Tendencia temporal PvP global (todos los personajes).
 #[tauri::command]
 pub async fn get_pvp_trend_global(state: State<'_, AppState>) -> AppResult<Vec<PvpTrendPoint>> {
@@ -1323,6 +1490,9 @@ pub async fn get_pvp_stats(character_id: i64, state: State<'_, AppState>) -> App
         if let Some(s) = r.ship_type_id {
             ids.insert(s);
         }
+        if let Some(s) = r.victim_ship_id {
+            ids.insert(s);
+        }
         if let Some(s) = r.system_id {
             ids.insert(s);
         }
@@ -1339,6 +1509,7 @@ pub async fn get_pvp_stats(character_id: i64, state: State<'_, AppState>) -> App
         }
         for r in stats.recent.iter_mut() {
             r.ship_name = r.ship_type_id.and_then(|s| names.get(&s).cloned());
+            r.victim_ship_name = r.victim_ship_id.and_then(|s| names.get(&s).cloned());
             r.system_name = r.system_id.and_then(|s| names.get(&s).cloned());
         }
     }
@@ -1637,6 +1808,9 @@ pub async fn get_killmails(
         if let Some(s) = r.ship_type_id {
             ids.insert(s);
         }
+        if let Some(s) = r.victim_ship_id {
+            ids.insert(s);
+        }
         if let Some(s) = r.system_id {
             ids.insert(s);
         }
@@ -1648,6 +1822,7 @@ pub async fn get_killmails(
     {
         for r in rows.iter_mut() {
             r.ship_name = r.ship_type_id.and_then(|s| names.get(&s).cloned());
+            r.victim_ship_name = r.victim_ship_id.and_then(|s| names.get(&s).cloned());
             r.system_name = r.system_id.and_then(|s| names.get(&s).cloned());
         }
     }
@@ -2437,6 +2612,9 @@ pub async fn get_pvp_stats_global(state: State<'_, AppState>) -> AppResult<PvpSt
         if let Some(s) = r.ship_type_id {
             ids.insert(s);
         }
+        if let Some(s) = r.victim_ship_id {
+            ids.insert(s);
+        }
         if let Some(s) = r.system_id {
             ids.insert(s);
         }
@@ -2455,6 +2633,7 @@ pub async fn get_pvp_stats_global(state: State<'_, AppState>) -> AppResult<PvpSt
         }
         for r in stats.recent.iter_mut() {
             r.ship_name = r.ship_type_id.and_then(|s| names.get(&s).cloned());
+            r.victim_ship_name = r.victim_ship_id.and_then(|s| names.get(&s).cloned());
             r.system_name = r.system_id.and_then(|s| names.get(&s).cloned());
         }
     }

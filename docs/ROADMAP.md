@@ -1,11 +1,55 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-06-29 (v0.8.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-02 (v0.16.1) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.8.0 · 2026-06-29)
+## 📌 Estado actual (v0.16.1 · 2026-07-02)
+
+> Puesta al día tras la revisión de proyecto (`REVISION_2026-07-02.md`). El bloque v0.8.0 de
+> abajo se conserva como histórico; varios de sus "pendientes" ya están hechos.
+
+### Hecho desde v0.8.0 (resumen por versión)
+- **v0.9.0–v0.10.x** — lección de release: subir versión en los 3 ficheros
+  (package.json / tauri.conf.json / Cargo.toml) ANTES del tag; el updater compara el build.
+- **v0.11.0 — i18n ES/EN COMPLETO** (bilingüe publicado; cadenas sueltas cerradas 2026-07-01).
+  Cierra el punto 2 del bloque v0.8.0. Regla al añadir texto: envolver en `tr()` + clave EN.
+- **v0.12.0 — Abyssals/CRAB valorados por loot**: papeles (48121/60459) valorados por inventario,
+  líneas ESTIMADAS en Ingresos PvE + snapshot diario (`paper_snapshots`), separado del realizado.
+- **v0.14.0 — Comercio N2 (P&L)** + **importador CSV de corptools** (`import_wallet_csv` en Ajustes,
+  probado con 30k filas / 2,8 años; sin reason/context → no backfillea ratas especiales).
+  _(El "descartado" del bloque v0.7.0 era el CSV de minería; el de wallet sí se hizo.)_
+- **v0.15.0 — Comercio N3** (watchlist / libro / arbitraje).
+- **v0.16.1 — Comercio N4 (buscador de oportunidades)**: `scan_opportunities` en 2 fases +
+  `market_groups.json`. **Roadmap de Comercio cerrado** (N1–N4). Todo con ESI legal.
+- **Intel en vivo v1+v2 COMPLETO** (el candidato "0" del bloque v0.8.0): watcher Rust del chat log
+  (UTF-16LE) + `classifyIntel` (ship_names.json del SDE) + notificación nativa + trayectoria +
+  hostiles habituales + `clr` silencia; encapsulado en `useIntel.ts` (validado en vivo 2026-07-01).
+  Pendiente menor: contador +N en banner/notificación.
+- **Refactor COMPLETO (fases 1–12)** — cierra el punto 5: App.tsx **5493→1794 líneas (−67%)**;
+  todas las vistas en su fichero; mapa en módulos (mapRoute/mapOverlays/jumpCalc) + hooks por
+  feature (useJumpPlanner/useRoutePlanner/useHuntTrack/useIntel). Opcional: extraer `useAppData()`.
+- **Fix patrimonio**: blueprints fuera de la valoración (`est_value_clean`, 828B→217B) + top por valor.
+- **Hardening (2026-07-02, de la revisión)**: CSP definida en `tauri.conf.json` (antes `null`),
+  User-Agent con versión dinámica (`CARGO_PKG_VERSION`), ventana por defecto 1280×800 (mín 960×600).
+
+### Pendiente REAL (orden recomendado)
+1. **Spike de Opportunities → categoría nueva Objetivos/Rumbo/Bitácora** (visión coach; scope
+   confirmado). Logros: a la nevera (sin API). Misiones: LP+standings+agentes vía SDE.
+2. **Ansiblex en rutas** — sigue bloqueado por el archivo de la red de puentes de la alianza.
+3. **Repo público + firma de código** (SignPath Foundation) — mitiga SmartScreen.
+4. Menores: contador +N intel · `useAppData()` · tematización por evento · feed de noticias ·
+   merge de BD de dos PCs · Fabricación (aplazada).
+5. Del patrón del mapa oficial aún sin adoptar (ver comparativa en `REVISION_2026-07-02.md` §docs):
+   breadcrumb hover Región/Constelación/Sistema · barras de control FW (Caldari/Gallente,
+   Minmatar/Amarr) · sub-filtro "franja de seguridad" · minimapa/inset al hacer zoom.
+6. De EVE Carbon aún sin adoptar: calculadora de refinado/ore · biblioteca de blueprints ME/TE
+   (ligada a Fabricación) · timers de PI (Planetología hoy es básica).
+
+---
+
+## 📌 Histórico — Estado v0.8.0 (2026-06-29)
 
 > Resumen vivo por encima del histórico de abajo (que se conserva como contexto).
 

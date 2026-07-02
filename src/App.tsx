@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { loadNewEden } from "./neweden";
+import { Ticker } from "./ticker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -7,8 +9,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { save, open as openDialog, message, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { tr, setLang as setI18nLang, type Lang } from "./i18n";
 import "./App.css";
-import { fmtAgo, fmtMMSS, fmtIsk, fmtSp, fmtBytes, typeIcon } from "./format";
-import { Kpi } from "./charts";
+import { fmtAgo, fmtMMSS, fmtSp, fmtBytes, typeIcon } from "./format";
 import { FitsView } from "./fit";
 import { MapView } from "./map";
 import { CazadorView } from "./cazador";
@@ -88,6 +89,29 @@ function EveClock() {
   return (
     <span className="sb-badge" title={tr("Hora EVE (UTC)")}>
       🕓 {new Date(now).toISOString().substring(11, 16)} EVE
+    </span>
+  );
+}
+/** Cuenta atrás para el downtime diario de Tranquility (11:00 UTC). */
+function DowntimeBadge() {
+  const now = useNow(30_000);
+  const d = new Date(now);
+  const utcMins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const dtStart = 11 * 60; // 11:00 UTC
+  // Durante la ventana típica de DT (~15 min) lo señalamos en vivo.
+  if (utcMins >= dtStart && utcMins < dtStart + 15) {
+    return (
+      <span className="sb-badge" title={tr("Downtime diario de Tranquility (11:00 UTC)")}>
+        ⏻ {tr("Downtime en curso")}
+      </span>
+    );
+  }
+  const minsTo = (dtStart - utcMins + 1440) % 1440;
+  const h = Math.floor(minsTo / 60);
+  const m = minsTo % 60;
+  return (
+    <span className="sb-badge" title={tr("Cuenta atrás para el downtime diario (11:00 UTC)")}>
+      ⏻ DT {h > 0 ? `${h}h ${m}m` : `${m}m`}
     </span>
   );
 }
@@ -362,15 +386,22 @@ function App() {
   }
 
   // Tema visual seleccionable (persistido en local). "nebula" = por defecto.
+  // "ambiente" (N1-d) = dinámico: tiñe según la seguridad del sistema del personaje activo.
   const [theme, setTheme] = useState<string>(
     () => localStorage.getItem("koru-theme") || "nebula"
   );
+  // Índice sistema→seguridad del SDE local; solo se carga si el tema ambiental está activo.
+  const [neSec, setNeSec] = useState<Map<number, number> | null>(null);
   useEffect(() => {
-    if (theme === "nebula") document.documentElement.removeAttribute("data-theme");
-    else document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("koru-theme", theme);
-  }, [theme]);
-
+    if (theme !== "ambiente" || neSec) return;
+    loadNewEden()
+      .then((ne) => {
+        const m = new Map<number, number>();
+        for (const s of ne.systems) m.set(s.id, s.s);
+        setNeSec(m);
+      })
+      .catch(() => {});
+  }, [theme, neSec]);
   // Idioma (ES por defecto), persistido en local. tr() traduce textos de "chrome".
   const [lang, setLang] = useState<Lang>(
     () => (localStorage.getItem("koru-lang") as Lang) || "es"
@@ -384,6 +415,33 @@ function App() {
   // Sujeto activo: "global" (por defecto) o el id de un personaje. Filtro central.
   const [subject, setSubject] = useState<number | "global">("global");
   const [tab, setTab] = useState<Tab>("resumen");
+
+  // Aplica el tema al <html>. Con "ambiente" (N1-d) el data-theme se calcula según la
+  // seguridad del sistema donde está el sujeto activo (en Global, el 1º con ubicación).
+  useEffect(() => {
+    let t = theme;
+    if (theme === "ambiente") {
+      const cid =
+        subject !== "global"
+          ? subject
+          : characters.find((c) => cards[c.character_id]?.system_id != null)?.character_id;
+      const sysId = cid != null ? cards[cid]?.system_id : null;
+      const sec = sysId != null && neSec ? neSec.get(sysId) : undefined;
+      t =
+        sysId == null || !neSec
+          ? "nebula" // sin ubicación (o SDE aún cargando): neutro
+          : sec === undefined
+          ? "ambient-wh" // no está en k-space → wormhole/Pochven
+          : sec >= 0.45
+          ? "ambient-high"
+          : sec > 0.0
+          ? "ambient-low"
+          : "ambient-null";
+    }
+    if (t === "nebula") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem("koru-theme", theme);
+  }, [theme, subject, cards, characters, neSec]);
   const [sectionBusy, setSectionBusy] = useState(false);
   const [progress, setProgress] = useState<{ processed: number; page: number } | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -896,9 +954,16 @@ function App() {
     if (autoBusy) return;
     setAutoBusy(true);
     try {
-      await invoke<{ killmails: number; wallet: number; mining: number; prices: number; snapshots: number }>(
-        "auto_sync"
-      );
+      const r = await invoke<{
+        killmails: number;
+        wallet: number;
+        mining: number;
+        prices: number;
+        snapshots: number;
+        errors?: string[];
+      }>("auto_sync");
+      // Errores parciales (antes se tragaban): visibles en consola para diagnóstico.
+      if (r.errors?.length) console.warn("auto_sync con errores:", r.errors);
       setLastSync(Date.now());
       // refrescar la vista actual con lo nuevo, en segundo plano (sin skeleton ni resetear scroll)
       loadHeadline(subject);
@@ -1148,6 +1213,16 @@ function App() {
                   alt={c.name}
                 />
                 {missing.length > 0 && <span className="pj-warn" title={tr("Falta acceso a alguna sección")}>!</span>}
+                {/* nave actual (N1-b): mini-render en la esquina del chip */}
+                {card?.ship_type_id != null && (
+                  <img
+                    className="pj-ship"
+                    src={`https://images.evetech.net/types/${card.ship_type_id}/render?size=32`}
+                    alt=""
+                    title={card.ship_type_name ?? ""}
+                    loading="lazy"
+                  />
+                )}
                 {/* tarjeta expandida en hover */}
                 <div className="pj-pop">
                   <img
@@ -1179,6 +1254,19 @@ function App() {
                     <div className="mini-sys muted">
                       {card?.system_name ? `📍 ${card.system_name}` : ""}
                     </div>
+                    {card?.ship_type_id != null && (
+                      <div className="pj-pop-ship muted">
+                        <img
+                          src={`https://images.evetech.net/types/${card.ship_type_id}/render?size=64`}
+                          alt=""
+                          loading="lazy"
+                        />
+                        <span>
+                          {card.ship_type_name ?? tr("Nave actual")}
+                          {card.ship_name ? ` · “${card.ship_name}”` : ""}
+                        </span>
+                      </div>
+                    )}
                     {missing.length > 0 && (
                       <div className="pj-missing">
                         <span className="small">⚠️ {tr("Falta acceso")}: {missing.map((m) => m.label).join(", ")}</span>
@@ -1230,6 +1318,7 @@ function App() {
           title={tr("Tema visual")}
         >
           <option value="nebula">🌌 Nebulosa</option>
+          <option value="ambiente">📍 {tr("Ambiente (donde estás)")}</option>
           <option value="amarr">👑 Amarr</option>
           <option value="caldari">❄️ Caldari</option>
           <option value="gallente">🌿 Gallente</option>
@@ -1528,17 +1617,14 @@ function App() {
           characters={characters}
         />
 
-        {/* Dock de titulares del sujeto (siempre visible) */}
+        {/* Dock del sujeto: ticker de datos vivos (histórico local, deltas estilo bolsa) */}
         {stats && (
-          <div className="dock">
-            <Kpi label="Kills" value={fmtSp(stats.kills)} />
-            <Kpi label="Losses" value={fmtSp(stats.losses)} />
-            <Kpi label="Eficacia" value={`${stats.efficiency.toFixed(0)}%`} tone={stats.efficiency >= 50 ? "pos" : "neg"} />
-            <Kpi label="ISK destruido" value={fmtIsk(stats.isk_destroyed)} tone="pos" />
-            <Kpi label="ISK perdido" value={fmtIsk(stats.isk_lost)} tone="neg" />
-            {walletData && <Kpi label="Balance" value={fmtIsk(walletData.balance)} tone={walletData.balance >= 0 ? "pos" : "neg"} />}
-            {!isGlobal && skillsData && <Kpi label="SP" value={fmtSp(skillsData.total_sp)} />}
-          </div>
+          <Ticker
+            subject={subject}
+            stats={stats}
+            server={serverStatus}
+            refreshKey={lastSync ?? 0}
+          />
         )}
 
         <div className="panel">
@@ -1616,6 +1702,7 @@ function App() {
               kmLimit={KM_LIMIT}
               onKmKind={(k) => loadKillmails(subject, k, 0)}
               onKmPage={(off) => loadKillmails(subject, kmKind, off)}
+              subjectChar={isGlobal ? null : subjectId}
             />
           )}
           {tab === "rivales" && <RivalsView data={rivalsData} busy={sectionBusy} />}
@@ -1743,6 +1830,7 @@ function App() {
         </div>
         <div className="statusbar-meta">
           <EveClock />
+          <DowntimeBadge />
           <span className="sb-sep" />
           <span
             className="sb-badge"

@@ -1,5 +1,29 @@
+/* ----- Tipografía display (Rajdhani, licencia SIL OFL) ----- */
+/* Empaquetada en LOCAL (public/fonts/) — sin Google Fonts remoto (CSP, offline, privacidad).
+   Si faltan los ficheros, el fallback a Inter mantiene la app perfectamente usable. */
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("/fonts/Rajdhani-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  /* Display: títulos, KPIs, marca. Fallback limpio a Inter si la fuente no está. */
+  --font-display: "Rajdhani", Inter, Avenir, Helvetica, Arial, sans-serif;
   color: #e8e8e8;
   background-color: #1c1c1c;
 
@@ -81,6 +105,216 @@ html[data-theme="abismo"] {
   --accent-border: #a371f7;
   --accent-text: #c9adf9;
   --bg-tint: rgba(163, 113, 247, 0.08);
+}
+
+/* ----- Tema ambiental ("Ambiente": data-theme dinámico según dónde está tu personaje) ----- */
+/* App.tsx traduce la seguridad del sistema actual del sujeto activo a una de estas variantes:
+   highsec azul · lowsec ámbar · nullsec rojo · wormhole/desconocido púrpura. */
+html[data-theme="ambient-high"] {
+  --accent: #1d4f6b;
+  --accent-border: #3fb5d9;
+  --accent-text: #8fd6f0;
+  --bg-tint: rgba(63, 181, 217, 0.06);
+}
+html[data-theme="ambient-low"] {
+  --accent: #6b511d;
+  --accent-border: #d99a3f;
+  --accent-text: #f0c98f;
+  --bg-tint: rgba(217, 154, 63, 0.07);
+}
+html[data-theme="ambient-null"] {
+  --accent: #6b1d24;
+  --accent-border: #d93f4e;
+  --accent-text: #f08f99;
+  --bg-tint: rgba(217, 63, 78, 0.07);
+}
+html[data-theme="ambient-wh"] {
+  --accent: #4a2a6b;
+  --accent-border: #9a5fe0;
+  --accent-text: #c8a6f5;
+  --bg-tint: rgba(154, 95, 224, 0.08);
+}
+
+/* ----- Tipografía display aplicada (títulos, KPIs, marca) ----- */
+h1,
+h2,
+h3,
+.tb-brand h1,
+.kpi-value {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+/* Cifras tabulares: los números no "bailan" al refrescar KPIs ni al ordenar tablas. */
+.kpi-value,
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----- Micro-transiciones (N1-e) ----- */
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.stage .panel {
+  animation: view-in 0.14s ease-out both;
+}
+
+.kpi {
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.kpi:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-border);
+}
+
+button,
+select,
+.pj-chip,
+.sb-badge {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* Accesibilidad: sin animaciones para quien las tenga desactivadas en el SO. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ----- Ticker del dock (teletipo estilo bolsa) ----- */
+/* Animación por transform → capa de composición (GPU), coste ~nulo. Se pausa en hover
+   y con prefers-reduced-motion queda estática con scroll manual. */
+.ticker {
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  background: rgba(13, 18, 26, 0.55);
+  backdrop-filter: blur(4px);
+  padding: 0.5rem 0;
+  /* Desvanecido en los bordes, como los teletipos de verdad. */
+  mask-image: linear-gradient(to right, transparent, #000 3%, #000 97%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 3%, #000 97%, transparent);
+}
+
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  will-change: transform;
+  animation: ticker-scroll var(--ticker-dur, 45s) linear infinite;
+}
+
+.ticker:hover .ticker-track {
+  animation-play-state: paused;
+}
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker-group {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.7rem;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker-item .tk-icon {
+  font-size: 0.85rem;
+}
+
+.ticker-item .tk-label {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ticker-item .tk-value {
+  font-weight: 600;
+}
+
+.ticker-item .tk-sep {
+  color: var(--border-accent-2);
+  margin-left: 0.7rem;
+}
+
+.tk-up {
+  color: var(--ok);
+  font-size: 0.8rem;
+}
+
+.tk-down {
+  color: var(--danger-text);
+  font-size: 0.8rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+  .ticker {
+    overflow-x: auto;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+  /* Sin animación no hace falta la segunda copia. */
+  .ticker-group[aria-hidden="true"] {
+    display: none;
+  }
+}
+
+/* ----- Nave actual en la tarjeta de personaje (N1-b) ----- */
+.pj-ship {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+  background: #0b0e14;
+  object-fit: cover;
+}
+
+.pj-pop-ship {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.pj-pop-ship img {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
 }
 
 /* ----- Armazón mapa-céntrico ----- */

@@ -32,7 +32,12 @@ pub const ESI_BASE_URL: &str = "https://esi.evetech.net";
 pub const ESI_COMPATIBILITY_DATE: &str = "2026-06-01";
 
 /// User-Agent identificativo (CCP lo exige para buen comportamiento y soporte).
-pub const USER_AGENT: &str = "Koru-Desktop/0.1 (Rekium; +https://github.com/RoGiz7/koru-desktop)";
+/// La versión se toma de Cargo.toml en compilación, así nunca queda desfasada.
+pub const USER_AGENT: &str = concat!(
+    "Koru-Desktop/",
+    env!("CARGO_PKG_VERSION"),
+    " (Rekium; +https://github.com/RoGiz7/koru-desktop)"
+);
 
 /// Servicio del keyring donde guardamos los refresh tokens (clave = character_id).
 pub const KEYRING_SERVICE: &str = "koru-desktop";

@@ -111,61 +111,102 @@ struct Zkb {
     total_value: f64,
 }
 
+/// Máximo de páginas del recent de ESI a recorrer por sync (~50 killmails/página).
+/// Suficiente para rellenar huecos grandes sin castigar a ESI; más allá, usar el
+/// histórico completo vía zKillboard.
+const RECENT_MAX_PAGES: u32 = 20;
+
 /// Sincroniza los killmails recientes del personaje. Devuelve cuántos nuevos se guardaron.
+///
+/// PAGINA el endpoint `/killmails/recent/` (antes solo se leía la página 1, ~50 kills:
+/// si acumulabas más de 50 desde la última sync buena, quedaba un HUECO imposible de
+/// rellenar por este camino). Estrategia: recorrer páginas mientras aporten killmails
+/// nuevos; en cuanto una página entera ya es conocida, el resto es histórico → paramos.
 pub async fn sync(
     esi: &EsiClient,
     db: &Db,
     character_id: i64,
     access_token: &str,
 ) -> AppResult<usize> {
-    // 1) Lista de killmails recientes (autenticada, scope esi-killmails.read_killmails.v1).
-    let list_path = format!("/characters/{character_id}/killmails/recent/");
-    let refs: Vec<KillmailRef> = esi
-        .get_cached(db, character_id, &list_path, Some(access_token))
-        .await?;
-
-    let existing = db.existing_killmail_ids(character_id)?;
+    let mut existing = db.existing_killmail_ids(character_id)?;
     let mut new_count = 0usize;
 
-    for km in refs.iter().filter(|k| !existing.contains(&k.killmail_id)) {
-        // 2) Detalle público (id+hash). Inmutable -> caché bajo namespace 0, sin token.
-        let detail_path = format!("/killmails/{}/{}/", km.killmail_id, km.killmail_hash);
-        let detail: KillmailDetail = match esi.get_cached(db, 0, &detail_path, None).await {
-            Ok(d) => d,
+    for page in 1..=RECENT_MAX_PAGES {
+        // Lista de killmails recientes (autenticada, scope esi-killmails.read_killmails.v1).
+        let list_path = format!("/characters/{character_id}/killmails/recent/?page={page}");
+        let refs: Vec<KillmailRef> = match esi
+            .get_cached(db, character_id, &list_path, Some(access_token))
+            .await
+        {
+            Ok(v) => v,
+            // 404 en paginación = no hay más páginas.
+            Err(crate::error::AppError::NotFound) => break,
             Err(e) => {
-                eprintln!("killmail {} detalle falló: {e}", km.killmail_id);
-                continue;
+                // La página 1 fallando es un error real; en las siguientes paramos limpio.
+                if page == 1 {
+                    return Err(e);
+                }
+                eprintln!("killmails recent página {page} falló: {e}");
+                break;
             }
         };
+        if refs.is_empty() {
+            break;
+        }
 
-        let d = derive(&detail, character_id);
+        let mut page_new = 0usize;
+        for km in refs.iter() {
+            // (contains dentro del cuerpo, no en un .filter(): el closure retendría el
+            //  préstamo inmutable de `existing` y no podríamos hacer insert más abajo)
+            if existing.contains(&km.killmail_id) {
+                continue;
+            }
+            // Detalle público (id+hash). Inmutable -> caché bajo namespace 0, sin token.
+            let detail_path = format!("/killmails/{}/{}/", km.killmail_id, km.killmail_hash);
+            let detail: KillmailDetail = match esi.get_cached(db, 0, &detail_path, None).await {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("killmail {} detalle falló: {e}", km.killmail_id);
+                    continue;
+                }
+            };
 
-        // 3) Valor ISK best-effort desde zKillboard (si falla, queda en None).
-        let isk_value = fetch_zkb_value(esi, km.killmail_id).await;
+            let d = derive(&detail, character_id);
 
-        // Raw completo del killmail (ya cacheado por get_cached) para análisis futuros.
-        let raw = db
-            .get_cache(0, &detail_path)?
-            .map(|c| c.payload)
-            .unwrap_or_default();
+            // Valor ISK best-effort desde zKillboard (si falla, queda en None).
+            let isk_value = fetch_zkb_value(esi, km.killmail_id).await;
 
-        db.insert_killmail(&crate::db::KmInsert {
-            killmail_id: km.killmail_id,
-            hash: &km.killmail_hash,
-            character_id,
-            is_loss: d.is_loss,
-            ship_type_id: d.ship_type_id,
-            victim_ship_type_id: d.victim_ship_type_id,
-            system_id: detail.solar_system_id,
-            isk_value,
-            killed_at: Some(&detail.killmail_time),
-            solo: d.solo,
-            char_damage: d.char_damage,
-            final_blow: d.final_blow,
-            top_damage: d.top_damage,
-            raw: &raw,
-        })?;
-        new_count += 1;
+            // Raw completo del killmail (ya cacheado por get_cached) para análisis futuros.
+            let raw = db
+                .get_cache(0, &detail_path)?
+                .map(|c| c.payload)
+                .unwrap_or_default();
+
+            db.insert_killmail(&crate::db::KmInsert {
+                killmail_id: km.killmail_id,
+                hash: &km.killmail_hash,
+                character_id,
+                is_loss: d.is_loss,
+                ship_type_id: d.ship_type_id,
+                victim_ship_type_id: d.victim_ship_type_id,
+                system_id: detail.solar_system_id,
+                isk_value,
+                killed_at: Some(&detail.killmail_time),
+                solo: d.solo,
+                char_damage: d.char_damage,
+                final_blow: d.final_blow,
+                top_damage: d.top_damage,
+                raw: &raw,
+            })?;
+            existing.insert(km.killmail_id);
+            page_new += 1;
+            new_count += 1;
+        }
+
+        // Página sin nada nuevo = ya estamos al día (el resto es histórico conocido).
+        if page_new == 0 {
+            break;
+        }
     }
 
     db.touch_last_sync(character_id)?;
