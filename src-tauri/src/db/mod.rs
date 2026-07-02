@@ -1,6 +1,8 @@
 //! Inicialización y acceso a SQLite. Una conexión protegida por Mutex (suficiente para
 //! una app de escritorio de un solo usuario; si crece, pasar a un pool).
 
+pub mod bitacora;
+
 use crate::error::AppResult;
 use rusqlite::Connection;
 use std::path::PathBuf;

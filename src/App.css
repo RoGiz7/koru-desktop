@@ -291,6 +291,545 @@ select,
   }
 }
 
+/* ----- Bitácora: retos del mes + medallero ----- */
+.bit-fresh {
+  border: 1px solid var(--accent-border);
+  background: var(--bg-panel-accent-2);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.8rem;
+  font-family: var(--font-display);
+  animation: view-in 0.3s ease-out both;
+}
+
+.bit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0.9rem 0 0.5rem;
+}
+
+.bit-head h4 {
+  margin: 0;
+}
+
+.bit-challenges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.7rem;
+}
+
+.bit-card {
+  border: 1px solid var(--border-accent);
+  background: var(--bg-panel-accent);
+  border-radius: var(--radius-md);
+  padding: 0.7rem 0.85rem;
+  transition: border-color 0.15s ease;
+}
+
+.bit-card.done {
+  border-color: var(--ok);
+}
+
+.bit-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-family: var(--font-display);
+}
+
+.bit-done {
+  margin-left: auto;
+  color: var(--ok);
+  font-size: 0.8rem;
+}
+
+.bit-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg-control);
+  overflow: hidden;
+}
+
+.bit-bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-border));
+  transition: width 0.4s ease;
+}
+
+.bit-card.done .bit-bar-fill {
+  background: linear-gradient(90deg, #2a6b43, var(--ok));
+}
+
+/* Marca del listón: dónde acabó tu mes anterior. */
+.bit-bar-base {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--fg-muted-2);
+}
+
+.bit-card-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-top: 0.45rem;
+}
+
+.bit-cur {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bit-pct {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.medal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.7rem;
+}
+
+.medal {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.8rem;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.medal:hover {
+  transform: translateY(-1px);
+}
+
+.medal-coin {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  border: 2px solid var(--border-2);
+  background: radial-gradient(circle at 32% 28%, #3a3a3a, #202020);
+  filter: grayscale(1) opacity(0.55); /* bloqueada = silueta */
+}
+
+.medal.l1 .medal-coin {
+  filter: none;
+  border-color: #cd7f32;
+  background: radial-gradient(circle at 32% 28%, #7a5a34, #3c2c17);
+}
+
+.medal.l1 {
+  border-color: #cd7f3255;
+}
+
+.medal.l2 .medal-coin {
+  filter: none;
+  border-color: #c9d1d9;
+  background: radial-gradient(circle at 32% 28%, #8f979f, #4a5057);
+}
+
+.medal.l2 {
+  border-color: #c9d1d955;
+}
+
+.medal.l3 .medal-coin {
+  filter: none;
+  border-color: #d4af37;
+  background: radial-gradient(circle at 32% 28%, #b8942e, #5c4a17);
+  box-shadow: 0 0 10px #d4af3740;
+}
+
+.medal.l3 {
+  border-color: #d4af3766;
+}
+
+.medal.fresh {
+  animation: medal-pop 0.5s ease-out both;
+  border-color: var(--accent-border);
+}
+
+@keyframes medal-pop {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.medal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.medal-info strong {
+  font-family: var(--font-display);
+}
+
+.medal-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bg-control);
+  overflow: hidden;
+  margin-top: 0.2rem;
+}
+
+.medal-bar-fill {
+  height: 100%;
+  background: var(--accent-border);
+  border-radius: 3px;
+}
+
+.medal.l3 .medal-bar-fill {
+  background: #d4af37;
+}
+
+/* ----- Bitácora: cabecera con puntuación agregada ----- */
+.bit-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+.bit-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+.bit-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+}
+.bit-score-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.6rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----- Medalla con marco geométrico SVG (arte propio, teñido por tier) ----- */
+.medal-frame {
+  position: relative;
+  flex-shrink: 0;
+  color: #4a525c; /* locked = gris acero */
+}
+.medal-frame svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.mf-outer {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  opacity: 0.9;
+}
+.mf-inner {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.5;
+}
+.mf-tick {
+  stroke: currentColor;
+  stroke-width: 2;
+  opacity: 0.7;
+}
+.mf-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+.mf-img {
+  width: 60%;
+  height: 60%;
+  object-fit: contain;
+  border-radius: 3px;
+}
+.bit-icon-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.bit-cat-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.medal-frame.l0 .mf-icon {
+  filter: grayscale(1) opacity(0.5);
+}
+.medal-frame.l1 {
+  color: #cd7f32;
+}
+.medal-frame.l2 {
+  color: #c9d1d9;
+}
+.medal-frame.l3 {
+  color: #e8be3f;
+  filter: drop-shadow(0 0 4px #e8be3f66);
+}
+/* Marco de condecoración oficial (medalla in-game de corp): tono violeta distinto de los tiers. */
+.medal-frame.official {
+  color: #8b7fd4;
+  filter: drop-shadow(0 0 4px #8b7fd455);
+}
+.medal.official {
+  border-color: #8b7fd455;
+}
+.medal-reason {
+  font-style: italic;
+}
+
+/* Pips de nivel (● ● ●) */
+.medal-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.medal-top strong {
+  font-family: var(--font-display);
+}
+.medal-pips {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+}
+.pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bg-control);
+  border: 1px solid var(--border-2);
+}
+.pip.on.l1 {
+  background: #cd7f32;
+  border-color: #cd7f32;
+}
+.pip.on.l2 {
+  background: #c9d1d9;
+  border-color: #c9d1d9;
+}
+.pip.on.l3 {
+  background: #e8be3f;
+  border-color: #e8be3f;
+  box-shadow: 0 0 4px #e8be3f66;
+}
+
+/* Barra: teal en progreso, verde al completar (como la home de Logros) */
+.medal-bar.done .medal-bar-fill {
+  background: var(--ok);
+}
+
+/* ----- Medallero por dominio (color + emblema propios) ----- */
+.bit-cat {
+  margin-top: 0.4rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.75rem;
+}
+.bit-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.7rem 0 0.5rem;
+  font-family: var(--font-display);
+}
+.bit-cat-emblem {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+}
+
+/* ----- Diario: timeline biográfico (hitos + corporationhistory) ----- */
+.diary {
+  margin-top: 0.4rem;
+}
+.dia-year {
+  margin-bottom: 1.1rem;
+}
+.dia-year-head {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+  margin: 0.5rem 0 0.5rem;
+}
+.dia-list {
+  display: flex;
+  flex-direction: column;
+}
+.dia-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.2rem;
+  border-bottom: 0.5px solid var(--border);
+}
+.dia-row:last-child {
+  border-bottom: none;
+}
+.dia-date {
+  width: 48px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--fg-muted-2);
+}
+.dia-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+.dia-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+}
+.dia-icon img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+.dia-text {
+  min-width: 0;
+  flex: 1;
+}
+.dia-title {
+  line-height: 1.3;
+}
+.dia-sub {
+  margin-top: 1px;
+}
+.dia-meta {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 0.6rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: var(--fg-muted-2);
+  white-space: nowrap;
+}
+.dia-badge {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* ----- Lealtad (LP por corporación NPC) ----- */
+.lp-total {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+.lp-total-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.8rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.lp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.lp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.lp-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.lp-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.lp-info strong {
+  font-family: var(--font-display);
+}
+.lp-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-control);
+  overflow: hidden;
+}
+.lp-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-border));
+}
+.lp-val {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.bit-foot {
+  margin-top: 1rem;
+}
+
 /* ----- Nave actual en la tarjeta de personaje (N1-b) ----- */
 .pj-ship {
   position: absolute;

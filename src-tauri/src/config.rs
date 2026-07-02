@@ -89,7 +89,14 @@ pub mod scopes {
         "esi-location.read_online.v1",
     ];
 
-    /// Conjunto v1 (las 4 features + ubicación).
+    /// Bitácora: medallas in-game (condecoraciones de corp) + LP/lealtad (misiones).
+    /// Enriquecen la Bitácora/Diario; si no se conceden, esas secciones salen vacías (best-effort).
+    pub const BITACORA: &[&str] = &[
+        "esi-characters.read_medals.v1",
+        "esi-characters.read_loyalty.v1",
+    ];
+
+    /// Conjunto v1 (las 4 features + ubicación + bitácora).
     pub fn core_v1() -> Vec<&'static str> {
         let mut v = Vec::new();
         v.extend_from_slice(PVP);
@@ -101,6 +108,7 @@ pub mod scopes {
         v.extend_from_slice(SKILLS);
         v.extend_from_slice(ASSETS);
         v.extend_from_slice(LOCATION);
+        v.extend_from_slice(BITACORA);
         v
     }
 }

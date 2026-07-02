@@ -123,6 +123,18 @@ function playCustom() {
 export function beep() {
   tone(880, 0, 0.18);
 }
+
+// Fanfarria de logro desbloqueado (Bitácora): arpegio ascendente triunfal + brillo final.
+// Distinto de las alertas de intel (esto es una buena noticia, no un aviso de peligro).
+export function playUnlock() {
+  if (!audioCtx()) return;
+  // Do–Mi–Sol–Do (mayor), notas cortas y brillantes.
+  tone(523, 0, 0.14, "triangle", 0.16);
+  tone(659, 0.12, 0.14, "triangle", 0.16);
+  tone(784, 0.24, 0.16, "triangle", 0.17);
+  tone(1047, 0.38, 0.5, "triangle", 0.18);
+  tone(2093, 0.38, 0.35, "sine", 0.05); // octava de brillo (campanilla)
+}
 // Reproduce la alerta según la elección del usuario.
 export function playAlertChoice(choice: string) {
   if (choice === "custom") playCustom();

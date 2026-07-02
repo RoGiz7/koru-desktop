@@ -543,6 +543,48 @@ export type TradePnl = {
   items: TradePnlItem[];
   daily: PnlDay[];
 };
+/// Bitácora: retos adaptativos + medallero propio (comando get_bitacora, solo BD local).
+export type Challenge = {
+  id: string;
+  unit: string;
+  baseline: number;
+  current: number;
+  target: number;
+};
+export type AchievementState = {
+  id: string;
+  unit: string;
+  value: number;
+  level: number;
+  thresholds: [number, number, number];
+  unlocked_at: [string | null, string | null, string | null];
+  fresh: boolean;
+};
+export type Bitacora = {
+  challenges: Challenge[];
+  achievements: AchievementState[];
+  // ¿El sujeto ya estaba sembrado antes de esta evaluación? (el 1er sembrado no se celebra)
+  was_seeded: boolean;
+};
+// Evento "bitacora-unlock": logros nuevos detectados en auto_sync (nombres los pone el front).
+export type BitacoraUnlock = { id: string; level: number };
+export type BitacoraUnlockEvent = { unlocks: BitacoraUnlock[] };
+// Diario: etapa de corporationhistory (endpoint público) = espina biográfica del timeline.
+export type DiaryCorp = { corporation_id: number; corporation_name: string | null; start_date: string };
+// Lealtad: LP por corporación NPC (recompensa de misiones, scope read_loyalty).
+export type LoyaltyCorp = { corporation_id: number; corporation_name: string | null; loyalty_points: number };
+// Medalla in-game (condecoración de corp) para el medallero mixto de la Bitácora (scope read_medals).
+export type Medal = {
+  medal_id: number;
+  title: string;
+  description: string;
+  corporation_id: number;
+  corporation_name: string | null;
+  date: string;
+  reason: string;
+  status: string;
+};
+
 /// Datos vivos del ticker del dock (comando get_ticker, solo BD local).
 export type TickerData = {
   kills_week: number;

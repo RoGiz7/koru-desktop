@@ -36,8 +36,15 @@
   User-Agent con versión dinámica (`CARGO_PKG_VERSION`), ventana por defecto 1280×800 (mín 960×600).
 
 ### Pendiente REAL (orden recomendado)
-1. **Spike de Opportunities → categoría nueva Objetivos/Rumbo/Bitácora** (visión coach; scope
-   confirmado). Logros: a la nevera (sin API). Misiones: LP+standings+agentes vía SDE.
+0. **⭐ BITÁCORA FASE 1 — IMPLEMENTADA (2026-07-02, pendiente QA y release 0.18.0).**
+   La piedra angular: como FC no expone logros/oportunidades por ESI, **los generamos nosotros
+   del histórico local**. Motor en `src-tauri/src/db/bitacora.rs` + vista `src/bitacora.tsx`
+   (categoría 📖): 4 retos adaptativos del mes (baseline = tu mes anterior, objetivo escala
+   1-2-5) + 12 logros bronce/plata/oro con fecha de desbloqueo RETROACTIVA. Detalle y Fase 2 en
+   `../documentacion/koru-desktop-BITACORA_HANDOFF.md`.
+1. **Bitácora Fase 2**: QA del catálogo (umbrales/fechas) → notificación nativa al desbloquear →
+   Diario (timeline de la historia jugada + `corporationhistory` público) → medallas in-game
+   (`read_medals`) → LP/misiones (`read_loyalty`). Retos de corp por fichero: futuro puente.
 2. **Ansiblex en rutas** — sigue bloqueado por el archivo de la red de puentes de la alianza.
 3. **Repo público + firma de código** (SignPath Foundation) — mitiga SmartScreen.
 4. Menores: contador +N intel · `useAppData()` · tematización por evento · feed de noticias ·

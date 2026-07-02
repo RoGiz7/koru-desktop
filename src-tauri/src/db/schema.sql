@@ -1,6 +1,18 @@
 -- Esquema inicial de Koru Desktop (SQLite).
 -- Los refresh tokens NO viven aquí: van en el keychain del SO.
 
+-- Bitácora: desbloqueos de LOGROS propios (motor en db/bitacora.rs).
+-- subject_id = character_id, o 0 para la vista Global. unlocked_at = fecha retroactiva
+-- del hito (del histórico); seen_at = cuándo lo registró la app (para señalar los nuevos).
+CREATE TABLE IF NOT EXISTS achievements_unlocked (
+    subject_id  INTEGER NOT NULL,
+    ach_id      TEXT NOT NULL,
+    level       INTEGER NOT NULL,
+    unlocked_at TEXT,
+    seen_at     TEXT NOT NULL,
+    PRIMARY KEY (subject_id, ach_id, level)
+);
+
 CREATE TABLE IF NOT EXISTS characters (
     character_id   INTEGER PRIMARY KEY,
     name           TEXT NOT NULL,

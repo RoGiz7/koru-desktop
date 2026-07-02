@@ -24,6 +24,10 @@ import { IndustryView } from "./industry";
 import { BattlesView, RivalsView } from "./rivals";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
+import { BitacoraView, ACH_UI } from "./bitacora";
+import { DiarioView } from "./diario";
+import { LealtadView } from "./lealtad";
+import { playUnlock, ensureNotifPerm } from "./sound";
 import { ComercioView } from "./comercio";
 import { AssetsView } from "./assets";
 import {
@@ -59,6 +63,8 @@ import type {
   FwSystem,
   Incursion,
   ServerStatus,
+  Bitacora,
+  BitacoraUnlockEvent,
   MarketOrder,
   Planet,
   RattingDetail,
@@ -414,7 +420,7 @@ function App() {
 
   // Sujeto activo: "global" (por defecto) o el id de un personaje. Filtro central.
   const [subject, setSubject] = useState<number | "global">("global");
-  const [tab, setTab] = useState<Tab>("resumen");
+  const [tab, setTab] = useState<Tab>("bitacora");
 
   // Aplica el tema al <html>. Con "ambiente" (N1-d) el data-theme se calcula según la
   // seguridad del sistema donde está el sujeto activo (en Global, el 1º con ubicación).
@@ -453,6 +459,7 @@ function App() {
   const [assetsDetail, setAssetsDetail] = useState<AssetDetail[] | null>(null);
   const [marketOrders, setMarketOrders] = useState<MarketOrder[] | null>(null);
   const [planets, setPlanets] = useState<Planet[] | null>(null);
+  const [bitacoraData, setBitacoraData] = useState<Bitacora | null>(null);
   const [ratting, setRatting] = useState<RattingDetail | null>(null);
   const [specialRats, setSpecialRats] = useState<SpecialRatsResult | null>(null);
   const [walletData, setWalletData] = useState<WalletView | null>(null);
@@ -560,6 +567,31 @@ function App() {
     return () => {
       un.then((f) => f());
     };
+  }, []);
+  // Bitácora: logros nuevos detectados en auto_sync (Rust ya lanzó la notificación nativa).
+  // Aquí sonamos la fanfarria y mostramos un toast con los nombres (el catálogo vive en TS).
+  useEffect(() => {
+    void ensureNotifPerm(); // que la notif nativa del SO (la dispara Rust) tenga permiso
+    const LEVELS = ["", "Bronce", "Plata", "Oro"];
+    const un = listen<BitacoraUnlockEvent>("bitacora-unlock", (e) => {
+      const list = e.payload?.unlocks ?? [];
+      if (list.length === 0) return;
+      const parts = list.slice(0, 3).map((u) => {
+        const ui = ACH_UI[u.id];
+        const name = ui ? tr(ui.label) : u.id;
+        const icon = ui?.icon ?? "🏅";
+        const lvl = tr(LEVELS[u.level] ?? "");
+        return `${icon} ${name}${lvl ? ` (${lvl})` : ""}`;
+      });
+      const extra = list.length > 3 ? ` +${list.length - 3}` : "";
+      const text = `🏅 ${tr("¡Logro desbloqueado!")} ${parts.join(" · ")}${extra}`;
+      playUnlock();
+      showGlobalAlert(text);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function setIntelCfg(patch: {
     channels?: string[];
@@ -685,6 +717,7 @@ function App() {
     setAssetsDetail(null);
     setMarketOrders(null);
     setPlanets(null);
+    setBitacoraData(null);
     setRatting(null);
     setWalletData(null);
     setWalletSeries(null);
@@ -838,6 +871,8 @@ function App() {
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders_global"));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets_global"));
+        if (t === "bitacora")
+          setBitacoraData(await invoke<Bitacora>("get_bitacora", { characterId: null }));
         if (t === "rateo") {
           setRatting(await invoke<RattingDetail>("get_ratting_global"));
           setSpecialRats(null);
@@ -880,6 +915,8 @@ function App() {
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets", { characterId }));
+        if (t === "bitacora")
+          setBitacoraData(await invoke<Bitacora>("get_bitacora", { characterId }));
         if (t === "rateo") {
           setRatting(await invoke<RattingDetail>("get_ratting", { characterId }));
           setSpecialRats(null);
@@ -985,7 +1022,7 @@ function App() {
     refresh();
     loadMap("global");
     loadHeadline("global");
-    loadTab("global", "pvp");
+    loadTab("global", "bitacora"); // Bitácora es ahora la landing por defecto
     loadKillmails("global", "all", 0);
     runAutoSync();
     const sync = window.setInterval(() => autoSyncRef.current(), AUTO_SYNC_MS);
@@ -1765,6 +1802,9 @@ function App() {
             />
           )}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
+          {tab === "bitacora" && <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} />}
+          {tab === "diario" && <DiarioView subject={subject} />}
+          {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (
             <RateoView

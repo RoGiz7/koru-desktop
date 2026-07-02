@@ -195,11 +195,26 @@ pub struct AutoSyncResult {
     pub errors: Vec<String>,
 }
 
+/// Un logro recién desbloqueado (para notificar en vivo desde auto_sync).
+#[derive(Debug, Clone, Serialize)]
+pub struct BitacoraUnlock {
+    pub id: String,
+    pub level: u8,
+}
+
+/// Evento "bitacora-unlock": logros nuevos detectados en un auto_sync. El front reproduce
+/// el sonido celebratorio y muestra un toast con los nombres (el catálogo vive en TS).
+#[derive(Debug, Clone, Serialize)]
+pub struct BitacoraUnlockEvent {
+    pub unlocks: Vec<BitacoraUnlock>,
+}
+
 /// Sincroniza incrementalmente lo ligero de todos los personajes (killmails recientes,
 /// wallet, minería). Respeta la caché ESI (no re-descarga antes del Expires), así que es
 /// seguro llamarla al abrir y periódicamente. Para histórico completo de PvP, usar el botón.
+/// Recibe `app` (inyectado por Tauri) para poder avisar de logros nuevos de la Bitácora.
 #[tauri::command]
-pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> {
+pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<AutoSyncResult> {
     let mut res = AutoSyncResult {
         killmails: 0,
         wallet: 0,
@@ -322,6 +337,45 @@ pub async fn auto_sync(state: State<'_, AppState>) -> AppResult<AutoSyncResult> 
             res.snapshots += 1;
         }
     }
+
+    // ---- Bitácora: avisar de logros NUEVOS del medallero global ----
+    // Evaluamos el sujeto global (0) tras sincronizar. bitacora() persiste los desbloqueos y
+    // marca `fresh` los que se insertan en ESTA llamada. Solo celebramos si el sujeto YA estaba
+    // sembrado (was_seeded): en la 1ª evaluación de una BD virgen, todo el histórico entra de
+    // golpe y sería un muro de avisos → se siembra en silencio. Notif nativa (aunque esté
+    // minimizado) + evento para sonido/toast en el front.
+    if let Ok(bit) = state.db.bitacora(None) {
+        if bit.was_seeded {
+            let nuevos: Vec<BitacoraUnlock> = bit
+                .achievements
+                .iter()
+                .filter(|a| a.fresh && a.level > 0)
+                .map(|a| BitacoraUnlock {
+                    id: a.id.clone(),
+                    level: a.level,
+                })
+                .collect();
+            if !nuevos.is_empty() {
+                use tauri_plugin_notification::NotificationExt;
+                let cuerpo = if nuevos.len() == 1 {
+                    "Has desbloqueado un logro nuevo. Ábrelo en la Bitácora 📖".to_string()
+                } else {
+                    format!(
+                        "Has desbloqueado {} logros nuevos. Ábrelos en la Bitácora 📖",
+                        nuevos.len()
+                    )
+                };
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("🏅 ¡Nuevo logro en Koru!")
+                    .body(cuerpo)
+                    .show();
+                let _ = app.emit("bitacora-unlock", BitacoraUnlockEvent { unlocks: nuevos });
+            }
+        }
+    }
+
     Ok(res)
 }
 
@@ -1406,6 +1460,184 @@ pub async fn inspect_ratting_journal(
 #[tauri::command]
 pub async fn get_pvp_trend(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<PvpTrendPoint>> {
     state.db.pvp_trend(character_id)
+}
+
+/// Bitácora: logros propios + retos adaptativos del sujeto (None = global).
+/// 100% BD local (motor en db/bitacora.rs); persiste desbloqueos y marca los nuevos.
+#[tauri::command]
+pub async fn get_bitacora(
+    character_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::bitacora::Bitacora> {
+    state.db.bitacora(character_id)
+}
+
+/// Un tramo del corporationhistory (endpoint PÚBLICO de ESI, sin scope).
+#[derive(serde::Deserialize)]
+struct CorpHistItem {
+    corporation_id: i64,
+    start_date: String,
+}
+
+/// Etapa del Diario: en qué corporación entró el personaje y cuándo (nombre resuelto).
+#[derive(Debug, Serialize)]
+pub struct DiaryCorp {
+    pub corporation_id: i64,
+    pub corporation_name: Option<String>,
+    pub start_date: String,
+}
+
+/// Historia de corporación del personaje = espina biográfica del Diario. Endpoint PÚBLICO
+/// `/characters/{id}/corporationhistory/` (sin token, cacheado por ESI). Ordena reciente→antiguo.
+#[tauri::command]
+pub async fn get_corp_history(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<DiaryCorp>> {
+    let items = state
+        .esi
+        .get_cached::<Vec<CorpHistItem>>(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/corporationhistory/"),
+            None,
+        )
+        .await
+        .unwrap_or_default();
+    let ids: Vec<i64> = items.iter().map(|i| i.corporation_id).collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut out: Vec<DiaryCorp> = items
+        .into_iter()
+        .map(|i| DiaryCorp {
+            corporation_id: i.corporation_id,
+            corporation_name: names.get(&i.corporation_id).cloned(),
+            start_date: i.start_date,
+        })
+        .collect();
+    out.sort_by(|a, b| b.start_date.cmp(&a.start_date)); // más reciente primero
+    Ok(out)
+}
+
+/// Una medalla in-game tal cual la da ESI (`/characters/{id}/medals/`). Ignoramos `graphic_layers`
+/// (el dibujo se compone por capas del SDE; mostramos la info textual, que es la que importa).
+#[derive(serde::Deserialize)]
+struct MedalRaw {
+    medal_id: i64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    corporation_id: i64,
+    #[serde(default)]
+    date: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    status: String,
+}
+
+/// Condecoración oficial de corporación para el medallero mixto de la Bitácora.
+#[derive(Debug, Serialize)]
+pub struct Medal {
+    pub medal_id: i64,
+    pub title: String,
+    pub description: String,
+    pub corporation_id: i64,
+    pub corporation_name: Option<String>,
+    pub date: String,
+    pub reason: String,
+    pub status: String,
+}
+
+/// Medallas in-game del personaje (condecoraciones de corp). Requiere scope
+/// `esi-characters.read_medals.v1`; si falta, ESI da 403 → devolvemos lista vacía (best-effort).
+#[tauri::command]
+pub async fn get_medals(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<Medal>> {
+    let Ok(valid) = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+    else {
+        return Ok(Vec::new());
+    };
+    let raw = state
+        .esi
+        .get_cached::<Vec<MedalRaw>>(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/medals/"),
+            Some(&valid.access_token),
+        )
+        .await
+        .unwrap_or_default();
+    let ids: Vec<i64> = raw.iter().map(|m| m.corporation_id).collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut out: Vec<Medal> = raw
+        .into_iter()
+        .map(|m| Medal {
+            medal_id: m.medal_id,
+            title: m.title,
+            description: m.description,
+            corporation_name: names.get(&m.corporation_id).cloned(),
+            corporation_id: m.corporation_id,
+            date: m.date,
+            reason: m.reason,
+            status: m.status,
+        })
+        .collect();
+    out.sort_by(|a, b| b.date.cmp(&a.date)); // más reciente primero
+    Ok(out)
+}
+
+/// LP por corporación NPC tal cual lo da ESI (`/characters/{id}/loyalty/points/`).
+#[derive(serde::Deserialize)]
+struct LoyaltyRaw {
+    corporation_id: i64,
+    loyalty_points: i64,
+}
+
+/// Saldo de LP en una corporación NPC (recompensa de misiones), con nombre resuelto.
+#[derive(Debug, Serialize)]
+pub struct LoyaltyCorp {
+    pub corporation_id: i64,
+    pub corporation_name: Option<String>,
+    pub loyalty_points: i64,
+}
+
+/// Puntos de lealtad (LP) del personaje por corporación NPC. Requiere scope
+/// `esi-characters.read_loyalty.v1`; si falta, ESI da 403 → lista vacía (best-effort).
+#[tauri::command]
+pub async fn get_loyalty(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<LoyaltyCorp>> {
+    let Ok(valid) = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+    else {
+        return Ok(Vec::new());
+    };
+    let raw = state
+        .esi
+        .get_cached::<Vec<LoyaltyRaw>>(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/loyalty/points/"),
+            Some(&valid.access_token),
+        )
+        .await
+        .unwrap_or_default();
+    let ids: Vec<i64> = raw.iter().map(|l| l.corporation_id).collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut out: Vec<LoyaltyCorp> = raw
+        .into_iter()
+        .map(|l| LoyaltyCorp {
+            corporation_name: names.get(&l.corporation_id).cloned(),
+            corporation_id: l.corporation_id,
+            loyalty_points: l.loyalty_points,
+        })
+        .collect();
+    out.sort_by(|a, b| b.loyalty_points.cmp(&a.loyalty_points)); // más LP primero
+    Ok(out)
 }
 
 /// Datos vivos del ticker del dock. Solo BD local, cero ESI: seguro llamarlo a menudo.

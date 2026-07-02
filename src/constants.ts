@@ -22,7 +22,10 @@ export type Tab =
   | "mineria"
   | "contactos"
   | "planetologia"
-  | "fiteos";
+  | "fiteos"
+  | "bitacora"
+  | "diario"
+  | "lealtad";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
@@ -30,10 +33,13 @@ export type NavSub = { key: Tab; label: string; scopes?: string[]; soon?: boolea
 // `typeId` opcional = icono real de EVE (images.evetech.net) para el grupo; si no, se usa `icon` (emoji).
 export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[] }[] = [
   {
-    group: "Resumen",
-    icon: "📊",
+    group: "Bitácora",
+    icon: "📖",
     subs: [
-      { key: "resumen", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1"] },
+      // Sin scopes: se genera del histórico local que Koru ya acumula. Es la landing por defecto.
+      { key: "bitacora", label: "Logros" },
+      // Diario: timeline de la historia jugada (hitos + corporationhistory público, sin scope).
+      { key: "diario", label: "Diario" },
     ],
   },
   {
@@ -41,7 +47,9 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
     icon: "💰",
     typeId: 44992, // PLEX
     subs: [
-      { key: "patrimonio", label: "Resumen", scopes: ["esi-wallet.read_character_wallet.v1", "esi-assets.read_assets.v1"] },
+      { key: "patrimonio", label: "Patrimonio", scopes: ["esi-wallet.read_character_wallet.v1", "esi-assets.read_assets.v1"] },
+      // Flujo de caja mensual por categoría (antes era el grupo "Resumen" de primer nivel).
+      { key: "resumen", label: "Balance mensual", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "wallet", label: "Wallet", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "assets", label: "Assets", scopes: ["esi-assets.read_assets.v1"] },
     ],
@@ -75,6 +83,8 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
       { key: "rateo", label: "Ingresos PvE", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "factional", label: "Factional", scopes: ["esi-characters.read_fw_stats.v1"] },
+      // Lealtad: LP por corp NPC (recompensa de misiones). Scope read_loyalty.
+      { key: "lealtad", label: "Lealtad (LP)", scopes: ["esi-characters.read_loyalty.v1"] },
     ],
   },
   {
@@ -171,7 +181,7 @@ export const TABS: { key: Tab; label: string; enabled: (s: string[]) => boolean 
 
 // Título + subtítulo por sección (header consistente del stage)
 export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
-  resumen: { title: "Resumen", subtitle: "Balance del mes, ingresos y gastos por categoría" },
+  resumen: { title: "Balance mensual", subtitle: "Balance del mes, ingresos y gastos por categoría" },
   mapa: { title: "Mapa", subtitle: "New Eden con overlays de actividad, assets y soberanía" },
   pvp: { title: "PvP", subtitle: "Killmails, eficacia ISK y actividad de combate" },
   actividad: { title: "Actividad", subtitle: "Actividad diaria y horas calientes (UTC EVE)" },
@@ -184,6 +194,18 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
   mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
+  bitacora: {
+    title: "Bitácora",
+    subtitle: "Tus logros y retos personales, generados de tu propia historia",
+  },
+  diario: {
+    title: "Diario",
+    subtitle: "La historia jugada: tus hitos y tu trayectoria de corporaciones en el tiempo",
+  },
+  lealtad: {
+    title: "Lealtad (LP)",
+    subtitle: "Tus puntos de lealtad por corporación NPC (recompensa de misiones)",
+  },
   comercio: { title: "Comercio", subtitle: "Tus órdenes abiertas: competencia, % vendido y vencimiento" },
   comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },
   comercio_watch: { title: "Watchlist de mercado", subtitle: "Precios, spread y libro por hub · arbitraje entre hubs · buscador de oportunidades" },
