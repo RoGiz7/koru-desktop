@@ -426,3 +426,168 @@ impl Db {
         })
     }
 }
+
+/// Un punto de la evolución de un logro: mes (YYYY-MM) + valor acumulado hasta ese mes.
+#[derive(Debug, Clone, Serialize)]
+pub struct SeriesPoint {
+    pub month: String,
+    pub value: f64,
+}
+
+/// Serie acumulada (suma corrida) a partir de deltas mensuales.
+fn cumulative(rows: Vec<(String, f64)>) -> Vec<SeriesPoint> {
+    let mut acc = 0.0;
+    rows.into_iter()
+        .map(|(m, d)| {
+            acc += d;
+            SeriesPoint { month: m, value: acc }
+        })
+        .collect()
+}
+/// Serie de "mejor marca" (máximo corrido) a partir de valores mensuales (para métricas peak).
+fn running_max(rows: Vec<(String, f64)>) -> Vec<SeriesPoint> {
+    let mut mx = 0.0;
+    rows.into_iter()
+        .map(|(m, v)| {
+            if v > mx {
+                mx = v;
+            }
+            SeriesPoint { month: m, value: mx }
+        })
+        .collect()
+}
+
+impl Db {
+    /// Evolución mensual de cada logro, derivada del histórico local (mismo cálculo que las fechas
+    /// retroactivas). No guarda nada nuevo: se reconstruye de killmails/wallet/minería/snapshots.
+    pub fn bitacora_series(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<std::collections::HashMap<String, Vec<SeriesPoint>>> {
+        let who = character_id
+            .map(|c| format!("AND character_id = {c}"))
+            .unwrap_or_default();
+        let conn = self.conn.lock().unwrap();
+        // Ejecuta un SQL que devuelve (mes, valor) por fila; nunca panica (vacío si falla).
+        let q = |sql: &str| -> Vec<(String, f64)> {
+            let mut out = Vec::new();
+            if let Ok(mut st) = conn.prepare(sql) {
+                if let Ok(rows) = st.query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?.unwrap_or(0.0)))
+                }) {
+                    for row in rows.flatten() {
+                        out.push(row);
+                    }
+                }
+            }
+            out
+        };
+        let mut m: std::collections::HashMap<String, Vec<SeriesPoint>> =
+            std::collections::HashMap::new();
+
+        m.insert("kills_totales".into(), cumulative(q(&format!(
+            "SELECT substr(killed_at,1,7), COUNT(*) FROM killmails WHERE is_loss=0 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("isk_destruido_total".into(), cumulative(q(&format!(
+            "SELECT substr(killed_at,1,7), SUM(isk_value) FROM killmails WHERE is_loss=0 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("solo_kills".into(), cumulative(q(&format!(
+            "SELECT substr(killed_at,1,7), COUNT(*) FROM killmails WHERE is_loss=0 AND solo=1 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("final_blows".into(), cumulative(q(&format!(
+            "SELECT substr(killed_at,1,7), COUNT(*) FROM killmails WHERE is_loss=0 AND final_blow=1 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("killmail_caro".into(), running_max(q(&format!(
+            "SELECT substr(killed_at,1,7), MAX(isk_value) FROM killmails WHERE is_loss=0 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("sistemas_pvp".into(), cumulative(q(&format!(
+            "SELECT fm, COUNT(*) FROM (SELECT system_id, MIN(substr(killed_at,1,7)) fm FROM killmails WHERE is_loss=0 AND system_id IS NOT NULL AND killed_at IS NOT NULL {who} GROUP BY system_id) GROUP BY fm ORDER BY fm"))));
+        m.insert("rateo_total".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(amount) FROM wallet_journal WHERE ref_type IN ('bounty_prizes','ess_escrow_transfer') AND amount>0 AND date IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("mineria_total".into(), cumulative(q(&format!(
+            "SELECT substr(ml.date,1,7), SUM(ml.quantity*COALESCE(mp.average_price,0)) FROM mining_ledger ml LEFT JOIN market_prices mp ON mp.type_id=ml.type_id WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("patrimonio".into(), running_max(q(&format!(
+            "SELECT substr(date,1,7), MAX(day_total) FROM (SELECT date, SUM(total) day_total FROM networth_snapshots WHERE 1=1 {who} GROUP BY date) GROUP BY 1 ORDER BY 1"))));
+        m.insert("meses_positivos".into(), cumulative(q(&format!(
+            "SELECT m2, CASE WHEN net>0 THEN 1.0 ELSE 0.0 END FROM (SELECT substr(date,1,7) m2, SUM(amount) net FROM wallet_journal WHERE date IS NOT NULL {who} GROUP BY m2 HAVING m2 < strftime('%Y-%m','now')) ORDER BY m2"))));
+        m.insert("meses_eficaces".into(), cumulative(q(&format!(
+            "SELECT m2, CASE WHEN kills>=10 AND (d+l)>0 AND d/(d+l)>=0.9 THEN 1.0 ELSE 0.0 END FROM (SELECT substr(killed_at,1,7) m2, SUM(CASE WHEN is_loss=0 THEN 1 ELSE 0 END) kills, SUM(CASE WHEN is_loss=0 THEN COALESCE(isk_value,0) ELSE 0 END) d, SUM(CASE WHEN is_loss=1 THEN COALESCE(isk_value,0) ELSE 0 END) l FROM killmails WHERE killed_at IS NOT NULL {who} GROUP BY m2 HAVING m2 < strftime('%Y-%m','now')) ORDER BY m2"))));
+
+        Ok(m)
+    }
+}
+
+/// Un proyecto personal (meta propia del usuario) con su valor ACTUAL calculado del histórico local.
+#[derive(Debug, Clone, Serialize)]
+pub struct PersonalProject {
+    pub id: i64,
+    pub name: String,
+    pub metric: String,
+    pub target: f64,
+    pub current: f64,
+}
+
+impl Db {
+    /// Crea un proyecto personal (subject_id = character_id, o 0 = global). Devuelve su id.
+    pub fn create_personal_project(
+        &self,
+        subject_id: i64,
+        name: &str,
+        metric: &str,
+        target: f64,
+    ) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO personal_projects (subject_id, name, metric, target, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![subject_id, name, metric, target, chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Borra un proyecto personal por id.
+    pub fn delete_personal_project(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM personal_projects WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Proyectos personales del sujeto (0 = global) con su valor actual medido del histórico.
+    pub fn personal_projects(&self, subject_id: i64) -> AppResult<Vec<PersonalProject>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        // Leemos las filas (y soltamos el statement) antes de calcular cada valor.
+        let rows: Vec<(i64, String, String, f64)> = {
+            let mut stmt = conn.prepare(
+                "SELECT id, name, metric, target FROM personal_projects WHERE subject_id = ?1 ORDER BY id",
+            )?;
+            let it = stmt.query_map([subject_id], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, f64>(3)?,
+                ))
+            })?;
+            it.flatten().collect()
+        };
+        let mut out = Vec::new();
+        for (id, name, metric, target) in rows {
+            let sql: Option<String> = match metric.as_str() {
+                "kills" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 {who}")),
+                "damage" => Some(format!("SELECT COALESCE(SUM(char_damage),0) FROM killmails WHERE is_loss=0 {who}")),
+                "isk_destruido" => Some(format!("SELECT COALESCE(SUM(isk_value),0) FROM killmails WHERE is_loss=0 {who}")),
+                "final_blows" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 AND final_blow=1 {who}")),
+                "solo_kills" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 AND solo=1 {who}")),
+                "sistemas" => Some(format!("SELECT COUNT(DISTINCT system_id) FROM killmails WHERE is_loss=0 AND system_id IS NOT NULL {who}")),
+                "rateo" => Some(format!("SELECT COALESCE(SUM(amount),0) FROM wallet_journal WHERE ref_type IN ('bounty_prizes','ess_escrow_transfer') AND amount>0 {who}")),
+                "mineria" => Some(format!("SELECT COALESCE(SUM(ml.quantity*COALESCE(mp.average_price,0)),0) FROM mining_ledger ml LEFT JOIN market_prices mp ON mp.type_id=ml.type_id WHERE 1=1 {who}")),
+                "patrimonio" => Some(format!("SELECT COALESCE(MAX(day_total),0) FROM (SELECT date, SUM(total) day_total FROM networth_snapshots WHERE 1=1 {who} GROUP BY date)")),
+                _ => None,
+            };
+            let current = sql
+                .map(|s| conn.query_row(&s, [], |r| r.get::<_, f64>(0)).unwrap_or(0.0))
+                .unwrap_or(0.0);
+            out.push(PersonalProject { id, name, metric, target, current });
+        }
+        Ok(out)
+    }
+}

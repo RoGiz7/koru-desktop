@@ -117,6 +117,7 @@ const EN: Record<string, string> = {
   "Sin datos.": "No data.",
   // --- Bitácora: aviso de desbloqueo + inmersión (Bronce/Plata/Oro/Bitácora ya existen más abajo) ---
   "¡Logro desbloqueado!": "Achievement unlocked!",
+  "Sin datos de evolución todavía.": "No evolution data yet.",
   "generada de tu propia historia": "generated from your own history",
   "Suma de puntos por medalla (bronce 1 · plata 3 · oro 8)":
     "Sum of points per medal (bronze 1 · silver 3 · gold 8)",
@@ -160,6 +161,44 @@ const EN: Record<string, string> = {
   "agentes · el standing sube con sus misiones": "agents · standing rises with their missions",
   "Los agentes salen de tus standings: cada uno sube al progresar sus misiones. Su ubicación se verá en el mapa.":
     "Agents come from your standings: each rises as you progress their missions. Their location will show on the map.",
+  // --- Mapa: agentes/corps en la tarjeta de sistema ---
+  "Tus agentes aquí": "Your agents here",
+  "Tus corps NPC aquí": "Your NPC corps here",
+  "Ver todo en Misiones": "See all in Missions",
+  // --- Trabajos por libre (Freelance Jobs) ---
+  "Trabajos por libre": "Freelance jobs",
+  "Trabajo por libre": "Freelance job",
+  "trabajos activos": "active jobs",
+  pendientes: "pending",
+  "Selecciona un personaje para ver sus trabajos y proyectos.":
+    "Pick a character to see their jobs and projects.",
+  "Sin trabajos por libre ni proyectos de corp todavía (o falta conceder el acceso al reloguear).":
+    "No freelance jobs or corp projects yet (or you haven't granted access on re-login).",
+  "Proyectos de corporación": "Corporation projects",
+  Proyecto: "Project",
+  "tu aporte": "your contribution",
+  "Entregar en": "Deliver at",
+  // --- Proyectos personales (metas propias) ---
+  "Proyectos personales": "Personal projects",
+  Nuevo: "New",
+  "Nombre (ej. Cazador del mes)": "Name (e.g. Hunter of the month)",
+  Objetivo: "Target",
+  Crear: "Create",
+  Borrar: "Delete",
+  "Aún no tienes proyectos personales. Crea uno: ponle nombre, elige una métrica y un objetivo.":
+    "No personal projects yet. Create one: give it a name, pick a metric and a target.",
+  "Los trabajos por libre y proyectos de corp son por personaje: elige uno para verlos.":
+    "Freelance jobs and corp projects are per character: pick one to see them.",
+  "Tus metas propias + los objetivos del juego (Freelance + Proyectos de corp), en un mismo sitio.":
+    "Your own goals + the game's objectives (Freelance + Corp Projects), all in one place.",
+  "Objetivos del EVE actual (Freelance Jobs + Proyectos de corp), en vivo desde ESI — el sucesor de las Opportunities.":
+    "Current EVE objectives (Freelance Jobs + Corp Projects), live from ESI — the successor to Opportunities.",
+  "Selecciona un personaje para ver sus trabajos por libre.":
+    "Pick a character to see their freelance jobs.",
+  "Sin trabajos por libre. Únete a alguno en la ventana de Oportunidades del juego (y concede el acceso al reloguear).":
+    "No freelance jobs. Join one from the game's Opportunities window (and grant access when you re-login).",
+  "Trabajos por libre en los que participas (Freelance Jobs de EVE), en vivo desde ESI — el sucesor de las Opportunities.":
+    "Freelance jobs you take part in (EVE Freelance Jobs), live from ESI — the successor to Opportunities.",
   "Aún no hay hitos que contar. Juega, sincroniza y tu historia se irá escribiendo sola aquí.":
     "No milestones to tell yet. Play, sync, and your story will write itself here.",
   "Vista global: hitos de todos tus personajes. Elige un personaje para ver también su trayectoria de corporaciones.":

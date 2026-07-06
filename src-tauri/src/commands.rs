@@ -1472,6 +1472,45 @@ pub async fn get_bitacora(
     state.db.bitacora(character_id)
 }
 
+/// Evolución mensual de cada logro (derivada del histórico local; cero storage nuevo). Para el
+/// mini-gráfico de "cómo evoluciona cada logro en el tiempo" con las líneas de bronce/plata/oro.
+#[tauri::command]
+pub async fn get_achievement_series(
+    character_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<String, Vec<crate::db::bitacora::SeriesPoint>>> {
+    state.db.bitacora_series(character_id)
+}
+
+/// Proyectos personales (metas propias) del sujeto (0 = global), con su valor actual del histórico.
+#[tauri::command]
+pub async fn get_personal_projects(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::bitacora::PersonalProject>> {
+    state.db.personal_projects(subject_id)
+}
+
+/// Crea un proyecto personal (nombre + métrica + objetivo). Devuelve su id.
+#[tauri::command]
+pub async fn create_personal_project(
+    subject_id: i64,
+    name: String,
+    metric: String,
+    target: f64,
+    state: State<'_, AppState>,
+) -> AppResult<i64> {
+    state
+        .db
+        .create_personal_project(subject_id, &name, &metric, target)
+}
+
+/// Borra un proyecto personal por id.
+#[tauri::command]
+pub async fn delete_personal_project(id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.delete_personal_project(id)
+}
+
 /// Un tramo del corporationhistory (endpoint PÚBLICO de ESI, sin scope).
 #[derive(serde::Deserialize)]
 struct CorpHistItem {
@@ -1637,6 +1676,324 @@ pub async fn get_loyalty(character_id: i64, state: State<'_, AppState>) -> AppRe
         })
         .collect();
     out.sort_by(|a, b| b.loyalty_points.cmp(&a.loyalty_points)); // más LP primero
+    Ok(out)
+}
+
+/// Un "trabajo por libre" (Freelance Job) del personaje. Freelance = el sucesor de Opportunities;
+/// a nivel de personaje son los trabajos en los que participas. Campos según la spec (los mismos
+/// que mapea aa-freelance-tracker). Extracción defensiva (serde_json::Value) por si ESI anida
+/// progress/reward u otro nombre → nunca rompe, a lo sumo sale a 0.
+#[derive(Debug, Serialize)]
+pub struct FreelanceJob {
+    pub id: String,
+    pub name: String,
+    pub state: String,       // Active / Closed / Completed / Expired / ...
+    pub career: String,      // Explorer / Industrialist / Enforcer / Soldier of Fortune
+    pub description: String,
+    pub expires: String,
+    pub progress_current: i64,
+    pub progress_desired: i64,
+    pub reward_remaining: f64,
+}
+
+/// Mis trabajos por libre (en los que participo). DOS pasos (confirmado con el código de
+/// aa-freelance-tracker): (1) el LISTADO del personaje `/characters/{id}/freelance-jobs`
+/// (AUTENTICADO, scope read_freelance_jobs) viene ENVUELTO `{ freelance_jobs:[{id,..}], cursor }`
+/// (paginado; con la 1ª página basta, un pj tiene pocos) y solo trae IDs; (2) por cada id, el
+/// DETALLE PÚBLICO `/freelance-jobs/{id}` con la info completa — ojo: `career`/`description`/
+/// `expires` van bajo `details`, y `progress`/`reward` anidados. 403 sin scope → vacío.
+#[tauri::command]
+pub async fn get_freelance_jobs(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<FreelanceJob>> {
+    let Ok(valid) = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+    else {
+        return Ok(Vec::new());
+    };
+    let listing = state
+        .esi
+        .get_cached::<serde_json::Value>(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/freelance-jobs"),
+            Some(&valid.access_token),
+        )
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    // Respuesta envuelta en `freelance_jobs`; si algún día fuera un array plano, también vale.
+    let items = listing
+        .get("freelance_jobs")
+        .and_then(|x| x.as_array())
+        .cloned()
+        .or_else(|| listing.as_array().cloned())
+        .unwrap_or_default();
+
+    let mut jobs: Vec<FreelanceJob> = Vec::new();
+    for it in items.iter().take(100) {
+        let Some(id) = it.get("id").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        // Detalle público (sin token, cacheado en namespace 0). Si falla, caemos al item del listado.
+        let detail = state
+            .esi
+            .get_cached::<serde_json::Value>(&state.db, 0, &format!("/freelance-jobs/{id}"), None)
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        let v = if detail.is_object() { &detail } else { it };
+        let top = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let nst = |a: &str, b: &str| {
+            v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_str()).unwrap_or("").to_string()
+        };
+        let nin =
+            |a: &str, b: &str| v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_i64()).unwrap_or(0);
+        let nfl = |a: &str, b: &str| {
+            v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_f64()).unwrap_or(0.0)
+        };
+        jobs.push(FreelanceJob {
+            id: id.to_string(),
+            name: top("name"),
+            state: top("state"),
+            career: nst("details", "career"),
+            description: nst("details", "description"),
+            expires: nst("details", "expires"),
+            progress_current: nin("progress", "current"),
+            progress_desired: nin("progress", "desired"),
+            reward_remaining: nfl("reward", "remaining"),
+        });
+    }
+    Ok(jobs)
+}
+
+/// Un proyecto de corporación (Corporation Projects). Parse best-effort (shape aún por confirmar en
+/// vivo); el comando LOGuea la respuesta cruda para afinar campos y ver el acceso (miembro vs rol).
+#[derive(Debug, Serialize)]
+pub struct CorpProject {
+    pub id: String,
+    pub name: String,
+    pub state: String,
+    pub description: String,
+    pub career: String,       // Explorer / Industrialist / Enforcer / Soldier of Fortune
+    pub method: String,       // clave de configuration: mine_material / deliver_item / ...
+    pub groups: Vec<String>,  // objetivo resuelto por ESI: grupo (mine) o tipo de objeto (deliver)
+    pub location: String,     // dónde entregar (deliver_item.office_id → estructura), si aplica
+    pub progress_current: i64,
+    pub progress_desired: i64,
+    pub contributed: i64,     // tu contribución personal (de /contribution/{char})
+    pub reward_remaining: f64, // algunos proyectos pagan ISK (viene en el listado)
+}
+
+/// Proyectos de la corporación del personaje. `/corporations/{corp}/projects`
+/// (scope esi-corporations.read_projects.v1). El corp_id se resuelve del info PÚBLICO del personaje.
+/// DIAGNÓSTICO: registra la respuesta cruda / error → sabremos si un miembro sin rol puede leer.
+#[tauri::command]
+pub async fn get_corp_projects(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<CorpProject>> {
+    let Ok(valid) = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+    else {
+        return Ok(Vec::new());
+    };
+    let info = state
+        .esi
+        .get_cached::<serde_json::Value>(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/"),
+            None,
+        )
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    let Some(corp_id) = info.get("corporation_id").and_then(|x| x.as_i64()) else {
+        return Ok(Vec::new());
+    };
+    let listing = state
+        .esi
+        .get_cached::<serde_json::Value>(
+            &state.db,
+            character_id,
+            &format!("/corporations/{corp_id}/projects"),
+            Some(&valid.access_token),
+        )
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    let items = listing
+        .get("projects")
+        .and_then(|x| x.as_array())
+        .cloned()
+        .or_else(|| listing.as_array().cloned())
+        .unwrap_or_default();
+    let mut out: Vec<CorpProject> = Vec::new();
+    for v in items.iter() {
+        let gs = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let gi = |a: &str, b: &str| {
+            v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_i64()).unwrap_or(0)
+        };
+        let id = gs("id");
+        if id.is_empty() {
+            continue;
+        }
+        let name = gs("name");
+        let st = gs("state");
+        let pc = gi("progress", "current");
+        let pd = gi("progress", "desired");
+
+        // El listado NO trae descripción: pedimos el DETALLE, que además lleva la `configuration`
+        // (el "qué" del proyecto: minería, kills, daño...). Log del 1º para ver esa config.
+        let detail = state
+            .esi
+            .get_cached::<serde_json::Value>(
+                &state.db,
+                character_id,
+                &format!("/corporations/{corp_id}/projects/{id}"),
+                Some(&valid.access_token),
+            )
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        let mut description = detail
+            .get("description")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        if description.is_empty() {
+            description = detail
+                .get("details")
+                .and_then(|o| o.get("description"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+        }
+        let career = detail
+            .get("details")
+            .and_then(|o| o.get("career"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // El "qué" del proyecto: `configuration` = { <método>: { ...params } }. El método es la
+        // clave (mine_material, destroy_ships, deal_damage...). Sacamos los group_id del objetivo.
+        let cfg = detail.get("configuration");
+        let method = cfg
+            .and_then(|o| o.as_object())
+            .and_then(|m| m.keys().next().cloned())
+            .unwrap_or_default();
+        let mut group_ids: Vec<i64> = Vec::new();
+        let mut type_ids: Vec<i64> = Vec::new();
+        if let Some(inner) = cfg.and_then(|o| o.get(method.as_str())) {
+            // mine_material → materials[].group_id
+            if let Some(mats) = inner.get("materials").and_then(|x| x.as_array()) {
+                for m in mats {
+                    if let Some(g) = m.get("group_id").and_then(|x| x.as_i64()) {
+                        group_ids.push(g);
+                    }
+                }
+            }
+            // deliver_item → items[].type_id
+            if let Some(items2) = inner.get("items").and_then(|x| x.as_array()) {
+                for it2 in items2 {
+                    if let Some(t) = it2.get("type_id").and_then(|x| x.as_i64()) {
+                        type_ids.push(t);
+                    }
+                }
+            }
+            if let Some(g) = inner.get("group_id").and_then(|x| x.as_i64()) {
+                group_ids.push(g);
+            }
+        }
+        // Resolver nombres (público, cacheado): grupo 465 -> "Ice", tipo 2876 -> "Robotics".
+        let mut groups: Vec<String> = Vec::new();
+        for g in &group_ids {
+            let gv = state
+                .esi
+                .get_cached::<serde_json::Value>(&state.db, 0, &format!("/universe/groups/{g}/"), None)
+                .await
+                .unwrap_or(serde_json::Value::Null);
+            if let Some(n) = gv.get("name").and_then(|x| x.as_str()) {
+                groups.push(n.to_string());
+            }
+        }
+        for t in &type_ids {
+            let tv = state
+                .esi
+                .get_cached::<serde_json::Value>(&state.db, 0, &format!("/universe/types/{t}/"), None)
+                .await
+                .unwrap_or(serde_json::Value::Null);
+            if let Some(n) = tv.get("name").and_then(|x| x.as_str()) {
+                groups.push(n.to_string());
+            }
+        }
+        // Reward (algunos proyectos pagan ISK; viene en el item del listado).
+        let reward_remaining = v
+            .get("reward")
+            .and_then(|o| o.get("remaining"))
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
+
+        // Dónde entregar: deliver_item.office_id → estructura de jugador (needs read_structures).
+        // Log temporal para confirmar que resuelve (o si es estación/otro id).
+        let office_id = cfg
+            .and_then(|o| o.get(method.as_str()))
+            .and_then(|inner| inner.get("office_id"))
+            .and_then(|x| x.as_i64());
+        let mut location = String::new();
+        if let Some(oid) = office_id {
+            // Un solo intento con el PJ activo. ESI solo revela la estructura si ese PJ puede atracar
+            // (403 si no). No insistimos con otros tokens: cada 403 gasta el error-budget de ESI.
+            if let Ok(sv) = state
+                .esi
+                .get_cached::<serde_json::Value>(
+                    &state.db,
+                    character_id,
+                    &format!("/universe/structures/{oid}/"),
+                    Some(&valid.access_token),
+                )
+                .await
+            {
+                if let Some(n) = sv.get("name").and_then(|x| x.as_str()) {
+                    location = n.to_string();
+                }
+            }
+        }
+
+        // Contribución personal (confirmado: `{ "contributed": N }`).
+        let c = state
+            .esi
+            .get_cached::<serde_json::Value>(
+                &state.db,
+                character_id,
+                &format!("/corporations/{corp_id}/projects/{id}/contribution/{character_id}"),
+                Some(&valid.access_token),
+            )
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        let contributed = c
+            .get("contributed")
+            .and_then(|x| x.as_i64())
+            .or_else(|| c.as_i64())
+            .unwrap_or(0);
+
+        out.push(CorpProject {
+            id,
+            name,
+            state: st,
+            description,
+            career,
+            method,
+            groups,
+            location,
+            progress_current: pc,
+            progress_desired: pd,
+            contributed,
+            reward_remaining,
+        });
+    }
     Ok(out)
 }
 

@@ -97,6 +97,8 @@ export function MapView(props: {
   factionStandings?: Map<number, number> | null;
   agentSystems?: Map<number, number> | null;
   corpSystems?: Map<number, number> | null;
+  agentDetails?: Map<number, { id: number; name: string; level: number }[]> | null;
+  corpDetails?: Map<number, { id: number; name: string; lp: number }[]> | null;
   incursions?: Incursion[] | null;
   theraConns?: WhConn[] | null;
   intel?: IntelConfig;
@@ -105,6 +107,7 @@ export function MapView(props: {
   characters?: Character[];
   onSystemAssets?: (systemName: string) => void;
   onOpenCazador?: (name?: string) => void;
+  onOpenMisiones?: () => void;
   openTrack?: { name: string; nonce: number } | null;
 }) {
   const {
@@ -114,6 +117,7 @@ export function MapView(props: {
     intel,
     onSystemAssets,
     onOpenCazador,
+    onOpenMisiones,
     openTrack,
     assetsBySystem,
     miningBySystem,
@@ -122,6 +126,8 @@ export function MapView(props: {
     factionStandings,
     agentSystems,
     corpSystems,
+    agentDetails,
+    corpDetails,
     incursions,
     theraConns,
     hereSystemId,
@@ -1598,6 +1604,59 @@ export function MapView(props: {
                   {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
                   {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
                 </div>
+                {overlay === "agentes" && (agentDetails?.get(selected)?.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🧑‍✈️ {tr("Tus agentes aquí")}:</div>
+                    {agentDetails!
+                      .get(selected)!
+                      .slice()
+                      .sort((a, b) => b.level - a.level)
+                      .map((ag, i) => (
+                        <div key={i} className="sys-agent-row">
+                          <img
+                            src={`https://images.evetech.net/characters/${ag.id}/portrait?size=32`}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <span className="ag-lvl">L{ag.level}</span>
+                          <span>{ag.name}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {overlay === "corps_npc" && (corpDetails?.get(selected)?.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🏢 {tr("Tus corps NPC aquí")}:</div>
+                    {corpDetails!
+                      .get(selected)!
+                      .slice()
+                      .sort((a, b) => b.lp - a.lp)
+                      .map((c, i) => (
+                        <div key={i} className="sys-agent-row">
+                          <img
+                            src={`https://images.evetech.net/corporations/${c.id}/logo?size=32`}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <span>{c.name}</span>
+                          <span className="muted small" style={{ marginLeft: "auto" }}>
+                            {c.lp.toLocaleString()} LP
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {(overlay === "agentes" || overlay === "corps_npc") && onOpenMisiones && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      onOpenMisiones();
+                      setSelected(null);
+                    }}
+                  >
+                    📋 {tr("Ver todo en Misiones")}
+                  </button>
+                )}
                 <div className="sys-links">
                   <button
                     onClick={() => {

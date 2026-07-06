@@ -25,6 +25,7 @@ export type Tab =
   | "fiteos"
   | "bitacora"
   | "diario"
+  | "freelance"
   | "lealtad";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
@@ -40,6 +41,12 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
       { key: "bitacora", label: "Logros" },
       // Diario: timeline de la historia jugada (hitos + corporationhistory público, sin scope).
       { key: "diario", label: "Diario" },
+      // Trabajos por libre (Freelance) + Proyectos de corp — objetivos del EVE actual.
+      {
+        key: "freelance",
+        label: "Trabajos y proyectos",
+        scopes: ["esi-characters.read_freelance_jobs.v1", "esi-corporations.read_projects.v1"],
+      },
     ],
   },
   {
@@ -163,6 +170,8 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Fittings (fiteos del juego)", scope: "esi-fittings.read_fittings.v1" },
   { label: "Medallas (Bitácora)", scope: "esi-characters.read_medals.v1" },
   { label: "Lealtad / LP (misiones)", scope: "esi-characters.read_loyalty.v1" },
+  { label: "Trabajos por libre", scope: "esi-characters.read_freelance_jobs.v1" },
+  { label: "Proyectos de corp", scope: "esi-corporations.read_projects.v1" },
 ];
 
 export const KM_LIMIT = 50;
@@ -205,6 +214,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   diario: {
     title: "Diario",
     subtitle: "La historia jugada: tus hitos y tu trayectoria de corporaciones en el tiempo",
+  },
+  freelance: {
+    title: "Trabajos y proyectos",
+    subtitle: "Freelance Jobs + Proyectos de corporación en los que participas — el sucesor de las Opportunities",
   },
   lealtad: {
     title: "Misiones",

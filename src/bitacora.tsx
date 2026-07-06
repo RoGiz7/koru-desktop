@@ -9,7 +9,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
-import type { Bitacora, AchievementState, Medal } from "./types";
+import type { Bitacora, AchievementState, Medal, SeriesPoint } from "./types";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
 // inmersión — el mismo image server que ya usa toda la app (retratos, naves, logos). `tid` es un
@@ -141,37 +141,85 @@ function Pips({ level }: { level: number }) {
   );
 }
 
-// ---- Tarjeta de medalla (usada en la home y en las rejillas por dominio). ----
-function MedalCard({ a }: { a: AchievementState }) {
+// ---- Mini-gráfico de evolución de un logro: área + curva + líneas de bronce/plata/oro. ----
+const TIER_LINE = ["", "#cd7f32", "#c9d1d9", "#e8be3f"];
+function MiniChart({ points, thresholds }: { points: SeriesPoint[]; thresholds: [number, number, number] }) {
+  if (!points || points.length === 0)
+    return <div className="muted small ach-chart-empty">{tr("Sin datos de evolución todavía.")}</div>;
+  const W = 300;
+  const H = 92;
+  const pad = 5;
+  const last = points[points.length - 1].value;
+  const maxV = Math.max(last, thresholds[2], 1);
+  const n = points.length;
+  const x = (i: number) => pad + (n === 1 ? (W - 2 * pad) / 2 : (i / (n - 1)) * (W - 2 * pad));
+  const y = (v: number) => H - pad - Math.min(1, v / maxV) * (H - 2 * pad);
+  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(n - 1).toFixed(1)},${(H - pad).toFixed(1)} L${x(0).toFixed(1)},${(H - pad).toFixed(1)} Z`;
+  return (
+    <svg className="ach-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      {[0, 1, 2].map((t) => {
+        const v = thresholds[t];
+        if (v <= 0 || v > maxV) return null;
+        const yy = y(v);
+        return (
+          <line key={t} x1={pad} y1={yy} x2={W - pad} y2={yy} stroke={TIER_LINE[t + 1]} strokeWidth={0.7} strokeDasharray="3 3" opacity={0.75} />
+        );
+      })}
+      <path d={area} fill="var(--accent)" fillOpacity={0.14} />
+      <path d={line} fill="none" stroke="var(--accent)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+// ---- Tarjeta de medalla (usada en la home y en las rejillas por dominio). Clicable → evolución. ----
+function MedalCard({
+  a,
+  series,
+  open,
+  onToggle,
+}: {
+  a: AchievementState;
+  series?: SeriesPoint[];
+  open?: boolean;
+  onToggle?: () => void;
+}) {
   const ui = ACH_UI[a.id] ?? { icon: "🏅", label: a.id, desc: "" };
   const { nextTh, pct } = progressTo(a);
   const date = lastTierDate(a);
   return (
-    <div className={`medal l${a.level}${a.fresh ? " fresh" : ""}`} title={`${tr(ui.desc)} — ${fmtVal(a.value, a.unit)}`}>
-      <MedalFrame level={a.level} icon={ui.icon} tid={ui.tid} />
-      <div className="medal-info">
-        <div className="medal-top">
-          <strong>{tr(ui.label)}</strong>
-          <Pips level={a.level} />
+    <div
+      className={`medal l${a.level}${a.fresh ? " fresh" : ""}${onToggle ? " clickable" : ""}${open ? " open" : ""}`}
+      title={`${tr(ui.desc)} — ${fmtVal(a.value, a.unit)}`}
+      onClick={onToggle}
+    >
+      <div className="medal-row">
+        <MedalFrame level={a.level} icon={ui.icon} tid={ui.tid} />
+        <div className="medal-info">
+          <div className="medal-top">
+            <strong>{tr(ui.label)}</strong>
+            <Pips level={a.level} />
+          </div>
+          <span className="muted small">{tr(ui.desc)}</span>
+          <div className={`medal-bar${a.level >= 3 ? " done" : ""}`}>
+            <div className="medal-bar-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <span className="medal-meta muted small">
+            {a.level > 0 ? (
+              <>
+                {tr(LEVEL_NAME[a.level])}
+                {date ? ` · ${date}` : ""}
+                {a.level < 3 ? ` · ${fmtVal(a.value, a.unit)} / ${fmtVal(nextTh, a.unit)}` : " · ✔ máx."}
+              </>
+            ) : (
+              <>
+                {fmtVal(a.value, a.unit)} / {fmtVal(nextTh, a.unit)}
+              </>
+            )}
+          </span>
         </div>
-        <span className="muted small">{tr(ui.desc)}</span>
-        <div className={`medal-bar${a.level >= 3 ? " done" : ""}`}>
-          <div className="medal-bar-fill" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="medal-meta muted small">
-          {a.level > 0 ? (
-            <>
-              {tr(LEVEL_NAME[a.level])}
-              {date ? ` · ${date}` : ""}
-              {a.level < 3 ? ` · ${fmtVal(a.value, a.unit)} / ${fmtVal(nextTh, a.unit)}` : " · ✔ máx."}
-            </>
-          ) : (
-            <>
-              {fmtVal(a.value, a.unit)} / {fmtVal(nextTh, a.unit)}
-            </>
-          )}
-        </span>
       </div>
+      {open && <MiniChart points={series ?? []} thresholds={a.thresholds} />}
     </div>
   );
 }
@@ -223,6 +271,22 @@ export function BitacoraView({
       alive = false;
     };
   }, [subject]);
+
+  // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
+  const [series, setSeries] = useState<Record<string, SeriesPoint[]>>({});
+  const [openMedal, setOpenMedal] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    invoke<Record<string, SeriesPoint[]>>("get_achievement_series", {
+      characterId: typeof subject === "number" ? subject : null,
+    })
+      .then((s) => alive && setSeries(s))
+      .catch(() => alive && setSeries({}));
+    return () => {
+      alive = false;
+    };
+  }, [subject]);
+  const toggle = (id: string) => setOpenMedal((o) => (o === id ? null : id));
 
   if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
 
@@ -326,7 +390,7 @@ export function BitacoraView({
           </div>
           <div className="medal-grid">
             {progresando.map((a) => (
-              <MedalCard key={a.id} a={a} />
+              <MedalCard key={a.id} a={a} series={series[a.id]} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
             ))}
           </div>
         </>
@@ -339,7 +403,7 @@ export function BitacoraView({
           </div>
           <div className="medal-grid">
             {completados.map((a) => (
-              <MedalCard key={a.id} a={a} />
+              <MedalCard key={a.id} a={a} series={series[a.id]} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
             ))}
           </div>
         </>
@@ -367,7 +431,7 @@ export function BitacoraView({
             </div>
             <div className="medal-grid">
               {medals.map((a) => (
-                <MedalCard key={a.id} a={a} />
+                <MedalCard key={a.id} a={a} series={series[a.id]} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
               ))}
             </div>
           </div>

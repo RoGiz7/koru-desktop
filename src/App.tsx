@@ -26,6 +26,7 @@ import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
 import { DiarioView } from "./diario";
+import { FreelanceView } from "./freelance";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
 import { ComercioView } from "./comercio";
@@ -664,6 +665,8 @@ function App() {
   const [factionStd, setFactionStd] = useState<Map<number, number> | null>(null); // faction_id -> standing
   const [agentSystems, setAgentSystems] = useState<Map<number, number> | null>(null); // sys_id -> nivel del mejor agente
   const [myCorpSystems, setMyCorpSystems] = useState<Map<number, number> | null>(null); // sys_id -> nº de tus corps NPC (LP) con estación
+  const [agentDetails, setAgentDetails] = useState<Map<number, { id: number; name: string; level: number }[]> | null>(null); // sys_id -> tus agentes ahí
+  const [corpDetails, setCorpDetails] = useState<Map<number, { id: number; name: string; lp: number }[]> | null>(null); // sys_id -> tus corps (LP) ahí
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
 
@@ -739,6 +742,8 @@ function App() {
     setFactionStd(null);
     setAgentSystems(null);
     setMyCorpSystems(null);
+    setAgentDetails(null);
+    setCorpDetails(null);
     setRivalsData(null);
     setBattlesData(null);
   }
@@ -829,6 +834,7 @@ function App() {
   async function loadMyAgents(subj: number | "global") {
     if (subj === "global") {
       setAgentSystems(new Map());
+      setAgentDetails(new Map());
       return;
     }
     try {
@@ -838,15 +844,21 @@ function App() {
         { s: number; l: number }
       >;
       const m = new Map<number, number>();
+      const det = new Map<number, { id: number; name: string; level: number }[]>();
       for (const r of rows) {
         if (r.kind !== "agent") continue;
         const a = meta[String(r.id)];
         if (!a || a.s == null) continue;
         m.set(a.s, Math.max(m.get(a.s) ?? 0, a.l ?? 0));
+        const list = det.get(a.s) ?? [];
+        list.push({ id: r.id, name: r.name ?? `Agente ${r.id}`, level: a.l ?? 0 });
+        det.set(a.s, list);
       }
       setAgentSystems(m);
+      setAgentDetails(det);
     } catch {
       setAgentSystems(new Map());
+      setAgentDetails(new Map());
     }
   }
 
@@ -854,23 +866,36 @@ function App() {
   async function loadMyCorps(subj: number | "global") {
     if (subj === "global") {
       setMyCorpSystems(new Map());
+      setCorpDetails(new Map());
       return;
     }
     try {
-      const lp = await invoke<{ corporation_id: number }[]>("get_loyalty", { characterId: subj });
+      const lp = await invoke<{ corporation_id: number; corporation_name: string | null; loyalty_points: number }[]>(
+        "get_loyalty",
+        { characterId: subj },
+      );
       const data = (await fetch("/npc_corp_systems.json").then((r) => r.json())) as Record<
         string,
         { s: number[]; f: number | null }
       >;
       const m = new Map<number, number>();
+      const det = new Map<number, { id: number; name: string; lp: number }[]>();
       for (const c of lp) {
         const info = data[String(c.corporation_id)];
         if (!info) continue;
-        for (const sid of info.s) m.set(sid, (m.get(sid) ?? 0) + 1);
+        const nm = c.corporation_name ?? `Corp ${c.corporation_id}`;
+        for (const sid of info.s) {
+          m.set(sid, (m.get(sid) ?? 0) + 1);
+          const list = det.get(sid) ?? [];
+          list.push({ id: c.corporation_id, name: nm, lp: c.loyalty_points });
+          det.set(sid, list);
+        }
       }
       setMyCorpSystems(m);
+      setCorpDetails(det);
     } catch {
       setMyCorpSystems(new Map());
+      setCorpDetails(new Map());
     }
   }
 
@@ -1662,6 +1687,19 @@ function App() {
           factionStandings={factionStd}
           agentSystems={agentSystems}
           corpSystems={myCorpSystems}
+          agentDetails={agentDetails}
+          corpDetails={corpDetails}
+          onOpenMisiones={() => {
+            changeTab("lealtad");
+            // Dejar que la pestaña renderice y bajar hasta la sección (la Bitácora/mapa quedan arriba).
+            window.setTimeout(
+              () =>
+                document
+                  .querySelector(".section-header")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+              60,
+            );
+          }}
           incursions={incursions}
           theraConns={theraConns}
           intel={{
@@ -1863,6 +1901,7 @@ function App() {
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
           {tab === "bitacora" && <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} />}
           {tab === "diario" && <DiarioView subject={subject} />}
+          {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (

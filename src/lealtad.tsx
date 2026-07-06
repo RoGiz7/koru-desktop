@@ -111,6 +111,12 @@ export function LealtadView({ subject }: { subject: number | "global" }) {
               const lvl = agentMeta?.[String(a.id)]?.l;
               return (
                 <div key={a.id} className="lp-row">
+                  <img
+                    className="lp-logo"
+                    src={`https://images.evetech.net/characters/${a.id}/portrait?size=32`}
+                    alt=""
+                    loading="lazy"
+                  />
                   <span className="ag-lvl">{lvl ? `L${lvl}` : "·"}</span>
                   <div className="lp-info">
                     <strong>{a.name ?? `${tr("Agente")} ${a.id}`}</strong>

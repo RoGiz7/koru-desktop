@@ -213,3 +213,16 @@ CREATE TABLE IF NOT EXISTS fits (
     modules       TEXT NOT NULL,
     created_at    TEXT NOT NULL
 );
+
+-- Proyectos personales (Bitácora): metas propias definidas por el usuario, medidas del histórico
+-- local. subject_id = character_id, o 0 = global. metric = clave de métrica (kills/damage/isk_
+-- destruido/final_blows/solo_kills/sistemas/rateo/mineria/patrimonio); target = objetivo.
+CREATE TABLE IF NOT EXISTS personal_projects (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id  INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    metric      TEXT NOT NULL,
+    target      REAL NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pp_subject ON personal_projects(subject_id);

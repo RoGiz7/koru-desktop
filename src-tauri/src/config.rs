@@ -89,11 +89,19 @@ pub mod scopes {
         "esi-location.read_online.v1",
     ];
 
-    /// Bitácora: medallas in-game (condecoraciones de corp) + LP/lealtad (misiones).
+    /// Bitácora: medallas in-game (condecoraciones de corp) + LP/lealtad (misiones) +
+    /// trabajos por libre (Freelance Jobs, el sucesor de Opportunities, a nivel de personaje).
     /// Enriquecen la Bitácora/Diario; si no se conceden, esas secciones salen vacías (best-effort).
     pub const BITACORA: &[&str] = &[
         "esi-characters.read_medals.v1",
         "esi-characters.read_loyalty.v1",
+        "esi-characters.read_freelance_jobs.v1",
+        // Proyectos de corporación: scope de CORP pero lo concede el propio miembro (no un director).
+        // Confirmado en vivo: un miembro sin rol puede leerlos.
+        "esi-corporations.read_projects.v1",
+        // Resolver el nombre de la estructura de entrega de los proyectos (office_id → citadel).
+        // Ya iba en Assets; aquí también, para que venga con el relogin de proyectos.
+        "esi-universe.read_structures.v1",
     ];
 
     /// Conjunto v1 (las 4 features + ubicación + bitácora).

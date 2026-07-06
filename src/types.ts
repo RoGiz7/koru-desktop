@@ -566,11 +566,48 @@ export type Bitacora = {
   // ¿El sujeto ya estaba sembrado antes de esta evaluación? (el 1er sembrado no se celebra)
   was_seeded: boolean;
 };
+// Evolución de un logro: valor acumulado por mes (para el mini-gráfico con líneas de tier).
+export type SeriesPoint = { month: string; value: number };
 // Evento "bitacora-unlock": logros nuevos detectados en auto_sync (nombres los pone el front).
 export type BitacoraUnlock = { id: string; level: number };
 export type BitacoraUnlockEvent = { unlocks: BitacoraUnlock[] };
 // Diario: etapa de corporationhistory (endpoint público) = espina biográfica del timeline.
 export type DiaryCorp = { corporation_id: number; corporation_name: string | null; start_date: string };
+// Proyecto personal: meta propia del usuario medida del histórico local (kills/ISK/minería/…).
+export type PersonalProject = {
+  id: number;
+  name: string;
+  metric: string;
+  target: number;
+  current: number;
+};
+// Trabajos por libre (Freelance Jobs, sucesor de Opportunities) en los que participa el personaje.
+export type FreelanceJob = {
+  id: string;
+  name: string;
+  state: string;
+  career: string;
+  description: string;
+  expires: string;
+  progress_current: number;
+  progress_desired: number;
+  reward_remaining: number;
+};
+// Proyecto de corporación (Corporation Projects; scope de corp read_projects). Parse best-effort.
+export type CorpProject = {
+  id: string;
+  name: string;
+  state: string;
+  description: string;
+  career: string;
+  method: string;
+  groups: string[];
+  location: string;
+  progress_current: number;
+  progress_desired: number;
+  contributed: number;
+  reward_remaining: number;
+};
 // Lealtad: LP por corporación NPC (recompensa de misiones, scope read_loyalty).
 export type LoyaltyCorp = { corporation_id: number; corporation_name: string | null; loyalty_points: number };
 // Medalla in-game (condecoración de corp) para el medallero mixto de la Bitácora (scope read_medals).
