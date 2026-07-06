@@ -99,6 +99,7 @@ pub fn run() {
             commands::get_personal_projects,
             commands::create_personal_project,
             commands::delete_personal_project,
+            commands::get_kill_victims,
             commands::get_corp_history,
             commands::get_medals,
             commands::get_loyalty,

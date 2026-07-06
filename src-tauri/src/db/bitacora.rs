@@ -11,7 +11,9 @@
 use super::Db;
 use crate::error::AppResult;
 use chrono::{Datelike, NaiveDate};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Challenge {
@@ -512,6 +514,21 @@ impl Db {
     }
 }
 
+/// Datos de reprocesado de una mena (embebidos del SDE): v=volumen unitario m³,
+/// p=portionSize (lote de reprocesado), m=materiales [[typeID, cantidad_por_lote], ...].
+#[derive(Debug, Deserialize)]
+struct OreInfo {
+    #[allow(dead_code)]
+    n: String,
+    v: f64,
+    p: f64,
+    m: Vec<(i64, f64)>,
+}
+static REPROCESS: OnceLock<HashMap<i64, OreInfo>> = OnceLock::new();
+fn reprocess() -> &'static HashMap<i64, OreInfo> {
+    REPROCESS.get_or_init(|| serde_json::from_str(include_str!("reprocess.json")).unwrap_or_default())
+}
+
 /// Un proyecto personal (meta propia del usuario) con su valor ACTUAL calculado del histórico local.
 #[derive(Debug, Clone, Serialize)]
 pub struct PersonalProject {
@@ -520,6 +537,11 @@ pub struct PersonalProject {
     pub metric: String,
     pub target: f64,
     pub current: f64,
+    pub param_kind: String,
+    pub param_ids: String, // CSV de type/system IDs (multi-selección); vacío = sin filtro
+    pub param_name: String,
+    pub mode: String, // solo mineria: ''|value|units|volume|reproceso
+    pub completed_at: String, // RFC3339 al alcanzar el objetivo; '' = activo
 }
 
 impl Db {
@@ -530,11 +552,15 @@ impl Db {
         name: &str,
         metric: &str,
         target: f64,
+        param_kind: &str,
+        param_ids: &str,
+        param_name: &str,
+        mode: &str,
     ) -> AppResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO personal_projects (subject_id, name, metric, target, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![subject_id, name, metric, target, chrono::Utc::now().to_rfc3339()],
+            "INSERT INTO personal_projects (subject_id, name, metric, target, created_at, param_kind, param_ids, param_name, mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![subject_id, name, metric, target, chrono::Utc::now().to_rfc3339(), param_kind, param_ids, param_name, mode],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -554,10 +580,22 @@ impl Db {
         } else {
             format!("AND character_id = {subject_id}")
         };
+        // Para mineria el filtro por sistema/character usa el alias ml.
+        let who_ml = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND ml.character_id = {subject_id}")
+        };
+        // Mapa de precios (para modos de mineria por volumen/reproceso) leído una vez.
+        let prices: HashMap<i64, f64> = {
+            let mut stmt = conn.prepare("SELECT type_id, COALESCE(average_price,0) FROM market_prices")?;
+            let it = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?;
+            it.flatten().collect()
+        };
         // Leemos las filas (y soltamos el statement) antes de calcular cada valor.
-        let rows: Vec<(i64, String, String, f64)> = {
+        let rows: Vec<(i64, String, String, f64, String, String, String, String, String, String)> = {
             let mut stmt = conn.prepare(
-                "SELECT id, name, metric, target FROM personal_projects WHERE subject_id = ?1 ORDER BY id",
+                "SELECT id, name, metric, target, param_kind, param_ids, param_name, created_at, mode, completed_at FROM personal_projects WHERE subject_id = ?1 ORDER BY id",
             )?;
             let it = stmt.query_map([subject_id], |r| {
                 Ok((
@@ -565,29 +603,136 @@ impl Db {
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, f64>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, String>(8)?,
+                    r.get::<_, String>(9)?,
                 ))
             })?;
             it.flatten().collect()
         };
         let mut out = Vec::new();
-        for (id, name, metric, target) in rows {
+        for (id, name, metric, target, param_kind, param_ids, param_name, created_at, mode, mut completed_at) in rows {
+            // IDs saneados (solo numéricos) para el IN(...); vacío = sin filtro.
+            let ids: Vec<i64> = param_ids
+                .split(',')
+                .filter_map(|s| s.trim().parse::<i64>().ok())
+                .collect();
+            let id_list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            let has_ids = !ids.is_empty();
+            // Filtro opcional para métricas de killmails (nave víctima o sistema).
+            let km_filter = if has_ids {
+                match param_kind.as_str() {
+                    "ship" => format!(" AND victim_ship_type_id IN ({id_list})"),
+                    "system" => format!(" AND system_id IN ({id_list})"),
+                    "victim_char" => format!(" AND victim_character_id IN ({id_list})"),
+                    "victim_corp" => format!(" AND victim_corporation_id IN ({id_list})"),
+                    _ => String::new(),
+                }
+            } else {
+                String::new()
+            };
+            // Filtro opcional para mineria (mineral concreto o sistema).
+            let ml_filter = if has_ids {
+                match param_kind.as_str() {
+                    "ore" => format!(" AND ml.type_id IN ({id_list})"),
+                    "system" => format!(" AND ml.system_id IN ({id_list})"),
+                    _ => String::new(),
+                }
+            } else {
+                String::new()
+            };
+            // Cuenta SOLO desde la creación del proyecto (sin importar el pasado).
+            // date() normaliza tanto "YYYY-MM-DD" como timestamps RFC3339.
+            let ca = created_at.replace('\'', "");
+            let km_since = format!(" AND date(killed_at) >= date('{ca}')");
+            let wj_since = format!(" AND date(date) >= date('{ca}')");
+            let ml_since = format!(" AND date(ml.date) >= date('{ca}')");
             let sql: Option<String> = match metric.as_str() {
-                "kills" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 {who}")),
-                "damage" => Some(format!("SELECT COALESCE(SUM(char_damage),0) FROM killmails WHERE is_loss=0 {who}")),
-                "isk_destruido" => Some(format!("SELECT COALESCE(SUM(isk_value),0) FROM killmails WHERE is_loss=0 {who}")),
-                "final_blows" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 AND final_blow=1 {who}")),
-                "solo_kills" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 AND solo=1 {who}")),
-                "sistemas" => Some(format!("SELECT COUNT(DISTINCT system_id) FROM killmails WHERE is_loss=0 AND system_id IS NOT NULL {who}")),
-                "rateo" => Some(format!("SELECT COALESCE(SUM(amount),0) FROM wallet_journal WHERE ref_type IN ('bounty_prizes','ess_escrow_transfer') AND amount>0 {who}")),
-                "mineria" => Some(format!("SELECT COALESCE(SUM(ml.quantity*COALESCE(mp.average_price,0)),0) FROM mining_ledger ml LEFT JOIN market_prices mp ON mp.type_id=ml.type_id WHERE 1=1 {who}")),
+                "kills" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 {who}{km_filter}{km_since}")),
+                "damage" => Some(format!("SELECT COALESCE(SUM(char_damage),0) FROM killmails WHERE is_loss=0 {who}{km_filter}{km_since}")),
+                "isk_destruido" => Some(format!("SELECT COALESCE(SUM(isk_value),0) FROM killmails WHERE is_loss=0 {who}{km_filter}{km_since}")),
+                "final_blows" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 AND final_blow=1 {who}{km_filter}{km_since}")),
+                "solo_kills" => Some(format!("SELECT COUNT(*) FROM killmails WHERE is_loss=0 AND solo=1 {who}{km_filter}{km_since}")),
+                "sistemas" => Some(format!("SELECT COUNT(DISTINCT system_id) FROM killmails WHERE is_loss=0 AND system_id IS NOT NULL {who}{km_filter}{km_since}")),
+                "rateo" => Some(format!("SELECT COALESCE(SUM(amount),0) FROM wallet_journal WHERE ref_type IN ('bounty_prizes','ess_escrow_transfer') AND amount>0 {who}{wj_since}")),
+                "mineria" => Some(format!("SELECT COALESCE(SUM(ml.quantity*COALESCE(mp.average_price,0)),0) FROM mining_ledger ml LEFT JOIN market_prices mp ON mp.type_id=ml.type_id WHERE 1=1 {who_ml}{ml_filter}{ml_since}")),
+                // Patrimonio = nivel absoluto (alcanzar X), no acumulación: sin filtro de fecha.
                 "patrimonio" => Some(format!("SELECT COALESCE(MAX(day_total),0) FROM (SELECT date, SUM(total) day_total FROM networth_snapshots WHERE 1=1 {who} GROUP BY date)")),
                 _ => None,
             };
-            let current = sql
-                .map(|s| conn.query_row(&s, [], |r| r.get::<_, f64>(0)).unwrap_or(0.0))
-                .unwrap_or(0.0);
-            out.push(PersonalProject { id, name, metric, target, current });
+            // Mineria con modo especial (unidades / volumen m³ / ISK-reproceso 85%): se computa
+            // en Rust agrupando por tipo minado y cruzando con el reprocesado embebido + precios.
+            let current = if metric == "mineria" && matches!(mode.as_str(), "units" | "volume" | "reproceso") {
+                let q = format!(
+                    "SELECT ml.type_id, SUM(ml.quantity) FROM mining_ledger ml WHERE 1=1 {who_ml}{ml_filter}{ml_since} GROUP BY ml.type_id"
+                );
+                let mut val = 0.0;
+                if let Ok(mut stmt) = conn.prepare(&q) {
+                    if let Ok(it) = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))) {
+                        for (tid, qty) in it.flatten() {
+                            match mode.as_str() {
+                                "units" => val += qty,
+                                "volume" => {
+                                    if let Some(o) = reprocess().get(&tid) {
+                                        val += qty * o.v;
+                                    }
+                                }
+                                "reproceso" => {
+                                    if let Some(o) = reprocess().get(&tid) {
+                                        if o.p > 0.0 {
+                                            let batches = qty / o.p;
+                                            for &(mat, mq) in &o.m {
+                                                let price = prices.get(&mat).copied().unwrap_or(0.0);
+                                                val += batches * mq * 0.85 * price;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                val
+            } else {
+                sql.map(|s| conn.query_row(&s, [], |r| r.get::<_, f64>(0)).unwrap_or(0.0))
+                    .unwrap_or(0.0)
+            };
+            // Sella la fecha de completado la primera vez que se alcanza el objetivo (archivo).
+            if completed_at.is_empty() && target > 0.0 && current >= target {
+                completed_at = chrono::Utc::now().to_rfc3339();
+                let _ = conn.execute(
+                    "UPDATE personal_projects SET completed_at = ?1 WHERE id = ?2",
+                    rusqlite::params![completed_at, id],
+                );
+            }
+            out.push(PersonalProject { id, name, metric, target, current, param_kind, param_ids, param_name, mode, completed_at });
         }
         Ok(out)
+    }
+
+    /// Víctimas (personaje o corp) de tus kills, con recuento, para el buscador de caza selectiva.
+    /// kind = "victim_corp" → corps; cualquier otro → personajes. subject_id 0 = global.
+    pub fn kill_victims(&self, subject_id: i64, kind: &str) -> AppResult<Vec<(i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let col = if kind == "victim_corp" {
+            "victim_corporation_id"
+        } else {
+            "victim_character_id"
+        };
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT {col}, COUNT(*) c FROM killmails WHERE is_loss=0 AND {col} IS NOT NULL {who} GROUP BY {col} ORDER BY c DESC LIMIT 300"
+        );
+        let mut stmt = conn.prepare(&q)?;
+        let it = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
+        Ok(it.flatten().collect())
     }
 }

@@ -1498,17 +1498,56 @@ pub async fn create_personal_project(
     name: String,
     metric: String,
     target: f64,
+    param_kind: String,
+    param_ids: String,
+    param_name: String,
+    mode: String,
     state: State<'_, AppState>,
 ) -> AppResult<i64> {
-    state
-        .db
-        .create_personal_project(subject_id, &name, &metric, target)
+    state.db.create_personal_project(
+        subject_id,
+        &name,
+        &metric,
+        target,
+        &param_kind,
+        &param_ids,
+        &param_name,
+        &mode,
+    )
 }
 
 /// Borra un proyecto personal por id.
 #[tauri::command]
 pub async fn delete_personal_project(id: i64, state: State<'_, AppState>) -> AppResult<()> {
     state.db.delete_personal_project(id)
+}
+
+/// Opción del buscador de caza: una víctima (personaje o corp) de tus kills, con nombre y recuento.
+#[derive(serde::Serialize)]
+pub struct VictimOpt {
+    pub id: i64,
+    pub name: String,
+    pub count: i64,
+}
+
+/// Víctimas (personaje o corp) de tus kills para el buscador de caza selectiva, con nombre resuelto.
+#[tauri::command]
+pub async fn get_kill_victims(
+    subject_id: i64,
+    kind: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<VictimOpt>> {
+    let rows = state.db.kill_victims(subject_id, &kind)?;
+    let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    Ok(rows
+        .into_iter()
+        .map(|(id, count)| VictimOpt {
+            id,
+            count,
+            name: names.get(&id).cloned().unwrap_or_else(|| format!("#{id}")),
+        })
+        .collect())
 }
 
 /// Un tramo del corporationhistory (endpoint PÚBLICO de ESI, sin scope).
@@ -1780,6 +1819,7 @@ pub struct CorpProject {
     pub method: String,       // clave de configuration: mine_material / deliver_item / ...
     pub groups: Vec<String>,  // objetivo resuelto por ESI: grupo (mine) o tipo de objeto (deliver)
     pub location: String,     // dónde entregar (deliver_item.office_id → estructura), si aplica
+    pub icon_type_id: Option<i64>, // tipo del ítem a entregar (deliver_item) → icono EVE
     pub progress_current: i64,
     pub progress_desired: i64,
     pub contributed: i64,     // tu contribución personal (de /contribution/{char})
@@ -1988,6 +2028,7 @@ pub async fn get_corp_projects(
             method,
             groups,
             location,
+            icon_type_id: type_ids.first().copied(),
             progress_current: pc,
             progress_desired: pd,
             contributed,

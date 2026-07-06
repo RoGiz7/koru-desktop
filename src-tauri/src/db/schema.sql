@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS killmails (
     killed_at      TEXT,
     solo           INTEGER NOT NULL DEFAULT 0,  -- 1 si el personaje fue el único atacante
     victim_ship_type_id INTEGER,                -- nave de la víctima
+    victim_character_id INTEGER,                -- personaje de la víctima (para caza selectiva)
+    victim_corporation_id INTEGER,             -- corp de la víctima
     char_damage    INTEGER,                     -- daño hecho por el personaje (en kills)
     final_blow     INTEGER NOT NULL DEFAULT 0,  -- 1 si el personaje dio el golpe final
     top_damage     INTEGER NOT NULL DEFAULT 0,  -- 1 si el personaje hizo el mayor daño
@@ -223,6 +225,16 @@ CREATE TABLE IF NOT EXISTS personal_projects (
     name        TEXT NOT NULL,
     metric      TEXT NOT NULL,
     target      REAL NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    -- Filtro opcional: param_kind = ''|ship|ore|system; param_ids = CSV de typeID/systemID
+    -- (multi-selección); param_name = etiqueta para mostrar.
+    param_kind  TEXT NOT NULL DEFAULT '',
+    param_id    INTEGER NOT NULL DEFAULT 0,
+    param_ids   TEXT NOT NULL DEFAULT '',
+    param_name  TEXT NOT NULL DEFAULT '',
+    -- solo mineria: ''|value (valor mercado) | units | volume (m³) | reproceso (ISK reproc. 85%)
+    mode        TEXT NOT NULL DEFAULT '',
+    -- fecha (RFC3339) en que se alcanzó el objetivo; '' = aún activo.
+    completed_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_pp_subject ON personal_projects(subject_id);

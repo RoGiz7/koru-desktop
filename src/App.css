@@ -982,6 +982,78 @@ select,
   color: var(--err, #e05a5a);
 }
 
+/* Buscador de filtro (nave/mineral/sistema) dentro del formulario de proyecto */
+.pp-search {
+  position: relative;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.pp-fam {
+  color: var(--accent, #7aa2f7);
+  font-weight: 600;
+}
+.pp-search input {
+  padding: 0.35rem 0.5rem;
+  min-width: 160px;
+}
+.pp-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-panel, #1a1d24);
+  border: 1px solid var(--border, #2c313c);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.pp-result {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  background: none;
+  border: none;
+  color: var(--fg, #d8dee9);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.pp-result:hover {
+  background: var(--bg-hover, #2a2f3a);
+}
+.pp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--bg-hover, #2a2f3a);
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+.pp-chip-x {
+  background: none;
+  border: none;
+  color: var(--fg-muted-2);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0;
+}
+.pp-chip-x:hover {
+  color: var(--err, #e05a5a);
+}
+.pp-tag {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  background: var(--bg-hover, #2a2f3a);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--fg-muted, #9aa4b2);
+}
+
 .bit-foot {
   margin-top: 1rem;
 }

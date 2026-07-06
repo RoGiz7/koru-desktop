@@ -580,6 +580,11 @@ export type PersonalProject = {
   metric: string;
   target: number;
   current: number;
+  param_kind: string; // ""|ship|ore|system
+  param_ids: string; // CSV de type/system IDs (multi-selección)
+  param_name: string;
+  mode: string; // solo mineria: ""|value|units|volume|reproceso
+  completed_at: string; // RFC3339 al completar; "" = activo
 };
 // Trabajos por libre (Freelance Jobs, sucesor de Opportunities) en los que participa el personaje.
 export type FreelanceJob = {
@@ -603,6 +608,7 @@ export type CorpProject = {
   method: string;
   groups: string[];
   location: string;
+  icon_type_id: number | null; // tipo del ítem a entregar → icono EVE
   progress_current: number;
   progress_desired: number;
   contributed: number;

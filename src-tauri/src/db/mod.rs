@@ -53,6 +53,17 @@ impl Db {
             "ALTER TABLE killmails ADD COLUMN top_damage INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // Víctima (personaje/corp) para la caza selectiva de proyectos personales (0.18.4).
+        let _ = conn.execute("ALTER TABLE killmails ADD COLUMN victim_character_id INTEGER", []);
+        let _ = conn.execute("ALTER TABLE killmails ADD COLUMN victim_corporation_id INTEGER", []);
+        // Backfill desde el JSON crudo del killmail (solo filas sin rellenar). json_extract = JSON1.
+        let _ = conn.execute(
+            "UPDATE killmails SET
+                 victim_character_id = json_extract(raw, '$.victim.character_id'),
+                 victim_corporation_id = json_extract(raw, '$.victim.corporation_id')
+             WHERE victim_corporation_id IS NULL AND raw IS NOT NULL AND raw <> ''",
+            [],
+        );
         // Journal: campos de detalle para histórico de rateo (sistema vía ESS, etc.).
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN reason TEXT", []);
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN context_id INTEGER", []);
@@ -61,6 +72,13 @@ impl Db {
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN second_party_id INTEGER", []);
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
+        // personal_projects: filtro opcional (nave/mineral/sistema) añadido en 0.18.4.
+        let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN param_kind TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN param_id INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN param_ids TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN param_name TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN mode TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN completed_at TEXT NOT NULL DEFAULT ''", []);
         Ok(Db {
             conn: Mutex::new(conn),
         })
