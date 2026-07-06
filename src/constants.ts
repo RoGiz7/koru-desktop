@@ -83,8 +83,8 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
       { key: "rateo", label: "Ingresos PvE", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "factional", label: "Factional", scopes: ["esi-characters.read_fw_stats.v1"] },
-      // Lealtad: LP por corp NPC (recompensa de misiones). Scope read_loyalty.
-      { key: "lealtad", label: "Lealtad (LP)", scopes: ["esi-characters.read_loyalty.v1"] },
+      // Misiones: LP por corp NPC + agentes con los que progresas (standings). Scope read_loyalty.
+      { key: "lealtad", label: "Misiones", scopes: ["esi-characters.read_loyalty.v1"] },
     ],
   },
   {
@@ -159,6 +159,8 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Estructuras (assets en citadels)", scope: "esi-universe.read_structures.v1" },
   { label: "Fatiga de salto", scope: "esi-characters.read_fatigue.v1" },
   { label: "Fittings (fiteos del juego)", scope: "esi-fittings.read_fittings.v1" },
+  { label: "Medallas (Bitácora)", scope: "esi-characters.read_medals.v1" },
+  { label: "Lealtad / LP (misiones)", scope: "esi-characters.read_loyalty.v1" },
 ];
 
 export const KM_LIMIT = 50;
@@ -203,8 +205,8 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
     subtitle: "La historia jugada: tus hitos y tu trayectoria de corporaciones en el tiempo",
   },
   lealtad: {
-    title: "Lealtad (LP)",
-    subtitle: "Tus puntos de lealtad por corporación NPC (recompensa de misiones)",
+    title: "Misiones",
+    subtitle: "Tu LP por corporación NPC y los agentes con los que progresas (standing)",
   },
   comercio: { title: "Comercio", subtitle: "Tus órdenes abiertas: competencia, % vendido y vencimiento" },
   comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },

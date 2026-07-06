@@ -151,6 +151,15 @@ const EN: Record<string, string> = {
   corporaciones: "corporations",
   "ESI expone el saldo de LP, no el historial de misiones. Gasta tu LP en las tiendas de lealtad de cada corp.":
     "ESI exposes your LP balance, not mission history. Spend LP in each corp's loyalty store.",
+  // --- Misiones: agentes (standings como progreso) ---
+  Agentes: "Agents",
+  "Selecciona un personaje para ver sus misiones (LP y agentes).":
+    "Pick a character to see their missions (LP and agents).",
+  "Sin LP ni agentes todavía. Haz misiones para una corporación NPC (y concede lealtad/standings al reloguear).":
+    "No LP or agents yet. Run missions for an NPC corporation (and grant loyalty/standings when you re-login).",
+  "agentes · el standing sube con sus misiones": "agents · standing rises with their missions",
+  "Los agentes salen de tus standings: cada uno sube al progresar sus misiones. Su ubicación se verá en el mapa.":
+    "Agents come from your standings: each rises as you progress their missions. Their location will show on the map.",
   "Aún no hay hitos que contar. Juega, sincroniza y tu historia se irá escribiendo sola aquí.":
     "No milestones to tell yet. Play, sync, and your story will write itself here.",
   "Vista global: hitos de todos tus personajes. Elige un personaje para ver también su trayectoria de corporaciones.":

@@ -825,6 +825,16 @@ select,
   font-size: 0.9rem;
   white-space: nowrap;
 }
+/* Badge de nivel de agente (L1–L5) en la lista de Misiones. */
+.ag-lvl {
+  width: 32px;
+  flex-shrink: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
 
 .bit-foot {
   margin-top: 1rem;
