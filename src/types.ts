@@ -574,6 +574,27 @@ export type BitacoraUnlockEvent = { unlocks: BitacoraUnlock[] };
 // Diario: etapa de corporationhistory (endpoint público) = espina biográfica del timeline.
 export type DiaryCorp = { corporation_id: number; corporation_name: string | null; start_date: string };
 // Proyecto personal: meta propia del usuario medida del histórico local (kills/ISK/minería/…).
+// Resumen logi all-time (HP dado/recibido por tipo) para el panel de Logros (Fase B).
+export type LogiSummary = {
+  given_shield: number;
+  given_armor: number;
+  given_hull: number;
+  recv_shield: number;
+  recv_armor: number;
+  recv_hull: number;
+};
+// Serie mensual de logi para la gráfica del apartado Logis.
+export type LogiSeries = {
+  labels: string[];
+  given_shield: number[];
+  given_armor: number[];
+  given_hull: number[];
+  recv_shield: number[];
+  recv_armor: number[];
+  recv_hull: number[];
+};
+// Un piloto del histórico de logi (a quién curaste / de quién recibiste).
+export type LogiPilot = { pilot: string; hp: number; reps: number; ship: string; char_id: number };
 export type PersonalProject = {
   id: number;
   name: string;

@@ -20,6 +20,14 @@ src-tauri/target/
 *.sqlite3
 *.db
 
+# Datos de juego personales (gamelogs, chatlogs, research con datos reales): NUNCA al repo.
+# `documentacion/` es hermana de koru-desktop (fuera de este repo) y no se sube; este candado
+# es por si algún día se mueve dentro o se crea un repo en la carpeta padre.
+documentacion/
+**/Gamelogs/
+**/chat logs/
+**/Chatlogs/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

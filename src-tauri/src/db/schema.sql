@@ -238,3 +238,32 @@ CREATE TABLE IF NOT EXISTS personal_projects (
     completed_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_pp_subject ON personal_projects(subject_id);
+
+-- ===== Gamelogs de EVE (Fase B): datos ESI-invisibles parseados del log de combate local =====
+-- Seguimiento de ficheros ya parseados para NO releer los 6,6 GB (lectura incremental por offset).
+CREATE TABLE IF NOT EXISTS gamelog_parsed (
+    filename    TEXT PRIMARY KEY,
+    size        INTEGER NOT NULL DEFAULT 0,
+    mtime       INTEGER NOT NULL DEFAULT 0,
+    read_offset INTEGER NOT NULL DEFAULT 0  -- byte hasta donde se leyó (para el tail del activo)
+);
+-- Agregado de reparación remota (logi) por personaje/día/tipo/dirección. kind = shield|armor|hull;
+-- direction = given (curado por ti) | received (curado a ti). hp = HP acumulados.
+CREATE TABLE IF NOT EXISTS logi_ledger (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    direction    TEXT NOT NULL,
+    hp           REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, kind, direction)
+);
+-- Histórico de pilotos: a quién curaste (given) y de quién recibiste (received), con HP y nº de reps.
+CREATE TABLE IF NOT EXISTS logi_pilots (
+    character_id INTEGER NOT NULL,
+    direction    TEXT NOT NULL,
+    pilot        TEXT NOT NULL,
+    hp           REAL NOT NULL DEFAULT 0,
+    reps         INTEGER NOT NULL DEFAULT 0,
+    ship         TEXT NOT NULL DEFAULT '',  -- última nave vista del piloto (para el icono)
+    PRIMARY KEY (character_id, direction, pilot)
+);

@@ -26,6 +26,7 @@ export type Tab =
   | "bitacora"
   | "diario"
   | "freelance"
+  | "logis"
   | "lealtad";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
@@ -47,6 +48,8 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
         label: "Trabajos y proyectos",
         scopes: ["esi-characters.read_freelance_jobs.v1", "esi-corporations.read_projects.v1"],
       },
+      // Logis: reparación remota del gamelog local (sin scopes). Se puebla al escanear gamelogs.
+      { key: "logis", label: "Logis" },
     ],
   },
   {
@@ -218,6 +221,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   freelance: {
     title: "Trabajos y proyectos",
     subtitle: "Freelance Jobs + Proyectos de corporación en los que participas — el sucesor de las Opportunities",
+  },
+  logis: {
+    title: "Logis",
+    subtitle: "Reparación remota (dada y recibida) reconstruida de tu histórico de combate local",
   },
   lealtad: {
     title: "Misiones",

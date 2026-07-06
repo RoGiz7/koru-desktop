@@ -79,6 +79,27 @@ impl Db {
         let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN param_name TEXT NOT NULL DEFAULT ''", []);
         let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN mode TEXT NOT NULL DEFAULT ''", []);
         let _ = conn.execute("ALTER TABLE personal_projects ADD COLUMN completed_at TEXT NOT NULL DEFAULT ''", []);
+        // gamelog_parsed: builds tempranos de la Fase B crearon la columna `offset` (palabra reservada)
+        // y CREATE IF NOT EXISTS no la recrea → añadir `read_offset`. Idempotente.
+        let _ = conn.execute("ALTER TABLE gamelog_parsed ADD COLUMN read_offset INTEGER NOT NULL DEFAULT 0", []);
+        // Si hubo escaneos fallidos (logi_ledger con residuo pero nada trackeado), limpiar de una vez.
+        let tracked: i64 = conn
+            .query_row("SELECT COUNT(*) FROM gamelog_parsed", [], |r| r.get(0))
+            .unwrap_or(0);
+        if tracked == 0 {
+            let _ = conn.execute("DELETE FROM logi_ledger", []);
+        }
+        // logi_pilots: columna `ship` (nave del piloto para el icono) añadida en 0.20.0.
+        let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN ship TEXT NOT NULL DEFAULT ''", []);
+        // Migración de logi: v1 = soporte de pilotos; v2 = parser de piloto corregido (nombres "=").
+        // Cada bump fuerza UNA vez un re-parseo limpio (borrar tracking + agregados de logi).
+        let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
+        if uv < 2 {
+            let _ = conn.execute("DELETE FROM gamelog_parsed", []);
+            let _ = conn.execute("DELETE FROM logi_ledger", []);
+            let _ = conn.execute("DELETE FROM logi_pilots", []);
+            let _ = conn.pragma_update(None, "user_version", 2);
+        }
         Ok(Db {
             conn: Mutex::new(conn),
         })

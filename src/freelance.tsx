@@ -3,6 +3,8 @@
 // (3) PROYECTOS DE CORPORACIÓN (scope de corp del propio miembro). Los dos últimos, por personaje.
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { sendNotification } from "@tauri-apps/plugin-notification";
 import { tr } from "./i18n";
 import { fmtIsk, typeIcon } from "./format";
@@ -51,6 +53,12 @@ const METRICS: { key: string; label: string; icon: string; unit: "isk" | "count"
   { key: "rateo", label: "Rateo (bounties+ESS)", icon: "🐀", unit: "isk" },
   { key: "mineria", label: "Minería", icon: "⛏️", unit: "isk" },
   { key: "patrimonio", label: "Patrimonio (pico)", icon: "💰", unit: "isk" },
+  { key: "heal_shield", label: "Curación de escudo (logi)", icon: "🛡️", unit: "count" },
+  { key: "heal_armor", label: "Reparación de blindaje (logi)", icon: "🟧", unit: "count" },
+  { key: "heal_hull", label: "Reparación de casco (logi)", icon: "🔩", unit: "count" },
+  { key: "recv_shield", label: "Escudo remoto recibido", icon: "🛡️", unit: "count" },
+  { key: "recv_armor", label: "Blindaje remoto recibido", icon: "🟧", unit: "count" },
+  { key: "recv_hull", label: "Casco remoto recibido", icon: "🔩", unit: "count" },
 ];
 const METRIC_BY_KEY: Record<string, { label: string; icon: string; unit: "isk" | "count" }> = Object.fromEntries(
   METRICS.map((m) => [m.key, { label: m.label, icon: m.icon, unit: m.unit }]),
@@ -166,6 +174,14 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
   const [pUnit, setPUnit] = useState(1); // multiplicador del objetivo: 1 / mil / millón / mil millones
   const [pMode, setPMode] = useState("value"); // solo mineria: value|units|volume|reproceso
   const [formOpen, setFormOpen] = useState(false);
+  // Logi (Fase B): carpeta de gamelogs + estado del escaneo.
+  const [glFolder, setGlFolder] = useState<string>(() => localStorage.getItem("koru-gamelog-folder") || "");
+  const [glScan, setGlScan] = useState<{ running: boolean; done: number; total: number; result: string }>({
+    running: false,
+    done: 0,
+    total: 0,
+    result: "",
+  });
   // Filtro opcional del proyecto (nave/mineral/sistema), multi-selección con chips.
   const [pKind, setPKind] = useState("");
   const [pSel, setPSel] = useState<{ label: string; ids: number[] }[]>([]);
@@ -271,6 +287,59 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
     loadPersonal();
   }
 
+  // Carpeta de gamelogs por defecto si no hay ninguna elegida (como el Intel con Chatlogs).
+  useEffect(() => {
+    if (!glFolder) {
+      invoke<string>("default_gamelogs_dir")
+        .then((d) => {
+          if (d) {
+            setGlFolder(d);
+            localStorage.setItem("koru-gamelog-folder", d);
+          }
+        })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  async function pickGlFolder() {
+    const dir = await openDialog({ directory: true }).catch(() => null);
+    if (!dir || typeof dir !== "string") return;
+    // El usuario elige la carpeta "logs" de EVE (madre de Chatlogs y Gamelogs). Si por error elige
+    // una de las subcarpetas, subimos un nivel. Derivamos ambas: así configura el Intel y el gamelog
+    // de una sola vez.
+    const sep = dir.includes("\\") ? "\\" : "/";
+    const parts = dir.split(sep).filter(Boolean);
+    const base = parts[parts.length - 1] || "";
+    const root = base === "Gamelogs" || base === "Chatlogs" ? dir.slice(0, dir.length - base.length - 1) : dir;
+    const gl = `${root}${sep}Gamelogs`;
+    const cl = `${root}${sep}Chatlogs`;
+    setGlFolder(gl);
+    localStorage.setItem("koru-gamelog-folder", gl);
+    localStorage.setItem("koru-intel-folder", cl); // el Intel usará el mismo padre (aplica al reiniciar)
+  }
+  async function runGlScan() {
+    setGlScan({ running: true, done: 0, total: 0, result: "" });
+    const un = await listen<[number, number]>("gamelog_scan_progress", (e) => {
+      setGlScan((s) => ({ ...s, done: e.payload[0], total: e.payload[1] }));
+    });
+    try {
+      const r = await invoke<{ files_total: number; files_scanned: number; healed_hp: number }>("scan_gamelogs", {
+        folder: glFolder,
+      });
+      setGlScan({
+        running: false,
+        done: r.files_total,
+        total: r.files_total,
+        result: `${r.files_scanned} ${tr("nuevos")} · ${Math.round(r.healed_hp).toLocaleString()} HP`,
+      });
+      loadPersonal();
+    } catch (e) {
+      setGlScan({ running: false, done: 0, total: 0, result: `${tr("Error al escanear")}: ${String(e).slice(0, 160)}` });
+    } finally {
+      un();
+    }
+  }
+
   // Tarjeta de un proyecto personal (activo o completado). Icono real del SDE si filtra un tipo.
   function renderCard(p: PersonalProject) {
     const m = METRIC_BY_KEY[p.metric] ?? { label: p.metric, icon: "🎯", unit: "count" as const };
@@ -330,6 +399,21 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
         <button className="pp-add" onClick={() => setFormOpen((o) => !o)}>
           {formOpen ? "✕" : `＋ ${tr("Nuevo")}`}
         </button>
+      </div>
+      {/* Logi (Fase B): elegir carpeta de gamelogs y escanear para poblar las métricas de curación */}
+      <div className="gl-scan muted small">
+        🏥 {tr("Logi (gamelogs)")}
+        <button
+          className="pp-add"
+          onClick={pickGlFolder}
+          title={glFolder || tr("Elige la carpeta 'logs' de EVE (contiene Chatlogs y Gamelogs)")}
+        >
+          📁 {tr("Carpeta de logs EVE")}
+        </button>
+        <button className="pp-add" onClick={runGlScan} disabled={glScan.running || !glFolder}>
+          {glScan.running ? `⏳ ${glScan.done}/${glScan.total}` : tr("Escanear")}
+        </button>
+        {glScan.result && <span>{glScan.result}</span>}
       </div>
       {formOpen && (
         <div className="pp-form">

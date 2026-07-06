@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod error;
 mod esi;
+mod gamelog;
 mod sso;
 
 use commands::AppState;
@@ -99,6 +100,10 @@ pub fn run() {
             commands::get_personal_projects,
             commands::create_personal_project,
             commands::delete_personal_project,
+            commands::get_logi_summary,
+            commands::get_logi_series,
+            commands::get_logi_pilots,
+            commands::get_gamelog_status,
             commands::get_kill_victims,
             commands::get_corp_history,
             commands::get_medals,
@@ -189,6 +194,8 @@ pub fn run() {
             commands::get_char_skill_levels,
             commands::get_thera_connections,
             commands::default_chatlogs_dir,
+            commands::default_gamelogs_dir,
+            commands::scan_gamelogs,
             commands::read_audio_file,
             commands::intel_channels,
             commands::read_intel,

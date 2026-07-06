@@ -1522,6 +1522,70 @@ pub async fn delete_personal_project(id: i64, state: State<'_, AppState>) -> App
     state.db.delete_personal_project(id)
 }
 
+/// Resumen logi all-time (dado y recibido, por tipo) para el panel de Logros. subject_id 0 = global.
+#[tauri::command]
+pub async fn get_logi_summary(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::bitacora::LogiSummary> {
+    state.db.logi_summary(subject_id)
+}
+
+/// Serie mensual de logi (dado/recibido por tipo) para la gráfica del apartado Logis.
+#[tauri::command]
+pub async fn get_logi_series(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::bitacora::LogiSeries> {
+    state.db.logi_series(subject_id)
+}
+
+/// Nº de gamelogs ya parseados (estado del escaneo para Ajustes: 0 = pendiente).
+#[tauri::command]
+pub async fn get_gamelog_status(state: State<'_, AppState>) -> AppResult<i64> {
+    Ok(state.db.gamelog_status())
+}
+
+/// Top de pilotos por dirección (given/received) para el histórico del apartado Logis.
+#[tauri::command]
+pub async fn get_logi_pilots(
+    subject_id: i64,
+    direction: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::bitacora::LogiPilot>> {
+    let mut pilots = state.db.logi_pilots_top(subject_id, &direction)?;
+    // Retrato: resolver nombre→character_id (cache local; ESI /universe/ids solo para los que falten).
+    let to_resolve: Vec<String> = pilots
+        .iter()
+        .filter(|p| state.db.name_cache_get(&p.pilot.to_lowercase()).is_none())
+        .map(|p| p.pilot.clone())
+        .collect();
+    if !to_resolve.is_empty() {
+        if let Ok((chars, _ships)) = state.esi.resolve_entities(&to_resolve).await {
+            let mut resolved = std::collections::HashSet::new();
+            for (id, name) in &chars {
+                state.db.name_cache_put(&name.to_lowercase(), *id, name);
+                resolved.insert(name.to_lowercase());
+            }
+            // Los que pedimos y no eran personajes (drones/estructuras/borrados) → negativo (no reintentar).
+            for n in &to_resolve {
+                let nl = n.to_lowercase();
+                if !resolved.contains(&nl) {
+                    state.db.name_cache_put_negative(&nl);
+                }
+            }
+        }
+    }
+    for p in &mut pilots {
+        if let Some((Some(id), _, _)) = state.db.name_cache_get(&p.pilot.to_lowercase()) {
+            if id > 0 {
+                p.char_id = id;
+            }
+        }
+    }
+    Ok(pilots)
+}
+
 /// Opción del buscador de caza: una víctima (personaje o corp) de tus kills, con nombre y recuento.
 #[derive(serde::Serialize)]
 pub struct VictimOpt {
@@ -3825,6 +3889,103 @@ pub fn default_chatlogs_dir() -> String {
         return format!("{up}\\Documents\\EVE\\logs\\Chatlogs");
     }
     String::new()
+}
+
+/// Ruta por defecto de la carpeta de Gamelogs en Windows (Documents\EVE\logs\Gamelogs).
+#[tauri::command]
+pub fn default_gamelogs_dir() -> String {
+    if let Ok(up) = std::env::var("USERPROFILE") {
+        return format!("{up}\\Documents\\EVE\\logs\\Gamelogs");
+    }
+    String::new()
+}
+
+/// Resultado del escaneo de gamelogs.
+#[derive(serde::Serialize)]
+pub struct GamelogScanResult {
+    pub files_total: usize,
+    pub files_scanned: usize,
+    pub healed_hp: f64,
+}
+
+/// Escanea la carpeta de Gamelogs de forma INCREMENTAL (parse-once + tail por offset) y agrega la
+/// reparación remota (logi) en logi_ledger. Emite `gamelog_scan_progress` (hechos, total).
+#[tauri::command]
+pub async fn scan_gamelogs(
+    window: Window,
+    folder: String,
+    state: State<'_, AppState>,
+) -> AppResult<GamelogScanResult> {
+    let dir = if folder.trim().is_empty() {
+        default_gamelogs_dir()
+    } else {
+        folder
+    };
+    // Valida la carpeta base y recoge los .txt de ella Y de la subcarpeta `old` (EVE archiva ahí
+    // los gamelogs antiguos → así reconstruimos años de histórico, no solo lo reciente).
+    std::fs::read_dir(&dir).map_err(|e| AppError::Other(format!("No pude abrir {dir}: {e}")))?;
+    let base = std::path::Path::new(&dir);
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for d in [base.to_path_buf(), base.join("old")] {
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            for p in rd.filter_map(|e| e.ok().map(|x| x.path())) {
+                if p.extension().and_then(|s| s.to_str()) == Some("txt") {
+                    files.push(p);
+                }
+            }
+        }
+    }
+    files.sort();
+    let total = files.len();
+    // Emite el total ya de entrada: distingue "carpeta vacía" (0/0) de "escaneando" (0/N).
+    let _ = window.emit("gamelog_scan_progress", (0usize, total));
+    let mut scanned = 0usize;
+    let mut healed = 0.0f64;
+    for (i, path) in files.iter().enumerate() {
+        let fname = match path.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let char_id = match crate::gamelog::char_id_from_name(&fname) {
+            Some(c) => c,
+            None => continue,
+        };
+        let meta = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let size = meta.len() as i64;
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let from = match state.db.gamelog_offset(&fname) {
+            Some((psize, pmtime, _)) if psize == size && pmtime == mtime => continue, // sin cambios
+            Some((_, _, poff)) => poff as u64,
+            None => 0,
+        };
+        let (new_off, events) = match crate::gamelog::scan_file(path, from) {
+            Ok(x) => x,
+            Err(_) => continue, // fichero ilegible/bloqueado (p. ej. la sesión activa): lo saltamos
+        };
+        healed += events.iter().map(|e| e.hp).sum::<f64>();
+        state
+            .db
+            .commit_gamelog(&fname, size, mtime, new_off as i64, char_id, &events)
+            .map_err(|e| AppError::Other(format!("Guardando {fname}: {e}")))?;
+        scanned += 1;
+        if i % 20 == 0 {
+            let _ = window.emit("gamelog_scan_progress", (i + 1, total));
+        }
+    }
+    let _ = window.emit("gamelog_scan_progress", (total, total));
+    Ok(GamelogScanResult {
+        files_total: total,
+        files_scanned: scanned,
+        healed_hp: healed,
+    })
 }
 
 /// Lista los canales presentes en la carpeta (prefijo antes de `_AAAAMMDD_HHMMSS_charID.txt`).

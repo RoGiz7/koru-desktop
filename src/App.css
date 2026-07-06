@@ -1053,6 +1053,104 @@ select,
   font-size: 0.72rem;
   color: var(--fg-muted, #9aa4b2);
 }
+/* Control de escaneo de gamelogs (logi) */
+.gl-scan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: -0.2rem 0 0.7rem;
+}
+.gl-scan .pp-add {
+  margin-left: 0;
+}
+/* Panel de logi en la Bitácora (dado vs recibido) */
+.logi-panel {
+  margin: 0.6rem 0 1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--bg-panel, #1a1d24);
+  border: 1px solid var(--border, #2c313c);
+  border-radius: 10px;
+}
+.logi-head {
+  margin-bottom: 0.5rem;
+}
+.logi-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+.logi-col {
+  min-width: 180px;
+}
+.logi-dir {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+.logi-total {
+  margin-left: 0.4rem;
+  color: var(--accent, #7aa2f7);
+}
+.logis-chart {
+  margin-top: 1rem;
+}
+.logis-pilots-row {
+  margin-top: 1rem;
+  align-items: flex-start;
+}
+.logi-pilots {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+}
+.logi-pilots li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--border, #2c313c);
+}
+.lp-name {
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.lp-portrait {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+/* Selector de periodo de la gráfica de logi (día/semana/mes/año) */
+.logi-gran {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.logi-gran button {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+}
+.logi-gran button.active {
+  background: var(--accent, #7aa2f7);
+  color: #fff;
+}
+/* Control de logs de EVE en Ajustes (carpeta + escaneo + estado) */
+.tb-settings-logs {
+  border-top: 1px solid var(--border, #2c313c);
+  padding-top: 0.6rem;
+  margin-top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.tb-logs-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
 
 /* Modal "Novedades" (What's new) */
 .wn-overlay {

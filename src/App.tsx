@@ -27,6 +27,8 @@ import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
 import { DiarioView } from "./diario";
 import { FreelanceView } from "./freelance";
+import { LogisView } from "./logis";
+import { GamelogControl } from "./gamelogControl";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
@@ -1587,6 +1589,9 @@ function App() {
                 )}
               </div>
 
+              {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / futura reconstrucción) */}
+              <GamelogControl />
+
               <div className="tb-settings-foot">
                 <div className="small muted">
                   {tr("Última copia")}:{" "}
@@ -1906,6 +1911,7 @@ function App() {
           {tab === "bitacora" && <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} />}
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}
+          {tab === "logis" && <LogisView subject={subject} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (

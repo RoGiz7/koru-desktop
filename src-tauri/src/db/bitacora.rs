@@ -333,6 +333,32 @@ impl Db {
             ach.push(mineria.state("mineria_total", "isk"));
         }
 
+        // Logi: curación remota DADA por tipo (paseo por logi_ledger, del gamelog). Con logis
+        // la vida dura más 😎. Solo aparece si has escaneado gamelogs y has dado reps.
+        {
+            let mut sh = Cross::new([1e6, 25e6, 250e6]);
+            let mut ar = Cross::new([1e6, 25e6, 250e6]);
+            let mut hu = Cross::new([100e3, 2e6, 20e6]);
+            let sql = format!(
+                "SELECT date, kind, hp FROM logi_ledger WHERE direction='given' {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?))
+            })?;
+            for (date, kind, hp) in rows.flatten() {
+                match kind.as_str() {
+                    "shield" => sh.add(&date, hp),
+                    "armor" => ar.add(&date, hp),
+                    "hull" => hu.add(&date, hp),
+                    _ => {}
+                }
+            }
+            ach.push(sh.state("logi_shield", "count"));
+            ach.push(ar.state("logi_armor", "count"));
+            ach.push(hu.state("logi_hull", "count"));
+        }
+
         // Patrimonio (mejor marca de snapshots; global = suma por día).
         {
             let mut patri = Cross::new([50e9, 200e9, 1e12]);
@@ -661,6 +687,15 @@ impl Db {
                 "mineria" => Some(format!("SELECT COALESCE(SUM(ml.quantity*COALESCE(mp.average_price,0)),0) FROM mining_ledger ml LEFT JOIN market_prices mp ON mp.type_id=ml.type_id WHERE 1=1 {who_ml}{ml_filter}{ml_since}")),
                 // Patrimonio = nivel absoluto (alcanzar X), no acumulación: sin filtro de fecha.
                 "patrimonio" => Some(format!("SELECT COALESCE(MAX(day_total),0) FROM (SELECT date, SUM(total) day_total FROM networth_snapshots WHERE 1=1 {who} GROUP BY date)")),
+                // Logi (Fase B): curación remota DADA por tipo, agregada del gamelog. wj_since sirve
+                // (misma columna `date`). Si nunca se escaneó el gamelog, logi_ledger está vacío → 0.
+                "heal_shield" => Some(format!("SELECT COALESCE(SUM(hp),0) FROM logi_ledger WHERE kind='shield' AND direction='given' {who}{wj_since}")),
+                "heal_armor" => Some(format!("SELECT COALESCE(SUM(hp),0) FROM logi_ledger WHERE kind='armor' AND direction='given' {who}{wj_since}")),
+                "heal_hull" => Some(format!("SELECT COALESCE(SUM(hp),0) FROM logi_ledger WHERE kind='hull' AND direction='given' {who}{wj_since}")),
+                // Reps RECIBIDAS (lo que te curan): útil para quien recibe logi (no la da).
+                "recv_shield" => Some(format!("SELECT COALESCE(SUM(hp),0) FROM logi_ledger WHERE kind='shield' AND direction='received' {who}{wj_since}")),
+                "recv_armor" => Some(format!("SELECT COALESCE(SUM(hp),0) FROM logi_ledger WHERE kind='armor' AND direction='received' {who}{wj_since}")),
+                "recv_hull" => Some(format!("SELECT COALESCE(SUM(hp),0) FROM logi_ledger WHERE kind='hull' AND direction='received' {who}{wj_since}")),
                 _ => None,
             };
             // Mineria con modo especial (unidades / volumen m³ / ISK-reproceso 85%): se computa
@@ -735,4 +770,193 @@ impl Db {
         let it = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
         Ok(it.flatten().collect())
     }
+
+    // ===== Gamelogs (Fase B) =====
+
+    /// Marca previa de un gamelog ya parseado (size, mtime, offset). None si nunca se parseó.
+    pub fn gamelog_offset(&self, filename: &str) -> Option<(i64, i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT size, mtime, read_offset FROM gamelog_parsed WHERE filename = ?1",
+            [filename],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .ok()
+    }
+
+    /// Vuelca los eventos logi de un fichero y actualiza su marca de parseo (transacción).
+    pub fn commit_gamelog(
+        &self,
+        filename: &str,
+        size: i64,
+        mtime: i64,
+        offset: i64,
+        character_id: i64,
+        events: &[crate::gamelog::LogiEvent],
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        for e in events {
+            conn.execute(
+                "INSERT INTO logi_ledger (character_id, date, kind, direction, hp) VALUES (?1,?2,?3,?4,?5) \
+                 ON CONFLICT(character_id,date,kind,direction) DO UPDATE SET hp = hp + excluded.hp",
+                rusqlite::params![character_id, e.date, e.kind, e.direction, e.hp],
+            )?;
+            if !e.pilot.is_empty() {
+                conn.execute(
+                    "INSERT INTO logi_pilots (character_id, direction, pilot, hp, reps, ship) VALUES (?1,?2,?3,?4,1,?5) \
+                     ON CONFLICT(character_id,direction,pilot) DO UPDATE SET hp = hp + excluded.hp, reps = reps + 1, \
+                       ship = CASE WHEN excluded.ship <> '' THEN excluded.ship ELSE logi_pilots.ship END",
+                    rusqlite::params![character_id, e.direction, e.pilot, e.hp, e.ship],
+                )?;
+            }
+        }
+        conn.execute(
+            "INSERT INTO gamelog_parsed (filename, size, mtime, read_offset) VALUES (?1,?2,?3,?4) \
+             ON CONFLICT(filename) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, read_offset=excluded.read_offset",
+            rusqlite::params![filename, size, mtime, offset],
+        )?;
+        Ok(())
+    }
+
+    /// Resumen logi all-time (del histórico ya parseado): HP por dirección y tipo. subject_id 0 = global.
+    pub fn logi_summary(&self, subject_id: i64) -> AppResult<LogiSummary> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT direction, kind, COALESCE(SUM(hp),0) FROM logi_ledger WHERE 1=1 {who} GROUP BY direction, kind"
+        );
+        let mut stmt = conn.prepare(&q)?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?))
+        })?;
+        let mut s = LogiSummary::default();
+        for (dir, kind, hp) in rows.flatten() {
+            let slot = match (dir.as_str(), kind.as_str()) {
+                ("given", "shield") => &mut s.given_shield,
+                ("given", "armor") => &mut s.given_armor,
+                ("given", "hull") => &mut s.given_hull,
+                ("received", "shield") => &mut s.recv_shield,
+                ("received", "armor") => &mut s.recv_armor,
+                ("received", "hull") => &mut s.recv_hull,
+                _ => continue,
+            };
+            *slot = hp;
+        }
+        Ok(s)
+    }
+
+    /// Serie mensual de logi (dado y recibido, por tipo) para la gráfica del apartado Logis.
+    pub fn logi_series(&self, subject_id: i64) -> AppResult<LogiSeries> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        // Por DÍA (el frontend agrega a día/semana/mes/año, como las otras gráficas).
+        let q = format!(
+            "SELECT date, direction, kind, SUM(hp) FROM logi_ledger WHERE 1=1 {who} GROUP BY date, direction, kind ORDER BY date"
+        );
+        let mut map: std::collections::BTreeMap<String, [f64; 6]> = std::collections::BTreeMap::new();
+        let mut stmt = conn.prepare(&q)?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, f64>(3)?,
+            ))
+        })?;
+        for (m, dir, kind, hp) in rows.flatten() {
+            let idx = match (dir.as_str(), kind.as_str()) {
+                ("given", "shield") => 0,
+                ("given", "armor") => 1,
+                ("given", "hull") => 2,
+                ("received", "shield") => 3,
+                ("received", "armor") => 4,
+                ("received", "hull") => 5,
+                _ => continue,
+            };
+            map.entry(m).or_insert([0.0; 6])[idx] += hp;
+        }
+        let mut s = LogiSeries::default();
+        for (m, a) in map {
+            s.labels.push(m);
+            s.given_shield.push(a[0]);
+            s.given_armor.push(a[1]);
+            s.given_hull.push(a[2]);
+            s.recv_shield.push(a[3]);
+            s.recv_armor.push(a[4]);
+            s.recv_hull.push(a[5]);
+        }
+        Ok(s)
+    }
+
+    /// Top de pilotos por dirección (given = a quién curaste; received = de quién recibiste).
+    pub fn logi_pilots_top(&self, subject_id: i64, direction: &str) -> AppResult<Vec<LogiPilot>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT pilot, SUM(hp), SUM(reps), MAX(ship) FROM logi_pilots WHERE direction = ?1 {who} GROUP BY pilot ORDER BY SUM(hp) DESC LIMIT 100"
+        );
+        let mut stmt = conn.prepare(&q)?;
+        let rows = stmt.query_map([direction], |r| {
+            Ok(LogiPilot {
+                pilot: r.get::<_, String>(0)?,
+                hp: r.get::<_, f64>(1)?,
+                reps: r.get::<_, i64>(2)?,
+                ship: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                char_id: 0,
+            })
+        })?;
+        Ok(rows.flatten().collect())
+    }
+
+    /// Nº de gamelogs ya parseados (para el estado del escaneo en Ajustes).
+    pub fn gamelog_status(&self) -> i64 {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM gamelog_parsed", [], |r| r.get(0))
+            .unwrap_or(0)
+    }
+}
+
+/// Resumen logi all-time (HP por dirección/tipo) para el panel de Logros.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LogiSummary {
+    pub given_shield: f64,
+    pub given_armor: f64,
+    pub given_hull: f64,
+    pub recv_shield: f64,
+    pub recv_armor: f64,
+    pub recv_hull: f64,
+}
+
+/// Serie mensual de logi para la gráfica del apartado Logis.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LogiSeries {
+    pub labels: Vec<String>,
+    pub given_shield: Vec<f64>,
+    pub given_armor: Vec<f64>,
+    pub given_hull: Vec<f64>,
+    pub recv_shield: Vec<f64>,
+    pub recv_armor: Vec<f64>,
+    pub recv_hull: Vec<f64>,
+}
+
+/// Un piloto del histórico de logi (a quién curaste / de quién recibiste).
+#[derive(Debug, Clone, Serialize)]
+pub struct LogiPilot {
+    pub pilot: String,
+    pub hp: f64,
+    pub reps: i64,
+    pub ship: String,
+    pub char_id: i64, // resuelto por ESI (nombre→id) para el retrato; 0 = sin resolver/no es PJ
 }
