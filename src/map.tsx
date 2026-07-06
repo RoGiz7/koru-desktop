@@ -5,7 +5,7 @@ import { tr } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
-import { renderBackdrop, renderSov, renderFw, renderStandings, renderIncursions, renderThera } from "./mapOverlays";
+import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera } from "./mapOverlays";
 import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
 import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
@@ -95,6 +95,8 @@ export function MapView(props: {
   sovBySystem?: Map<number, SovSystem> | null;
   fwBySystem?: Map<number, FwSystem> | null;
   factionStandings?: Map<number, number> | null;
+  agentSystems?: Map<number, number> | null;
+  corpSystems?: Map<number, number> | null;
   incursions?: Incursion[] | null;
   theraConns?: WhConn[] | null;
   intel?: IntelConfig;
@@ -118,6 +120,8 @@ export function MapView(props: {
     sovBySystem,
     fwBySystem,
     factionStandings,
+    agentSystems,
+    corpSystems,
     incursions,
     theraConns,
     hereSystemId,
@@ -483,6 +487,18 @@ export function MapView(props: {
   const standingCircles = useMemo(
     () => renderStandings(geo, overlay, factionMap, factionStandings),
     [geo, overlay, factionMap, factionStandings],
+  );
+
+  // Tus agentes: sistemas donde tienes agentes (de tus standings), color = nivel del mejor agente.
+  const agentCircles = useMemo(
+    () => renderAgents(geo, overlay, agentSystems),
+    [geo, overlay, agentSystems],
+  );
+
+  // Mis corps NPC (LP): sistemas donde tus corps con LP tienen estaciones (dónde gastar LP).
+  const corpNpcCircles = useMemo(
+    () => renderCorps(geo, overlay, corpSystems),
+    [geo, overlay, corpSystems],
   );
 
   // Incursiones de Sansha: sistemas infestados; el de staging más grande. Color = estado.
@@ -1280,6 +1296,10 @@ export function MapView(props: {
             {fwCircles}
             {/* overlay Standings por sistema (memorizado) */}
             {standingCircles}
+            {/* overlay Tus agentes (memorizado) */}
+            {agentCircles}
+            {/* overlay Mis corps NPC / LP (memorizado) */}
+            {corpNpcCircles}
             {/* overlay Incursiones (memorizado) */}
             {incursionCircles}
             {theraCircles}

@@ -662,6 +662,8 @@ function App() {
     }
   }
   const [factionStd, setFactionStd] = useState<Map<number, number> | null>(null); // faction_id -> standing
+  const [agentSystems, setAgentSystems] = useState<Map<number, number> | null>(null); // sys_id -> nivel del mejor agente
+  const [myCorpSystems, setMyCorpSystems] = useState<Map<number, number> | null>(null); // sys_id -> nº de tus corps NPC (LP) con estación
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
 
@@ -735,6 +737,8 @@ function App() {
     setAssetsMap(null);
     setMiningMap(null);
     setFactionStd(null);
+    setAgentSystems(null);
+    setMyCorpSystems(null);
     setRivalsData(null);
     setBattlesData(null);
   }
@@ -821,6 +825,55 @@ function App() {
     }
   }
 
+  // Sistemas donde tienes agentes (de tus standings tipo "agent") → color por nivel (agents.json del SDE).
+  async function loadMyAgents(subj: number | "global") {
+    if (subj === "global") {
+      setAgentSystems(new Map());
+      return;
+    }
+    try {
+      const rows = await invoke<StandingRow[]>("get_standings", { characterId: subj });
+      const meta = (await fetch("/agents.json").then((r) => r.json())) as Record<
+        string,
+        { s: number; l: number }
+      >;
+      const m = new Map<number, number>();
+      for (const r of rows) {
+        if (r.kind !== "agent") continue;
+        const a = meta[String(r.id)];
+        if (!a || a.s == null) continue;
+        m.set(a.s, Math.max(m.get(a.s) ?? 0, a.l ?? 0));
+      }
+      setAgentSystems(m);
+    } catch {
+      setAgentSystems(new Map());
+    }
+  }
+
+  // Sistemas donde tus corps NPC con LP tienen estaciones (dónde gastar LP / operan tus agentes).
+  async function loadMyCorps(subj: number | "global") {
+    if (subj === "global") {
+      setMyCorpSystems(new Map());
+      return;
+    }
+    try {
+      const lp = await invoke<{ corporation_id: number }[]>("get_loyalty", { characterId: subj });
+      const data = (await fetch("/npc_corp_systems.json").then((r) => r.json())) as Record<
+        string,
+        { s: number[]; f: number | null }
+      >;
+      const m = new Map<number, number>();
+      for (const c of lp) {
+        const info = data[String(c.corporation_id)];
+        if (!info) continue;
+        for (const sid of info.s) m.set(sid, (m.get(sid) ?? 0) + 1);
+      }
+      setMyCorpSystems(m);
+    } catch {
+      setMyCorpSystems(new Map());
+    }
+  }
+
   function handleOverlayChange(o: MapOverlay) {
     setMapOverlay(o);
     if (o === "assets" && !assetsMap) loadAssetsMap(subject);
@@ -830,6 +883,8 @@ function App() {
     if (o === "incursion" && !incursions) loadIncursions();
     if (o === "wormholes" && !theraConns) loadThera();
     if (o === "standings" && !factionStd) loadFactionStd(subject);
+    if (o === "agentes" && !agentSystems) loadMyAgents(subject);
+    if (o === "corps_npc" && !myCorpSystems) loadMyCorps(subject);
   }
 
   async function loadMap(subj: number | "global") {
@@ -979,6 +1034,8 @@ function App() {
     loadTab(subj, tab);
     if (tab === "pvp") loadKillmails(subj, kmKind, 0);
     if (mapOverlay === "standings") loadFactionStd(subj);
+    if (mapOverlay === "agentes") loadMyAgents(subj);
+    if (mapOverlay === "corps_npc") loadMyCorps(subj);
   }
 
   function changeTab(t: Tab) {
@@ -1603,6 +1660,8 @@ function App() {
           sovBySystem={sovMap}
           fwBySystem={fwMap}
           factionStandings={factionStd}
+          agentSystems={agentSystems}
+          corpSystems={myCorpSystems}
           incursions={incursions}
           theraConns={theraConns}
           intel={{

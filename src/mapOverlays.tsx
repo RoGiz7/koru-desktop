@@ -112,6 +112,71 @@ export function renderStandings(
   });
 }
 
+// Tus agentes: sistemas donde tienes agentes (de tus standings NPC), color = nivel del mejor agente.
+const AGENT_LEVEL_COLOR: Record<number, string> = {
+  1: "#8a929b", // L1 gris
+  2: "#5dcaa5", // L2 teal
+  3: "#4a90d9", // L3 azul
+  4: "#e0a83a", // L4 ámbar
+  5: "#d1495b", // L5 rojo (los mejores)
+};
+export function renderAgents(
+  geo: Geo | null,
+  overlay: MapOverlay,
+  agentSystems: Map<number, number> | null | undefined,
+) {
+  if (!geo || overlay !== "agentes" || !agentSystems) return null;
+  return [...agentSystems.entries()].map(([sid, level]) => {
+    const s = geo.idx.get(sid);
+    if (!s) return null;
+    const p = geo.proj(s);
+    const col = AGENT_LEVEL_COLOR[level] ?? "#8a929b";
+    return (
+      <circle
+        key={`ag-${sid}`}
+        cx={p.px}
+        cy={p.py}
+        r={2}
+        fill={col}
+        fillOpacity={0.85}
+        stroke="#0a0d12"
+        strokeWidth={0.4}
+      >
+        <title>{`${s.n} — agente(s) nivel ${level}`}</title>
+      </circle>
+    );
+  });
+}
+
+// Mis corps NPC: sistemas donde las corps con las que tienes LP tienen estaciones (agentes + tiendas
+// de lealtad = dónde gastar tu LP). Color ámbar; opacidad sube si varias corps tuyas están ahí.
+export function renderCorps(
+  geo: Geo | null,
+  overlay: MapOverlay,
+  corpSystems: Map<number, number> | null | undefined,
+) {
+  if (!geo || overlay !== "corps_npc" || !corpSystems) return null;
+  return [...corpSystems.entries()].map(([sid, count]) => {
+    const s = geo.idx.get(sid);
+    if (!s) return null;
+    const p = geo.proj(s);
+    return (
+      <circle
+        key={`corp-${sid}`}
+        cx={p.px}
+        cy={p.py}
+        r={1.8}
+        fill="#e0a83a"
+        fillOpacity={Math.min(0.5 + count * 0.15, 0.95)}
+        stroke="#0a0d12"
+        strokeWidth={0.3}
+      >
+        <title>{`${s.n} — ${count} corp(s) tuya(s) con estación`}</title>
+      </circle>
+    );
+  });
+}
+
 // Incursiones de Sansha: sistemas infestados; el de staging más grande. Color = estado.
 export function renderIncursions(
   geo: Geo | null,

@@ -121,6 +121,8 @@ export type MapOverlay =
   | "assets"
   | "mineria"
   | "standings"
+  | "agentes"
+  | "corps_npc"
   | "wormholes"
   | "intel";
 
@@ -280,6 +282,8 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", typeId: 17366, cat: "tu" }, // Station Container
   { key: "mineria", label: "Tu minería", short: "Minería", icon: "⛏️", typeId: 1230, cat: "tu" }, // Veldspar
   { key: "standings", label: "Standings NPC", short: "Standings", icon: "🤝", cat: "tu" },
+  { key: "agentes", label: "Tus agentes", short: "Agentes", icon: "🧑‍✈️", cat: "tu" },
+  { key: "corps_npc", label: "Mis corps NPC (LP)", short: "Corps NPC", icon: "🏢", cat: "tu" },
   { key: "poi", label: "Lugares notables", short: "Lugares", icon: "🏛️", typeId: 35832, cat: "universo" }, // Astrahus
   { key: "security", label: "Seguridad", short: "Seguridad", icon: "🛡️", typeId: 2046, cat: "universo" }, // Damage Control I
   { key: "soberania", label: "Soberanía", short: "Soberanía", icon: "👑", typeId: 32458, cat: "universo" }, // Sovereignty Hub
