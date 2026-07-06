@@ -198,6 +198,8 @@ const EN: Record<string, string> = {
   "¡Proyecto completado!": "Project completed!",
   Corp: "Corp",
   "Buscar víctima…": "Search victim…",
+  Novedades: "What's new",
+  Cerrar: "Close",
   "Aún no tienes proyectos personales. Crea uno: ponle nombre, elige una métrica y un objetivo.":
     "No personal projects yet. Create one: give it a name, pick a metric and a target.",
   "Los trabajos por libre y proyectos de corp son por personaje: elige uno para verlos.":

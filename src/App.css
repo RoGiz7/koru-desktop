@@ -1054,6 +1054,59 @@ select,
   color: var(--fg-muted, #9aa4b2);
 }
 
+/* Modal "Novedades" (What's new) */
+.wn-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+.wn-modal {
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg-panel, #1a1d24);
+  border: 1px solid var(--border, #2c313c);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  padding: 1.2rem 1.4rem;
+}
+.wn-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.wn-head h3 {
+  margin: 0;
+}
+.wn-ver {
+  font-size: 0.8rem;
+  color: var(--fg-muted, #9aa4b2);
+}
+.wn-list {
+  margin: 0.4rem 0 1rem;
+  padding-left: 1.1rem;
+  line-height: 1.5;
+}
+.wn-list li {
+  margin: 0.3rem 0;
+}
+.wn-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.8rem;
+}
+.wn-btn {
+  padding: 0.4rem 1rem;
+}
+
 .bit-foot {
   margin-top: 1rem;
 }

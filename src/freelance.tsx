@@ -15,6 +15,13 @@ const CAREER_ICON: Record<string, string> = {
   Enforcer: "🛡️",
   "Soldier of Fortune": "⚔️",
 };
+// Icono EVE representativo por carrera (typeID del SDE) para las tarjetas de freelance.
+const CAREER_TID: Record<string, number> = {
+  Explorer: 30013, // Core Scanner Probe I
+  Industrialist: 32880, // Venture
+  Enforcer: 3244, // Warp Disruptor II (tackle)
+  "Soldier of Fortune": 587, // Rifter
+};
 const STATE: Record<string, { es: string; cls: string }> = {
   Active: { es: "Activo", cls: "fl-active" },
   Completed: { es: "Completado", cls: "fl-done" },
@@ -500,7 +507,11 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
                     <div key={j.id} className={`fl-card ${st.cls}`}>
                       <div className="fl-head">
                         <span className="fl-career" title={j.career}>
-                          {CAREER_ICON[j.career] ?? "📋"}
+                          {CAREER_TID[j.career] ? (
+                            <img className="type-ico" src={typeIcon(CAREER_TID[j.career], 32)} alt="" loading="lazy" />
+                          ) : (
+                            CAREER_ICON[j.career] ?? "📋"
+                          )}
                         </span>
                         <strong>{j.name || tr("Trabajo por libre")}</strong>
                         <span className="fl-state">{st.es}</span>

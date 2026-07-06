@@ -27,6 +27,7 @@ import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
 import { DiarioView } from "./diario";
 import { FreelanceView } from "./freelance";
+import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
 import { ComercioView } from "./comercio";
@@ -1672,6 +1673,9 @@ function App() {
           <span className="intel-alert-cta">{tr("Ir al intel")} ▸</span>
         </div>
       )}
+
+      {/* Modal "Novedades": cambios desde la última versión vista (se auto-oculta si no hay). */}
+      <WhatsNew />
 
       {/* ----- STAGE: mapa central + secciones que orbitan ----- */}
       <div className="stage">
