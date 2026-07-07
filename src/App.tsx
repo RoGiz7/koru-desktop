@@ -1786,7 +1786,9 @@ function App() {
                   className={`navg ${active ? "active" : ""}`}
                   onClick={() => changeTab(g.subs[0].key)}
                 >
-                  {g.typeId ? (
+                  {g.imgSrc ? (
+                    <img className="navg-img navg-bw" src={g.imgSrc} alt="" loading="lazy" />
+                  ) : g.typeId ? (
                     <img className="navg-img" src={typeIcon(g.typeId)} alt="" loading="lazy" />
                   ) : (
                     <span className="navg-ico">{g.icon}</span>
@@ -1796,8 +1798,13 @@ function App() {
               );
             })}
           </div>
+          {(() => {
+            const grp = NAV.find((g) => g.subs.some((s) => s.key === tab)) ?? NAV[0];
+            // Grupo de un solo sub (p.ej. Logis): no mostramos fila de subtabs redundante.
+            if (grp.subs.length <= 1) return null;
+            return (
           <div className="tabs">
-            {(NAV.find((g) => g.subs.some((s) => s.key === tab)) ?? NAV[0]).subs.map((s) => {
+            {grp.subs.map((s) => {
               const enabled =
                 isGlobal || s.soon || !s.scopes || s.scopes.some((sc) => subjectScopes.includes(sc));
               return (
@@ -1819,6 +1826,8 @@ function App() {
               );
             })}
           </div>
+            );
+          })()}
 
           <div className="section-header">
             <h2 className="sh-title">{tr(TAB_HEAD[tab].title)}</h2>

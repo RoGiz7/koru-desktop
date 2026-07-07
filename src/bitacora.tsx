@@ -9,7 +9,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
-import type { Bitacora, AchievementState, Medal, SeriesPoint, LogiSummary } from "./types";
+import type { Bitacora, AchievementState, Medal, SeriesPoint } from "./types";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
 // inmersión — el mismo image server que ya usa toda la app (retratos, naves, logos). `tid` es un
@@ -257,48 +257,6 @@ function OfficialMedal({ m }: { m: Medal }) {
   );
 }
 
-// Panel de estadísticas de logi (Fase B): curación remota dada vs recibida, del histórico del gamelog.
-function LogiStats({ subject }: { subject?: number | "global" }) {
-  const [s, setS] = useState<LogiSummary | null>(null);
-  useEffect(() => {
-    const subjectId = typeof subject === "number" ? subject : 0;
-    invoke<LogiSummary>("get_logi_summary", { subjectId })
-      .then(setS)
-      .catch(() => setS(null));
-  }, [subject]);
-  if (!s) return null;
-  const given = s.given_shield + s.given_armor + s.given_hull;
-  const recv = s.recv_shield + s.recv_armor + s.recv_hull;
-  if (given === 0 && recv === 0) return null; // aún sin datos de gamelog (o sin escanear)
-  const fmt = (v: number) => Math.round(v).toLocaleString();
-  return (
-    <div className="logi-panel">
-      <div className="logi-head">
-        🏥 <strong>{tr("Logi")}</strong>{" "}
-        <span className="muted small">{tr("del histórico de combate")}</span>
-      </div>
-      <div className="logi-cols">
-        <div className="logi-col">
-          <div className="logi-dir">
-            {tr("Curación dada")} <span className="logi-total">{fmt(given)} HP</span>
-          </div>
-          <div className="muted small">
-            🛡️ {fmt(s.given_shield)} · 🟧 {fmt(s.given_armor)} · 🔩 {fmt(s.given_hull)}
-          </div>
-        </div>
-        <div className="logi-col">
-          <div className="logi-dir">
-            {tr("Reps recibidas")} <span className="logi-total">{fmt(recv)} HP</span>
-          </div>
-          <div className="muted small">
-            🛡️ {fmt(s.recv_shield)} · 🟧 {fmt(s.recv_armor)} · 🔩 {fmt(s.recv_hull)}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function BitacoraView({
   data,
   busy,
@@ -386,9 +344,6 @@ export function BitacoraView({
           {fresh.map((a) => `${ACH_UI[a.id]?.icon ?? "🏅"} ${tr(ACH_UI[a.id]?.label ?? a.id)}`).join(" · ")}
         </div>
       )}
-
-      {/* Panel de logi (Fase B): dado vs recibido, del histórico del gamelog */}
-      <LogiStats subject={subject} />
 
       {/* ---- Retos del mes: tú contra tu yo del mes pasado ---- */}
       <div className="bit-head">

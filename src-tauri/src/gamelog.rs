@@ -13,8 +13,10 @@ pub struct LogiEvent {
     pub kind: String,      // shield | armor | hull
     pub direction: String, // given | received
     pub hp: f64,
-    pub pilot: String,     // piloto objetivo (given) o fuente (received); "" si no se pudo sacar
-    pub ship: String,      // nave del piloto (de "[Nave]"); "" para drones/estructuras
+    pub pilot: String,     // nombre: piloto (formato [Nave] Piloto) o nombre-de-nave ("Nave = X")
+    pub ship: String,      // tipo de nave; "" para drones/estructuras
+    pub module: String,    // módulo con el que repara (tras " - ")
+    pub is_char: bool,     // true = es un PERSONAJE real (formato con corchetes); false = nave/drone
 }
 
 /// Quita los tags HTML (<...>) de un fragmento del gamelog.
@@ -48,16 +50,22 @@ fn parse_pilot(after: &str) -> String {
     p.trim_matches(|c: char| c == '=' || c.is_whitespace()).to_string()
 }
 
-/// La nave del piloto, de "[Nave] …". "" si no hay corchetes (drones/estructuras).
+/// Tipo de nave (texto EN visible), de "[Nave] Piloto" o "Nave = NombrePropio". "" para
+/// drones/estructuras (sin nave enlazada). Va SIEMPRE antes del separador ("]" o "=").
 fn parse_ship(after: &str) -> String {
     let seg = after.split(" - ").next().unwrap_or(after);
     let plain = strip_tags(seg);
-    if let (Some(a), Some(b)) = (plain.find('['), plain.find(']')) {
-        if b > a {
-            return plain[a + 1..b].trim().to_string();
-        }
-    }
-    String::new()
+    let plain = plain.trim();
+    let before = if let Some(i) = plain.find("] ") {
+        &plain[..i]
+    } else if let Some(i) = plain.find("= ") {
+        &plain[..i]
+    } else {
+        return String::new();
+    };
+    before
+        .trim_matches(|c: char| c == '[' || c == ']' || c == '=' || c.is_whitespace())
+        .to_string()
 }
 
 /// charID del nombre del gamelog `AAAAMMDD_HHMMSS_<charID>.txt`. None si no encaja.
@@ -115,11 +123,26 @@ pub fn parse_logi_line(line: &str) -> Option<LogiEvent> {
     };
     let hp = first_bold_number(line)?;
     let date = line_date(line)?;
-    // Piloto + nave: lo que va tras "potenciado/reparado por|a ".
+    // Piloto + nave + módulo: lo que va tras "potenciado/reparado por|a ".
     let after = ["potenciado por ", "reparado por ", "potenciado a ", "reparado a "]
         .iter()
         .find_map(|p| line.find(p).map(|i| &line[i + p.len()..]))
         .unwrap_or("");
+    // is_char: formato con corchetes "[Nave] Piloto" = personaje real. Pero drones, NPC y estructuras
+    // TAMBIÉN usan corchetes ("[Nave] Nave"), así que el corchete no basta. La diferencia real: el
+    // nombre del JUGADOR va en texto plano tras "]", mientras que el de un dron/NPC/estructura va
+    // envuelto en <localized hint=...> (el juego lo localiza; los nombres de jugador nunca lo están).
+    let pilot_seg = after.split(" - ").next().unwrap_or(after);
+    let is_char = match pilot_seg.find(']') {
+        Some(i) => !pilot_seg[i + 1..].contains("<localized"),
+        None => false,
+    };
+    // Módulo: lo que va tras " - ".
+    let module = after
+        .splitn(2, " - ")
+        .nth(1)
+        .map(|m| strip_tags(m).trim().to_string())
+        .unwrap_or_default();
     Some(LogiEvent {
         date,
         kind: kind.to_string(),
@@ -127,6 +150,8 @@ pub fn parse_logi_line(line: &str) -> Option<LogiEvent> {
         hp,
         pilot: parse_pilot(after),
         ship: parse_ship(after),
+        module,
+        is_char,
     })
 }
 

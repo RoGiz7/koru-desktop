@@ -1546,6 +1546,23 @@ pub async fn get_gamelog_status(state: State<'_, AppState>) -> AppResult<i64> {
     Ok(state.db.gamelog_status())
 }
 
+/// ¿Hay un reprocesado de logi pendiente por una migración de datos? (para avisar de reescanear).
+#[tauri::command]
+pub async fn get_logi_reparse_pending(state: State<'_, AppState>) -> AppResult<bool> {
+    Ok(state.db.logi_reparse_pending())
+}
+
+/// Desglose de la gráfica de logi por dimensión (pilot|ship|module) × día, dirección given|received.
+#[tauri::command]
+pub async fn get_logi_breakdown(
+    subject_id: i64,
+    direction: String,
+    dimension: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::bitacora::LogiBreakdown> {
+    state.db.logi_breakdown(subject_id, &direction, &dimension)
+}
+
 /// Top de pilotos por dirección (given/received) para el histórico del apartado Logis.
 #[tauri::command]
 pub async fn get_logi_pilots(
@@ -3937,6 +3954,17 @@ pub async fn scan_gamelogs(
     }
     files.sort();
     let total = files.len();
+    // Reprocesado perezoso y NO destructivo: si una migración de datos dejó un reparse pendiente Y
+    // aquí hay logs que releer, hacemos una limpieza + parse completo de una vez. Si NO hay logs
+    // (carpeta borrada/movida), no tocamos nada: el histórico ya volcado en la BD se conserva y la
+    // marca queda pendiente para el próximo escaneo con logs disponibles.
+    let do_reparse = state.db.logi_reparse_pending() && !files.is_empty();
+    if do_reparse {
+        state
+            .db
+            .logi_reset_for_reparse()
+            .map_err(|e| AppError::Other(format!("Preparando reprocesado: {e}")))?;
+    }
     // Emite el total ya de entrada: distingue "carpeta vacía" (0/0) de "escaneando" (0/N).
     let _ = window.emit("gamelog_scan_progress", (0usize, total));
     let mut scanned = 0usize;
@@ -3981,6 +4009,10 @@ pub async fn scan_gamelogs(
         }
     }
     let _ = window.emit("gamelog_scan_progress", (total, total));
+    // Reprocesado completado con éxito: fija la versión de datos y limpia la marca pendiente.
+    if do_reparse {
+        let _ = state.db.logi_mark_reparsed();
+    }
     Ok(GamelogScanResult {
         files_total: total,
         files_scanned: scanned,

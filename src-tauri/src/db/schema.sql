@@ -1,6 +1,14 @@
 -- Esquema inicial de Koru Desktop (SQLite).
 -- Los refresh tokens NO viven aquí: van en el keychain del SO.
 
+-- Clave/valor para versionado de DATOS (distinto del esquema) y flags de migración.
+-- Ej.: logi_data_version (versión de los agregados de logi reconstruidos del gamelog) y
+-- logi_reparse_pending (target pendiente de reprocesar cuando haya logs). Ver db/mod.rs.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
 -- Bitácora: desbloqueos de LOGROS propios (motor en db/bitacora.rs).
 -- subject_id = character_id, o 0 para la vista Global. unlocked_at = fecha retroactiva
 -- del hito (del histórico); seen_at = cuándo lo registró la app (para señalar los nuevos).
@@ -257,13 +265,30 @@ CREATE TABLE IF NOT EXISTS logi_ledger (
     hp           REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date, kind, direction)
 );
--- Histórico de pilotos: a quién curaste (given) y de quién recibiste (received), con HP y nº de reps.
+-- Histórico de pilotos REALES (solo personajes, formato [Nave] Piloto): a quién curaste (given) y de
+-- quién recibiste (received), con HP total y por tipo, nº de reps, su nave y el módulo usado.
 CREATE TABLE IF NOT EXISTS logi_pilots (
     character_id INTEGER NOT NULL,
     direction    TEXT NOT NULL,
     pilot        TEXT NOT NULL,
+    hp           REAL NOT NULL DEFAULT 0,    -- total
+    reps         INTEGER NOT NULL DEFAULT 0,
+    ship         TEXT NOT NULL DEFAULT '',   -- última nave vista (para el icono)
+    module       TEXT NOT NULL DEFAULT '',   -- último módulo de rep visto
+    hp_shield    REAL NOT NULL DEFAULT 0,
+    hp_armor     REAL NOT NULL DEFAULT 0,
+    hp_hull      REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, direction, pilot)
+);
+-- Granular por día para desglosar la gráfica por personaje/nave/módulo × fecha. Solo personajes reales.
+CREATE TABLE IF NOT EXISTS logi_daily (
+    character_id INTEGER NOT NULL,
+    direction    TEXT NOT NULL,
+    date         TEXT NOT NULL,
+    pilot        TEXT NOT NULL,
+    ship         TEXT NOT NULL DEFAULT '',
+    module       TEXT NOT NULL DEFAULT '',
     hp           REAL NOT NULL DEFAULT 0,
     reps         INTEGER NOT NULL DEFAULT 0,
-    ship         TEXT NOT NULL DEFAULT '',  -- última nave vista del piloto (para el icono)
-    PRIMARY KEY (character_id, direction, pilot)
+    PRIMARY KEY (character_id, direction, date, pilot, ship, module)
 );

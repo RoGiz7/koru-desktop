@@ -593,8 +593,21 @@ export type LogiSeries = {
   recv_armor: number[];
   recv_hull: number[];
 };
+// Desglose de la gráfica por dimensión (personaje/nave/módulo): fechas + series top-8 por día.
+export type LogiBreakSeries = { name: string; values: number[] };
+export type LogiBreakdown = { dates: string[]; series: LogiBreakSeries[] };
 // Un piloto del histórico de logi (a quién curaste / de quién recibiste).
-export type LogiPilot = { pilot: string; hp: number; reps: number; ship: string; char_id: number };
+export type LogiPilot = {
+  pilot: string;
+  hp: number;
+  reps: number;
+  ship: string;
+  module: string;
+  hp_shield: number;
+  hp_armor: number;
+  hp_hull: number;
+  char_id: number;
+};
 export type PersonalProject = {
   id: number;
   name: string;

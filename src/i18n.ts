@@ -215,8 +215,8 @@ const EN: Record<string, string> = {
   "Reps recibidas": "Reps received",
   Logis: "Logi",
   "Reparación remota, del histórico de combate": "Remote repairs, from your combat history",
-  "Aún no hay datos de logi. Ve a «Trabajos y proyectos» → Escanear para leer tus gamelogs.":
-    "No logi data yet. Go to “Jobs & projects” → Scan to read your gamelogs.",
+  "Aún no hay datos de logi. Abre ⚙️ Ajustes → Logs de EVE y pulsa Escanear para leer tus gamelogs.":
+    "No logi data yet. Open ⚙️ Settings → EVE logs and press Scan to read your gamelogs.",
   "Escudo dado": "Shield given",
   "Blindaje dado": "Armor given",
   "Casco dado": "Hull given",
@@ -225,6 +225,17 @@ const EN: Record<string, string> = {
   "Casco recibido": "Hull received",
   "A quién curaste": "Who you healed",
   "De quién recibiste": "Who healed you",
+  "Módulo": "Module",
+  Escudo: "Shield",
+  Blindaje: "Armor",
+  Casco: "Hull",
+  Desglose: "Breakdown",
+  Dado: "Given",
+  Recibido: "Received",
+  "top 8": "top 8",
+  "Sin datos para este desglose.": "No data for this breakdown.",
+  "Actualización de datos: reescanea para reprocesar tu histórico de logi.":
+    "Data update: re-scan to reprocess your logi history.",
   "Total dado": "Total given",
   "Total recibido": "Total received",
   "HP curados por": "HP healed per",

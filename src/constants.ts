@@ -33,7 +33,8 @@ export type Tab =
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
 export type NavSub = { key: Tab; label: string; scopes?: string[]; soon?: boolean };
 // `typeId` opcional = icono real de EVE (images.evetech.net) para el grupo; si no, se usa `icon` (emoji).
-export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[] }[] = [
+// `imgSrc` opcional = imagen local propia (p.ej. retrato B&W) que prevalece sobre typeId/emoji.
+export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: string; subs: NavSub[] }[] = [
   {
     group: "Bitácora",
     icon: "📖",
@@ -48,8 +49,6 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
         label: "Trabajos y proyectos",
         scopes: ["esi-characters.read_freelance_jobs.v1", "esi-corporations.read_projects.v1"],
       },
-      // Logis: reparación remota del gamelog local (sin scopes). Se puebla al escanear gamelogs.
-      { key: "logis", label: "Logis" },
     ],
   },
   {
@@ -67,6 +66,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
   {
     group: "Comercio",
     icon: "📈",
+    typeId: 2833, // 1000 Aurum Token (monedas / "billetes")
     subs: [
       { key: "comercio", label: "Órdenes", scopes: ["esi-markets.read_character_orders.v1"] },
       { key: "comercio_pnl", label: "Rentabilidad", scopes: ["esi-markets.read_character_orders.v1"] },
@@ -89,6 +89,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
   {
     group: "PvE",
     icon: "🛡️",
+    typeId: 17248, // Dread Guristas Gold Tag (chapa de rateo)
     subs: [
       { key: "rateo", label: "Ingresos PvE", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
@@ -100,7 +101,7 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
   {
     group: "Industria",
     icon: "🏭",
-    typeId: 34, // Tritanium (minerales)
+    typeId: 1230, // Veldspar (roca)
     subs: [
       { key: "mineria", label: "Minería", scopes: ["esi-industry.read_character_mining.v1"] },
       { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1"] },
@@ -110,11 +111,19 @@ export const NAV: { group: string; icon: string; typeId?: number; subs: NavSub[]
   {
     group: "Personaje",
     icon: "👤",
+    imgSrc: "/char-bw.svg", // retrato B&W propio
     subs: [
       { key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] },
       { key: "contactos", label: "Contactos", scopes: ["esi-characters.read_contacts.v1"] },
       { key: "fiteos", label: "Fiteos" },
     ],
+  },
+  {
+    // Logis: su propio espacio (reparación remota del gamelog local). Grupo de un solo sub.
+    group: "Logis",
+    icon: "🏥",
+    typeId: 11978, // Scimitar (nave de logi)
+    subs: [{ key: "logis", label: "Logis" }],
   },
 ];
 

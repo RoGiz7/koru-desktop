@@ -6,11 +6,30 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.20.1",
+    date: "2026-07-07",
+    es: [
+      "📊 Apartado Logis: tabla con columnas Personaje · Nave · Módulo y HP por escudo/blindaje/casco (con iconos reales de los módulos de rep), mostrando solo jugadores reales.",
+      "📈 Gráfica con desglose por Personaje / Nave / Módulo (top 8) cruzando fecha y HP, con selector Dado/Recibido — ve quién te repó, con qué nave y qué módulo, a lo largo del tiempo.",
+      "🎨 Navegación rediseñada como pestañas con iconos de EVE (Comercio, PvE, Industria, Personaje) y Logis con su propio espacio.",
+      "🤝 Curación fiel a jugadores: los reps de drones/NPC/estructuras ya no inflan los totales.",
+      "🛡️ Datos a prueba de borrados: tu histórico ya escaneado sobrevive aunque borres o muevas la carpeta de logs (o cambies de PC); el reprocesado solo ocurre al reescanear.",
+      "🗑️ Panel de Logi retirado de Bitácora: su sitio es el apartado Logis.",
+    ],
+    en: [
+      "📊 Logis section: table with Character · Ship · Module columns and HP by shield/armor/hull (with the actual rep-module icons), showing real players only.",
+      "📈 Breakdown chart by Character / Ship / Module (top 8) across date and HP, with a Given/Received toggle — see who repaired you, with which ship and module, over time.",
+      "🎨 Redesigned navigation as tabs with EVE icons (Trade, PvE, Industry, Character) and Logis with its own space.",
+      "🤝 Player-faithful healing: drone/NPC/structure reps no longer inflate the totals.",
+      "🛡️ Deletion-proof data: your already-scanned history survives even if you delete or move the logs folder (or switch PCs); reprocessing only happens on re-scan.",
+      "🗑️ Logi panel removed from the Logbook: its home is the Logis section.",
+    ],
+  },
+  {
     version: "0.20.0",
     date: "2026-07-06",
     es: [
       "🏥 Logi (Fase B): lee tu reparación remota (escudo/blindaje/casco) del log de combate del juego — dato que ESI no expone.",
-      "Panel de Logi en Logros: curación dada vs recibida, de todo tu histórico (¡con logis la vida es más larga!).",
       "Nuevo dominio de medallas «Apoyo»: Escudero / Chapista / Soldador — medallas para quien da reps (escudo/blindaje/casco).",
       "Apartado «Logis»: gráfica con filtros día/semana/mes/año + líneas Total dado/recibido y por tipo (activables) + histórico de a quién curaste y de quién recibiste, con retrato del piloto e icono de su nave.",
       "El escaneo lee también la subcarpeta «old» de Gamelogs → años de histórico, no solo lo reciente.",
@@ -20,7 +39,6 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
     en: [
       "🏥 Logi (Phase B): reads your remote repairs (shield/armor/hull) from the game combat log — data ESI doesn't expose.",
-      "Logi panel in Achievements: healing given vs received, from your whole history.",
       "New “Support” medal domain: Shield Warden / Field Mender / Welder — medals for those who give reps (shield/armor/hull).",
       "“Logi” section: chart with day/week/month/year filters + Total given/received and per-type lines (toggleable) + who-you-healed / who-healed-you history with each pilot's portrait and ship icon.",
       "New project metrics: healing given and reps received (shield/armor/hull). Pick your gamelogs folder and hit Scan.",

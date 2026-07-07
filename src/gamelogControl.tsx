@@ -9,6 +9,7 @@ import { tr } from "./i18n";
 export function GamelogControl({ onScanned }: { onScanned?: () => void }) {
   const [folder, setFolder] = useState<string>(() => localStorage.getItem("koru-gamelog-folder") || "");
   const [parsed, setParsed] = useState<number | null>(null);
+  const [pending, setPending] = useState(false);
   const [scan, setScan] = useState<{ running: boolean; done: number; total: number; result: string }>({
     running: false,
     done: 0,
@@ -18,6 +19,7 @@ export function GamelogControl({ onScanned }: { onScanned?: () => void }) {
 
   function refreshStatus() {
     invoke<number>("get_gamelog_status").then(setParsed).catch(() => setParsed(null));
+    invoke<boolean>("get_logi_reparse_pending").then(setPending).catch(() => setPending(false));
   }
   useEffect(() => {
     if (!folder) {
@@ -98,6 +100,11 @@ export function GamelogControl({ onScanned }: { onScanned?: () => void }) {
           ? `✓ ${tr("Escaneado")} · ${parsed.toLocaleString()} ${tr("ficheros")}`
           : tr("Pendiente de escanear")}
       </div>
+      {pending && (parsed ?? 0) > 0 && !scan.running && (
+        <div className="small tb-logs-reparse">
+          ♻️ {tr("Actualización de datos: reescanea para reprocesar tu histórico de logi.")}
+        </div>
+      )}
     </div>
   );
 }

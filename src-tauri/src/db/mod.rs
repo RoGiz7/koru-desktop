@@ -89,16 +89,46 @@ impl Db {
         if tracked == 0 {
             let _ = conn.execute("DELETE FROM logi_ledger", []);
         }
-        // logi_pilots: columna `ship` (nave del piloto para el icono) añadida en 0.20.0.
+        // logi_pilots: columnas añadidas en 0.20.0 (nave, módulo y HP por tipo).
         let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN ship TEXT NOT NULL DEFAULT ''", []);
-        // Migración de logi: v1 = soporte de pilotos; v2 = parser de piloto corregido (nombres "=").
-        // Cada bump fuerza UNA vez un re-parseo limpio (borrar tracking + agregados de logi).
+        let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN module TEXT NOT NULL DEFAULT ''", []);
+        let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN hp_shield REAL NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN hp_armor REAL NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN hp_hull REAL NOT NULL DEFAULT 0", []);
+        // Versionado de DATOS de logi (agregados reconstruidos del gamelog), separado del esquema.
+        // Historial de versiones: v1 pilotos; v2 nombre "="; v3 nave "="; v4 solo personajes reales +
+        // módulo + HP por tipo; v5 logi_daily (desglose por día); v6 fix is_char (excluir drones/NPC/
+        // estructuras de la tabla de pilotos); v7 totales fieles a jugadores (tampoco en logi_ledger).
+        //
+        // PRODUCCIÓN — reprocesado NO destructivo y perezoso: al arrancar NO borramos nada. Si la
+        // versión de datos guardada es anterior a la actual, solo dejamos una marca "reparse pendiente".
+        // El borrado + parse limpio ocurre en el PRÓXIMO escaneo y SOLO si hay logs (ver scan_gamelogs
+        // + logi_reset_for_reparse). Así, borrar o mover la carpeta de logs jamás destruye el histórico
+        // ya volcado en la BD: en el peor caso el usuario conserva los datos previos hasta poder reescanear.
+        const LOGI_DATA_VERSION: i64 = 7;
         let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
-        if uv < 2 {
-            let _ = conn.execute("DELETE FROM gamelog_parsed", []);
-            let _ = conn.execute("DELETE FROM logi_ledger", []);
-            let _ = conn.execute("DELETE FROM logi_pilots", []);
-            let _ = conn.pragma_update(None, "user_version", 2);
+        // Semilla al introducir `meta`: la versión de datos heredada = la última user_version que forzó
+        // un reparse en el build anterior (comparten numerado). Así, quien ya reprocesó a v7 NO queda
+        // marcado como pendiente; quien venga de una versión vieja (o BD nueva) sí.
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('logi_data_version', ?1)",
+            rusqlite::params![uv.to_string()],
+        );
+        let ldv: i64 = conn
+            .query_row("SELECT value FROM meta WHERE key='logi_data_version'", [], |r| r.get::<_, String>(0))
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if ldv < LOGI_DATA_VERSION {
+            let _ = conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('logi_reparse_pending', ?1) \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![LOGI_DATA_VERSION.to_string()],
+            );
+        }
+        // user_version queda como versión de ESQUEMA (migraciones estructurales, no destructivas).
+        if uv < 7 {
+            let _ = conn.pragma_update(None, "user_version", 7);
         }
         Ok(Db {
             conn: Mutex::new(conn),

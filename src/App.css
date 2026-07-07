@@ -1122,6 +1122,88 @@ select,
   border-radius: 50%;
   object-fit: cover;
 }
+/* Tabla de pilotos de logi: Personaje | Nave | Módulo | HP por tipo | Total */
+.logi-tables {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+.logi-table-wrap {
+  min-width: 0;
+}
+.logi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 0.3rem;
+}
+.logi-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted, #8a91a0);
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border, #2c313c);
+  white-space: nowrap;
+}
+.logi-table td {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border, #2c313c);
+  vertical-align: middle;
+}
+.logi-table .lt-char {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.logi-table .lt-ship {
+  white-space: nowrap;
+}
+.logi-table .lt-ship .type-ico {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  margin-right: 0.3rem;
+}
+.logi-table .lt-mod {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logi-table th.lt-hp,
+.logi-table td.lt-hp {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.logi-table th.lt-hp {
+  text-align: center;
+}
+.hp-ico {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+  border-radius: 3px;
+}
+.logi-hpline {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+/* Aviso de reprocesado pendiente en el control de logs (Ajustes) */
+.tb-logs-reparse {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(224, 164, 88, 0.12);
+  border: 1px solid rgba(224, 164, 88, 0.4);
+  color: #e0a458;
+}
 /* Selector de periodo de la gráfica de logi (día/semana/mes/año) */
 .logi-gran {
   display: flex;
@@ -1870,43 +1952,69 @@ tr.job-ready td:first-child {
   color: #fff;
 }
 
-/* ===== Navegación en grupos (reestructuración) ===== */
+/* ===== Navegación en grupos: barra de tabs (nivel primario) ===== */
 .nav-groups {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.15rem;
   flex-wrap: wrap;
-  margin-bottom: 0.5rem;
-}
-
-.navg {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  font-weight: 600;
-  padding: 0.4rem 0.85rem;
-}
-
-.navg.active {
-  background: var(--accent);
-  border-color: var(--accent-border);
-  color: #fff;
-}
-
-.navg-ico {
-  margin-right: 0.15rem;
-}
-
-.navg-img {
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
-  vertical-align: middle;
-  margin-right: 0.1rem;
+  margin-bottom: 0.9rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .navg {
   display: inline-flex;
   align-items: center;
-  gap: 0.1rem;
+  gap: 0.4rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
+  font-weight: 600;
+  color: var(--muted, #8a91a0);
+  padding: 0.5rem 0.9rem;
+  margin-bottom: -1px; /* solapa el borde inferior de la barra */
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.navg:hover {
+  color: var(--text, #e6e6e6);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.navg.active {
+  color: var(--accent, #7aa2f7);
+  border-bottom-color: var(--accent, #7aa2f7);
+  background: rgba(122, 162, 247, 0.08);
+}
+
+.navg-ico {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.navg-img {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  vertical-align: middle;
+  opacity: 0.7;
+  transition: opacity 0.12s;
+}
+
+.navg:hover .navg-img,
+.navg.active .navg-img {
+  opacity: 1;
+}
+
+/* Retrato B&W del grupo Personaje */
+.navg-bw {
+  border-radius: 50%;
+  filter: grayscale(1) contrast(1.05);
+  object-fit: cover;
+}
+.navg.active .navg-bw {
+  filter: grayscale(0) contrast(1.05);
 }
 
 .tab.soon {

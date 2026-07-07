@@ -796,17 +796,38 @@ impl Db {
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         for e in events {
-            conn.execute(
-                "INSERT INTO logi_ledger (character_id, date, kind, direction, hp) VALUES (?1,?2,?3,?4,?5) \
-                 ON CONFLICT(character_id,date,kind,direction) DO UPDATE SET hp = hp + excluded.hp",
-                rusqlite::params![character_id, e.date, e.kind, e.direction, e.hp],
-            )?;
-            if !e.pilot.is_empty() {
+            // Solo PERSONAJES reales (formato [Nave] Piloto). Naves con nombre propio, drones, NPC y
+            // estructuras se descartan por completo: el logi es curación entre jugadores, así que ni
+            // cuentan en los totales (logi_ledger) ni en la tabla/gráfica de pilotos.
+            if e.is_char && !e.pilot.is_empty() {
                 conn.execute(
-                    "INSERT INTO logi_pilots (character_id, direction, pilot, hp, reps, ship) VALUES (?1,?2,?3,?4,1,?5) \
-                     ON CONFLICT(character_id,direction,pilot) DO UPDATE SET hp = hp + excluded.hp, reps = reps + 1, \
-                       ship = CASE WHEN excluded.ship <> '' THEN excluded.ship ELSE logi_pilots.ship END",
-                    rusqlite::params![character_id, e.direction, e.pilot, e.hp, e.ship],
+                    "INSERT INTO logi_ledger (character_id, date, kind, direction, hp) VALUES (?1,?2,?3,?4,?5) \
+                     ON CONFLICT(character_id,date,kind,direction) DO UPDATE SET hp = hp + excluded.hp",
+                    rusqlite::params![character_id, e.date, e.kind, e.direction, e.hp],
+                )?;
+                let (hs, ha, hh) = match e.kind.as_str() {
+                    "shield" => (e.hp, 0.0, 0.0),
+                    "armor" => (0.0, e.hp, 0.0),
+                    "hull" => (0.0, 0.0, e.hp),
+                    _ => (0.0, 0.0, 0.0),
+                };
+                conn.execute(
+                    "INSERT INTO logi_pilots (character_id, direction, pilot, hp, reps, ship, module, hp_shield, hp_armor, hp_hull) \
+                     VALUES (?1,?2,?3,?4,1,?5,?6,?7,?8,?9) \
+                     ON CONFLICT(character_id,direction,pilot) DO UPDATE SET \
+                       hp = hp + excluded.hp, reps = reps + 1, \
+                       ship = CASE WHEN excluded.ship <> '' THEN excluded.ship ELSE logi_pilots.ship END, \
+                       module = CASE WHEN excluded.module <> '' THEN excluded.module ELSE logi_pilots.module END, \
+                       hp_shield = hp_shield + excluded.hp_shield, hp_armor = hp_armor + excluded.hp_armor, hp_hull = hp_hull + excluded.hp_hull",
+                    rusqlite::params![character_id, e.direction, e.pilot, e.hp, e.ship, e.module, hs, ha, hh],
+                )?;
+                // Granular por día: permite desglosar la gráfica por personaje/nave/módulo × fecha.
+                conn.execute(
+                    "INSERT INTO logi_daily (character_id, direction, date, pilot, ship, module, hp, reps) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,1) \
+                     ON CONFLICT(character_id,direction,date,pilot,ship,module) DO UPDATE SET \
+                       hp = hp + excluded.hp, reps = reps + 1",
+                    rusqlite::params![character_id, e.direction, e.date, e.pilot, e.ship, e.module, e.hp],
                 )?;
             }
         }
@@ -905,7 +926,8 @@ impl Db {
             format!("AND character_id = {subject_id}")
         };
         let q = format!(
-            "SELECT pilot, SUM(hp), SUM(reps), MAX(ship) FROM logi_pilots WHERE direction = ?1 {who} GROUP BY pilot ORDER BY SUM(hp) DESC LIMIT 100"
+            "SELECT pilot, SUM(hp), SUM(reps), MAX(ship), MAX(module), SUM(hp_shield), SUM(hp_armor), SUM(hp_hull) \
+             FROM logi_pilots WHERE direction = ?1 {who} GROUP BY pilot ORDER BY SUM(hp) DESC LIMIT 100"
         );
         let mut stmt = conn.prepare(&q)?;
         let rows = stmt.query_map([direction], |r| {
@@ -914,10 +936,72 @@ impl Db {
                 hp: r.get::<_, f64>(1)?,
                 reps: r.get::<_, i64>(2)?,
                 ship: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                module: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                hp_shield: r.get::<_, f64>(5)?,
+                hp_armor: r.get::<_, f64>(6)?,
+                hp_hull: r.get::<_, f64>(7)?,
                 char_id: 0,
             })
         })?;
         Ok(rows.flatten().collect())
+    }
+
+    /// Desglose de logi por dimensión (pilot|ship|module) × día para la gráfica. Devuelve las top-8
+    /// entidades por HP total en esa dirección, con su valor por día (el frontend agrupa por
+    /// granularidad). subject_id 0 = global. direction = given|received.
+    pub fn logi_breakdown(&self, subject_id: i64, direction: &str, dimension: &str) -> AppResult<LogiBreakdown> {
+        let conn = self.conn.lock().unwrap();
+        let col = match dimension {
+            "ship" => "ship",
+            "module" => "module",
+            _ => "pilot",
+        };
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT date, {col} AS ent, SUM(hp) FROM logi_daily \
+             WHERE direction = ?1 {who} AND {col} <> '' GROUP BY date, ent ORDER BY date ASC"
+        );
+        let mut stmt = conn.prepare(&q)?;
+        let rows = stmt
+            .query_map([direction], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, f64>(2)?))
+            })?
+            .flatten()
+            .collect::<Vec<_>>();
+
+        // Totales por entidad → top 8.
+        let mut totals: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut dates: Vec<String> = Vec::new();
+        for (d, ent, hp) in &rows {
+            *totals.entry(ent.clone()).or_insert(0.0) += *hp;
+            if dates.last().map(|x| x != d).unwrap_or(true) {
+                dates.push(d.clone());
+            }
+        }
+        let mut top: Vec<(String, f64)> = totals.into_iter().collect();
+        top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        top.truncate(8);
+        let names: Vec<String> = top.into_iter().map(|(n, _)| n).collect();
+
+        // Índice fecha→posición y pivot (claves propias para poder mover `dates` en el return).
+        let didx: std::collections::HashMap<String, usize> =
+            dates.iter().enumerate().map(|(i, d)| (d.clone(), i)).collect();
+        let mut series: Vec<LogiBreakSeries> = names
+            .iter()
+            .map(|n| LogiBreakSeries { name: n.clone(), values: vec![0.0; dates.len()] })
+            .collect();
+        let nidx: std::collections::HashMap<String, usize> =
+            names.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
+        for (d, ent, hp) in &rows {
+            if let (Some(&si), Some(&di)) = (nidx.get(ent.as_str()), didx.get(d.as_str())) {
+                series[si].values[di] += *hp;
+            }
+        }
+        Ok(LogiBreakdown { dates, series })
     }
 
     /// Nº de gamelogs ya parseados (para el estado del escaneo en Ajustes).
@@ -925,6 +1009,58 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         conn.query_row("SELECT COUNT(*) FROM gamelog_parsed", [], |r| r.get(0))
             .unwrap_or(0)
+    }
+
+    /// Lee un valor de la tabla clave/valor `meta` (None si no existe).
+    pub fn meta_get(&self, key: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get::<_, String>(0))
+            .ok()
+    }
+
+    /// ¿Hay un reprocesado de logi pendiente? (una migración de datos marcó que hay que releer el
+    /// gamelog). El reprocesado real se hace en el próximo escaneo y solo si hay logs.
+    pub fn logi_reparse_pending(&self) -> bool {
+        self.meta_get("logi_reparse_pending")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false)
+    }
+
+    /// Limpia los agregados de logi y el tracking para un reparse completo. SOLO debe llamarse
+    /// cuando hay logs que releer (si no, se perdería el histórico ya volcado). En una transacción.
+    pub fn logi_reset_for_reparse(&self) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(
+            "BEGIN; \
+             DELETE FROM gamelog_parsed; \
+             DELETE FROM logi_ledger; \
+             DELETE FROM logi_pilots; \
+             DELETE FROM logi_daily; \
+             COMMIT;",
+        )?;
+        Ok(())
+    }
+
+    /// Marca el reprocesado como completado: fija logi_data_version al target pendiente y limpia la
+    /// bandera. Idempotente.
+    pub fn logi_mark_reparsed(&self) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let target = conn
+            .query_row("SELECT value FROM meta WHERE key='logi_reparse_pending'", [], |r| r.get::<_, String>(0))
+            .unwrap_or_else(|_| "0".to_string());
+        if target != "0" && !target.is_empty() {
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('logi_data_version', ?1) \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![target],
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('logi_reparse_pending', '0') \
+             ON CONFLICT(key) DO UPDATE SET value = '0'",
+            [],
+        )?;
+        Ok(())
     }
 }
 
@@ -951,6 +1087,18 @@ pub struct LogiSeries {
     pub recv_hull: Vec<f64>,
 }
 
+/// Desglose de logi por dimensión (personaje/nave/módulo): fechas + series top-8 por día.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LogiBreakdown {
+    pub dates: Vec<String>,
+    pub series: Vec<LogiBreakSeries>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct LogiBreakSeries {
+    pub name: String,
+    pub values: Vec<f64>,
+}
+
 /// Un piloto del histórico de logi (a quién curaste / de quién recibiste).
 #[derive(Debug, Clone, Serialize)]
 pub struct LogiPilot {
@@ -958,5 +1106,9 @@ pub struct LogiPilot {
     pub hp: f64,
     pub reps: i64,
     pub ship: String,
+    pub module: String,
+    pub hp_shield: f64,
+    pub hp_armor: f64,
+    pub hp_hull: f64,
     pub char_id: i64, // resuelto por ESI (nombre→id) para el retrato; 0 = sin resolver/no es PJ
 }
