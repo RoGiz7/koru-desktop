@@ -27,6 +27,7 @@ export type Tab =
   | "diario"
   | "freelance"
   | "logis"
+  | "recon"
   | "lealtad";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
@@ -49,6 +50,8 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
         label: "Trabajos y proyectos",
         scopes: ["esi-characters.read_freelance_jobs.v1", "esi-corporations.read_projects.v1"],
       },
+      // Reconstrucción (Fase C): minería/rateo/viaje del gamelog local (sin scopes). Al escanear.
+      { key: "recon", label: "Reconstrucción" },
     ],
   },
   {
@@ -234,6 +237,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   logis: {
     title: "Logis",
     subtitle: "Reparación remota (dada y recibida) reconstruida de tu histórico de combate local",
+  },
+  recon: {
+    title: "Reconstrucción",
+    subtitle: "Minería, rateo y viaje reconstruidos de tu histórico de gamelog local (años que ESI no guarda)",
   },
   lealtad: {
     title: "Misiones",

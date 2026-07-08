@@ -105,7 +105,14 @@ impl Db {
         // El borrado + parse limpio ocurre en el PRÓXIMO escaneo y SOLO si hay logs (ver scan_gamelogs
         // + logi_reset_for_reparse). Así, borrar o mover la carpeta de logs jamás destruye el histórico
         // ya volcado en la BD: en el peor caso el usuario conserva los datos previos hasta poder reescanear.
-        const LOGI_DATA_VERSION: i64 = 7;
+        // gamelog_mining: columna `crit` (bonus de extracción crítica de Equinox) añadida en v11.
+        let _ = conn.execute("ALTER TABLE gamelog_mining ADD COLUMN crit INTEGER NOT NULL DEFAULT 0", []);
+        // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
+        // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
+        // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó
+        //      rancio de builds intermedios (el reset actual ya borra todas las tablas juntas).
+        // v11: + crítico de minería (columna crit); base+crit = total ESI → reparse limpio.
+        const LOGI_DATA_VERSION: i64 = 11;
         let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
         // Semilla al introducir `meta`: la versión de datos heredada = la última user_version que forzó
         // un reparse en el build anterior (comparten numerado). Así, quien ya reprocesó a v7 NO queda
@@ -129,6 +136,22 @@ impl Db {
         // user_version queda como versión de ESQUEMA (migraciones estructurales, no destructivas).
         if uv < 7 {
             let _ = conn.pragma_update(None, "user_version", 7);
+        }
+
+        // Al cambiar la fecha de compatibilidad de ESI, las respuestas ya cacheadas pueden tener un
+        // ESQUEMA viejo (p. ej. faltarían campos nuevos como achievement_score/character_title_id).
+        // Invalidamos la caché ESI UNA vez al detectar el cambio: se repuebla perezosamente al usar
+        // cada vista, respetando el ritmo/rate-limit. (esi_cache es solo caché, no dato de verdad.)
+        let stored_compat: String = conn
+            .query_row("SELECT value FROM meta WHERE key='esi_compat_date'", [], |r| r.get(0))
+            .unwrap_or_default();
+        if stored_compat != crate::config::ESI_COMPATIBILITY_DATE {
+            let _ = conn.execute("DELETE FROM esi_cache", []);
+            let _ = conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('esi_compat_date', ?1) \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![crate::config::ESI_COMPATIBILITY_DATE],
+            );
         }
         Ok(Db {
             conn: Mutex::new(conn),

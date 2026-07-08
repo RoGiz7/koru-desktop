@@ -7,7 +7,7 @@ import { tr } from "./i18n";
 import { fmtIsk, fmtSp, weekKey, daysAgo } from "./format";
 import { TypeIcon, Kpi, MultiLineProgress, DONUT_COLORS, RangePresets } from "./charts";
 import { FW_FACTIONS } from "./constants";
-import type { MiningSeries, MineDimDay, FactionalView as FactionalData, AbyssalsData } from "./types";
+import type { MiningSeries, MineDimDay, FactionalView as FactionalData, AbyssalsData, GamelogRecon, GamelogMiningValued } from "./types";
 
 export function MineriaView({
   subject,
@@ -44,6 +44,38 @@ export function MineriaView({
   useEffect(() => {
     localStorage.setItem("koru-mineria-mode", mode);
   }, [mode]);
+
+  // Fusión visual (opt-in): del gamelog sacamos lo LOG-ONLY (extraído — cuadra con ESI — y el
+  // desperdicio, que ESI no expone). Fuente separada, líneas discontinuas. Solo en modo unidades.
+  // Extraído/Crítico VALORADOS por el modo actual (m³/bruto/comp/85%): el backend reusa ore_per_unit.
+  const [glValExt, setGlValExt] = useState<{ date: string; value: number }[]>([]);
+  const [glValCrit, setGlValCrit] = useState<{ date: string; value: number }[]>([]);
+  const [glByOre, setGlByOre] = useState<{ id: number; date: string; value: number }[]>([]);
+  const [glWaste, setGlWaste] = useState<{ date: string; value: number }[]>([]); // solo unidades (sin mena)
+  const [showGl, setShowGl] = useState(() => localStorage.getItem("koru-mineria-gl") === "1");
+  useEffect(() => {
+    localStorage.setItem("koru-mineria-gl", showGl ? "1" : "0");
+  }, [showGl]);
+  useEffect(() => {
+    const sid = typeof subject === "number" ? subject : 0;
+    invoke<GamelogRecon>("get_gamelog_recon", { subjectId: sid })
+      .then((r) => setGlWaste(r.mining_waste_series))
+      .catch(() => setGlWaste([]));
+  }, [subject]);
+  useEffect(() => {
+    const sid = typeof subject === "number" ? subject : 0;
+    invoke<GamelogMiningValued>("get_gamelog_mining_valued", { subjectId: sid, mode })
+      .then((v) => {
+        setGlValExt(v.extracted);
+        setGlValCrit(v.crit);
+        setGlByOre(v.by_ore);
+      })
+      .catch(() => {
+        setGlValExt([]);
+        setGlValCrit([]);
+        setGlByOre([]);
+      });
+  }, [subject, mode]);
 
   useEffect(() => {
     loadNewEden()
@@ -126,11 +158,56 @@ export function MineriaView({
     tot.set(k, (tot.get(k) ?? 0) + d.value);
   }
   const totalSeries = [...tot.entries()].map(([label, value]) => ({ label, value }));
-  const labels = totalSeries.map((s) => s.label);
-  const totVals = () => {
-    let acc = 0;
-    return totalSeries.map((s) => (cumulative ? (acc += s.value) : s.value));
-  };
+  // Fusión opcional con el gamelog. Extraído y Crítico van VALORADOS en el modo actual (m³/bruto/…),
+  // así Extraído cuadra con el Total de ESI en cualquier modo. El Desperdiciado no lleva mena en el
+  // log → solo se puede mostrar en modo "unidades".
+  const glBk = new Map<string, number>();
+  for (const d of glValExt) {
+    if (!inRange(d.date)) continue;
+    const k = bucketKey(d.date);
+    glBk.set(k, (glBk.get(k) ?? 0) + d.value);
+  }
+  const glCBk = new Map<string, number>();
+  for (const d of glValCrit) {
+    if (!inRange(d.date)) continue;
+    const k = bucketKey(d.date);
+    glCBk.set(k, (glCBk.get(k) ?? 0) + d.value);
+  }
+  const glWBk = new Map<string, number>();
+  if (mode === "units") {
+    for (const d of glWaste) {
+      if (!inRange(d.date)) continue;
+      const k = bucketKey(d.date);
+      glWBk.set(k, (glWBk.get(k) ?? 0) + d.value);
+    }
+  }
+  const glOn = showGl && (glBk.size > 0 || glWBk.size > 0);
+  const totalMap = new Map(totalSeries.map((s) => [s.label, s.value]));
+  const labels = glOn
+    ? [...new Set([...totalSeries.map((s) => s.label), ...glBk.keys(), ...glCBk.keys(), ...glWBk.keys()])].sort()
+    : totalSeries.map((s) => s.label);
+
+  // Empalme ESI↔gamelog: dentro/después de la ventana de ESI mandan los datos de ESI; ANTES de la
+  // fecha más antigua de ESI, se rellena con el gamelog (valorado en el modo actual). Sin doble conteo:
+  // base+crít del gamelog ya = ESI en el solape, así que el corte es limpio.
+  const esiLabels = totalSeries.map((s) => s.label);
+  const esiMin = esiLabels.length ? esiLabels.reduce((a, b) => (a < b ? a : b)) : null;
+  const splice = (esiMap: Map<string, number>, glMap: Map<string, number>) =>
+    labels.map((l) => (esiMin != null && l >= esiMin ? (esiMap.get(l) ?? 0) : (glMap.get(l) ?? 0)));
+  // Gamelog por mena (id type_id) → Map<id, Map<bucket, value>>, para empalmar cada mineral.
+  const glOreBuckets = new Map<number, Map<string, number>>();
+  if (glOn) {
+    for (const d of glByOre) {
+      if (!inRange(d.date)) continue;
+      const k = bucketKey(d.date);
+      let mm = glOreBuckets.get(d.id);
+      if (!mm) {
+        mm = new Map();
+        glOreBuckets.set(d.id, mm);
+      }
+      mm.set(k, (mm.get(k) ?? 0) + d.value);
+    }
+  }
 
   const dimBuckets = (rows: MineDimDay[]) => {
     const m = new Map<number, Map<string, number>>();
@@ -164,12 +241,38 @@ export function MineriaView({
       values: mkVals(m.get(t.id)),
     }));
   };
-  const totalLine = { name: tr("Total"), color: "#c8d3df", values: totVals() };
+  // Total EMPALMADO cuando el gamelog está activo (ESI en su ventana + gamelog antes); si no, ESI.
+  const totalLine = {
+    name: tr("Total"),
+    color: "#c8d3df",
+    values: glOn ? splice(totalMap, glBk) : labels.map((l) => totalMap.get(l) ?? 0),
+  };
+  // Minerales empalmados: cada mena = ESI donde cubre + gamelog antes; top por el total empalmado.
+  const mergedOreLines = () => {
+    const esiOre = dimBuckets(series.daily_by_ore);
+    const ids = new Set<number>([...esiOre.keys(), ...glOreBuckets.keys()]);
+    return [...ids]
+      .map((id) => {
+        const vals = splice(esiOre.get(id) ?? new Map<string, number>(), glOreBuckets.get(id) ?? new Map<string, number>());
+        return { id, vals, total: vals.reduce((a, b) => a + b, 0) };
+      })
+      .filter((s) => s.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+      .map((s, i) => ({ name: oreName(s.id), color: DONUT_COLORS[i % DONUT_COLORS.length], values: s.vals }));
+  };
   const sysSeries = [totalLine, ...buildDim(series.daily_by_system, sysName)];
   const charSeries = [totalLine, ...buildDim(series.daily_by_char, (id) => charNames.get(id) ?? `#${id}`)];
-  const oreSeries = [totalLine, ...buildDim(series.daily_by_ore, oreName)];
+  const oreSeries = glOn ? [totalLine, ...mergedOreLines()] : [totalLine, ...buildDim(series.daily_by_ore, oreName)];
   const multiChar = new Set(series.daily_by_char.map((r) => r.id)).size > 1;
-  const lineSeries = dim === "char" && multiChar ? charSeries : dim === "ore" ? oreSeries : sysSeries;
+  const baseLines = dim === "char" && multiChar ? charSeries : dim === "ore" ? oreSeries : sysSeries;
+  // Extras LOG-ONLY del gamelog (discontinuos): Crítico (parte del total, bonus Equinox) y
+  // Desperdiciado (residuo destruido, solo en modo unidades). El Extraído ya va empalmado arriba.
+  const glCritLine = { name: tr("Crítico (gamelog)"), color: "#57c785", values: labels.map((l) => glCBk.get(l) ?? 0), dash: true };
+  const glWasteLine = { name: tr("Desperdiciado (gamelog)"), color: "#d76a6a", values: labels.map((l) => glWBk.get(l) ?? 0), dash: true };
+  const lineSeries = glOn
+    ? [...baseLines, ...(glCBk.size > 0 ? [glCritLine] : []), ...(glWBk.size > 0 ? [glWasteLine] : [])]
+    : baseLines;
 
   // "Mineral extraído" (agregado al rango filtrado) desde daily_by_ore.
   const oreAgg = new Map<number, { units: number; value: number }>();
@@ -245,7 +348,21 @@ export function MineriaView({
             </button>
           ))}
         </div>
+        {glValExt.length > 0 && (
+          <button
+            className={`gl-toggle${showGl ? " active" : ""}`}
+            onClick={() => setShowGl((v) => !v)}
+            title={tr("Superpone Extraído (cuadra con ESI) + Crítico + Desperdiciado del gamelog (líneas discontinuas)")}
+          >
+            ┈ {tr("gamelog")}
+          </button>
+        )}
       </div>
+      {showGl && mode !== "units" && glWaste.length > 0 && (
+        <p className="muted small gl-note">
+          {tr("El desperdiciado solo se muestra en modo «Unidades» (el log no indica la mena del residuo).")}
+        </p>
+      )}
 
       <div className="top-list">
         <div className="rateo-charthead">

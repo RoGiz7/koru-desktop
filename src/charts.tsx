@@ -175,7 +175,7 @@ export function MultiLineProgress({
   legend = true,
 }: {
   labels: string[];
-  series: { name: string; color: string; values: number[] }[];
+  series: { name: string; color: string; values: number[]; dash?: boolean }[];
   fmt?: (n: number) => string;
   /// false = sin leyenda propia (el contenedor gestiona qué series entran).
   legend?: boolean;
@@ -271,6 +271,7 @@ export function MultiLineProgress({
             strokeWidth={iso ? 2.6 : 2}
             strokeLinecap="round"
             strokeLinejoin="round"
+            strokeDasharray={s.dash ? "6 4" : undefined}
             filter={`url(#mlglow-${uid})`}
           />
         ))}

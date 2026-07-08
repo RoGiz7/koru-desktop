@@ -569,6 +569,48 @@ select,
   color: #e0a458;
 }
 
+/* ----- Fase C: vista Reconstrucción (minería / rateo / viaje) ----- */
+.recon-block {
+  margin: 0.4rem 0 1.4rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--bg-panel, #1a1d24);
+  border: 1px solid var(--border, #2c313c);
+  border-radius: 10px;
+}
+.recon-block h5 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+.recon-block .kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+.recon-bars {
+  margin-top: 0.8rem;
+}
+.recon-bars .muted {
+  margin-bottom: 0.3rem;
+}
+
+/* Toggle "gamelog" (superponer línea del gamelog en Rateo/Minería) */
+.gl-toggle {
+  border: 1px dashed var(--border, #2c313c);
+  background: transparent;
+  color: var(--muted, #8a91a0);
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+}
+.gl-toggle.active {
+  border-color: #e0a458;
+  color: #e0a458;
+  background: rgba(224, 164, 88, 0.1);
+}
+.gl-note {
+  margin: 0.2rem 0 0.4rem;
+}
+
 /* ----- Medalla con marco geométrico SVG (arte propio, teñido por tier) ----- */
 .medal-frame {
   position: relative;

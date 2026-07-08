@@ -792,10 +792,10 @@ impl Db {
         mtime: i64,
         offset: i64,
         character_id: i64,
-        events: &[crate::gamelog::LogiEvent],
+        batch: &crate::gamelog::ScanBatch,
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
-        for e in events {
+        for e in &batch.logi {
             // Solo PERSONAJES reales (formato [Nave] Piloto). Naves con nombre propio, drones, NPC y
             // estructuras se descartan por completo: el logi es curación entre jugadores, así que ni
             // cuentan en los totales (logi_ledger) ni en la tabla/gráfica de pilotos.
@@ -830,6 +830,40 @@ impl Db {
                     rusqlite::params![character_id, e.direction, e.date, e.pilot, e.ship, e.module, e.hp],
                 )?;
             }
+        }
+        // Fase C — minería por personaje/día/mena. base va a `units`, el crítico Equinox a `crit`
+        // (base+crit = total ESI). Los ciclos solo cuentan la extracción base.
+        for m in &batch.mining {
+            let (u, c, cyc) = if m.crit { (0, m.units, 0) } else { (m.units, 0, 1) };
+            conn.execute(
+                "INSERT INTO gamelog_mining (character_id, date, ore, units, crit, cycles) VALUES (?1,?2,?3,?4,?5,?6) \
+                 ON CONFLICT(character_id,date,ore) DO UPDATE SET units = units + excluded.units, crit = crit + excluded.crit, cycles = cycles + excluded.cycles",
+                rusqlite::params![character_id, m.date, m.ore, u, c, cyc],
+            )?;
+        }
+        // Fase C — desperdicio de minería (LOG-ONLY): unidades residuales por personaje/día.
+        for w in &batch.waste {
+            conn.execute(
+                "INSERT INTO gamelog_mining_waste (character_id, date, units, cycles) VALUES (?1,?2,?3,1) \
+                 ON CONFLICT(character_id,date) DO UPDATE SET units = units + excluded.units, cycles = cycles + 1",
+                rusqlite::params![character_id, w.date, w.units],
+            )?;
+        }
+        // Fase C — bounty (rateo): ISK + nº de pagos por personaje/día.
+        for b in &batch.bounty {
+            conn.execute(
+                "INSERT INTO gamelog_bounty (character_id, date, isk, pays) VALUES (?1,?2,?3,1) \
+                 ON CONFLICT(character_id,date) DO UPDATE SET isk = isk + excluded.isk, pays = pays + 1",
+                rusqlite::params![character_id, b.date, b.isk],
+            )?;
+        }
+        // Fase C — saltos: nº por arista (origen→destino) y día.
+        for j in &batch.jumps {
+            conn.execute(
+                "INSERT INTO gamelog_jumps (character_id, date, from_sys, to_sys, jumps) VALUES (?1,?2,?3,?4,1) \
+                 ON CONFLICT(character_id,date,from_sys,to_sys) DO UPDATE SET jumps = jumps + 1",
+                rusqlite::params![character_id, j.date, j.from, j.to],
+            )?;
         }
         conn.execute(
             "INSERT INTO gamelog_parsed (filename, size, mtime, read_offset) VALUES (?1,?2,?3,?4) \
@@ -1004,6 +1038,156 @@ impl Db {
         Ok(LogiBreakdown { dates, series })
     }
 
+    /// Fase C — reconstrucción (minería/rateo/viaje) del histórico de gamelog. subject_id 0 = global.
+    pub fn gamelog_recon(&self, subject_id: i64) -> AppResult<GamelogRecon> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let mut r = GamelogRecon::default();
+
+        // --- Minería --- (extraído = base + crítico = total ESI; el crítico también se expone aparte)
+        let (mu, mcr, mc): (i64, i64, i64) = conn
+            .query_row(
+                &format!("SELECT COALESCE(SUM(units+crit),0), COALESCE(SUM(crit),0), COALESCE(SUM(cycles),0) FROM gamelog_mining WHERE 1=1 {who}"),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((0, 0, 0));
+        r.mining_units = mu;
+        r.mining_crit = mcr;
+        r.mining_cycles = mc;
+        {
+            let q = format!(
+                "SELECT ore, SUM(units+crit), SUM(cycles) FROM gamelog_mining WHERE 1=1 {who} GROUP BY ore ORDER BY SUM(units+crit) DESC LIMIT 20"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.top_ores = st
+                .query_map([], |row| {
+                    Ok(MiningOre { ore: row.get(0)?, units: row.get(1)?, cycles: row.get(2)? })
+                })?
+                .flatten()
+                .collect();
+        }
+        {
+            let q = format!(
+                "SELECT date, SUM(units+crit) FROM gamelog_mining WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.mining_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+        {
+            let q = format!(
+                "SELECT date, SUM(crit) FROM gamelog_mining WHERE 1=1 {who} AND crit > 0 GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.mining_crit_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+        // Desperdicio (LOG-ONLY): total + serie diaria.
+        r.mining_wasted = conn
+            .query_row(
+                &format!("SELECT COALESCE(SUM(units),0) FROM gamelog_mining_waste WHERE 1=1 {who}"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        {
+            let q = format!(
+                "SELECT date, SUM(units) FROM gamelog_mining_waste WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.mining_waste_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+
+        // --- Bounty (rateo) ---
+        let (bi, bp): (i64, i64) = conn
+            .query_row(
+                &format!("SELECT COALESCE(SUM(isk),0), COALESCE(SUM(pays),0) FROM gamelog_bounty WHERE 1=1 {who}"),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or((0, 0));
+        r.bounty_isk = bi;
+        r.bounty_pays = bp;
+        {
+            let q = format!(
+                "SELECT date, SUM(isk) FROM gamelog_bounty WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.bounty_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+
+        // --- Viaje ---
+        r.total_jumps = conn
+            .query_row(
+                &format!("SELECT COALESCE(SUM(jumps),0) FROM gamelog_jumps WHERE 1=1 {who}"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        r.distinct_systems = conn
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM (SELECT from_sys s FROM gamelog_jumps WHERE 1=1 {who} \
+                     UNION SELECT to_sys FROM gamelog_jumps WHERE 1=1 {who})"
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        {
+            // "Visitas" = llegadas (saltos hacia ese sistema).
+            let q = format!(
+                "SELECT to_sys, SUM(jumps) FROM gamelog_jumps WHERE 1=1 {who} GROUP BY to_sys ORDER BY SUM(jumps) DESC LIMIT 20"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.top_systems = st
+                .query_map([], |row| Ok(SysVisit { system: row.get(0)?, visits: row.get(1)? }))?
+                .flatten()
+                .collect();
+        }
+        Ok(r)
+    }
+
+    /// Filas crudas de minería del gamelog (date, ore, units, crit) para valorarlas por modo en el
+    /// comando (reusa ore_per_unit). subject_id 0 = global.
+    pub fn gamelog_mining_rows(&self, subject_id: i64) -> AppResult<Vec<(String, String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!("SELECT date, ore, units, crit FROM gamelog_mining WHERE 1=1 {who}");
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
     /// Nº de gamelogs ya parseados (para el estado del escaneo en Ajustes).
     pub fn gamelog_status(&self) -> i64 {
         let conn = self.conn.lock().unwrap();
@@ -1036,6 +1220,10 @@ impl Db {
              DELETE FROM logi_ledger; \
              DELETE FROM logi_pilots; \
              DELETE FROM logi_daily; \
+             DELETE FROM gamelog_mining; \
+             DELETE FROM gamelog_bounty; \
+             DELETE FROM gamelog_jumps; \
+             DELETE FROM gamelog_mining_waste; \
              COMMIT;",
         )?;
         Ok(())
@@ -1085,6 +1273,41 @@ pub struct LogiSeries {
     pub recv_shield: Vec<f64>,
     pub recv_armor: Vec<f64>,
     pub recv_hull: Vec<f64>,
+}
+
+/// Fase C — reconstrucción (minería/rateo/viaje) del histórico de gamelog para la vista dedicada.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct GamelogRecon {
+    pub mining_units: i64, // extraído total = base + crítico (= total ESI)
+    pub mining_crit: i64,  // bonus de extracción crítica (Equinox), LOG-ONLY
+    pub mining_cycles: i64,
+    pub mining_wasted: i64,
+    pub top_ores: Vec<MiningOre>,
+    pub mining_series: Vec<DayVal>,       // extraído (base+crit) por día
+    pub mining_crit_series: Vec<DayVal>,  // crítico por día
+    pub mining_waste_series: Vec<DayVal>,
+    pub bounty_isk: i64,
+    pub bounty_pays: i64,
+    pub bounty_series: Vec<DayVal>,
+    pub total_jumps: i64,
+    pub distinct_systems: i64,
+    pub top_systems: Vec<SysVisit>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct MiningOre {
+    pub ore: String,
+    pub units: i64,
+    pub cycles: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct DayVal {
+    pub date: String,
+    pub value: f64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct SysVisit {
+    pub system: String,
+    pub visits: i64,
 }
 
 /// Desglose de logi por dimensión (personaje/nave/módulo): fechas + series top-8 por día.

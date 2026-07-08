@@ -28,6 +28,7 @@ import { BitacoraView, ACH_UI } from "./bitacora";
 import { DiarioView } from "./diario";
 import { FreelanceView } from "./freelance";
 import { LogisView } from "./logis";
+import { ReconView } from "./recon";
 import { GamelogControl } from "./gamelogControl";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
@@ -1921,6 +1922,7 @@ function App() {
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "logis" && <LogisView subject={subject} />}
+          {tab === "recon" && <ReconView subject={subject} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (
@@ -1931,6 +1933,7 @@ function App() {
               paperSeries={paperSeries}
               abyssals={abyssalsData}
               busy={sectionBusy}
+              subject={subject}
             />
           )}
           {tab === "resumen" && <ResumenView subject={subject} />}

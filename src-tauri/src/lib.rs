@@ -106,6 +106,8 @@ pub fn run() {
             commands::get_logi_breakdown,
             commands::get_gamelog_status,
             commands::get_logi_reparse_pending,
+            commands::get_gamelog_recon,
+            commands::get_gamelog_mining_valued,
             commands::get_kill_victims,
             commands::get_corp_history,
             commands::get_medals,

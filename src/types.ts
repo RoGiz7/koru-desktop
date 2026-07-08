@@ -598,6 +598,30 @@ export type LogiSeries = {
 // Desglose de la gráfica por dimensión (personaje/nave/módulo): fechas + series top-8 por día.
 export type LogiBreakSeries = { name: string; values: number[] };
 export type LogiBreakdown = { dates: string[]; series: LogiBreakSeries[] };
+// Fase C — reconstrucción (minería/rateo/viaje) del histórico de gamelog.
+export type MiningOre = { ore: string; units: number; cycles: number };
+export type DayVal = { date: string; value: number };
+// Minería del gamelog valorada por modo (units/m3/bruto/comp/reproc): Extraído (base+crit) y Crítico.
+// by_ore = extraído valorado por mena/día (id = type_id) para empalmar cada mineral con ESI.
+export type GlOreDay = { id: number; date: string; value: number };
+export type GamelogMiningValued = { extracted: DayVal[]; crit: DayVal[]; by_ore: GlOreDay[] };
+export type SysVisit = { system: string; visits: number };
+export type GamelogRecon = {
+  mining_units: number;
+  mining_crit: number;
+  mining_cycles: number;
+  mining_wasted: number;
+  top_ores: MiningOre[];
+  mining_series: DayVal[];
+  mining_crit_series: DayVal[];
+  mining_waste_series: DayVal[];
+  bounty_isk: number;
+  bounty_pays: number;
+  bounty_series: DayVal[];
+  total_jumps: number;
+  distinct_systems: number;
+  top_systems: SysVisit[];
+};
 // Un piloto del histórico de logi (a quién curaste / de quién recibiste).
 export type LogiPilot = {
   pilot: string;

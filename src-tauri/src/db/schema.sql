@@ -292,3 +292,40 @@ CREATE TABLE IF NOT EXISTS logi_daily (
     reps         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, direction, date, pilot, ship, module)
 );
+-- Fase C — reconstrucción desde el gamelog (años de histórico que ESI no da). Agregados, no raw.
+-- Minería por personaje/día/mena (nombre EN visible; se resuelve a type_id/icono con ores.json).
+CREATE TABLE IF NOT EXISTS gamelog_mining (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    ore          TEXT NOT NULL,
+    units        INTEGER NOT NULL DEFAULT 0,  -- base (ciclo normal)
+    crit         INTEGER NOT NULL DEFAULT 0,  -- bonus de "extracción crítica" (Equinox); base+crit = ESI
+    cycles       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, ore)
+);
+-- Bounty (rateo) reconstruido: ISK y nº de pagos por personaje/día.
+CREATE TABLE IF NOT EXISTS gamelog_bounty (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    isk          INTEGER NOT NULL DEFAULT 0,
+    pays         INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date)
+);
+-- Saltos entre sistemas: nº de saltos por arista (origen→destino) y día. Distintos sistemas = de las
+-- columnas from_sys/to_sys; total saltos = SUM(jumps).
+CREATE TABLE IF NOT EXISTS gamelog_jumps (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    from_sys     TEXT NOT NULL,
+    to_sys       TEXT NOT NULL,
+    jumps        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, from_sys, to_sys)
+);
+-- Desperdicio de minería (residuo destruido) por personaje/día. LOG-ONLY: ESI no lo expone. Sin mena.
+CREATE TABLE IF NOT EXISTS gamelog_mining_waste (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    units        INTEGER NOT NULL DEFAULT 0,
+    cycles       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date)
+);

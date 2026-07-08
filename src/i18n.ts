@@ -238,6 +238,49 @@ const EN: Record<string, string> = {
     "Data update: re-scan to reprocess your logi history.",
   "Título equipado": "Equipped title",
   "logros EVE": "EVE achievements",
+  "Reconstrucción": "Reconstruction",
+  "Minería, rateo y viaje del histórico local — años que ESI no guarda":
+    "Mining, ratting and travel from your local history — years ESI doesn't keep",
+  "Minería, rateo y viaje reconstruidos de tu histórico de gamelog local (años que ESI no guarda)":
+    "Mining, ratting and travel reconstructed from your local gamelog history (years ESI doesn't keep)",
+  Ciclos: "Cycles",
+  "Menas distintas": "Distinct ores",
+  "Unidades / mes": "Units / month",
+  "Top menas (por unidades)": "Top ores (by units)",
+  "Rateo (bounties)": "Ratting (bounties)",
+  "ISK en recompensas": "ISK in bounties",
+  Pagos: "Payouts",
+  "ISK / mes": "ISK / month",
+  Viaje: "Travel",
+  Saltos: "Jumps",
+  "Sistemas distintos": "Distinct systems",
+  "Sistemas más visitados": "Most visited systems",
+  "Aún no hay datos reconstruidos. Abre ⚙️ Ajustes → Logs de EVE y pulsa Escanear.":
+    "No reconstructed data yet. Open ⚙️ Settings → EVE logs and press Scan.",
+  gamelog: "gamelog",
+  "Rateo (gamelog)": "Ratting (gamelog)",
+  "Minería (gamelog)": "Mining (gamelog)",
+  "Extraído (gamelog)": "Extracted (gamelog)",
+  "Desperdiciado (gamelog)": "Wasted (gamelog)",
+  Desperdiciado: "Wasted",
+  "% desperdicio": "Waste %",
+  "Extraído / mes": "Extracted / month",
+  "Desperdiciado / mes": "Wasted / month",
+  "Crítico (gamelog)": "Critical (gamelog)",
+  "Crítico": "Critical",
+  "% crítico": "Critical %",
+  "Extraído (base+crít)": "Extracted (base+crit)",
+  "Crítico / mes": "Critical / month",
+  "Superpone Extraído (cuadra con ESI) + Crítico + Desperdiciado del gamelog (líneas discontinuas)":
+    "Overlays Extracted (matches ESI) + Critical + Wasted from the gamelog (dashed lines)",
+  "El desperdiciado solo se muestra en modo «Unidades» (el log no indica la mena del residuo).":
+    "Wasted only shows in “Units” mode (the log doesn't state the residue's ore).",
+  "Superpone el bounty reconstruido del gamelog (fuente separada, línea discontinua)":
+    "Overlays the bounty reconstructed from the gamelog (separate source, dashed line)",
+  "Superpone la minería reconstruida del gamelog (solo en modo Unidades, línea discontinua)":
+    "Overlays the mining reconstructed from the gamelog (Units mode only, dashed line)",
+  "La línea del gamelog solo se muestra en modo «Unidades» (no tiene m³ ni ISK).":
+    "The gamelog line only shows in “Units” mode (it has no m³ or ISK).",
   "Puntuación de logros oficial de EVE (Cradle of War)":
     "Official EVE achievement score (Cradle of War)",
   "Total dado": "Total given",

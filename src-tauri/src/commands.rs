@@ -1552,6 +1552,113 @@ pub async fn get_logi_reparse_pending(state: State<'_, AppState>) -> AppResult<b
     Ok(state.db.logi_reparse_pending())
 }
 
+/// Fase C — reconstrucción (minería/rateo/viaje) del histórico de gamelog. subject_id 0 = global.
+#[tauri::command]
+pub async fn get_gamelog_recon(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<crate::db::bitacora::GamelogRecon> {
+    state.db.gamelog_recon(subject_id)
+}
+
+/// Minería del gamelog VALORADA por modo (units/m3/bruto/comp/reproc), reusando `ore_per_unit`.
+/// Resuelve la mena (nombre) → type_id vía ESI (cache). Devuelve series diarias de Extraído
+/// (base+crítico, cuadra con ESI en ese modo) y Crítico. El desperdicio no se valora (no lleva mena).
+#[derive(serde::Serialize)]
+pub struct GlOreDay {
+    pub id: i64, // type_id de la mena (para empalmar con daily_by_ore de ESI)
+    pub date: String,
+    pub value: f64,
+}
+#[derive(serde::Serialize)]
+pub struct GamelogMiningValued {
+    pub extracted: Vec<crate::db::bitacora::DayVal>,
+    pub crit: Vec<crate::db::bitacora::DayVal>,
+    pub by_ore: Vec<GlOreDay>, // extraído (base+crit) valorado por mena/día, para el empalme por mineral
+}
+#[tauri::command]
+pub async fn get_gamelog_mining_valued(
+    subject_id: i64,
+    mode: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<GamelogMiningValued> {
+    use std::collections::{HashMap, HashSet};
+    let mode = mode.as_deref().unwrap_or("bruto");
+    let rows = state.db.gamelog_mining_rows(subject_id)?;
+
+    // Menas distintas → type_id (cache primero; ESI solo para las que falten).
+    let distinct: Vec<String> = {
+        let mut s = HashSet::new();
+        for (_, ore, _, _) in &rows {
+            s.insert(ore.clone());
+        }
+        s.into_iter().collect()
+    };
+    let mut name_to_id: HashMap<String, i64> = HashMap::new();
+    let mut to_resolve: Vec<String> = Vec::new();
+    for ore in &distinct {
+        match state.db.name_cache_get(&ore.to_lowercase()) {
+            Some((Some(id), _, _)) => {
+                name_to_id.insert(ore.clone(), id);
+            }
+            Some((None, _, _)) => {} // negativo (no resoluble): se queda sin precio
+            None => to_resolve.push(ore.clone()),
+        }
+    }
+    if !to_resolve.is_empty() {
+        if let Ok((_chars, types)) = state.esi.resolve_entities(&to_resolve).await {
+            let mut resolved = HashSet::new();
+            for (id, name) in &types {
+                state.db.name_cache_put(&name.to_lowercase(), *id, name);
+                resolved.insert(name.to_lowercase());
+            }
+            for n in &to_resolve {
+                if !resolved.contains(&n.to_lowercase()) {
+                    state.db.name_cache_put_negative(&n.to_lowercase());
+                }
+            }
+        }
+        for ore in &to_resolve {
+            if let Some((Some(id), _, _)) = state.db.name_cache_get(&ore.to_lowercase()) {
+                name_to_id.insert(ore.clone(), id);
+            }
+        }
+    }
+
+    let prices = state.db.prices_map().unwrap_or_default();
+    let mut ext: HashMap<String, f64> = HashMap::new();
+    let mut crt: HashMap<String, f64> = HashMap::new();
+    let mut by_ore: HashMap<(i64, String), f64> = HashMap::new();
+    for (date, ore, units, crit) in rows {
+        let tid = name_to_id.get(&ore).copied().unwrap_or(0);
+        let per = ore_per_unit(tid, mode, &prices);
+        let val = (units + crit) as f64 * per;
+        *ext.entry(date.clone()).or_insert(0.0) += val;
+        *crt.entry(date.clone()).or_insert(0.0) += crit as f64 * per;
+        if tid != 0 {
+            *by_ore.entry((tid, date)).or_insert(0.0) += val;
+        }
+    }
+    let to_series = |m: HashMap<String, f64>| {
+        let mut v: Vec<crate::db::bitacora::DayVal> = m
+            .into_iter()
+            .map(|(date, value)| crate::db::bitacora::DayVal { date, value })
+            .collect();
+        v.sort_by(|a, b| a.date.cmp(&b.date));
+        v
+    };
+    let mut ore_v: Vec<GlOreDay> = by_ore
+        .into_iter()
+        .map(|((id, date), value)| GlOreDay { id, date, value })
+        .collect();
+    ore_v.sort_by(|a, b| a.date.cmp(&b.date));
+    Ok(GamelogMiningValued {
+        extracted: to_series(ext),
+        crit: to_series(crt),
+        by_ore: ore_v,
+    })
+}
+
 /// Desglose de la gráfica de logi por dimensión (pilot|ship|module) × día, dirección given|received.
 #[tauri::command]
 pub async fn get_logi_breakdown(
@@ -4000,14 +4107,14 @@ pub async fn scan_gamelogs(
             Some((_, _, poff)) => poff as u64,
             None => 0,
         };
-        let (new_off, events) = match crate::gamelog::scan_file(path, from) {
+        let (new_off, batch) = match crate::gamelog::scan_file(path, from) {
             Ok(x) => x,
             Err(_) => continue, // fichero ilegible/bloqueado (p. ej. la sesión activa): lo saltamos
         };
-        healed += events.iter().map(|e| e.hp).sum::<f64>();
+        healed += batch.logi.iter().map(|e| e.hp).sum::<f64>();
         state
             .db
-            .commit_gamelog(&fname, size, mtime, new_off as i64, char_id, &events)
+            .commit_gamelog(&fname, size, mtime, new_off as i64, char_id, &batch)
             .map_err(|e| AppError::Other(format!("Guardando {fname}: {e}")))?;
         scanned += 1;
         if i % 20 == 0 {

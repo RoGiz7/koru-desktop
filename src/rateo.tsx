@@ -1,11 +1,12 @@
 // Sección PvE · Rateo: ISK por bounties con granularidad/rango, por sistema o personaje, ratas
 // especiales y papeles de Abyssals/CRAB. Extraído de App.tsx. PapersBlock es interno (solo Rateo).
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { loadNewEden } from "./neweden";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon, weekKey, daysAgo } from "./format";
 import { Kpi, MultiLineProgress, DONUT_COLORS, RangePresets } from "./charts";
-import type { RattingDetail, SpecialRatsResult, PaperSeries, AbyssalsData } from "./types";
+import type { RattingDetail, SpecialRatsResult, PaperSeries, AbyssalsData, GamelogRecon } from "./types";
 
 // Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
 export function RateoView({
@@ -15,6 +16,7 @@ export function RateoView({
   paperSeries,
   abyssals,
   busy,
+  subject,
 }: {
   data: RattingDetail | null;
   special: SpecialRatsResult | null;
@@ -22,7 +24,20 @@ export function RateoView({
   paperSeries: PaperSeries | null;
   abyssals: AbyssalsData | null;
   busy: boolean;
+  subject?: number | "global";
 }) {
+  // Fusión visual (opt-in): serie diaria del bounty reconstruido del gamelog (fuente SEPARADA).
+  const [glBounty, setGlBounty] = useState<{ date: string; value: number }[]>([]);
+  const [showGl, setShowGl] = useState(() => localStorage.getItem("koru-rateo-gl") === "1");
+  useEffect(() => {
+    localStorage.setItem("koru-rateo-gl", showGl ? "1" : "0");
+  }, [showGl]);
+  useEffect(() => {
+    const sid = typeof subject === "number" ? subject : 0;
+    invoke<GamelogRecon>("get_gamelog_recon", { subjectId: sid })
+      .then((r) => setGlBounty(r.bounty_series))
+      .catch(() => setGlBounty([]));
+  }, [subject]);
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
     () => (localStorage.getItem("koru-rateo-gran") as "day" | "week" | "month" | "year") || "day",
   );
@@ -108,8 +123,21 @@ export function RateoView({
   const rateoYears = [...new Set(data.daily.map((d) => +d.date.slice(0, 4)))].sort((a, b) => b - a);
   const topSystems = data.by_system.slice(0, 12);
 
+  // Fusión opcional con el gamelog: bucketea el bounty reconstruido igual que la serie ESI.
+  const glDaily = glBounty.filter((d) => (!from || d.date >= from) && (!to || d.date <= to));
+  const glBk = new Map<string, number>();
+  for (const d of glDaily) {
+    const k = bucketKey(d.date);
+    glBk.set(k, (glBk.get(k) ?? 0) + d.value);
+  }
+  const glOn = showGl && glBk.size > 0;
+  // Eje X = unión de fechas ESI ∪ gamelog cuando la línea está activa (para ver el histórico extra).
+  const totalMap = new Map(series.map((s) => [s.label, s.isk]));
   // Series por sistema (top 6) alineadas con los mismos buckets que la línea total.
-  const labels = series.map((s) => s.label);
+  const labels = glOn
+    ? [...new Set([...series.map((s) => s.label), ...glBk.keys()])].sort()
+    : series.map((s) => s.label);
+  const totalVals = labels.map((l) => totalMap.get(l) ?? 0);
   const sysBuckets = new Map<number, Map<string, number>>();
   for (const r of data.daily_by_system) {
     if ((from && r.date < from) || (to && r.date > to)) continue;
@@ -130,7 +158,7 @@ export function RateoView({
     });
   };
   const sysLineSeries = [
-    { name: tr("Total"), color: "#c8d3df", values: series.map((s) => s.isk) },
+    { name: tr("Total"), color: "#c8d3df", values: totalVals },
     ...data.by_system.slice(0, 6).map((s, i) => ({
       name: sysName(s.system_id),
       color: DONUT_COLORS[i % DONUT_COLORS.length],
@@ -162,7 +190,7 @@ export function RateoView({
     });
   };
   const charLineSeries = [
-    { name: tr("Total"), color: "#c8d3df", values: series.map((s) => s.isk) },
+    { name: tr("Total"), color: "#c8d3df", values: totalVals },
     ...charTotals.slice(0, 8).map((c, i) => ({
       name: charNames.get(c.id) ?? `#${c.id}`,
       color: DONUT_COLORS[i % DONUT_COLORS.length],
@@ -170,7 +198,10 @@ export function RateoView({
     })),
   ];
   const multiChar = charTotals.length > 1; // solo ofrecer "por personaje" si hay varios
-  const lineSeries = dim === "char" && multiChar ? charLineSeries : sysLineSeries;
+  const baseLines = dim === "char" && multiChar ? charLineSeries : sysLineSeries;
+  // Línea del gamelog (fuente separada): discontinua y en color propio, solo si el toggle está activo.
+  const glLine = { name: tr("Rateo (gamelog)"), color: "#e0a458", values: labels.map((l) => glBk.get(l) ?? 0), dash: true };
+  const lineSeries = glOn ? [...baseLines, glLine] : baseLines;
 
   return (
     <>
@@ -211,6 +242,15 @@ export function RateoView({
             }}
           >
             Limpiar
+          </button>
+        )}
+        {glBounty.length > 0 && (
+          <button
+            className={`gl-toggle${showGl ? " active" : ""}`}
+            onClick={() => setShowGl((v) => !v)}
+            title={tr("Superpone el bounty reconstruido del gamelog (fuente separada, línea discontinua)")}
+          >
+            ┈ {tr("gamelog")}
           </button>
         )}
       </div>

@@ -19,6 +19,41 @@ pub struct LogiEvent {
     pub is_char: bool,     // true = es un PERSONAJE real (formato con corchetes); false = nave/drone
 }
 
+/// Fase C — reconstrucción desde el gamelog (datos que ESI no da con años de histórico).
+/// Un ciclo de minería: unidades extraídas de una mena (nombre EN, encaja con ores.json → type_id).
+pub struct MiningEvent {
+    pub date: String,
+    pub ore: String,
+    pub units: i64,
+    pub crit: bool, // true = "¡Extracción crítica!" (bonus Equinox); va a la columna crit, no a units.
+}
+/// Un pago de recompensa (bounty). ISK en entero.
+pub struct BountyEvent {
+    pub date: String,
+    pub isk: i64,
+}
+/// Un salto entre sistemas (origen → destino, nombres visibles).
+pub struct JumpEvent {
+    pub date: String,
+    pub from: String,
+    pub to: String,
+}
+/// Unidades de mena DESPERDICIADAS en un ciclo (residuo destruido; ESI no lo expone). Sin mena asociada.
+pub struct WasteEvent {
+    pub date: String,
+    pub units: i64,
+}
+
+/// Todo lo que un fichero de gamelog aporta en UNA pasada (se lee una sola vez).
+#[derive(Default)]
+pub struct ScanBatch {
+    pub logi: Vec<LogiEvent>,
+    pub mining: Vec<MiningEvent>,
+    pub bounty: Vec<BountyEvent>,
+    pub jumps: Vec<JumpEvent>,
+    pub waste: Vec<WasteEvent>,
+}
+
 /// Quita los tags HTML (<...>) de un fragmento del gamelog.
 fn strip_tags(s: &str) -> String {
     let mut out = String::new();
@@ -155,26 +190,180 @@ pub fn parse_logi_line(line: &str) -> Option<LogiEvent> {
     })
 }
 
-/// Lee el fichero desde `from` hasta el final y devuelve (nuevo_offset, eventos logi).
+/// Minería: `(mining) ... Has extraído N unidades de <hint="ES">NombreEN`. None si no lo es.
+/// El número puede llevar puntos de millar y va separado por espacio normal o NBSP.
+fn parse_mining_line(line: &str) -> Option<MiningEvent> {
+    if !line.contains("(mining)") {
+        return None;
+    }
+    let date = line_date(line)?;
+    let plain = strip_tags(line);
+    let i = plain.find("unidades de ")?;
+    let ore = plain[i + "unidades de ".len()..].trim().to_string();
+    if ore.is_empty() {
+        return None;
+    }
+    // Número inmediatamente antes de "unidades de": último run de dígitos/puntos/espacios.
+    let pre = plain[..i].trim_end();
+    let mut run: Vec<char> = Vec::new();
+    for c in pre.chars().rev() {
+        if c.is_ascii_digit() || c == '.' || c == ' ' || c == '\u{a0}' {
+            run.push(c);
+        } else {
+            break;
+        }
+    }
+    let digits: String = run.iter().rev().filter(|c| c.is_ascii_digit()).collect();
+    let units: i64 = digits.parse().ok()?;
+    if units <= 0 {
+        return None;
+    }
+    Some(MiningEvent { date, ore, units, crit: false })
+}
+
+/// Crítico de minería (Equinox): `(mining) ¡Extracción crítica completada! Has extraído N unidades
+/// adicionales de <mena>`. Bonus de ore según skills/setup. LOG-ONLY: ESI lo suma al total pero no lo
+/// distingue. base + crítico = total ESI (validado). La mena va tras "adicionales de".
+fn parse_crit_line(line: &str) -> Option<MiningEvent> {
+    if !line.contains("crítica") && !line.contains("critica") {
+        return None;
+    }
+    let date = line_date(line)?;
+    let plain = strip_tags(line);
+    let oi = plain.find("adicionales de ")?;
+    let ore = plain[oi + "adicionales de ".len()..].trim().to_string();
+    if ore.is_empty() {
+        return None;
+    }
+    // Número tras "extraído " (antes de "unidades").
+    let ui = plain.find("unidades")?;
+    let pre = plain[..ui].trim_end();
+    let mut run: Vec<char> = Vec::new();
+    for c in pre.chars().rev() {
+        if c.is_ascii_digit() || c == '.' || c == ' ' || c == '\u{a0}' {
+            run.push(c);
+        } else {
+            break;
+        }
+    }
+    let digits: String = run.iter().rev().filter(|c| c.is_ascii_digit()).collect();
+    let units: i64 = digits.parse().ok()?;
+    if units <= 0 {
+        return None;
+    }
+    Some(MiningEvent { date, ore, units, crit: true })
+}
+
+/// Desperdicio de minería: `(mining) N unidades adicionales del asteroide desperdiciadas`. Sin mena.
+/// Dato LOG-ONLY (ESI no lo da): residuo destruido al minar con cristales agresivos.
+fn parse_waste_line(line: &str) -> Option<WasteEvent> {
+    if !line.contains("desperdiciad") {
+        return None;
+    }
+    let date = line_date(line)?;
+    let plain = strip_tags(line);
+    let i = plain.find("unidades")?;
+    let pre = plain[..i].trim_end();
+    let mut run: Vec<char> = Vec::new();
+    for c in pre.chars().rev() {
+        if c.is_ascii_digit() || c == '.' || c == ' ' || c == '\u{a0}' {
+            run.push(c);
+        } else {
+            break;
+        }
+    }
+    let digits: String = run.iter().rev().filter(|c| c.is_ascii_digit()).collect();
+    let units: i64 = digits.parse().ok()?;
+    if units <= 0 {
+        return None;
+    }
+    Some(WasteEvent { date, units })
+}
+
+/// Bounty: `(bounty) Se ha añadido <tags>N ISK<tags> ...`. None si no lo es.
+/// OJO: el separador antes de "ISK" es un NBSP → buscamos "ISK" y filtramos dígitos.
+fn parse_bounty_line(line: &str) -> Option<BountyEvent> {
+    if !line.contains("(bounty)") {
+        return None;
+    }
+    let date = line_date(line)?;
+    let plain = strip_tags(line);
+    // "añadido"/"anadido" → ambos contienen "adido ".
+    let a = plain.find("adido ")?;
+    let after = &plain[a + "adido ".len()..];
+    let j = after.find("ISK")?;
+    let digits: String = after[..j].chars().filter(|c| c.is_ascii_digit()).collect();
+    let isk: i64 = digits.parse().ok()?;
+    if isk <= 0 {
+        return None;
+    }
+    Some(BountyEvent { date, isk })
+}
+
+/// Salto: `(None) Saltando de <hint="A">A a <hint="B">B`. Coge los DOS hint = origen y destino.
+fn parse_jump_line(line: &str) -> Option<JumpEvent> {
+    if !line.contains("Saltando de ") {
+        return None;
+    }
+    let date = line_date(line)?;
+    let mut hints = line.match_indices("hint=\"").filter_map(|(i, _)| {
+        let start = i + 6;
+        let rest = line.get(start..)?;
+        let end = rest.find('"')?;
+        Some(rest[..end].to_string())
+    });
+    let from = hints.next()?;
+    let to = hints.next()?;
+    if from.is_empty() || to.is_empty() {
+        return None;
+    }
+    Some(JumpEvent { date, from, to })
+}
+
+/// Lee el fichero desde `from` hasta el final y devuelve (nuevo_offset, lote de eventos).
+/// UNA sola pasada emite logi + minería + bounty + saltos (cada línea es de UNA categoría).
 /// Incremental: `from` = byte hasta donde se leyó antes (0 = backfill completo). No carga el
 /// fichero entero en RAM (BufReader línea a línea).
-pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, Vec<LogiEvent>)> {
+pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, ScanBatch)> {
     let mut f = File::open(path)?;
     let len = f.metadata()?.len();
     if from >= len {
-        return Ok((len, Vec::new())); // sin datos nuevos
+        return Ok((len, ScanBatch::default())); // sin datos nuevos
     }
     f.seek(SeekFrom::Start(from))?;
     let reader = BufReader::new(f);
-    let mut out = Vec::new();
+    let mut batch = ScanBatch::default();
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
             Err(_) => continue, // línea con bytes inválidos: la saltamos
         };
-        if let Some(ev) = parse_logi_line(&line) {
-            out.push(ev);
+        // Dispatch por categoría (mutuamente excluyentes) para no llamar strip_tags de más.
+        if line.contains("(combat)") {
+            if let Some(ev) = parse_logi_line(&line) {
+                batch.logi.push(ev);
+            }
+        } else if line.contains("(mining)") {
+            if line.contains("desperdiciad") {
+                if let Some(w) = parse_waste_line(&line) {
+                    batch.waste.push(w);
+                }
+            } else if line.contains("crítica") || line.contains("critica") {
+                if let Some(ev) = parse_crit_line(&line) {
+                    batch.mining.push(ev); // crit=true → columna crit en commit
+                }
+            } else if let Some(ev) = parse_mining_line(&line) {
+                batch.mining.push(ev);
+            }
+        } else if line.contains("(bounty)") {
+            if let Some(ev) = parse_bounty_line(&line) {
+                batch.bounty.push(ev);
+            }
+        } else if line.contains("Saltando de ") {
+            if let Some(ev) = parse_jump_line(&line) {
+                batch.jumps.push(ev);
+            }
         }
     }
-    Ok((len, out))
+    Ok((len, batch))
 }
