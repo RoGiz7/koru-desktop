@@ -253,7 +253,6 @@ const EN: Record<string, string> = {
   "ISK / mes": "ISK / month",
   Viaje: "Travel",
   Saltos: "Jumps",
-  "Sistemas distintos": "Distinct systems",
   "Sistemas más visitados": "Most visited systems",
   "Aún no hay datos reconstruidos. Abre ⚙️ Ajustes → Logs de EVE y pulsa Escanear.":
     "No reconstructed data yet. Open ⚙️ Settings → EVE logs and press Scan.",
