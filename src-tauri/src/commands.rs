@@ -2849,6 +2849,10 @@ pub struct CharacterDetail {
     pub jump_clones: i64,
     pub clone_implants: i64,
     pub home_location_id: Option<i64>,
+    // Logros oficiales (Cradle of War, público): puntuación + título equipado (UUID → nombre vía
+    // character_titles.json en el front).
+    pub achievement_score: Option<i64>,
+    pub title_id: Option<String>,
 }
 
 /// Header rico del personaje: info pública + atributos + implantes + jump clones.
@@ -2931,6 +2935,8 @@ pub async fn get_character_detail(
         jump_clones,
         clone_implants,
         home_location_id,
+        achievement_score: public.as_ref().and_then(|p| p.achievement_score),
+        title_id: public.as_ref().and_then(|p| p.character_title_id.clone()),
     })
 }
 

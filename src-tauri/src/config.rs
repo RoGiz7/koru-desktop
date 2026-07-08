@@ -29,7 +29,9 @@ pub const ESI_BASE_URL: &str = "https://esi.evetech.net";
 
 /// Fecha de compatibilidad de ESI (header `X-Compatibility-Date`).
 /// Si no se envía, ESI sirve la versión MÁS ANTIGUA. Subir conscientemente al revisar cambios.
-pub const ESI_COMPATIBILITY_DATE: &str = "2026-06-01";
+/// 2026-06-09 (Cradle of War): expone `achievement_score` y `character_title_id` en
+/// GET /characters/{id}; también renombra `title_id`→`corporation_title_id` (Koru no lo usa).
+pub const ESI_COMPATIBILITY_DATE: &str = "2026-06-09";
 
 /// User-Agent identificativo (CCP lo exige para buen comportamiento y soporte).
 /// La versión se toma de Cargo.toml en compilación, así nunca queda desfasada.

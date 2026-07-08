@@ -180,6 +180,8 @@ export type CharacterDetail = {
   jump_clones: number;
   clone_implants: number;
   home_location_id: number | null;
+  achievement_score: number | null;
+  title_id: string | null;
 };
 export type CharTraining = {
   character_id: number;

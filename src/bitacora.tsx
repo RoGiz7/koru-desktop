@@ -9,7 +9,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
-import type { Bitacora, AchievementState, Medal, SeriesPoint } from "./types";
+import type { Bitacora, AchievementState, Medal, SeriesPoint, CharacterDetail } from "./types";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
 // inmersión — el mismo image server que ya usa toda la app (retratos, naves, logos). `tid` es un
@@ -282,6 +282,22 @@ export function BitacoraView({
     };
   }, [subject]);
 
+  // Puntuación de logros OFICIAL de EVE (Cradle of War, ruta pública): por personaje, best-effort.
+  const [officialScore, setOfficialScore] = useState<number | null>(null);
+  useEffect(() => {
+    if (typeof subject !== "number") {
+      setOfficialScore(null);
+      return;
+    }
+    let alive = true;
+    invoke<CharacterDetail>("get_character_detail", { characterId: subject })
+      .then((d) => alive && setOfficialScore(d.achievement_score))
+      .catch(() => alive && setOfficialScore(null));
+    return () => {
+      alive = false;
+    };
+  }, [subject]);
+
   // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
   const [series, setSeries] = useState<Record<string, SeriesPoint[]>>({});
   const [openMedal, setOpenMedal] = useState<string | null>(null);
@@ -334,6 +350,11 @@ export function BitacoraView({
           <span className="muted small">
             {tr("Puntuación")} · {unlockedCount}/{total} {tr("medallas")}
           </span>
+          {officialScore != null && officialScore > 0 && (
+            <span className="bit-score-eve" title={tr("Puntuación de logros oficial de EVE (Cradle of War)")}>
+              🏆 {officialScore.toLocaleString()} <span className="muted small">{tr("logros EVE")}</span>
+            </span>
+          )}
         </div>
       </div>
 

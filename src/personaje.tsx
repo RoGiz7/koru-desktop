@@ -1,14 +1,22 @@
 // Sección Personaje: cabecera con datos del personaje (CharHeader) y vistas de Skills (por
 // personaje y global). Extraído de App.tsx.
-import { tr } from "./i18n";
+import { useState, useEffect } from "react";
+import { tr, getLang } from "./i18n";
 import { fmtSp, typeIcon, secColor } from "./format";
 import { Kpi } from "./charts";
 import type { CharacterDetail, CharacterCard, SkillsSummary, GlobalSkills } from "./types";
 
 export function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: CharacterCard }) {
+  // Títulos oficiales (SDE characterTitles → nombre): UUID equipado → etiqueta localizada.
+  const [titles, setTitles] = useState<Record<string, { es: string; en: string }>>({});
+  useEffect(() => {
+    fetch("/character_titles.json").then((r) => r.json()).then(setTitles).catch(() => setTitles({}));
+  }, []);
   if (!detail) return null;
   const a = detail.attributes;
   const sec = detail.security_status;
+  const tt = detail.title_id ? titles[detail.title_id] : undefined;
+  const titleLabel = tt ? (getLang() === "es" ? tt.es : tt.en) : "";
   const portrait = card
     ? `https://images.evetech.net/characters/${card.character_id}/portrait?size=128`
     : null;
@@ -32,6 +40,11 @@ export function CharHeader({ detail, card }: { detail: CharacterDetail | null; c
             {card?.corporation_name ?? ""}
             {card?.alliance_name ? ` · ${card.alliance_name}` : ""}
           </div>
+          {titleLabel && (
+            <div className="ch-title" title={tr("Título equipado")}>
+              🎖️ {titleLabel}
+            </div>
+          )}
           <div className="ch-meta">
             {sec != null && (
               <span>

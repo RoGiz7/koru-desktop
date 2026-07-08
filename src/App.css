@@ -555,6 +555,19 @@ select,
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
+/* Puntuación de logros oficial de EVE, junto al Koru-score */
+.bit-score-eve {
+  margin-top: 0.2rem;
+  font-weight: 600;
+  color: #e0a458;
+  font-variant-numeric: tabular-nums;
+}
+/* Título equipado en la ficha del personaje */
+.ch-title {
+  margin: 0.15rem 0;
+  font-weight: 600;
+  color: #e0a458;
+}
 
 /* ----- Medalla con marco geométrico SVG (arte propio, teñido por tier) ----- */
 .medal-frame {

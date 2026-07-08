@@ -19,6 +19,12 @@ pub struct PublicInfo {
     pub race_id: Option<i64>,
     #[serde(default)]
     pub bloodline_id: Option<i64>,
+    // Cradle of War (compat 2026-06-09): título equipado (UUID, se resuelve con characterTitles del
+    // SDE) y puntuación de logros oficial. Rutas públicas, sin scopes.
+    #[serde(default)]
+    pub character_title_id: Option<String>,
+    #[serde(default)]
+    pub achievement_score: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

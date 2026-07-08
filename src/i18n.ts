@@ -236,6 +236,10 @@ const EN: Record<string, string> = {
   "Sin datos para este desglose.": "No data for this breakdown.",
   "Actualización de datos: reescanea para reprocesar tu histórico de logi.":
     "Data update: re-scan to reprocess your logi history.",
+  "Título equipado": "Equipped title",
+  "logros EVE": "EVE achievements",
+  "Puntuación de logros oficial de EVE (Cradle of War)":
+    "Official EVE achievement score (Cradle of War)",
   "Total dado": "Total given",
   "Total recibido": "Total received",
   "HP curados por": "HP healed per",
