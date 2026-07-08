@@ -112,7 +112,8 @@ impl Db {
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó
         //      rancio de builds intermedios (el reset actual ya borra todas las tablas juntas).
         // v11: + crítico de minería (columna crit); base+crit = total ESI → reparse limpio.
-        const LOGI_DATA_VERSION: i64 = 11;
+        // v12: + combate (gamelog_combat: daño hecho/recibido, golpes, wrecking) → reparse una vez.
+        const LOGI_DATA_VERSION: i64 = 12;
         let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
         // Semilla al introducir `meta`: la versión de datos heredada = la última user_version que forzó
         // un reparse en el build anterior (comparten numerado). Así, quien ya reprocesó a v7 NO queda

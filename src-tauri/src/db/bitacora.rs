@@ -865,6 +865,31 @@ impl Db {
                 rusqlite::params![character_id, j.date, j.from, j.to],
             )?;
         }
+        // Fase C — combate (LOG-ONLY): daño hecho/recibido + golpes + wrecking por personaje/día.
+        for c in &batch.combat {
+            let (dd, dt, sd, st, wd, wt) = if c.done {
+                (c.dmg, 0, 1, 0, i64::from(c.wreck), 0)
+            } else {
+                (0, c.dmg, 0, 1, 0, i64::from(c.wreck))
+            };
+            conn.execute(
+                "INSERT INTO gamelog_combat (character_id, date, dmg_done, dmg_taken, shots_done, shots_taken, wrecks_done, wrecks_taken) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8) \
+                 ON CONFLICT(character_id,date) DO UPDATE SET \
+                   dmg_done=dmg_done+excluded.dmg_done, dmg_taken=dmg_taken+excluded.dmg_taken, \
+                   shots_done=shots_done+excluded.shots_done, shots_taken=shots_taken+excluded.shots_taken, \
+                   wrecks_done=wrecks_done+excluded.wrecks_done, wrecks_taken=wrecks_taken+excluded.wrecks_taken",
+                rusqlite::params![character_id, c.date, dd, dt, sd, st, wd, wt],
+            )?;
+            // Daño por objetivo (rata) — solo golpes hechos con objetivo identificado.
+            if c.done && !c.target.is_empty() {
+                conn.execute(
+                    "INSERT INTO gamelog_rats (character_id, date, rat, dmg, shots) VALUES (?1,?2,?3,?4,1) \
+                     ON CONFLICT(character_id,date,rat) DO UPDATE SET dmg = dmg + excluded.dmg, shots = shots + 1",
+                    rusqlite::params![character_id, c.date, c.target, c.dmg],
+                )?;
+            }
+        }
         conn.execute(
             "INSERT INTO gamelog_parsed (filename, size, mtime, read_offset) VALUES (?1,?2,?3,?4) \
              ON CONFLICT(filename) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, read_offset=excluded.read_offset",
@@ -1160,6 +1185,55 @@ impl Db {
                 .flatten()
                 .collect();
         }
+
+        // --- Combate (LOG-ONLY) ---
+        let (cdd, cdt, csd, cst, cwd, cwt): (i64, i64, i64, i64, i64, i64) = conn
+            .query_row(
+                &format!(
+                    "SELECT COALESCE(SUM(dmg_done),0), COALESCE(SUM(dmg_taken),0), COALESCE(SUM(shots_done),0), \
+                     COALESCE(SUM(shots_taken),0), COALESCE(SUM(wrecks_done),0), COALESCE(SUM(wrecks_taken),0) \
+                     FROM gamelog_combat WHERE 1=1 {who}"
+                ),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .unwrap_or((0, 0, 0, 0, 0, 0));
+        r.combat_dmg_done = cdd;
+        r.combat_dmg_taken = cdt;
+        r.combat_shots_done = csd;
+        r.combat_shots_taken = cst;
+        r.combat_wrecks_done = cwd;
+        r.combat_wrecks_taken = cwt;
+        {
+            let q = format!(
+                "SELECT date, SUM(dmg_done) FROM gamelog_combat WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.combat_done_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+        {
+            let q = format!(
+                "SELECT date, SUM(dmg_taken) FROM gamelog_combat WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.combat_taken_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+        {
+            let q = format!(
+                "SELECT rat, SUM(dmg) FROM gamelog_rats WHERE 1=1 {who} GROUP BY rat ORDER BY SUM(dmg) DESC LIMIT 15"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.top_rats = st
+                .query_map([], |row| Ok(RatDmg { rat: row.get(0)?, dmg: row.get(1)? }))?
+                .flatten()
+                .collect();
+        }
         Ok(r)
     }
 
@@ -1224,6 +1298,8 @@ impl Db {
              DELETE FROM gamelog_bounty; \
              DELETE FROM gamelog_jumps; \
              DELETE FROM gamelog_mining_waste; \
+             DELETE FROM gamelog_combat; \
+             DELETE FROM gamelog_rats; \
              COMMIT;",
         )?;
         Ok(())
@@ -1292,6 +1368,21 @@ pub struct GamelogRecon {
     pub total_jumps: i64,
     pub distinct_systems: i64,
     pub top_systems: Vec<SysVisit>,
+    // Combate (LOG-ONLY): daño hecho/recibido, golpes y wrecking ("Destruye") en cada dirección.
+    pub combat_dmg_done: i64,
+    pub combat_dmg_taken: i64,
+    pub combat_shots_done: i64,
+    pub combat_shots_taken: i64,
+    pub combat_wrecks_done: i64,
+    pub combat_wrecks_taken: i64,
+    pub combat_done_series: Vec<DayVal>,
+    pub combat_taken_series: Vec<DayVal>,
+    pub top_rats: Vec<RatDmg>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct RatDmg {
+    pub rat: String,
+    pub dmg: i64,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct MiningOre {

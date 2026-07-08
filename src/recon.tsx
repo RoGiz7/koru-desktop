@@ -56,6 +56,17 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
   }
   const critVals = mSeries.labels.map((l) => cByMonth.get(l) ?? 0);
   const critPct = r.mining_units > 0 ? (r.mining_crit / r.mining_units) * 100 : 0;
+  // Combate: daño hecho/recibido por mes + % wrecking (golpes de gracia).
+  const cdSeries = monthly(r.combat_done_series);
+  const ctByMonth = new Map<string, number>();
+  for (const p of r.combat_taken_series) {
+    const k = p.date.slice(0, 7);
+    ctByMonth.set(k, (ctByMonth.get(k) ?? 0) + p.value);
+  }
+  const ctVals = cdSeries.labels.map((l) => ctByMonth.get(l) ?? 0);
+  const wreckDonePct = r.combat_shots_done > 0 ? (r.combat_wrecks_done / r.combat_shots_done) * 100 : 0;
+  const wreckTakenPct = r.combat_shots_taken > 0 ? (r.combat_wrecks_taken / r.combat_shots_taken) * 100 : 0;
+  const hasCombat = r.combat_dmg_done > 0 || r.combat_dmg_taken > 0;
 
   return (
     <div className="recon-view">
@@ -138,6 +149,43 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
           </div>
         )}
       </div>
+
+      {/* Combate (LOG-ONLY: ESI no da nada de esto) */}
+      {hasCombat && (
+        <div className="recon-block">
+          <h5>💥 {tr("Combate")}</h5>
+          <div className="kpi-row">
+            <Kpi label={tr("Daño hecho")} value={fmtSp(r.combat_dmg_done)} tone="pos" />
+            <Kpi label={tr("Daño recibido")} value={fmtSp(r.combat_dmg_taken)} tone="neg" />
+            {r.combat_shots_done > 0 && (
+              <Kpi label={tr("% wrecking hecho")} value={`${wreckDonePct.toFixed(1)}%`} tone="pos" />
+            )}
+            {r.combat_shots_taken > 0 && (
+              <Kpi label={tr("% wrecking recibido")} value={`${wreckTakenPct.toFixed(1)}%`} />
+            )}
+          </div>
+          {cdSeries.labels.length > 1 && (
+            <MultiLineProgress
+              labels={cdSeries.labels}
+              series={[
+                { name: tr("Daño hecho / mes"), color: "#57c785", values: cdSeries.values },
+                { name: tr("Daño recibido / mes"), color: "#d76a6a", values: ctVals },
+              ]}
+              fmt={fmtSp}
+            />
+          )}
+          {r.top_rats.length > 0 && (
+            <div className="recon-bars">
+              <div className="muted small">{tr("Ratas más batidas (por daño)")}</div>
+              <Bars
+                items={r.top_rats.slice(0, 12).map((x) => ({ label: x.rat, value: x.dmg }))}
+                color="#57c785"
+                fmt={fmtSp}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -275,6 +275,14 @@ const EN: Record<string, string> = {
     "Overlays Extracted (matches ESI) + Critical + Wasted from the gamelog (dashed lines)",
   "El desperdiciado solo se muestra en modo «Unidades» (el log no indica la mena del residuo).":
     "Wasted only shows in “Units” mode (the log doesn't state the residue's ore).",
+  Combate: "Combat",
+  "Daño hecho": "Damage done",
+  "Daño recibido": "Damage taken",
+  "% wrecking hecho": "Wrecking % done",
+  "% wrecking recibido": "Wrecking % taken",
+  "Daño hecho / mes": "Damage done / month",
+  "Daño recibido / mes": "Damage taken / month",
+  "Ratas más batidas (por daño)": "Most-hit rats (by damage)",
   "Superpone el bounty reconstruido del gamelog (fuente separada, línea discontinua)":
     "Overlays the bounty reconstructed from the gamelog (separate source, dashed line)",
   "Superpone la minería reconstruida del gamelog (solo en modo Unidades, línea discontinua)":

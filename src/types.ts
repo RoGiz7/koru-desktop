@@ -621,7 +621,17 @@ export type GamelogRecon = {
   total_jumps: number;
   distinct_systems: number;
   top_systems: SysVisit[];
+  combat_dmg_done: number;
+  combat_dmg_taken: number;
+  combat_shots_done: number;
+  combat_shots_taken: number;
+  combat_wrecks_done: number;
+  combat_wrecks_taken: number;
+  combat_done_series: DayVal[];
+  combat_taken_series: DayVal[];
+  top_rats: RatDmg[];
 };
+export type RatDmg = { rat: string; dmg: number };
 // Un piloto del histórico de logi (a quién curaste / de quién recibiste).
 export type LogiPilot = {
   pilot: string;

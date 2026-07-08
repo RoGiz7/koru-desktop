@@ -43,6 +43,15 @@ pub struct WasteEvent {
     pub date: String,
     pub units: i64,
 }
+/// Un golpe de combate (LOG-ONLY, ESI no da nada de esto). done = hecho por ti (`a`) / recibido (`de`);
+/// wreck = calidad "Destruye" (wrecking hit, ~crítico de combate).
+pub struct CombatEvent {
+    pub date: String,
+    pub dmg: i64,
+    pub done: bool,
+    pub wreck: bool,
+    pub target: String, // objetivo de tu daño (rata), solo en golpes HECHOS; "" en recibidos
+}
 
 /// Todo lo que un fichero de gamelog aporta en UNA pasada (se lee una sola vez).
 #[derive(Default)]
@@ -52,6 +61,7 @@ pub struct ScanBatch {
     pub bounty: Vec<BountyEvent>,
     pub jumps: Vec<JumpEvent>,
     pub waste: Vec<WasteEvent>,
+    pub combat: Vec<CombatEvent>,
 }
 
 /// Quita los tags HTML (<...>) de un fragmento del gamelog.
@@ -320,6 +330,40 @@ fn parse_jump_line(line: &str) -> Option<JumpEvent> {
     Some(JumpEvent { date, from, to })
 }
 
+/// Golpe de combate: `(combat) <b>N</b> ... <font size=10>(a|de)</font> ... - <calidad>`. None si no.
+/// done = `a` (hecho por ti) / `de` (recibido). wreck = la calidad final es "Destruye" (wrecking).
+fn parse_combat_line(line: &str) -> Option<CombatEvent> {
+    let done = if line.contains("size=10>a</font>") {
+        true
+    } else if line.contains("size=10>de</font>") {
+        false
+    } else {
+        return None;
+    };
+    let dmg = first_bold_number(line)? as i64;
+    let date = line_date(line)?;
+    let plain = strip_tags(line);
+    let wreck = plain
+        .trim_end()
+        .rsplit(" - ")
+        .next()
+        .map(|q| q.trim() == "Destruye")
+        .unwrap_or(false);
+    // Objetivo (solo en HECHOS): entre " a " (marcador de dirección) y el primer " - ".
+    let target = if done {
+        plain
+            .find(" a ")
+            .and_then(|i| {
+                let after = &plain[i + 3..];
+                after.find(" - ").map(|j| after[..j].trim().to_string())
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Some(CombatEvent { date, dmg, done, wreck, target })
+}
+
 /// Lee el fichero desde `from` hasta el final y devuelve (nuevo_offset, lote de eventos).
 /// UNA sola pasada emite logi + minería + bounty + saltos (cada línea es de UNA categoría).
 /// Incremental: `from` = byte hasta donde se leyó antes (0 = backfill completo). No carga el
@@ -342,6 +386,8 @@ pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, ScanBatch)> {
         if line.contains("(combat)") {
             if let Some(ev) = parse_logi_line(&line) {
                 batch.logi.push(ev);
+            } else if let Some(ev) = parse_combat_line(&line) {
+                batch.combat.push(ev);
             }
         } else if line.contains("(mining)") {
             if line.contains("desperdiciad") {

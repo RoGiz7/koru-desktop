@@ -329,3 +329,25 @@ CREATE TABLE IF NOT EXISTS gamelog_mining_waste (
     cycles       INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date)
 );
+-- Combate por personaje/día (LOG-ONLY, ESI no lo da): daño hecho/recibido, nº de golpes y wrecking
+-- ("Destruye") en cada dirección → permite DPS, daño in/out y % de golpes de gracia.
+CREATE TABLE IF NOT EXISTS gamelog_combat (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    dmg_done     INTEGER NOT NULL DEFAULT 0,
+    dmg_taken    INTEGER NOT NULL DEFAULT 0,
+    shots_done   INTEGER NOT NULL DEFAULT 0,
+    shots_taken  INTEGER NOT NULL DEFAULT 0,
+    wrecks_done  INTEGER NOT NULL DEFAULT 0,
+    wrecks_taken INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date)
+);
+-- Daño hecho por OBJETIVO (rata) y día → "ratas más batidas". LOG-ONLY.
+CREATE TABLE IF NOT EXISTS gamelog_rats (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    rat          TEXT NOT NULL,
+    dmg          INTEGER NOT NULL DEFAULT 0,
+    shots        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, rat)
+);
