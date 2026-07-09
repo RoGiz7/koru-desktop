@@ -67,6 +67,20 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
   const wreckDonePct = r.combat_shots_done > 0 ? (r.combat_wrecks_done / r.combat_shots_done) * 100 : 0;
   const wreckTakenPct = r.combat_shots_taken > 0 ? (r.combat_wrecks_taken / r.combat_shots_taken) * 100 : 0;
   const hasCombat = r.combat_dmg_done > 0 || r.combat_dmg_taken > 0;
+  // DPS sobre el tiempo de combate REAL (segundos en los que hubo daño), no sobre el de sesión.
+  const hasDps = r.combat_active_secs > 0;
+  const avgDps = hasDps ? r.combat_dmg_done / r.combat_active_secs : 0;
+  const combatHours = r.combat_active_secs / 3600;
+  // DPS por mes bien ponderado: Σdaño del mes / Σsegundos del mes (por eso pedimos el denominador).
+  const secsByMonth = new Map<string, number>();
+  for (const p of r.combat_secs_series) {
+    const k = p.date.slice(0, 7);
+    secsByMonth.set(k, (secsByMonth.get(k) ?? 0) + p.value);
+  }
+  const dpsVals = cdSeries.labels.map((l, i) => {
+    const s = secsByMonth.get(l) ?? 0;
+    return s > 0 ? cdSeries.values[i] / s : 0;
+  });
 
   return (
     <div className="recon-view">
@@ -163,7 +177,20 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
             {r.combat_shots_taken > 0 && (
               <Kpi label={tr("% wrecking recibido")} value={`${wreckTakenPct.toFixed(1)}%`} />
             )}
+            {hasDps && <Kpi label={tr("DPS medio")} value={fmtInt(avgDps)} tone="pos" />}
+            {hasDps && <Kpi label={tr("DPS pico")} value={fmtInt(r.combat_peak_dps)} tone="pos" />}
+            {hasDps && (
+              <Kpi
+                label={tr("Tiempo en combate")}
+                value={combatHours >= 1 ? `${fmtInt(combatHours)} h` : `${fmtInt(r.combat_active_secs)} s`}
+              />
+            )}
           </div>
+          {hasDps && (
+            <p className="muted small">
+              {tr("El DPS se mide sobre los segundos en los que hubo daño, no sobre el tiempo de sesión. El pico es el mayor daño concentrado en un solo segundo.")}
+            </p>
+          )}
           {cdSeries.labels.length > 1 && (
             <MultiLineProgress
               labels={cdSeries.labels}
@@ -172,6 +199,13 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
                 { name: tr("Daño recibido / mes"), color: "#d76a6a", values: ctVals },
               ]}
               fmt={fmtSp}
+            />
+          )}
+          {hasDps && cdSeries.labels.length > 1 && (
+            <MultiLineProgress
+              labels={cdSeries.labels}
+              series={[{ name: tr("DPS medio / mes"), color: "#e0b35c", values: dpsVals }]}
+              fmt={(n: number) => `${fmtInt(n)} DPS`}
             />
           )}
           {r.top_rats.length > 0 && (

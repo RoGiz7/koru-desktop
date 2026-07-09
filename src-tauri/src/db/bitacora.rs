@@ -865,28 +865,77 @@ impl Db {
                 rusqlite::params![character_id, j.date, j.from, j.to],
             )?;
         }
-        // Fase C — combate (LOG-ONLY): daño hecho/recibido + golpes + wrecking por personaje/día.
-        for c in &batch.combat {
-            let (dd, dt, sd, st, wd, wt) = if c.done {
-                (c.dmg, 0, 1, 0, i64::from(c.wreck), 0)
-            } else {
-                (0, c.dmg, 0, 1, 0, i64::from(c.wreck))
-            };
-            conn.execute(
-                "INSERT INTO gamelog_combat (character_id, date, dmg_done, dmg_taken, shots_done, shots_taken, wrecks_done, wrecks_taken) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8) \
-                 ON CONFLICT(character_id,date) DO UPDATE SET \
-                   dmg_done=dmg_done+excluded.dmg_done, dmg_taken=dmg_taken+excluded.dmg_taken, \
-                   shots_done=shots_done+excluded.shots_done, shots_taken=shots_taken+excluded.shots_taken, \
-                   wrecks_done=wrecks_done+excluded.wrecks_done, wrecks_taken=wrecks_taken+excluded.wrecks_taken",
-                rusqlite::params![character_id, c.date, dd, dt, sd, st, wd, wt],
-            )?;
-            // Daño por objetivo (rata) — solo golpes hechos con objetivo identificado.
-            if c.done && !c.target.is_empty() {
+        // Fase C — combate (LOG-ONLY). El combate es LA categoría más numerosa (~millones de líneas):
+        // una escritura por golpe fundiría la BD. Agregamos EN MEMORIA por día (y por rata) y hacemos
+        // solo unos pocos upserts por fichero.
+        {
+            let mut cagg: std::collections::HashMap<String, [i64; 6]> = std::collections::HashMap::new();
+            let mut ragg: std::collections::HashMap<(String, String), [i64; 2]> = std::collections::HashMap::new();
+            // Diccionario ES→EN visto en este fichero (dedup en memoria: son poquísimos distintos).
+            let mut alias: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            // DPS: daño HECHO por (día, segundo). Los segundos con daño = tiempo de combate real;
+            // el máximo de un segundo = pico de DPS. Se resuelve al cerrar el fichero.
+            let mut persec: std::collections::HashMap<(String, i64), i64> = std::collections::HashMap::new();
+            for c in &batch.combat {
+                let e = cagg.entry(c.date.clone()).or_insert([0; 6]);
+                let w = i64::from(c.wreck);
+                if c.done {
+                    e[0] += c.dmg;
+                    e[2] += 1;
+                    e[4] += w;
+                    if c.sec >= 0 {
+                        *persec.entry((c.date.clone(), c.sec)).or_insert(0) += c.dmg;
+                    }
+                    if !c.target.is_empty() {
+                        let r = ragg.entry((c.date.clone(), c.target.clone())).or_insert([0; 2]);
+                        r[0] += c.dmg;
+                        r[1] += 1;
+                    }
+                    if !c.alias_es.is_empty() && !c.alias_en.is_empty() {
+                        alias.insert(c.alias_es.clone(), c.alias_en.clone());
+                    }
+                } else {
+                    e[1] += c.dmg;
+                    e[3] += 1;
+                    e[5] += w;
+                }
+            }
+            // Por día: nº de segundos con daño y el mayor daño concentrado en uno solo.
+            let mut dps: std::collections::HashMap<String, (i64, i64)> = std::collections::HashMap::new();
+            for ((date, _sec), d) in &persec {
+                if *d <= 0 {
+                    continue;
+                }
+                let e = dps.entry(date.clone()).or_insert((0, 0));
+                e.0 += 1;
+                if *d > e.1 {
+                    e.1 = *d;
+                }
+            }
+            for (es, en) in &alias {
                 conn.execute(
-                    "INSERT INTO gamelog_rats (character_id, date, rat, dmg, shots) VALUES (?1,?2,?3,?4,1) \
-                     ON CONFLICT(character_id,date,rat) DO UPDATE SET dmg = dmg + excluded.dmg, shots = shots + 1",
-                    rusqlite::params![character_id, c.date, c.target, c.dmg],
+                    "INSERT INTO gamelog_rat_alias (es, en) VALUES (?1,?2) ON CONFLICT(es) DO NOTHING",
+                    rusqlite::params![es, en],
+                )?;
+            }
+            for (date, v) in &cagg {
+                let (secs, peak) = dps.get(date).copied().unwrap_or((0, 0));
+                conn.execute(
+                    "INSERT INTO gamelog_combat (character_id, date, dmg_done, dmg_taken, shots_done, shots_taken, wrecks_done, wrecks_taken, active_secs, peak_dps) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
+                     ON CONFLICT(character_id,date) DO UPDATE SET \
+                       dmg_done=dmg_done+excluded.dmg_done, dmg_taken=dmg_taken+excluded.dmg_taken, \
+                       shots_done=shots_done+excluded.shots_done, shots_taken=shots_taken+excluded.shots_taken, \
+                       wrecks_done=wrecks_done+excluded.wrecks_done, wrecks_taken=wrecks_taken+excluded.wrecks_taken, \
+                       active_secs=active_secs+excluded.active_secs, peak_dps=MAX(peak_dps, excluded.peak_dps)",
+                    rusqlite::params![character_id, date, v[0], v[1], v[2], v[3], v[4], v[5], secs, peak],
+                )?;
+            }
+            for ((date, rat), v) in &ragg {
+                conn.execute(
+                    "INSERT INTO gamelog_rats (character_id, date, rat, dmg, shots) VALUES (?1,?2,?3,?4,?5) \
+                     ON CONFLICT(character_id,date,rat) DO UPDATE SET dmg = dmg + excluded.dmg, shots = shots + excluded.shots",
+                    rusqlite::params![character_id, date, rat, v[0], v[1]],
                 )?;
             }
         }
@@ -1086,7 +1135,10 @@ impl Db {
         r.mining_cycles = mc;
         {
             let q = format!(
-                "SELECT ore, SUM(units+crit), SUM(cycles) FROM gamelog_mining WHERE 1=1 {who} GROUP BY ore ORDER BY SUM(units+crit) DESC LIMIT 20"
+                // Límite alto a propósito: el nombre es el CRUDO del log, así que la misma mena puede
+                // venir partida en su nombre antiguo y el actual. `get_gamelog_recon` las funde
+                // después por typeID y recorta; si aquí cortásemos a 20, perderíamos filas al sumar.
+                "SELECT ore, SUM(units+crit), SUM(cycles) FROM gamelog_mining WHERE 1=1 {who} GROUP BY ore ORDER BY SUM(units+crit) DESC LIMIT 80"
             );
             let mut st = conn.prepare(&q)?;
             r.top_ores = st
@@ -1204,6 +1256,20 @@ impl Db {
         r.combat_shots_taken = cst;
         r.combat_wrecks_done = cwd;
         r.combat_wrecks_taken = cwt;
+        // DPS (LOG-ONLY): segundos con daño = tiempo de combate REAL; el pico es el mejor segundo
+        // de todo el histórico. El DPS medio se calcula en el frontend (dmg_done / active_secs).
+        let (asecs, peak): (i64, i64) = conn
+            .query_row(
+                &format!(
+                    "SELECT COALESCE(SUM(active_secs),0), COALESCE(MAX(peak_dps),0) \
+                     FROM gamelog_combat WHERE 1=1 {who}"
+                ),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or((0, 0));
+        r.combat_active_secs = asecs;
+        r.combat_peak_dps = peak;
         {
             let q = format!(
                 "SELECT date, SUM(dmg_done) FROM gamelog_combat WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
@@ -1225,8 +1291,24 @@ impl Db {
                 .collect();
         }
         {
+            // Segundos con daño por día. Exponemos el DENOMINADOR (no un DPS ya promediado) para que
+            // el frontend pueda agregar por mes/año ponderando bien: DPS = Σdaño / Σsegundos.
             let q = format!(
-                "SELECT rat, SUM(dmg) FROM gamelog_rats WHERE 1=1 {who} GROUP BY rat ORDER BY SUM(dmg) DESC LIMIT 15"
+                "SELECT date, SUM(active_secs) FROM gamelog_combat WHERE 1=1 {who} GROUP BY date ORDER BY date ASC"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.combat_secs_series = st
+                .query_map([], |row| Ok(DayVal { date: row.get(0)?, value: row.get::<_, i64>(1)? as f64 }))?
+                .flatten()
+                .collect();
+        }
+        {
+            // Canonizamos al nombre EN vía el diccionario sacado del propio log: así "Patriarca
+            // corpus" (log viejo con el cliente en español) y "Corpus Patriarch" son la misma rata.
+            let q = format!(
+                "SELECT COALESCE(a.en, r.rat) AS nombre, SUM(r.dmg) FROM gamelog_rats r \
+                 LEFT JOIN gamelog_rat_alias a ON a.es = r.rat \
+                 WHERE 1=1 {who} GROUP BY nombre ORDER BY SUM(r.dmg) DESC LIMIT 15"
             );
             let mut st = conn.prepare(&q)?;
             r.top_rats = st
@@ -1300,6 +1382,7 @@ impl Db {
              DELETE FROM gamelog_mining_waste; \
              DELETE FROM gamelog_combat; \
              DELETE FROM gamelog_rats; \
+             DELETE FROM gamelog_rat_alias; \
              COMMIT;",
         )?;
         Ok(())
@@ -1375,8 +1458,14 @@ pub struct GamelogRecon {
     pub combat_shots_taken: i64,
     pub combat_wrecks_done: i64,
     pub combat_wrecks_taken: i64,
+    /// DPS: `combat_active_secs` = segundos distintos con daño hecho (tiempo de combate real, muy
+    /// por debajo del tiempo de sesión); `combat_peak_dps` = mejor segundo del histórico.
+    pub combat_active_secs: i64,
+    pub combat_peak_dps: i64,
     pub combat_done_series: Vec<DayVal>,
     pub combat_taken_series: Vec<DayVal>,
+    /// Segundos con daño por día (denominador del DPS; el frontend agrega Σdaño/Σsegundos).
+    pub combat_secs_series: Vec<DayVal>,
     pub top_rats: Vec<RatDmg>,
 }
 #[derive(Debug, Clone, Serialize)]

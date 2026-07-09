@@ -605,7 +605,13 @@ export type DayVal = { date: string; value: number };
 // Minería del gamelog valorada por modo (units/m3/bruto/comp/reproc): Extraído (base+crit) y Crítico.
 // by_ore = extraído valorado por mena/día (id = type_id) para empalmar cada mineral con ESI.
 export type GlOreDay = { id: number; date: string; value: number };
-export type GamelogMiningValued = { extracted: DayVal[]; crit: DayVal[]; by_ore: GlOreDay[] };
+export type GamelogMiningValued = {
+  extracted: DayVal[];
+  crit: DayVal[];
+  by_ore: GlOreDay[];
+  /** type_id → nombre de las menas vistas en el gamelog (ESI solo nombra las de su ventana). */
+  ore_names: [number, string][];
+};
 export type SysVisit = { system: string; visits: number };
 export type GamelogRecon = {
   mining_units: number;
@@ -628,8 +634,14 @@ export type GamelogRecon = {
   combat_shots_taken: number;
   combat_wrecks_done: number;
   combat_wrecks_taken: number;
+  /** Segundos distintos con daño hecho = tiempo de combate REAL (no de sesión). */
+  combat_active_secs: number;
+  /** Mejor segundo del histórico (daño concentrado en 1 s). */
+  combat_peak_dps: number;
   combat_done_series: DayVal[];
   combat_taken_series: DayVal[];
+  /** Segundos con daño por día (denominador del DPS: Σdaño / Σsegundos). */
+  combat_secs_series: DayVal[];
   top_rats: RatDmg[];
 };
 export type RatDmg = { rat: string; dmg: number };

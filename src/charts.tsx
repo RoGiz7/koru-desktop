@@ -182,8 +182,17 @@ export function MultiLineProgress({
 }) {
   const [iso, setIso] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [allChips, setAllChips] = useState(false);
   if (labels.length === 0) return <p className="muted small">Sin datos.</p>;
   const vis = legend && iso ? series.filter((s) => s.name === iso) : series;
+  // Con muchas series (90 menas) la leyenda se come la pantalla. Mostramos las primeras —que vienen
+  // ordenadas por peso— y el resto tras un clic. La serie aislada se mantiene siempre visible.
+  const CHIPS = 14;
+  const overflow = series.length - CHIPS;
+  const chips =
+    allChips || overflow <= 0
+      ? series
+      : series.filter((s, i) => i < CHIPS || s.name === iso);
   const n = labels.length;
   const W = 760;
   const H = 250;
@@ -211,7 +220,7 @@ export function MultiLineProgress({
           <button className={`mll-chip${iso == null ? " active" : ""}`} onClick={() => setIso(null)}>
             {tr("Todos")}
           </button>
-          {series.map((s) => (
+          {chips.map((s) => (
             <button
               key={s.name}
               className={`mll-chip${iso === s.name ? " active" : ""}`}
@@ -221,6 +230,11 @@ export function MultiLineProgress({
               <i style={{ background: s.color }} /> {s.name}
             </button>
           ))}
+          {overflow > 0 && (
+            <button className="mll-chip mll-more" onClick={() => setAllChips((v) => !v)}>
+              {allChips ? tr("ver menos") : `+${overflow} ${tr("más")}`}
+            </button>
+          )}
         </div>
       )}
       <svg
@@ -308,11 +322,18 @@ export function MultiLineProgress({
       {hover != null && (
         <div className="combo-tip">
           <strong>{labels[hover]}</strong>
-          {vis.map((s) => (
-            <span key={s.name} style={{ color: s.color }}>
-              {s.name}: {fmt(s.values[hover])}
-            </span>
-          ))}
+          {/* Solo las series que aportan algo en ESTE punto, de mayor a menor. Con muchas series
+              (p. ej. 90 menas) listarlas todas a cero convierte el tooltip en ruido ilegible.
+              La primera serie (Total/referencia) se mantiene siempre para no perder el contexto. */}
+          {vis
+            .map((s, si) => ({ s, si, v: s.values[hover] ?? 0 }))
+            .filter((e) => e.si === 0 || e.v > 0)
+            .sort((a, b) => (a.si === 0 ? -1 : b.si === 0 ? 1 : b.v - a.v))
+            .map(({ s, v }) => (
+              <span key={s.name} style={{ color: s.color }}>
+                {s.name}: {fmt(v)}
+              </span>
+            ))}
         </div>
       )}
     </div>

@@ -107,13 +107,24 @@ impl Db {
         // ya volcado en la BD: en el peor caso el usuario conserva los datos previos hasta poder reescanear.
         // gamelog_mining: columna `crit` (bonus de extracción crítica de Equinox) añadida en v11.
         let _ = conn.execute("ALTER TABLE gamelog_mining ADD COLUMN crit INTEGER NOT NULL DEFAULT 0", []);
+        // gamelog_combat: columnas de DPS (segundos activos y pico por segundo) añadidas en v15.
+        let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN active_secs INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN peak_dps INTEGER NOT NULL DEFAULT 0", []);
         // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
         // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó
         //      rancio de builds intermedios (el reset actual ya borra todas las tablas juntas).
         // v11: + crítico de minería (columna crit); base+crit = total ESI → reparse limpio.
         // v12: + combate (gamelog_combat: daño hecho/recibido, golpes, wrecking) → reparse una vez.
-        const LOGI_DATA_VERSION: i64 = 12;
+        // v13: combate agregado EN MEMORIA por día/rata antes de escribir (v12 hacía 1 escritura por
+        //      golpe → el escaneo se arrastraba en ficheros de rateo). Reparse limpio con el código rápido.
+        // v14: normaliza el nombre de mena (corta el sufijo Equinox " con un residuo perdido de X
+        //      unidades." que fragmentaba la misma mena en varias filas) → reparse.
+        // v15: nombres de rata canónicos (quita sufijo "*") + tabla gamelog_rat_alias (ES→EN sacada
+        //      del propio log) para unificar los años con el cliente en español → reparse.
+        // v16: parsers BILINGÜES (EN+ES). Los gamelogs en inglés (años enteros) no casaban con ningún
+        //      patrón y eran invisibles. + sufijo de residuo en inglés al limpiar el nombre de mena.
+        const LOGI_DATA_VERSION: i64 = 16;
         let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
         // Semilla al introducir `meta`: la versión de datos heredada = la última user_version que forzó
         // un reparse en el build anterior (comparten numerado). Así, quien ya reprocesó a v7 NO queda

@@ -51,6 +51,8 @@ export function MineriaView({
   const [glValExt, setGlValExt] = useState<{ date: string; value: number }[]>([]);
   const [glValCrit, setGlValCrit] = useState<{ date: string; value: number }[]>([]);
   const [glByOre, setGlByOre] = useState<{ id: number; date: string; value: number }[]>([]);
+  // Nombres de las menas que solo aparecen en el gamelog (ESI no las nombra → saldrían como "#45494").
+  const [glOreNames, setGlOreNames] = useState<Map<number, string>>(new Map());
   const [glWaste, setGlWaste] = useState<{ date: string; value: number }[]>([]); // solo unidades (sin mena)
   const [showGl, setShowGl] = useState(() => localStorage.getItem("koru-mineria-gl") === "1");
   useEffect(() => {
@@ -69,11 +71,13 @@ export function MineriaView({
         setGlValExt(v.extracted);
         setGlValCrit(v.crit);
         setGlByOre(v.by_ore);
+        setGlOreNames(new Map(v.ore_names ?? []));
       })
       .catch(() => {
         setGlValExt([]);
         setGlValCrit([]);
         setGlByOre([]);
+        setGlOreNames(new Map());
       });
   }, [subject, mode]);
 
@@ -119,7 +123,10 @@ export function MineriaView({
 
   const sysName = (id: number) => names.get(id) ?? `#${id}`;
   const oreNames = new Map(series.ore_names);
-  const oreName = (id: number) => oreNames.get(id) ?? `#${id}`;
+  // Nombre de mena: primero el catálogo de ESI; si la mena solo vive en el histórico del gamelog,
+  // el nombre lo trae el propio comando del gamelog. Solo así dejamos de ver "#45494".
+  const oreName = (id: number) =>
+    id < 0 ? tr("Sin identificar") : oreNames.get(id) ?? glOreNames.get(id) ?? `#${id}`;
   const granLabel =
     gran === "day" ? tr("día") : gran === "week" ? tr("semana") : gran === "month" ? tr("mes") : tr("año");
   // Formato y etiqueta según el modo de valoración.
@@ -190,8 +197,13 @@ export function MineriaView({
   // Empalme ESI↔gamelog: dentro/después de la ventana de ESI mandan los datos de ESI; ANTES de la
   // fecha más antigua de ESI, se rellena con el gamelog (valorado en el modo actual). Sin doble conteo:
   // base+crít del gamelog ya = ESI en el solape, así que el corte es limpio.
-  const esiLabels = totalSeries.map((s) => s.label);
-  const esiMin = esiLabels.length ? esiLabels.reduce((a, b) => (a < b ? a : b)) : null;
+  // La "ventana de ESI" empieza donde ESI trae mena REAL (id>=0). El histórico con mena sin resolver
+  // (#-1, no valorable) queda ANTES de ese corte → lo rellena el gamelog (que sí trae mena y valor).
+  // Si ESI no tiene mena real en el rango, esiMin=null → el empalme usa gamelog en todo el tramo.
+  const esiOreLabels = series.daily_by_ore
+    .filter((r) => r.id >= 0 && inRange(r.date))
+    .map((r) => bucketKey(r.date));
+  const esiMin = esiOreLabels.length ? esiOreLabels.reduce((a, b) => (a < b ? a : b)) : null;
   const splice = (esiMap: Map<string, number>, glMap: Map<string, number>) =>
     labels.map((l) => (esiMin != null && l >= esiMin ? (esiMap.get(l) ?? 0) : (glMap.get(l) ?? 0)));
   // Gamelog por mena (id type_id) → Map<id, Map<bucket, value>>, para empalmar cada mineral.
@@ -247,23 +259,47 @@ export function MineriaView({
     color: "#c8d3df",
     values: glOn ? splice(totalMap, glBk) : labels.map((l) => totalMap.get(l) ?? 0),
   };
-  // Minerales empalmados: cada mena = ESI donde cubre + gamelog antes; top por el total empalmado.
-  const mergedOreLines = () => {
-    const esiOre = dimBuckets(series.daily_by_ore);
-    const ids = new Set<number>([...esiOre.keys(), ...glOreBuckets.keys()]);
+  // Color estable por posición. La paleta base tiene 10; a partir de ahí generamos tonos separados
+  // por el ángulo áureo, que reparte los matices sin repetir aunque haya 40 menas.
+  const oreColor = (i: number) =>
+    i < DONUT_COLORS.length ? DONUT_COLORS[i] : `hsl(${(i * 137.5) % 360} 62% 62%)`;
+
+  // Dibujamos TODAS las menas identificadas, cada una con su nombre. Nada de recortar a un top-N:
+  // cualquier recorte deja fuera lo que dominó algún tramo y lo tira a un cajón "Otros" que no dice
+  // nada. La leyenda permite aislar las que interesen. Cada mena = ESI donde cubre + gamelog antes
+  // (si el empalme está activo). Solo menas REALES (id>=0): el #-1 sin resolver no es línea propia.
+  const oreLineData = () => {
+    const esiOre = dimBuckets(series.daily_by_ore.filter((r) => r.id >= 0));
+    const ids = new Set<number>([...esiOre.keys(), ...(glOn ? glOreBuckets.keys() : [])]);
     return [...ids]
       .map((id) => {
-        const vals = splice(esiOre.get(id) ?? new Map<string, number>(), glOreBuckets.get(id) ?? new Map<string, number>());
+        const e = esiOre.get(id) ?? new Map<string, number>();
+        const g = glOreBuckets.get(id) ?? new Map<string, number>();
+        const vals = glOn ? splice(e, g) : mkVals(e);
         return { id, vals, total: vals.reduce((a, b) => a + b, 0) };
       })
       .filter((s) => s.total > 0)
       .sort((a, b) => b.total - a.total)
-      .slice(0, 8)
-      .map((s, i) => ({ name: oreName(s.id), color: DONUT_COLORS[i % DONUT_COLORS.length], values: s.vals }));
+      .map((s, i) => ({ name: oreName(s.id), color: oreColor(i), values: s.vals }));
   };
   const sysSeries = [totalLine, ...buildDim(series.daily_by_system, sysName)];
   const charSeries = [totalLine, ...buildDim(series.daily_by_char, (id) => charNames.get(id) ?? `#${id}`)];
-  const oreSeries = glOn ? [totalLine, ...mergedOreLines()] : [totalLine, ...buildDim(series.daily_by_ore, oreName)];
+  // Ya se dibujan TODAS las menas identificadas, así que un residuo aquí significa mineral que no
+  // hemos sabido nombrar (el #-1 de ESI, o una mena que el catálogo no reconoce). Eso es una SEÑAL,
+  // no un cajón: solo lo mostramos si pesa de verdad (>1% del total del periodo), para que se vea.
+  const withOthers = (lines: { name: string; color: string; values: number[] }[]) => {
+    const others = totalLine.values.map((t, i) => {
+      const shown = lines.reduce((a, l) => a + (l.values[i] ?? 0), 0);
+      const rest = t - shown;
+      return rest > 0.5 ? rest : 0;
+    });
+    const sumTotal = totalLine.values.reduce((a, b) => a + b, 0);
+    const sumOthers = others.reduce((a, b) => a + b, 0);
+    return sumTotal > 0 && sumOthers / sumTotal > 0.01
+      ? [...lines, { name: tr("Sin identificar"), color: "#8b949e", values: others }]
+      : lines;
+  };
+  const oreSeries = [totalLine, ...withOthers(oreLineData())];
   const multiChar = new Set(series.daily_by_char.map((r) => r.id)).size > 1;
   const baseLines = dim === "char" && multiChar ? charSeries : dim === "ore" ? oreSeries : sysSeries;
   // Extras LOG-ONLY del gamelog (discontinuos): Crítico (parte del total, bonus Equinox) y
@@ -288,7 +324,12 @@ export function MineriaView({
     .sort((a, b) => b.value - a.value);
   const rangeValue = oreRows.reduce((a, o) => a + o.value, 0);
   const rangeUnits = oreRows.reduce((a, o) => a + o.units, 0);
-  const mineriaYears = [...new Set(series.daily_by_ore.map((r) => +r.date.slice(0, 4)))]
+  // Años seleccionables = los que la gráfica puede pintar. El ledger de ESI solo cubre su ventana
+  // reciente; los años de atrás los aporta el gamelog, así que solo se ofrecen si está empalmando.
+  const yearDates = glOn
+    ? [...series.daily.map((r) => r.date), ...glValExt.map((d) => d.date)]
+    : series.daily.map((r) => r.date);
+  const mineriaYears = [...new Set(yearDates.map((d) => +d.slice(0, 4)))]
     .filter((y) => y > 0)
     .sort((a, b) => b - a);
 

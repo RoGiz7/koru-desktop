@@ -51,6 +51,11 @@ pub struct CombatEvent {
     pub done: bool,
     pub wreck: bool,
     pub target: String, // objetivo de tu daño (rata), solo en golpes HECHOS; "" en recibidos
+    pub sec: i64,       // segundo del día del golpe → DPS (segundos activos y pico por segundo)
+    // Par (ES, EN) del objetivo cuando la línea trae `<localized>`. Alimenta el diccionario que
+    // canoniza los nombres de logs viejos escritos en español. ("", "") si la línea no lo trae.
+    pub alias_es: String,
+    pub alias_en: String,
 }
 
 /// Todo lo que un fichero de gamelog aporta en UNA pasada (se lee una sola vez).
@@ -130,6 +135,22 @@ fn line_date(line: &str) -> Option<String> {
     Some(d.replace('.', "-"))
 }
 
+/// Segundo del día (0..86399) de `[ AAAA.MM.DD HH:MM:SS ]`. Base del DPS: agrupando los golpes por
+/// segundo sabemos cuántos segundos hubo combate real y cuánto daño cayó en el peor de ellos.
+fn line_secs(line: &str) -> Option<i64> {
+    let start = line.find("[ ")? + 2;
+    let rest = line.get(start..)?;
+    let t = rest.get(11..19)?; // "HH:MM:SS" justo tras "AAAA.MM.DD "
+    let b = t.as_bytes();
+    if b.get(2) != Some(&b':') || b.get(5) != Some(&b':') {
+        return None;
+    }
+    let h: i64 = t.get(..2)?.parse().ok()?;
+    let m: i64 = t.get(3..5)?.parse().ok()?;
+    let s: i64 = t.get(6..8)?.parse().ok()?;
+    Some(h * 3600 + m * 60 + s)
+}
+
 /// Primer número dentro de `<b>...</b>` (la cifra de HP/daño).
 fn first_bold_number(line: &str) -> Option<f64> {
     let i = line.find("<b>")? + 3;
@@ -200,6 +221,50 @@ pub fn parse_logi_line(line: &str) -> Option<LogiEvent> {
     })
 }
 
+/// Normaliza el nombre de una rata/objetivo: quita espacios y sufijos sueltos (`*`, `.`) que el
+/// cliente añade a algunos nombres. Así "Corpus Patriarch*" y "Corpus Patriarch" son la misma rata.
+fn clean_rat(s: &str) -> String {
+    s.trim()
+        .trim_end_matches(|c: char| c == '*' || c == '.' || c.is_whitespace())
+        .trim()
+        .to_string()
+}
+
+/// Del primer `<localized hint="NombreES">NombreEN` que aparezca en `seg`, devuelve (ES, EN).
+/// El gamelog escribe el nombre ES en el hint y el EN como texto visible. Con logs de años en los
+/// que el cliente estuvo en español (sin tag), esto nos da el diccionario para canonizar al EN.
+fn localized_pair(seg: &str) -> Option<(String, String)> {
+    const P: &str = "<localized hint=\"";
+    let i = seg.find(P)?;
+    let after = &seg[i + P.len()..];
+    let q = after.find('"')?;
+    let es = clean_rat(&after[..q]);
+    let rest = &after[q..];
+    let gt = rest.find('>')?;
+    let vis = &rest[gt + 1..];
+    let end = vis.find('<').unwrap_or(vis.len());
+    let en = clean_rat(&vis[..end]);
+    if es.is_empty() || en.is_empty() || es == en {
+        None
+    } else {
+        Some((es, en))
+    }
+}
+
+/// Normaliza el nombre de mena: el formato Equinox añade `" con un residuo perdido de X unidades."`
+/// al final de la línea de extracción → hay que cortarlo para no fragmentar la misma mena en varias
+/// filas. También quita un punto final suelto. Así "Pyroxeres con un residuo…" → "Pyroxeres".
+fn clean_ore(s: &str) -> String {
+    let mut o = s.trim();
+    // El sufijo del residuo (Equinox) va en el idioma del cliente; cortamos ambos.
+    for m in [" con un residuo", " with a lost residue"] {
+        if let Some(p) = o.find(m) {
+            o = o[..p].trim_end();
+        }
+    }
+    o.trim_end_matches('.').trim().to_string()
+}
+
 /// Minería: `(mining) ... Has extraído N unidades de <hint="ES">NombreEN`. None si no lo es.
 /// El número puede llevar puntos de millar y va separado por espacio normal o NBSP.
 fn parse_mining_line(line: &str) -> Option<MiningEvent> {
@@ -208,12 +273,16 @@ fn parse_mining_line(line: &str) -> Option<MiningEvent> {
     }
     let date = line_date(line)?;
     let plain = strip_tags(line);
-    let i = plain.find("unidades de ")?;
-    let ore = plain[i + "unidades de ".len()..].trim().to_string();
+    // Bilingüe: "Has extraído N unidades de X" / "You mined N units of X".
+    let (i, mlen) = match plain.find("unidades de ") {
+        Some(i) => (i, "unidades de ".len()),
+        None => (plain.find("units of ")?, "units of ".len()),
+    };
+    let ore = clean_ore(&plain[i + mlen..]);
     if ore.is_empty() {
         return None;
     }
-    // Número inmediatamente antes de "unidades de": último run de dígitos/puntos/espacios.
+    // Número inmediatamente antes del marcador: último run de dígitos/puntos/espacios.
     let pre = plain[..i].trim_end();
     let mut run: Vec<char> = Vec::new();
     for c in pre.chars().rev() {
@@ -235,18 +304,22 @@ fn parse_mining_line(line: &str) -> Option<MiningEvent> {
 /// adicionales de <mena>`. Bonus de ore según skills/setup. LOG-ONLY: ESI lo suma al total pero no lo
 /// distingue. base + crítico = total ESI (validado). La mena va tras "adicionales de".
 fn parse_crit_line(line: &str) -> Option<MiningEvent> {
-    if !line.contains("crítica") && !line.contains("critica") {
+    if !line.contains("crítica") && !line.contains("critica") && !line.contains("Critical") {
         return None;
     }
     let date = line_date(line)?;
     let plain = strip_tags(line);
-    let oi = plain.find("adicionales de ")?;
-    let ore = plain[oi + "adicionales de ".len()..].trim().to_string();
+    // Bilingüe: "N unidades adicionales de X" / "N additional units of X".
+    let (oi, mlen) = match plain.find("adicionales de ") {
+        Some(i) => (i, "adicionales de ".len()),
+        None => (plain.find("additional units of ")?, "additional units of ".len()),
+    };
+    let ore = clean_ore(&plain[oi + mlen..]);
     if ore.is_empty() {
         return None;
     }
-    // Número tras "extraído " (antes de "unidades").
-    let ui = plain.find("unidades")?;
+    // Número antes de "unidades"/"units".
+    let ui = plain.find("unidades").or_else(|| plain.find("units"))?;
     let pre = plain[..ui].trim_end();
     let mut run: Vec<char> = Vec::new();
     for c in pre.chars().rev() {
@@ -267,12 +340,12 @@ fn parse_crit_line(line: &str) -> Option<MiningEvent> {
 /// Desperdicio de minería: `(mining) N unidades adicionales del asteroide desperdiciadas`. Sin mena.
 /// Dato LOG-ONLY (ESI no lo da): residuo destruido al minar con cristales agresivos.
 fn parse_waste_line(line: &str) -> Option<WasteEvent> {
-    if !line.contains("desperdiciad") {
+    if !line.contains("desperdiciad") && !line.contains("wasted") {
         return None;
     }
     let date = line_date(line)?;
     let plain = strip_tags(line);
-    let i = plain.find("unidades")?;
+    let i = plain.find("unidades").or_else(|| plain.find("units"))?;
     let pre = plain[..i].trim_end();
     let mut run: Vec<char> = Vec::new();
     for c in pre.chars().rev() {
@@ -290,19 +363,15 @@ fn parse_waste_line(line: &str) -> Option<WasteEvent> {
     Some(WasteEvent { date, units })
 }
 
-/// Bounty: `(bounty) Se ha añadido <tags>N ISK<tags> ...`. None si no lo es.
-/// OJO: el separador antes de "ISK" es un NBSP → buscamos "ISK" y filtramos dígitos.
+/// Bounty: `(bounty) Se ha añadido N ISK…` / `(bounty) N ISK added to next bounty payout…`.
+/// Independiente del idioma: anclamos en "(bounty)" (para no comernos los dígitos de la fecha) y
+/// cogemos los dígitos que haya hasta "ISK". OJO: el separador antes de "ISK" es un NBSP.
 fn parse_bounty_line(line: &str) -> Option<BountyEvent> {
-    if !line.contains("(bounty)") {
-        return None;
-    }
+    let b = line.find("(bounty)")?;
     let date = line_date(line)?;
-    let plain = strip_tags(line);
-    // "añadido"/"anadido" → ambos contienen "adido ".
-    let a = plain.find("adido ")?;
-    let after = &plain[a + "adido ".len()..];
-    let j = after.find("ISK")?;
-    let digits: String = after[..j].chars().filter(|c| c.is_ascii_digit()).collect();
+    let plain = strip_tags(&line[b..]);
+    let j = plain.find("ISK")?;
+    let digits: String = plain[..j].chars().filter(|c| c.is_ascii_digit()).collect();
     let isk: i64 = digits.parse().ok()?;
     if isk <= 0 {
         return None;
@@ -312,18 +381,28 @@ fn parse_bounty_line(line: &str) -> Option<BountyEvent> {
 
 /// Salto: `(None) Saltando de <hint="A">A a <hint="B">B`. Coge los DOS hint = origen y destino.
 fn parse_jump_line(line: &str) -> Option<JumpEvent> {
-    if !line.contains("Saltando de ") {
-        return None;
-    }
     let date = line_date(line)?;
-    let mut hints = line.match_indices("hint=\"").filter_map(|(i, _)| {
-        let start = i + 6;
-        let rest = line.get(start..)?;
-        let end = rest.find('"')?;
-        Some(rest[..end].to_string())
-    });
-    let from = hints.next()?;
-    let to = hints.next()?;
+    // ES: `(None) Saltando de <hint="A">A a <hint="B">B` → los dos hint son origen y destino.
+    if line.contains("Saltando de ") {
+        let mut hints = line.match_indices("hint=\"").filter_map(|(i, _)| {
+            let start = i + 6;
+            let rest = line.get(start..)?;
+            let end = rest.find('"')?;
+            Some(rest[..end].to_string())
+        });
+        let from = hints.next()?;
+        let to = hints.next()?;
+        if from.is_empty() || to.is_empty() {
+            return None;
+        }
+        return Some(JumpEvent { date, from, to });
+    }
+    // EN: `(None) Jumping from Azer to Harerget` — texto plano, sin tags.
+    let i = line.find("Jumping from ")?;
+    let rest = strip_tags(&line[i + "Jumping from ".len()..]);
+    let j = rest.find(" to ")?;
+    let from = rest[..j].trim().to_string();
+    let to = rest[j + 4..].trim().to_string();
     if from.is_empty() || to.is_empty() {
         return None;
     }
@@ -333,35 +412,60 @@ fn parse_jump_line(line: &str) -> Option<JumpEvent> {
 /// Golpe de combate: `(combat) <b>N</b> ... <font size=10>(a|de)</font> ... - <calidad>`. None si no.
 /// done = `a` (hecho por ti) / `de` (recibido). wreck = la calidad final es "Destruye" (wrecking).
 fn parse_combat_line(line: &str) -> Option<CombatEvent> {
-    let done = if line.contains("size=10>a</font>") {
-        true
+    // Marcador de dirección, bilingüe. `mark` = el tag exacto (para anclar el alias);
+    // `sep` = cómo se ve ese marcador ya sin tags, para recortar el objetivo del texto plano.
+    let (done, mark, sep) = if line.contains("size=10>a</font>") {
+        (true, "size=10>a</font>", " a ")
+    } else if line.contains("size=10>to</font>") {
+        (true, "size=10>to</font>", " to ")
     } else if line.contains("size=10>de</font>") {
-        false
+        (false, "size=10>de</font>", " de ")
+    } else if line.contains("size=10>from</font>") {
+        (false, "size=10>from</font>", " from ")
     } else {
         return None;
     };
     let dmg = first_bold_number(line)? as i64;
     let date = line_date(line)?;
+    let sec = line_secs(line).unwrap_or(-1);
     let plain = strip_tags(line);
+    // Wrecking hit (≈ crítico de combate): "Destruye" en ES, "Wrecks" en EN.
     let wreck = plain
         .trim_end()
         .rsplit(" - ")
         .next()
-        .map(|q| q.trim() == "Destruye")
+        .map(|q| {
+            let q = q.trim();
+            q == "Destruye" || q == "Wrecks"
+        })
         .unwrap_or(false);
-    // Objetivo (solo en HECHOS): entre " a " (marcador de dirección) y el primer " - ".
+    // Objetivo (solo en HECHOS): entre el marcador de dirección y el primer " - ".
     let target = if done {
         plain
-            .find(" a ")
+            .find(sep)
             .and_then(|i| {
-                let after = &plain[i + 3..];
-                after.find(" - ").map(|j| after[..j].trim().to_string())
+                let after = &plain[i + sep.len()..];
+                after.find(" - ").map(|j| clean_rat(&after[..j]))
             })
             .unwrap_or_default()
     } else {
         String::new()
     };
-    Some(CombatEvent { date, dmg, done, wreck, target })
+    // Diccionario ES→EN del objetivo: el primer `<localized>` que hay TRAS el marcador de dirección
+    // y ANTES del primer " - " (después de ese guion viene el arma, que no queremos meter aquí).
+    let mut alias_es = String::new();
+    let mut alias_en = String::new();
+    if done && !target.is_empty() {
+        if let Some(i) = line.find(mark) {
+            let rest = &line[i..];
+            let end = rest.find(" - ").unwrap_or(rest.len());
+            if let Some((es, en)) = localized_pair(&rest[..end]) {
+                alias_es = es;
+                alias_en = en;
+            }
+        }
+    }
+    Some(CombatEvent { date, dmg, done, wreck, target, sec, alias_es, alias_en })
 }
 
 /// Lee el fichero desde `from` hasta el final y devuelve (nuevo_offset, lote de eventos).
@@ -390,11 +494,13 @@ pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, ScanBatch)> {
                 batch.combat.push(ev);
             }
         } else if line.contains("(mining)") {
-            if line.contains("desperdiciad") {
+            // Despacho bilingüe. OJO al orden: la línea de crítico EN contiene "units of", que también
+            // casa con la de extracción base, así que el crítico debe comprobarse ANTES.
+            if line.contains("desperdiciad") || line.contains("wasted") {
                 if let Some(w) = parse_waste_line(&line) {
                     batch.waste.push(w);
                 }
-            } else if line.contains("crítica") || line.contains("critica") {
+            } else if line.contains("crítica") || line.contains("critica") || line.contains("Critical") {
                 if let Some(ev) = parse_crit_line(&line) {
                     batch.mining.push(ev); // crit=true → columna crit en commit
                 }
@@ -405,7 +511,7 @@ pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, ScanBatch)> {
             if let Some(ev) = parse_bounty_line(&line) {
                 batch.bounty.push(ev);
             }
-        } else if line.contains("Saltando de ") {
+        } else if line.contains("Saltando de ") || line.contains("Jumping from ") {
             if let Some(ev) = parse_jump_line(&line) {
                 batch.jumps.push(ev);
             }

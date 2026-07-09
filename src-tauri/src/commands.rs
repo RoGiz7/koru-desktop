@@ -1558,7 +1558,32 @@ pub async fn get_gamelog_recon(
     subject_id: i64,
     state: State<'_, AppState>,
 ) -> AppResult<crate::db::bitacora::GamelogRecon> {
-    state.db.gamelog_recon(subject_id)
+    let mut r = state.db.gamelog_recon(subject_id)?;
+    // La BD guarda el nombre CRUDO del log, así que la misma mena aparece con su nombre antiguo
+    // ("Solid Pyroxeres") y con el actual ("Pyroxeres II-Grade"). Las fundimos por typeID y las
+    // mostramos con el nombre canónico. Lo que el catálogo no reconozca se deja tal cual.
+    {
+        use std::collections::HashMap;
+        let mut agg: HashMap<String, (i64, i64)> = HashMap::new();
+        for o in &r.top_ores {
+            let canon = ore_name_index()
+                .get(&o.ore.to_lowercase())
+                .and_then(|id| ore_data().get(id))
+                .map(|i| i.n.clone())
+                .unwrap_or_else(|| o.ore.clone());
+            let e = agg.entry(canon).or_insert((0, 0));
+            e.0 += o.units;
+            e.1 += o.cycles;
+        }
+        let mut merged: Vec<crate::db::bitacora::MiningOre> = agg
+            .into_iter()
+            .map(|(ore, (units, cycles))| crate::db::bitacora::MiningOre { ore, units, cycles })
+            .collect();
+        merged.sort_by(|a, b| b.units.cmp(&a.units));
+        merged.truncate(20);
+        r.top_ores = merged;
+    }
+    Ok(r)
 }
 
 /// Minería del gamelog VALORADA por modo (units/m3/bruto/comp/reproc), reusando `ore_per_unit`.
@@ -1575,6 +1600,7 @@ pub struct GamelogMiningValued {
     pub extracted: Vec<crate::db::bitacora::DayVal>,
     pub crit: Vec<crate::db::bitacora::DayVal>,
     pub by_ore: Vec<GlOreDay>, // extraído (base+crit) valorado por mena/día, para el empalme por mineral
+    pub ore_names: Vec<(i64, String)>, // type_id → nombre EN de las menas vistas en el gamelog
 }
 #[tauri::command]
 pub async fn get_gamelog_mining_valued(
@@ -1597,6 +1623,12 @@ pub async fn get_gamelog_mining_valued(
     let mut name_to_id: HashMap<String, i64> = HashMap::new();
     let mut to_resolve: Vec<String> = Vec::new();
     for ore in &distinct {
+        // 1) Catálogo local del SDE: cubre las 240 menas del juego, sin red y sin poder fallar.
+        if let Some(id) = ore_name_index().get(&ore.to_lowercase()) {
+            name_to_id.insert(ore.clone(), *id);
+            continue;
+        }
+        // 2) Caché de nombres. 3) ESI (solo para lo que el catálogo no conozca).
         match state.db.name_cache_get(&ore.to_lowercase()) {
             Some((Some(id), _, _)) => {
                 name_to_id.insert(ore.clone(), id);
@@ -1652,10 +1684,21 @@ pub async fn get_gamelog_mining_valued(
         .map(|((id, date), value)| GlOreDay { id, date, value })
         .collect();
     ore_v.sort_by(|a, b| a.date.cmp(&b.date));
+    // Nombres de las menas del gamelog: sin esto el frontend pinta "#45494" para las menas que solo
+    // existen en el histórico del log (ESI solo nombra las que hay en su ventana de mining_ledger).
+    // Devolvemos el nombre CANÓNICO ACTUAL del catálogo, no el que escribió el log: así el histórico
+    // de "Solid Pyroxeres" y el reciente de "Pyroxeres II-Grade" son la MISMA línea (mismo typeID).
+    let mut seen: HashSet<i64> = HashSet::new();
+    let ore_names: Vec<(i64, String)> = name_to_id
+        .values()
+        .filter(|id| seen.insert(**id))
+        .filter_map(|id| ore_data().get(id).map(|info| (*id, info.n.clone())))
+        .collect();
     Ok(GamelogMiningValued {
         extracted: to_series(ext),
         crit: to_series(crt),
         by_ore: ore_v,
+        ore_names,
     })
 }
 
@@ -4078,11 +4121,32 @@ pub async fn scan_gamelogs(
             .logi_reset_for_reparse()
             .map_err(|e| AppError::Other(format!("Preparando reprocesado: {e}")))?;
     }
+    // El progreso por NÚMERO de fichero miente: un gamelog de 4 KB y otro de 300 MB cuentan igual, y
+    // la estimación de tiempo se dispara al topar con los grandes. Emitimos también BYTES, que es
+    // proporcional al trabajo real. `prefix[i]` = bytes de los i primeros ficheros, así el contador
+    // es exacto aunque el bucle se salte ficheros con `continue`.
+    let sizes: Vec<u64> = files
+        .iter()
+        .map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+        .collect();
+    let mut prefix: Vec<u64> = Vec::with_capacity(total + 1);
+    let mut acc = 0u64;
+    prefix.push(0);
+    for s in &sizes {
+        acc += *s;
+        prefix.push(acc);
+    }
+    let bytes_total = acc;
     // Emite el total ya de entrada: distingue "carpeta vacía" (0/0) de "escaneando" (0/N).
-    let _ = window.emit("gamelog_scan_progress", (0usize, total));
+    let _ = window.emit("gamelog_scan_progress", (0usize, total, 0u64, bytes_total));
     let mut scanned = 0usize;
     let mut healed = 0.0f64;
     for (i, path) in files.iter().enumerate() {
+        // OJO: el progreso va ANTES de los `continue` (fichero sin cambios / ilegible). Si no, los
+        // ficheros saltados congelan el contador justo cuando el escaneo va más rápido.
+        if i % 20 == 0 {
+            let _ = window.emit("gamelog_scan_progress", (i, total, prefix[i], bytes_total));
+        }
         let fname = match path.file_name().and_then(|s| s.to_str()) {
             Some(s) => s.to_string(),
             None => continue,
@@ -4117,11 +4181,8 @@ pub async fn scan_gamelogs(
             .commit_gamelog(&fname, size, mtime, new_off as i64, char_id, &batch)
             .map_err(|e| AppError::Other(format!("Guardando {fname}: {e}")))?;
         scanned += 1;
-        if i % 20 == 0 {
-            let _ = window.emit("gamelog_scan_progress", (i + 1, total));
-        }
     }
-    let _ = window.emit("gamelog_scan_progress", (total, total));
+    let _ = window.emit("gamelog_scan_progress", (total, total, bytes_total, bytes_total));
     // Reprocesado completado con éxito: fija la versión de datos y limpia la marca pendiente.
     if do_reparse {
         let _ = state.db.logi_mark_reparsed();
@@ -6391,6 +6452,31 @@ fn ore_data() -> &'static std::collections::HashMap<i64, OreInfo> {
     static D: std::sync::OnceLock<std::collections::HashMap<i64, OreInfo>> =
         std::sync::OnceLock::new();
     D.get_or_init(|| serde_json::from_str(include_str!("../ore_data.json")).unwrap_or_default())
+}
+
+/// Índice `nombre EN en minúsculas → type_id` del catálogo de menas del SDE (embebido, sin red).
+/// El gamelog escribe el NOMBRE de la mena, no su id: esta es la tabla que los confronta. Antes esto
+/// se resolvía contra ESI, y toda mena que no respondiera se quedaba sin id (y sin nombre en la
+/// gráfica). Con el catálogo local la resolución es determinista y completa.
+fn ore_name_index() -> &'static std::collections::HashMap<String, i64> {
+    static I: std::sync::OnceLock<std::collections::HashMap<String, i64>> =
+        std::sync::OnceLock::new();
+    I.get_or_init(|| {
+        let mut m: std::collections::HashMap<String, i64> = ore_data()
+            .iter()
+            .filter(|(_, info)| !info.n.is_empty())
+            .map(|(id, info)| (info.n.to_lowercase(), *id))
+            .collect();
+        // Nombres ANTIGUOS de las variantes (CCP las renombró a "X II/III-Grade" conservando el
+        // typeID). Los gamelogs de años atrás los usan y el SDE actual ya no los conoce, así que sin
+        // esto toda esa minería se queda sin id → sin valorar y sin nombre en la gráfica.
+        let legacy: std::collections::HashMap<String, i64> =
+            serde_json::from_str(include_str!("../ore_aliases.json")).unwrap_or_default();
+        for (name, id) in legacy {
+            m.entry(name.to_lowercase()).or_insert(id);
+        }
+        m
+    })
 }
 /// Valor por UNIDAD de un ore según el modo de valoración elegido.
 /// modos: "units" | "m3" | "bruto" | "comp" | "reproc" (reprocesado al 85%).

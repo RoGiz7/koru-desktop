@@ -1534,6 +1534,12 @@ function App() {
                 </div>
               )}
 
+              {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / reconstrucción Fase C) */}
+              <GamelogControl />
+
+              {/* Copias automáticas: van DESPUÉS de Logs; la fila es carpeta + frecuencia + retención
+                  en una sola línea (la ruta completa vive en el tooltip del botón, que si no ocupa
+                  un renglón entero para algo que no se lee). */}
               <div className="tb-settings-auto">
                 <label className="tb-auto-toggle">
                   <input
@@ -1548,50 +1554,44 @@ function App() {
                 </label>
                 {autoBkEnabled && (
                   <div className="tb-auto-body">
-                    <div className="tb-auto-dir small muted" title={autoBkDir ?? ""}>
-                      {autoBkDir || tr("Sin carpeta seleccionada")}
-                    </div>
-                    <button className="tb-auto-pick" onClick={chooseAutoBkDir}>
-                      📁 {tr("Elegir carpeta…")}
+                    <button
+                      className="tb-auto-pick"
+                      onClick={chooseAutoBkDir}
+                      title={autoBkDir || tr("Sin carpeta seleccionada")}
+                    >
+                      📁 {autoBkDir ? autoBkDir.split(/[\\/]/).filter(Boolean).pop() : tr("Elegir carpeta…")}
                     </button>
-                    <div className="tb-auto-opts">
-                      <label className="small">
-                        {tr("Frecuencia")}:&nbsp;
-                        <select
-                          value={autoBkFreq}
-                          onChange={(e) => {
-                            setAutoBkFreq(e.target.value);
-                            setAutoBk("freq", e.target.value);
-                          }}
-                        >
-                          <option value="daily">{tr("Diaria")}</option>
-                          <option value="weekly">{tr("Semanal")}</option>
-                          <option value="startup">{tr("Al abrir")}</option>
-                        </select>
-                      </label>
-                      <label className="small">
-                        {tr("Conservar")}:&nbsp;
-                        <select
-                          value={autoBkKeep}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            setAutoBkKeep(v);
-                            setAutoBk("keep", String(v));
-                          }}
-                        >
-                          <option value={7}>7</option>
-                          <option value={14}>14</option>
-                          <option value={30}>30</option>
-                          <option value={0}>{tr("Todas")}</option>
-                        </select>
-                      </label>
-                    </div>
+                    <select
+                      className="tb-auto-sel"
+                      title={tr("Frecuencia")}
+                      value={autoBkFreq}
+                      onChange={(e) => {
+                        setAutoBkFreq(e.target.value);
+                        setAutoBk("freq", e.target.value);
+                      }}
+                    >
+                      <option value="daily">{tr("Diaria")}</option>
+                      <option value="weekly">{tr("Semanal")}</option>
+                      <option value="startup">{tr("Al abrir")}</option>
+                    </select>
+                    <select
+                      className="tb-auto-sel"
+                      title={tr("Copias a conservar")}
+                      value={autoBkKeep}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setAutoBkKeep(v);
+                        setAutoBk("keep", String(v));
+                      }}
+                    >
+                      <option value={7}>7 {tr("copias")}</option>
+                      <option value={14}>14 {tr("copias")}</option>
+                      <option value={30}>30 {tr("copias")}</option>
+                      <option value={0}>{tr("Todas")}</option>
+                    </select>
                   </div>
                 )}
               </div>
-
-              {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / futura reconstrucción) */}
-              <GamelogControl />
 
               <div className="tb-settings-foot">
                 <div className="small muted">

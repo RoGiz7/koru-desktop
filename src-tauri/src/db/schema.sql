@@ -340,6 +340,10 @@ CREATE TABLE IF NOT EXISTS gamelog_combat (
     shots_taken  INTEGER NOT NULL DEFAULT 0,
     wrecks_done  INTEGER NOT NULL DEFAULT 0,
     wrecks_taken INTEGER NOT NULL DEFAULT 0,
+    -- DPS: `active_secs` = segundos distintos con daño hecho (tiempo de combate real, no de sesión);
+    -- `peak_dps` = daño máximo concentrado en un solo segundo. DPS medio = dmg_done / active_secs.
+    active_secs  INTEGER NOT NULL DEFAULT 0,
+    peak_dps     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date)
 );
 -- Daño hecho por OBJETIVO (rata) y día → "ratas más batidas". LOG-ONLY.
@@ -350,4 +354,12 @@ CREATE TABLE IF NOT EXISTS gamelog_rats (
     dmg          INTEGER NOT NULL DEFAULT 0,
     shots        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date, rat)
+);
+
+-- Diccionario ES→EN de nombres de rata, extraído del propio gamelog (`<localized hint="ES">EN`).
+-- Los logs de los años en que el cliente estuvo en español guardan el nombre ES sin tag; con esto
+-- los canonizamos al inglés AL CONSULTAR, en vez de duplicar la misma rata en dos filas.
+CREATE TABLE IF NOT EXISTS gamelog_rat_alias (
+    es TEXT PRIMARY KEY,
+    en TEXT NOT NULL
 );
