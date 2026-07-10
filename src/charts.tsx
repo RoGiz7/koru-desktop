@@ -324,10 +324,12 @@ export function MultiLineProgress({
           <strong>{labels[hover]}</strong>
           {/* Solo las series que aportan algo en ESTE punto, de mayor a menor. Con muchas series
               (p. ej. 90 menas) listarlas todas a cero convierte el tooltip en ruido ilegible.
-              La primera serie (Total/referencia) se mantiene siempre para no perder el contexto. */}
+              La primera serie (Total/referencia) se mantiene siempre para no perder el contexto.
+              OJO: `!== 0`, no `> 0`. Hay series que pueden ser NEGATIVAS (p. ej. "No ingresado"
+              cuando cobras ESS atrasado) y esconderlas sería justo ocultar el dato interesante. */}
           {vis
             .map((s, si) => ({ s, si, v: s.values[hover] ?? 0 }))
-            .filter((e) => e.si === 0 || e.v > 0)
+            .filter((e) => e.si === 0 || e.v !== 0)
             .sort((a, b) => (a.si === 0 ? -1 : b.si === 0 ? 1 : b.v - a.v))
             .map(({ s, v }) => (
               <span key={s.name} style={{ color: s.color }}>

@@ -5,8 +5,9 @@ pub mod bitacora;
 
 use crate::error::AppResult;
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 pub struct Db {
     pub conn: Mutex<Connection>,
@@ -70,6 +71,20 @@ impl Db {
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN context_id_type TEXT", []);
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN first_party_id INTEGER", []);
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN second_party_id INTEGER", []);
+        // Saneo: quita las filas del CSV (id<0) cuya transacción ya llegó por ESI (id>0). Se hace al
+        // arrancar porque cada sync de ESI puede traer una gemela de algo que el CSV ya importó, y el
+        // id sintético no colisiona a propósito → se contaba DOBLE. Idempotente y barato.
+        let _ = conn.execute(
+            "DELETE FROM wallet_journal WHERE id < 0 AND EXISTS (
+                 SELECT 1 FROM wallet_journal r
+                  WHERE r.id > 0
+                    AND r.character_id = wallet_journal.character_id
+                    AND r.ref_type = wallet_journal.ref_type
+                    AND substr(r.date, 1, 19) = substr(wallet_journal.date, 1, 19)
+                    AND ROUND(r.amount, 2) = ROUND(wallet_journal.amount, 2)
+             )",
+            [],
+        );
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
         // personal_projects: filtro opcional (nave/mineral/sistema) añadido en 0.18.4.
@@ -124,7 +139,9 @@ impl Db {
         //      del propio log) para unificar los años con el cliente en español → reparse.
         // v16: parsers BILINGÜES (EN+ES). Los gamelogs en inglés (años enteros) no casaban con ningún
         //      patrón y eran invisibles. + sufijo de residuo en inglés al limpiar el nombre de mena.
-        const LOGI_DATA_VERSION: i64 = 16;
+        // v17: fix del bounty ×100 en los logs viejos, que escriben decimales ("1.104.375,00 ISK").
+        //      El parser bilingüe de v16 filtraba TODOS los dígitos y se comía la coma decimal.
+        const LOGI_DATA_VERSION: i64 = 17;
         let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
         // Semilla al introducir `meta`: la versión de datos heredada = la última user_version que forzó
         // un reparse en el build anterior (comparten numerado). Así, quien ya reprocesó a v7 NO queda
@@ -534,6 +551,9 @@ pub struct RattingDay {
     pub bounty: f64,
     pub ess: f64,
     pub rats: i64,
+    /// Bounty BRUTO: lo que valían las ratas antes del ESS y del impuesto. Σ(cantidad × valor) del
+    /// `reason`. 0 donde no hay desglose (ESI fuera de ventana). NO es una estimación: es el precio.
+    pub gross: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -554,6 +574,8 @@ pub struct RatCharDay {
 pub struct RattingDetail {
     pub total_bounty: f64,
     pub total_ess: f64,
+    /// Σ del precio de todas las ratas. `total_bounty + total_ess` frente a esto = lo que te llegó.
+    pub total_gross: f64,
     pub rats_killed: i64,
     pub entries: i64,
     pub active_hours: i64,
@@ -626,13 +648,85 @@ pub fn category_of(ref_type: &str, amount: f64) -> &'static str {
     }
 }
 
-/// Suma las cantidades del campo `reason` de un bounty_prizes.
-/// Formato: "24129: 1,24130: 6,16895: 2" => typeID_rata: cantidad.
+/// Recompensa BASE de cada NPC: atributo `entityKillBounty` (481) del SDE, 2.856 tipos. Permite
+/// calcular el bounty bruto a partir del `reason` de ESI, que solo trae `typeID: cantidad`.
+/// OJO: es la base. Donde el Dynamic Bounty System del sistema no sea 1,0 no coincidirá con lo
+/// realmente generado — y ese cociente es, precisamente, el DBS medido.
+fn npc_bounty() -> &'static HashMap<i64, i64> {
+    static B: OnceLock<HashMap<i64, i64>> = OnceLock::new();
+    B.get_or_init(|| {
+        let raw: HashMap<String, i64> =
+            serde_json::from_str(include_str!("../../npc_bounty.json")).unwrap_or_default();
+        raw.into_iter()
+            .filter_map(|(k, v)| k.parse::<i64>().ok().map(|id| (id, v)))
+            .collect()
+    })
+}
+
+/// Una rata del desglose de un pago de bounty: cuántas, y cuánto valía cada una.
+#[derive(Debug, Clone)]
+pub struct RatLine {
+    pub type_id: Option<i64>, // solo en el formato de ESI
+    pub name: Option<String>, // solo en el texto de corptools
+    pub count: i64,
+    pub unit_isk: i64,
+}
+
+/// Una línea del texto de corptools: `"3x Gist Seraphim @ 1,300,000 ISK"`.
+fn parse_reason_text_line(l: &str) -> Option<RatLine> {
+    let l = l.trim();
+    let xi = l.find('x')?;
+    let count: i64 = l[..xi].trim().parse().ok()?;
+    let at = l.find('@')?;
+    if at < xi || count <= 0 {
+        return None;
+    }
+    let name = l[xi + 1..at].trim().to_string();
+    let rest = &l[at + 1..];
+    let end = rest.find("ISK").unwrap_or(rest.len());
+    let digits: String = rest[..end].chars().filter(|c| c.is_ascii_digit()).collect();
+    let unit_isk: i64 = digits.parse().ok()?;
+    if name.is_empty() {
+        return None;
+    }
+    Some(RatLine { type_id: None, name: Some(name), count, unit_isk })
+}
+
+/// Desglosa el `reason` de un `bounty_prizes`. Hay DOS formatos y confundirlos destroza el dato:
+///  · ESI      → `"24129: 1,24130: 6"` (typeID: cantidad). El valor sale del SDE.
+///  · corptools→ `"3x Gist Seraphim @ 1,300,000 ISK\n1x …"` (nombre y valor incluidos).
+/// El texto de corptools lleva COMAS dentro de los números, así que partir por ',' como hace el
+/// formato de ESI lo haría trizas. Distinguimos por la presencia de '@'.
+pub fn parse_reason(reason: &str) -> Vec<RatLine> {
+    let r = reason.trim();
+    if r.is_empty() {
+        return Vec::new();
+    }
+    if r.contains('@') {
+        return r.lines().filter_map(parse_reason_text_line).collect();
+    }
+    r.split(',')
+        .filter_map(|p| {
+            let (a, b) = p.split_once(':')?;
+            let tid: i64 = a.trim().parse().ok()?;
+            let count: i64 = b.trim().parse().ok()?;
+            if count <= 0 {
+                return None;
+            }
+            let unit_isk = npc_bounty().get(&tid).copied().unwrap_or(0);
+            Some(RatLine { type_id: Some(tid), name: None, count, unit_isk })
+        })
+        .collect()
+}
+
+/// Nº de ratas del `reason` (cualquiera de los dos formatos).
 fn parse_rat_count(reason: &str) -> i64 {
-    reason
-        .split(',')
-        .filter_map(|p| p.rsplit(':').next()?.trim().parse::<i64>().ok())
-        .sum()
+    parse_reason(reason).iter().map(|r| r.count).sum()
+}
+
+/// Bounty BRUTO del `reason`: Σ(cantidad × valor unitario). 0 si no se puede saber.
+fn parse_rat_gross(reason: &str) -> i64 {
+    parse_reason(reason).iter().map(|r| r.count * r.unit_isk).sum()
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1105,7 +1199,11 @@ impl Db {
         let mut entries = 0i64;
         let mut sys: HashMap<i64, (f64, f64, i64)> = HashMap::new(); // system -> (bounty, ess, rats)
         let mut sys_hours: HashMap<i64, HashSet<String>> = HashMap::new(); // system -> horas con bounty
-        let mut days: HashMap<String, (f64, f64, i64)> = HashMap::new(); // day -> (bounty, ess, rats)
+        // day -> (bounty cobrado, ess cobrado, ratas, bounty BRUTO). El bruto sale del desglose del
+        // `reason`: Σ(cantidad × valor de la rata). Es lo que valían los bichos ANTES del corte del
+        // ESS y del impuesto de corp. 0 en las filas sin reason (ESI fuera de ventana, ESS, etc.).
+        let mut days: HashMap<String, (f64, f64, i64, i64)> = HashMap::new();
+        let mut total_gross = 0i64;
         let mut sys_day: HashMap<(i64, String), f64> = HashMap::new(); // (system, día) -> isk
         let mut char_day: HashMap<(i64, String), f64> = HashMap::new(); // (personaje, día) -> isk
         let mut active: HashSet<String> = HashSet::new(); // horas distintas con bounty
@@ -1113,14 +1211,18 @@ impl Db {
         for (date, ref_type, amount, context_id, reason, char_id) in rows {
             entries += 1;
             let is_bounty = ref_type.as_deref() == Some("bounty_prizes");
-            let rats = if is_bounty {
-                reason.as_deref().map(parse_rat_count).unwrap_or(0)
+            let (rats, gross) = if is_bounty {
+                match reason.as_deref() {
+                    Some(r) => (parse_rat_count(r), parse_rat_gross(r)),
+                    None => (0, 0),
+                }
             } else {
-                0
+                (0, 0)
             };
             if is_bounty {
                 total_bounty += amount;
                 rats_killed += rats;
+                total_gross += gross;
             } else {
                 total_ess += amount;
             }
@@ -1145,10 +1247,11 @@ impl Db {
             if let Some(d) = date.as_deref() {
                 let day = d.get(0..10).unwrap_or(d).to_string();
                 *char_day.entry((char_id, day.clone())).or_insert(0.0) += amount;
-                let e = days.entry(day).or_insert((0.0, 0.0, 0));
+                let e = days.entry(day).or_insert((0.0, 0.0, 0, 0));
                 if is_bounty {
                     e.0 += amount;
                     e.2 += rats;
+                    e.3 += gross;
                 } else {
                     e.1 += amount;
                 }
@@ -1175,11 +1278,12 @@ impl Db {
 
         let mut daily: Vec<RattingDay> = days
             .into_iter()
-            .map(|(date, (bounty, ess, rats))| RattingDay {
+            .map(|(date, (bounty, ess, rats, gross))| RattingDay {
                 date,
                 bounty,
                 ess,
                 rats,
+                gross: gross as f64,
             })
             .collect();
         daily.sort_by(|a, b| a.date.cmp(&b.date));
@@ -1207,6 +1311,7 @@ impl Db {
         Ok(RattingDetail {
             total_bounty,
             total_ess,
+            total_gross: total_gross as f64,
             rats_killed,
             entries,
             active_hours: active.len() as i64,
@@ -1821,6 +1926,32 @@ impl Db {
         Ok(())
     }
 
+    /// Borra las filas SINTÉTICAS (id<0, del CSV de corptools) que tienen gemela real de ESI (id>0).
+    ///
+    /// El id sintético se diseñó para no colisionar con los de ESI, y eso evita duplicar al
+    /// reimportar el CSV… pero garantiza que una MISMA transacción presente en ambas fuentes entre
+    /// dos veces. Como ESI mantiene una ventana de ~30 días, todo lo que el CSV cubra dentro de esa
+    /// ventana se contaba DOBLE (detectado: bounty y ESS de un mes exactamente ×2,00).
+    ///
+    /// Gana siempre ESI: trae `reason`/`context_id` (sistema, ratas) que el CSV no tiene. Emparejamos
+    /// por (personaje, fecha al segundo, tipo, importe) — dos pagos idénticos del mismo tipo al mismo
+    /// personaje y en el mismo segundo serían la misma transacción.
+    pub fn journal_drop_synthetic_dupes(&self) -> AppResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "DELETE FROM wallet_journal WHERE id < 0 AND EXISTS (
+                 SELECT 1 FROM wallet_journal r
+                  WHERE r.id > 0
+                    AND r.character_id = wallet_journal.character_id
+                    AND r.ref_type = wallet_journal.ref_type
+                    AND substr(r.date, 1, 19) = substr(wallet_journal.date, 1, 19)
+                    AND ROUND(r.amount, 2) = ROUND(wallet_journal.amount, 2)
+             )",
+            [],
+        )?;
+        Ok(n)
+    }
+
     /// Inserta en lote filas de journal importadas (CSV corptools). `INSERT OR IGNORE` por id
     /// sintético (negativo) → reimportar NO duplica y NO pisa lo de ESI. Una sola transacción.
     /// Devuelve cuántas filas NUEVAS se insertaron.
@@ -1831,8 +1962,14 @@ impl Db {
         {
             let mut stmt = tx.prepare(
                 "INSERT OR IGNORE INTO wallet_journal
-                    (id, character_id, date, ref_type, amount, balance, description)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    (id, character_id, date, ref_type, amount, balance, description, reason)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            // Backfill aparte: las filas importadas ANTES de que guardásemos el `reason` ya existen,
+            // y el `INSERT OR IGNORE` no las tocaría → el histórico de ratas quedaría vacío para
+            // siempre. Se hace en un UPDATE separado para no falsear el contador de filas nuevas.
+            let mut fill = tx.prepare(
+                "UPDATE wallet_journal SET reason = ?2 WHERE id = ?1 AND reason IS NULL",
             )?;
             for r in rows {
                 inserted += stmt.execute(rusqlite::params![
@@ -1842,8 +1979,12 @@ impl Db {
                     r.ref_type,
                     r.amount,
                     r.balance,
-                    r.description
+                    r.description,
+                    r.reason
                 ])?;
+                if r.reason.is_some() {
+                    let _ = fill.execute(rusqlite::params![r.id, r.reason]);
+                }
             }
         }
         tx.commit()?;
@@ -2306,6 +2447,10 @@ pub struct JournalImportRow {
     pub amount: Option<f64>,
     pub balance: Option<f64>,
     pub description: Option<String>,
+    /// Texto legible de corptools: "3x Gist Seraphim @ 1,300,000 ISK\n1x …". NO es el formato de ESI
+    /// (`typeID: n`), pero trae nombre, cantidad y valor de cada rata → ratas muertas y bounty BRUTO.
+    /// Antes se descartaba, y por eso el histórico salía sin ratas.
+    pub reason: Option<String>,
 }
 
 impl Db {

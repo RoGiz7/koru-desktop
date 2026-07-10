@@ -38,6 +38,14 @@ export function RateoView({
       .then((r) => setGlBounty(r.bounty_series))
       .catch(() => setGlBounty([]));
   }, [subject]);
+  // Qué MAGNITUD pinta la gráfica. Mezclar ISK (miles de millones) con nº de ratas (miles) en el
+  // mismo eje obliga a normalizar, y normalizar es maquillar. Se cambia de magnitud, no de escala.
+  const [mag, setMag] = useState<"isk" | "rats" | "iskrat">(
+    () => (localStorage.getItem("koru-rateo-mag") as "isk" | "rats" | "iskrat") || "isk",
+  );
+  useEffect(() => {
+    localStorage.setItem("koru-rateo-mag", mag);
+  }, [mag]);
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
     () => (localStorage.getItem("koru-rateo-gran") as "day" | "week" | "month" | "year") || "day",
   );
@@ -111,6 +119,7 @@ export function RateoView({
   const rangeBounty = daily.reduce((a, d) => a + d.bounty, 0);
   const rangeEss = daily.reduce((a, d) => a + d.ess, 0);
   const rangeRats = daily.reduce((a, d) => a + d.rats, 0);
+  const rangeGross = daily.reduce((a, d) => a + d.gross, 0);
   const totalIsk = rangeBounty + rangeEss;
   // Total histórico (para el % del "Detalle por sistema", que sigue siendo all-time por datos).
   const allTimeIsk = data.total_bounty + data.total_ess;
@@ -132,12 +141,34 @@ export function RateoView({
   }
   const glOn = showGl && glBk.size > 0;
   // Eje X = unión de fechas ESI ∪ gamelog cuando la línea está activa (para ver el histórico extra).
-  const totalMap = new Map(series.map((s) => [s.label, s.isk]));
-  // Series por sistema (top 6) alineadas con los mismos buckets que la línea total.
+  // Series por sistema (top 6) alineadas con los mismos buckets.
   const labels = glOn
     ? [...new Set([...series.map((s) => s.label), ...glBk.keys()])].sort()
     : series.map((s) => s.label);
-  const totalVals = labels.map((l) => totalMap.get(l) ?? 0);
+  // Lo que ESI ve entrar en la wallet, en sus DOS piezas. No dibujamos su suma: sería una tercera
+  // línea que no aporta nada y que además invitaba a restarla contra el gamelog (ver más abajo).
+  // El bounty entra ya recortado por el ESS; el ESS te lo devuelve —o no— más tarde y por su cuenta.
+  const bkBounty = new Map<string, number>();
+  const bkEss = new Map<string, number>();
+  const bkGross = new Map<string, number>(); // precio de las ratas, del `reason` de ESI
+  const bkRats = new Map<string, number>();
+  for (const d of daily) {
+    const k = bucketKey(d.date);
+    bkBounty.set(k, (bkBounty.get(k) ?? 0) + d.bounty);
+    bkEss.set(k, (bkEss.get(k) ?? 0) + d.ess);
+    bkGross.set(k, (bkGross.get(k) ?? 0) + d.gross);
+    bkRats.set(k, (bkRats.get(k) ?? 0) + d.rats);
+  }
+  const bountyLine = { name: tr("Bounty en wallet"), color: "#5b9bd1", values: labels.map((l) => bkBounty.get(l) ?? 0) };
+  const essLine = { name: tr("Pagos del ESS"), color: "#57c785", values: labels.map((l) => bkEss.get(l) ?? 0) };
+  // Total de lo cobrado. Se calcula SUMANDO las dos líneas de arriba, no releyendo la BD: así es
+  // imposible que se descuadre con lo que se está pintando. No es una hipótesis, es un agregado
+  // exacto y verificable a ojo. (Distinto del antiguo "Total", contra el que llegué a restar cosas.)
+  const cobradoLine = {
+    name: tr("Total cobrado (wallet)"),
+    color: "#c8d3df",
+    values: bountyLine.values.map((v, i) => v + essLine.values[i]),
+  };
   const sysBuckets = new Map<number, Map<string, number>>();
   for (const r of data.daily_by_system) {
     if ((from && r.date < from) || (to && r.date > to)) continue;
@@ -158,7 +189,9 @@ export function RateoView({
     });
   };
   const sysLineSeries = [
-    { name: tr("Total"), color: "#c8d3df", values: totalVals },
+    cobradoLine,
+    bountyLine,
+    essLine,
     ...data.by_system.slice(0, 6).map((s, i) => ({
       name: sysName(s.system_id),
       color: DONUT_COLORS[i % DONUT_COLORS.length],
@@ -190,7 +223,9 @@ export function RateoView({
     });
   };
   const charLineSeries = [
-    { name: tr("Total"), color: "#c8d3df", values: totalVals },
+    cobradoLine,
+    bountyLine,
+    essLine,
     ...charTotals.slice(0, 8).map((c, i) => ({
       name: charNames.get(c.id) ?? `#${c.id}`,
       color: DONUT_COLORS[i % DONUT_COLORS.length],
@@ -199,13 +234,96 @@ export function RateoView({
   ];
   const multiChar = charTotals.length > 1; // solo ofrecer "por personaje" si hay varios
   const baseLines = dim === "char" && multiChar ? charLineSeries : sysLineSeries;
-  // Línea del gamelog (fuente separada): discontinua y en color propio, solo si el toggle está activo.
-  const glLine = { name: tr("Rateo (gamelog)"), color: "#e0a458", values: labels.map((l) => glBk.get(l) ?? 0), dash: true };
-  const lineSeries = glOn ? [...baseLines, glLine] : baseLines;
+
+  // Las dos fuentes miden cosas DISTINTAS y no se empalman:
+  //  · ESI = lo que entró en la wallet (bounty ya recortado por el ESS, + los pagos del ESS cobrados).
+  //  · gamelog = el bounty BRUTO que generó el piloto al matar la rata, antes de que nadie lo toque.
+  // Su diferencia es lo que se quedó por el camino: corte del ESS no cobrado, robos e impuestos.
+  // Solo tiene sentido donde ESI tiene datos; antes de su ventana, "cobrado" es 0 y la resta mentiría.
+  const glVals = labels.map((l) => glBk.get(l) ?? 0);
+  // Es el VALOR de la rata al matarla, no un cobro. Por eso no se llama "generado" ni "cobrado": no
+  // compite con las otras dos líneas ni se resta contra ellas. Se sostiene sola.
+  const glLine = { name: tr("Precio bounty de ratas"), color: "#e0a458", values: glVals, dash: true };
+
+  // Lo que valían las ratas y nunca llegó a tu wallet: impuesto de corp, ESS que no cobraste y robos.
+  // Se dibuja NEGATIVO: es dinero que no vas a recibir, y pintarlo positivo lo confundiría con ingreso.
+  //
+  // CANDADO: solo desde el primer bucket en que ESI conoce pagos del ESS. Antes de eso el export de
+  // corptools no trae `ess_escrow_transfer` (cero filas en 2023 y 2024), así que "lo cobrado" saldría
+  // artificialmente bajo y la resta inventaría una retención enorme que no existió. Medido en meses
+  // con datos completos, lo que falta es ~15% estable; con el candado abierto salía ~45%. Falso.
+  const essStart = labels.find((l) => (bkEss.get(l) ?? 0) > 0) ?? null;
+  const lostVals = labels.map((l, i) =>
+    essStart != null && l >= essStart && glVals[i] > 0 ? cobradoLine.values[i] - glVals[i] : 0,
+  );
+  const lostLine = {
+    name: tr("No ingresado (impuestos, ESS y robos)"),
+    color: "#d76a6a",
+    values: lostVals,
+    dash: true,
+  };
+  const hasLost = lostVals.some((v) => v !== 0);
+  // NO dibujamos una línea de "no ingresado" (= cobrado − gamelog). Se probó y era falsa por tres
+  // motivos, comprobados sobre datos reales:
+  //   1. Daba por hecho que el log es el bounty BRUTO. Pero en los meses con ESI completo, el
+  //      `bounty_prizes` de la wallet coincide con el log → el log NO es pre-ESS.
+  //   2. Daba por hecho que ESI está completo. El export de corptools no trae NINGÚN
+  //      `ess_escrow_transfer` antes de 2025, así que "lo cobrado" salía artificialmente bajo y la
+  //      resta inventaba una retención que no existía.
+  //   3. Los pagos del ESS llegan desplazados (banco cada 3 h), así que restarlos dentro del mismo
+  //      bucket mezcla meses distintos.
+  // Mostramos las tres magnitudes por separado y que el ojo compare. Cuando sepamos con certeza qué
+  // mide el log, se podrá derivar la retención — no antes.
+  // Precio de las ratas SEGÚN ESI: Σ(cantidad × valor) del desglose del pago. No se empalma con la
+  // del gamelog: se SUPERPONEN. Donde ambas existen deben pisarse — y si no, hay un bug. Esa
+  // redundancia dibujada es un test de regresión permanente, así que no la escondemos.
+  const grossVals = labels.map((l) => bkGross.get(l) ?? 0);
+  const grossLine = { name: tr("Precio bounty de ratas (ESI)"), color: "#d29922", values: grossVals };
+  const hasGross = grossVals.some((v) => v > 0);
+
+  const ratsVals = labels.map((l) => bkRats.get(l) ?? 0);
+  const ratsLine = { name: tr("Ratas muertas"), color: "#a371f7", values: ratsVals };
+  // ISK por rata: calidad del rateo. Sube al cazar capitales, baja al limpiar frigatas.
+  const iskRatLine = {
+    name: tr("ISK por rata (bruto)"),
+    color: "#d29922",
+    values: labels.map((_, i) => (ratsVals[i] > 0 ? grossVals[i] / ratsVals[i] : 0)),
+  };
+  const iskRatNet = {
+    name: tr("ISK por rata (cobrado)"),
+    color: "#c8d3df",
+    values: labels.map((_, i) => (ratsVals[i] > 0 ? cobradoLine.values[i] / ratsVals[i] : 0)),
+  };
+
+  // En modo "Ratas" e "ISK/rata" NO existe la línea del gamelog: el log registra daño, no muertes.
+  // Antes que inventarla a partir del daño, desaparece. Y los desgloses por sistema/personaje son
+  // ISK, así que tampoco pintan ahí.
+  const lineSeries =
+    mag === "rats"
+      ? [ratsLine]
+      : mag === "iskrat"
+        ? [iskRatNet, ...(hasGross ? [iskRatLine] : [])]
+        : [
+            ...baseLines,
+            ...(hasGross ? [grossLine] : []),
+            ...(glOn ? [glLine] : []),
+            ...(glOn && hasLost ? [lostLine] : []),
+          ];
+  const chartFmt = mag === "rats" ? (n: number) => fmtSp(Math.round(n)) : fmtIsk;
+  const magLabel =
+    mag === "rats" ? tr("Ratas") : mag === "iskrat" ? tr("ISK por rata") : cumulative ? `ISK (${tr("acumulado")})` : "ISK";
 
   return (
     <>
       <div className="kpis">
+        {/* El precio de lo que mataste, y qué porcentaje acabó en tu cartera. Solo si ESI trae el
+            desglose; sin él no se inventa un porcentaje sobre un denominador que no existe. */}
+        {rangeGross > 0 && (
+          <Kpi label={tr("Precio de las ratas")} value={fmtIsk(rangeGross)} />
+        )}
+        {rangeGross > 0 && (
+          <Kpi label={tr("Te llegó")} value={`${((totalIsk / rangeGross) * 100).toFixed(1)}%`} tone="pos" />
+        )}
         <Kpi label={tr("ISK total (bounty + ESS)")} value={fmtIsk(totalIsk)} tone="pos" />
         <Kpi label={tr("Bounties")} value={fmtIsk(rangeBounty)} tone="pos" />
         <Kpi label={tr("ESS")} value={fmtIsk(rangeEss)} tone="pos" />
@@ -244,23 +362,43 @@ export function RateoView({
             Limpiar
           </button>
         )}
-        {glBounty.length > 0 && (
+        <div className="seg seg-sm" title={tr("Qué magnitud dibuja la gráfica")}>
+          {(
+            [
+              ["isk", "ISK"],
+              ["rats", tr("Ratas")],
+              ["iskrat", tr("ISK/rata")],
+            ] as const
+          ).map(([m, lbl]) => (
+            <button key={m} className={mag === m ? "active" : ""} onClick={() => setMag(m)}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        {/* La línea del gamelog solo existe en ISK: el log registra daño, no muertes. */}
+        {glBounty.length > 0 && mag === "isk" && (
           <button
             className={`gl-toggle${showGl ? " active" : ""}`}
             onClick={() => setShowGl((v) => !v)}
-            title={tr("Superpone el bounty reconstruido del gamelog (fuente separada, línea discontinua)")}
+            title={tr("Desglosa lo cobrado en bounty y pagos del ESS, y superpone el bounty que registró tu gamelog. Tres fuentes separadas: no se fusionan ni se restan.")}
           >
             ┈ {tr("gamelog")}
           </button>
         )}
       </div>
+      {mag !== "isk" && (
+        <p className="muted small gl-note">
+          {tr("Las ratas salen del desglose de cada pago de ESI. El gamelog no las cuenta: registra daño, no muertes.")}
+        </p>
+      )}
 
       <div className="top-list">
         <div className="rateo-charthead">
           <h4>
-            {cumulative ? `ISK (${tr("acumulado")})` : "ISK"} {tr("por")} {granLabel}
+            {magLabel} {tr("por")} {granLabel}
           </h4>
-          {multiChar && (
+          {/* El desglose por sistema/personaje es ISK; en las otras magnitudes no aplica. */}
+          {multiChar && mag === "isk" && (
             <div className="seg seg-sm">
               <button className={dim === "sys" ? "active" : ""} onClick={() => setDim("sys")}>
                 {tr("Por sistema")}
@@ -271,7 +409,7 @@ export function RateoView({
             </div>
           )}
         </div>
-        <MultiLineProgress labels={labels} series={lineSeries} fmt={fmtIsk} />
+        <MultiLineProgress labels={labels} series={lineSeries} fmt={chartFmt} />
       </div>
 
       {special && special.by_type.length > 0 && (

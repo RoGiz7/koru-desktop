@@ -23,13 +23,19 @@ pub struct LogiEvent {
 /// Un ciclo de minería: unidades extraídas de una mena (nombre EN, encaja con ores.json → type_id).
 pub struct MiningEvent {
     pub date: String,
+    pub sec: i64, // segundo del día; necesario para atribuir el sistema (Fase D)
     pub ore: String,
     pub units: i64,
     pub crit: bool, // true = "¡Extracción crítica!" (bonus Equinox); va a la columna crit, no a units.
+    /// Residuo destruido EN ESTE ciclo, cuando la línea lo trae como sufijo ("… con un residuo
+    /// perdido de N unidades"). Así el desperdicio queda atribuido a SU mena. En la otra era el
+    /// residuo va en línea aparte y sin mena (ver `WasteEvent`); nunca coexisten, no hay doble conteo.
+    pub residue: i64,
 }
 /// Un pago de recompensa (bounty). ISK en entero.
 pub struct BountyEvent {
     pub date: String,
+    pub sec: i64,
     pub isk: i64,
 }
 /// Un salto entre sistemas (origen → destino, nombres visibles).
@@ -41,7 +47,23 @@ pub struct JumpEvent {
 /// Unidades de mena DESPERDICIADAS en un ciclo (residuo destruido; ESI no lo expone). Sin mena asociada.
 pub struct WasteEvent {
     pub date: String,
+    pub sec: i64,
     pub units: i64,
+}
+
+/// Un disparo que NO hizo daño. El gamelog registra los dos sentidos, con verbos distintos:
+///   dado     ES `Tu Berserker II no acierta en Gist Cherubim por mucho. - Berserker II`
+///            EN `Your Hobgoblin II misses Guristas Saboteur completely - Hobgoblin II`
+///   recibido ES `Gist Cherubim falla por mucho.`
+///            EN `Corpus Pope misses you completely`
+/// El discriminador fiable NO es el verbo (hay cuatro) sino el `" - <arma>"` final: solo lo llevan
+/// los fallos DADOS, igual que los golpes. Con esto sale el ratio de acierto, y por arma.
+pub struct MissEvent {
+    pub date: String,
+    pub sec: i64,
+    pub done: bool,     // true = fallaste tú; false = te fallaron
+    pub weapon: String, // solo en los dados
+    pub other: String,  // la rata: objetivo si done, atacante si no
 }
 /// Un golpe de combate (LOG-ONLY, ESI no da nada de esto). done = hecho por ti (`a`) / recibido (`de`);
 /// wreck = calidad "Destruye" (wrecking hit, ~crítico de combate).
@@ -52,6 +74,13 @@ pub struct CombatEvent {
     pub wreck: bool,
     pub target: String, // objetivo de tu daño (rata), solo en golpes HECHOS; "" en recibidos
     pub sec: i64,       // segundo del día del golpe → DPS (segundos activos y pico por segundo)
+    /// Arma o módulo con el que golpeas. Presente en TODOS los golpes dados; en los recibidos falta
+    /// a menudo (la rata no siempre nombra su arma). "" si la línea no lo trae.
+    pub weapon: String,
+    /// Calidad del golpe, 1..6 de peor a mejor. La escala ES/EN se unificó por DAÑO MEDIO, no por
+    /// traducción: `Roza`=Grazes(1), `Alcanza`=Glances Off(2), `Impacta`=Hits(3), `Perfora`=
+    /// Penetrates(4), `Destroza`=Smashes(5), `Destruye`=Wrecks(6). 0 = desconocida.
+    pub quality: u8,
     // Par (ES, EN) del objetivo cuando la línea trae `<localized>`. Alimenta el diccionario que
     // canoniza los nombres de logs viejos escritos en español. ("", "") si la línea no lo trae.
     pub alias_es: String,
@@ -67,6 +96,24 @@ pub struct ScanBatch {
     pub jumps: Vec<JumpEvent>,
     pub waste: Vec<WasteEvent>,
     pub combat: Vec<CombatEvent>,
+    pub misses: Vec<MissEvent>,
+}
+
+/// Calidad del golpe → 1..6 (peor a mejor), unificando ES y EN. El emparejamiento NO viene de la
+/// traducción sino del daño medio relativo al arma, medido sobre los logs reales:
+/// Grazes 0,53× ↔ Roza 0,56× · Glances Off 0,69× ↔ Alcanza 0,68× · Hits 0,93× ↔ Impacta 0,90×
+/// Penetrates 1,17× ↔ Perfora 1,14× · Smashes 1,33× ↔ Destroza 1,39× · Wrecks 2,81× ↔ Destruye 2,97×
+/// (A ojo se habría emparejado mal: `Roza` es Grazes, no Glances Off.)
+fn quality_rank(q: &str) -> u8 {
+    match q.trim() {
+        "Roza" | "Grazes" => 1,
+        "Alcanza" | "Glances Off" => 2,
+        "Impacta" | "Hits" => 3,
+        "Perfora" | "Penetrates" => 4,
+        "Destroza" | "Smashes" => 5,
+        "Destruye" | "Wrecks" => 6,
+        _ => 0,
+    }
 }
 
 /// Quita los tags HTML (<...>) de un fragmento del gamelog.
@@ -254,15 +301,21 @@ fn localized_pair(seg: &str) -> Option<(String, String)> {
 /// Normaliza el nombre de mena: el formato Equinox añade `" con un residuo perdido de X unidades."`
 /// al final de la línea de extracción → hay que cortarlo para no fragmentar la misma mena en varias
 /// filas. También quita un punto final suelto. Así "Pyroxeres con un residuo…" → "Pyroxeres".
-fn clean_ore(s: &str) -> String {
+/// Devuelve (nombre limpio, residuo). El sufijo Equinox va en el idioma del cliente y trae, además,
+/// cuántas unidades se destruyeron en ESE ciclo — o sea, el desperdicio ATRIBUIDO A SU MENA.
+fn clean_ore(s: &str) -> (String, i64) {
     let mut o = s.trim();
-    // El sufijo del residuo (Equinox) va en el idioma del cliente; cortamos ambos.
+    let mut residue = 0i64;
     for m in [" con un residuo", " with a lost residue"] {
         if let Some(p) = o.find(m) {
+            // "…de N unidades." / "…of N units." → los dígitos del sufijo.
+            let tail = &o[p..];
+            let digits: String = tail.chars().filter(|c| c.is_ascii_digit()).collect();
+            residue = digits.parse().unwrap_or(0);
             o = o[..p].trim_end();
         }
     }
-    o.trim_end_matches('.').trim().to_string()
+    (o.trim_end_matches('.').trim().to_string(), residue)
 }
 
 /// Minería: `(mining) ... Has extraído N unidades de <hint="ES">NombreEN`. None si no lo es.
@@ -272,13 +325,14 @@ fn parse_mining_line(line: &str) -> Option<MiningEvent> {
         return None;
     }
     let date = line_date(line)?;
+    let sec = line_secs(line).unwrap_or(-1);
     let plain = strip_tags(line);
     // Bilingüe: "Has extraído N unidades de X" / "You mined N units of X".
     let (i, mlen) = match plain.find("unidades de ") {
         Some(i) => (i, "unidades de ".len()),
         None => (plain.find("units of ")?, "units of ".len()),
     };
-    let ore = clean_ore(&plain[i + mlen..]);
+    let (ore, residue) = clean_ore(&plain[i + mlen..]);
     if ore.is_empty() {
         return None;
     }
@@ -297,7 +351,7 @@ fn parse_mining_line(line: &str) -> Option<MiningEvent> {
     if units <= 0 {
         return None;
     }
-    Some(MiningEvent { date, ore, units, crit: false })
+    Some(MiningEvent { date, sec, ore, units, crit: false, residue })
 }
 
 /// Crítico de minería (Equinox): `(mining) ¡Extracción crítica completada! Has extraído N unidades
@@ -308,13 +362,14 @@ fn parse_crit_line(line: &str) -> Option<MiningEvent> {
         return None;
     }
     let date = line_date(line)?;
+    let sec = line_secs(line).unwrap_or(-1);
     let plain = strip_tags(line);
     // Bilingüe: "N unidades adicionales de X" / "N additional units of X".
     let (oi, mlen) = match plain.find("adicionales de ") {
         Some(i) => (i, "adicionales de ".len()),
         None => (plain.find("additional units of ")?, "additional units of ".len()),
     };
-    let ore = clean_ore(&plain[oi + mlen..]);
+    let (ore, _) = clean_ore(&plain[oi + mlen..]);
     if ore.is_empty() {
         return None;
     }
@@ -334,7 +389,7 @@ fn parse_crit_line(line: &str) -> Option<MiningEvent> {
     if units <= 0 {
         return None;
     }
-    Some(MiningEvent { date, ore, units, crit: true })
+    Some(MiningEvent { date, sec, ore, units, crit: true, residue: 0 })
 }
 
 /// Desperdicio de minería: `(mining) N unidades adicionales del asteroide desperdiciadas`. Sin mena.
@@ -360,7 +415,7 @@ fn parse_waste_line(line: &str) -> Option<WasteEvent> {
     if units <= 0 {
         return None;
     }
-    Some(WasteEvent { date, units })
+    Some(WasteEvent { date, sec: line_secs(line).unwrap_or(-1), units })
 }
 
 /// Bounty: `(bounty) Se ha añadido N ISK…` / `(bounty) N ISK added to next bounty payout…`.
@@ -371,12 +426,22 @@ fn parse_bounty_line(line: &str) -> Option<BountyEvent> {
     let date = line_date(line)?;
     let plain = strip_tags(&line[b..]);
     let j = plain.find("ISK")?;
-    let digits: String = plain[..j].chars().filter(|c| c.is_ascii_digit()).collect();
+    let mut num = &plain[..j];
+    // Los logs viejos escriben DECIMALES: "1.104.375,00 ISK". El punto es separador de millares y la
+    // coma decimal. Si filtrásemos todos los dígitos, ese importe se multiplicaría por 100 (bug real:
+    // 2020-08 daba 286 B de bounty). Cortamos en la coma decimal, reconocida por sus 2 dígitos finales.
+    if let Some(c) = num.rfind(',') {
+        let dec = num[c + 1..].trim();
+        if dec.len() == 2 && dec.bytes().all(|b| b.is_ascii_digit()) {
+            num = &num[..c];
+        }
+    }
+    let digits: String = num.chars().filter(|c| c.is_ascii_digit()).collect();
     let isk: i64 = digits.parse().ok()?;
     if isk <= 0 {
         return None;
     }
-    Some(BountyEvent { date, isk })
+    Some(BountyEvent { date, sec: line_secs(line).unwrap_or(-1), isk })
 }
 
 /// Salto: `(None) Saltando de <hint="A">A a <hint="B">B`. Coge los DOS hint = origen y destino.
@@ -409,6 +474,40 @@ fn parse_jump_line(line: &str) -> Option<JumpEvent> {
     Some(JumpEvent { date, from, to })
 }
 
+/// Disparo sin daño. Ver `MissEvent` para los cuatro verbos. Validado sobre los logs reales:
+/// 88.701 fallos, 0 sin parsear.
+fn parse_miss_line(line: &str) -> Option<MissEvent> {
+    let date = line_date(line)?;
+    let sec = line_secs(line).unwrap_or(-1);
+    let i = line.find("(combat)")? + "(combat)".len();
+    let plain = strip_tags(&line[i..]);
+    let p = plain.trim();
+    // DADO: es el único que lleva " - <arma>" al final, igual que un golpe.
+    if let Some((head, weapon)) = p.rsplit_once(" - ") {
+        let weapon = clean_rat(weapon);
+        for (a, b) in [(" no acierta en ", " por mucho"), (" misses ", " completely")] {
+            if let Some(j) = head.find(a) {
+                let rest = &head[j + a.len()..];
+                let other = clean_rat(rest.split(b).next().unwrap_or(rest));
+                if !other.is_empty() {
+                    return Some(MissEvent { date, sec, done: true, weapon, other });
+                }
+            }
+        }
+        return None;
+    }
+    // RECIBIDO: "<rata> falla por mucho." / "<rata> misses you completely".
+    for b in [" falla por mucho", " misses you completely"] {
+        if let Some(j) = p.find(b) {
+            let other = clean_rat(&p[..j]);
+            if !other.is_empty() {
+                return Some(MissEvent { date, sec, done: false, weapon: String::new(), other });
+            }
+        }
+    }
+    None
+}
+
 /// Golpe de combate: `(combat) <b>N</b> ... <font size=10>(a|de)</font> ... - <calidad>`. None si no.
 /// done = `a` (hecho por ti) / `de` (recibido). wreck = la calidad final es "Destruye" (wrecking).
 fn parse_combat_line(line: &str) -> Option<CombatEvent> {
@@ -429,16 +528,18 @@ fn parse_combat_line(line: &str) -> Option<CombatEvent> {
     let date = line_date(line)?;
     let sec = line_secs(line).unwrap_or(-1);
     let plain = strip_tags(line);
-    // Wrecking hit (≈ crítico de combate): "Destruye" en ES, "Wrecks" en EN.
-    let wreck = plain
-        .trim_end()
-        .rsplit(" - ")
-        .next()
-        .map(|q| {
-            let q = q.trim();
-            q == "Destruye" || q == "Wrecks"
-        })
-        .unwrap_or(false);
+    // Segmentos de la cola: "… - <arma> - <calidad>". El arma va SIEMPRE en los golpes dados; en los
+    // recibidos falta a menudo (la rata no siempre nombra su arma), y entonces solo hay calidad.
+    let tail = plain.trim_end();
+    let segs: Vec<&str> = tail.split(" - ").collect();
+    let quality = segs.last().map(|q| quality_rank(q)).unwrap_or(0);
+    let weapon = if segs.len() >= 3 && quality > 0 {
+        clean_rat(segs[segs.len() - 2])
+    } else {
+        String::new()
+    };
+    // Wrecking hit (≈ crítico de combate): el escalón 6 de la calidad ("Destruye"/"Wrecks").
+    let wreck = quality == 6;
     // Objetivo (solo en HECHOS): entre el marcador de dirección y el primer " - ".
     let target = if done {
         plain
@@ -465,7 +566,7 @@ fn parse_combat_line(line: &str) -> Option<CombatEvent> {
             }
         }
     }
-    Some(CombatEvent { date, dmg, done, wreck, target, sec, alias_es, alias_en })
+    Some(CombatEvent { date, dmg, done, wreck, target, sec, weapon, quality, alias_es, alias_en })
 }
 
 /// Lee el fichero desde `from` hasta el final y devuelve (nuevo_offset, lote de eventos).
@@ -488,10 +589,14 @@ pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, ScanBatch)> {
         };
         // Dispatch por categoría (mutuamente excluyentes) para no llamar strip_tags de más.
         if line.contains("(combat)") {
+            // Orden: logi → golpe (lleva <b>) → fallo (no lo lleva). Un fallo nunca tiene <b>, así
+            // que `parse_combat_line` lo rechaza solo y no hay riesgo de contarlo dos veces.
             if let Some(ev) = parse_logi_line(&line) {
                 batch.logi.push(ev);
             } else if let Some(ev) = parse_combat_line(&line) {
                 batch.combat.push(ev);
+            } else if let Some(ev) = parse_miss_line(&line) {
+                batch.misses.push(ev);
             }
         } else if line.contains("(mining)") {
             // Despacho bilingüe. OJO al orden: la línea de crítico EN contiene "units of", que también

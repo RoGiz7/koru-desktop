@@ -1386,6 +1386,13 @@ struct JournalFull {
     first_party_id: Option<i64>,
     #[serde(default)]
     second_party_id: Option<i64>,
+    // ESI expone el impuesto retenido y quién lo cobra. Es el árbitro para saber si el pago del ESS
+    // lleva impuesto de corp (entonces el Reserve no toca tu Main) o no (entonces ese 15% ES el
+    // Reserve). Los ratios no pueden distinguirlo: los dos modelos predicen los mismos números.
+    #[serde(default)]
+    tax: Option<f64>,
+    #[serde(default)]
+    tax_receiver_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1399,6 +1406,8 @@ pub struct JournalSample {
     pub context_id_type: Option<String>,
     pub first_party_id: Option<i64>,
     pub second_party_id: Option<i64>,
+    pub tax: Option<f64>,
+    pub tax_receiver_id: Option<i64>,
 }
 
 /// DEBUG: devuelve unas entradas reales de bounty_prizes / ess_escrow_transfer con todos los campos,
@@ -1446,6 +1455,8 @@ pub async fn inspect_ratting_journal(
                     context_id_type: e.context_id_type,
                     first_party_id: e.first_party_id,
                     second_party_id: e.second_party_id,
+                    tax: e.tax,
+                    tax_receiver_id: e.tax_receiver_id,
                 });
             }
         }
@@ -4884,8 +4895,9 @@ pub struct ImportResult {
     pub by_char: Vec<(String, usize)>, // filas por personaje (de las reconocidas)
 }
 
-/// Fila del CSV de corptools. Solo mapeamos lo que va a wallet_journal; First/Second Party (nombres,
-/// no ids) y Reason (texto libre, no formato ESI typeID:count) se ignoran a propósito.
+/// Fila del CSV de corptools. First/Second Party (nombres, no ids) se ignoran a propósito.
+/// `Reason` SÍ se guarda: no es el formato de ESI (`typeID: n`) sino texto legible con el desglose
+/// de ratas ("3x Gist Seraphim @ 1,300,000 ISK"), del que salen las ratas muertas y el bounty bruto.
 #[derive(serde::Deserialize)]
 struct CorptoolsRow {
     #[serde(rename = "Character")]
@@ -4900,6 +4912,8 @@ struct CorptoolsRow {
     balance: Option<f64>,
     #[serde(rename = "Description", default)]
     description: String,
+    #[serde(rename = "Reason", default)]
+    reason: String,
 }
 
 /// Importa el histórico de wallet exportado por corptools (Alliance Auth) a `wallet_journal`,
@@ -4976,11 +4990,18 @@ pub async fn import_wallet_csv(path: String, state: State<'_, AppState>) -> AppR
             } else {
                 Some(desc.to_string())
             },
+            reason: {
+                let rs = r.reason.trim();
+                if rs.is_empty() { None } else { Some(rs.to_string()) }
+            },
         });
     }
 
     let imported = state.db.import_journal_rows(&rows).unwrap_or(0);
-    let skipped_dup = rows.len().saturating_sub(imported);
+    // El CSV suele solapar con la ventana de ~30 días de ESI. Sin esto, esas transacciones quedaban
+    // por duplicado (id sintético + id real) e inflaban wallet, rateo y patrimonio al DOBLE.
+    let deduped = state.db.journal_drop_synthetic_dupes().unwrap_or(0);
+    let skipped_dup = rows.len().saturating_sub(imported) + deduped;
     let mut by_char_v: Vec<(String, usize)> = by_char.into_iter().collect();
     by_char_v.sort_by(|a, b| b.1.cmp(&a.1));
 

@@ -345,12 +345,21 @@ export type RattingSystem = {
   rats: number;
   active_hours: number;
 };
-export type RattingDay = { date: string; bounty: number; ess: number; rats: number };
+export type RattingDay = {
+  date: string;
+  bounty: number;
+  ess: number;
+  rats: number;
+  /** Precio de las ratas antes del ESS y del impuesto: Σ(cantidad × valor) del `reason`. */
+  gross: number;
+};
 export type RatSysDay = { system_id: number; date: string; isk: number };
 export type RatCharDay = { character_id: number; date: string; isk: number };
 export type RattingDetail = {
   total_bounty: number;
   total_ess: number;
+  /** Σ del precio de todas las ratas. Frente a bounty+ess = cuánto de lo generado te llegó. */
+  total_gross: number;
   rats_killed: number;
   entries: number;
   active_hours: number;
