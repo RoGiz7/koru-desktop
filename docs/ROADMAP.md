@@ -1,11 +1,51 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-07-02 (v0.16.1) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-10 (v0.23.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.16.1 · 2026-07-02)
+## 📌 Estado actual (v0.23.0 · 2026-07-10)
+
+### Hecho desde v0.16.1 (resumen por versión)
+- **v0.17–v0.18.4 — BITÁCORA completa**: motor de logros retroactivos + retos adaptativos
+  (`db/bitacora.rs`), notificación nativa, pase de inmersión (marcos SVG, dominios, puntuación),
+  Diario biográfico, medallero mixto con condecoraciones in-game (`read_medals`), Lealtad/LP +
+  Misiones/Agentes con overlays en el mapa, freelance jobs + proyectos de corporación, y
+  **proyectos personales parametrizados** (filtros nave/mineral/sistema/PJ/corp, modos de minería,
+  completar/celebrar).
+- **v0.19.0** — modal "Novedades" in-app (`changelog.ts`, mantener en CADA release) + iconos por carrera.
+- **v0.20.x — Logi Fase B (gamelog)**: reps remotas escudo/blindaje/casco (dato que ESI no expone),
+  apartado Logis con desglose por piloto/nave/módulo, dominio de medallas "Apoyo", lector
+  incremental y datos a prueba de borrados (BD = fuente de verdad).
+- **v0.21.0 — Fase D «¿Dónde?»**: sistema por evento cruzando gamelog ↔ chatlogs de Local
+  (`chatlog.rs`, tablas `*_sys`), 596 gamelogs huérfanos rescatados (2019–2021, 294 MB), y tres
+  datos falsos cazados (ratas en español, `Veldspar*`, `PS-94K*`).
+- **v0.22.0 — Fase D en las vistas**: Minería «Por sistema» empalmada (2019→), Rateo con Bruto
+  (gamelog) por sistema, **Daño y Fallos por arma**, Especiales con eje propio, fin de seis años
+  de ceros falsos en Ratas/ISK-rata, cuentas sin suavizar, intel lee solo la cola del log.
+- **v0.23.0 — «Condecoraciones»**: 8 medallas nuevas del gamelog (Capataz, Voz de mando, Filón,
+  Chatarrero, Prospector, Trotamundos, Demoledor, Artillero), magnitudes Calidad del golpe y
+  Salvage en Rateo, tablas Residuo por mena y Bonificaciones de mando en Minería, banner con
+  iconos reales, fix de condecoración duplicada, `get_medals` expone `graphics`.
+
+### Pendiente REAL (orden recomendado)
+1. **⭐ 0.24.0 — Compositor de condecoraciones** (spike VALIDADO 2026-07-10 contra capturas
+   in-game): localizar SharedCache (autodetección + picker en Ajustes), extraer/decodificar las
+   texturas de medalla EN RUNTIME (cero redistribución — decisión EULA), canvas en `OfficialMedal`
+   con la receta calibrada, fallback al marco actual, aviso "EVE Online © CCP hf.". Acompañamiento:
+   recalibrar umbrales de las 8 medallas nuevas con valores reales, limpiar el `-1` en origen, DPS.
+2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
+   gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
+   fix del parser de boosts (preferir el hint EN localizado).
+3. Horizonte: sistema del `Description` del CSV (cobrado-por-sistema 2023-09→), corp projects como
+   retos de la Bitácora, Fase 3.5 (cazar objetivo nuevo por nombre ESI), logros/títulos oficiales
+   públicos (ESI 2026, subir compat date), Ansiblex (sigue bloqueado), repo público + firma
+   (SignPath), menores (contador +N intel, `useAppData()`, deriva del QA.sql).
+
+---
+
+## 📌 Histórico — Estado v0.16.1 (2026-07-02)
 
 > Puesta al día tras la revisión de proyecto (`../documentacion/koru-desktop-REVISION_2026-07-02.md`,
 > fuera del repo). El bloque v0.8.0 de
