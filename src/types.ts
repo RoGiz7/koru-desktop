@@ -379,6 +379,7 @@ export type SpecialRatSystem = {
   total: number;
   by_type: SpecialRat[];
 };
+export type SpecialRatDay = { date: string; officers: number; capitals: number; faction: number };
 export type SpecialRatsResult = {
   total: number;
   officers: number;
@@ -386,7 +387,11 @@ export type SpecialRatsResult = {
   faction: number;
   by_type: SpecialRat[];
   by_system: SpecialRatSystem[];
+  /** Solo hay filas donde ESI trajo el desglose del pago. */
+  daily: SpecialRatDay[];
 };
+/** Daño, disparos y fallos por arma/dron y día. Del gamelog: es daño, NUNCA muertes. */
+export type WeaponDay = { date: string; weapon: string; dmg: number; shots: number; misses: number };
 export type DayKL = { date: string; kills: number; losses: number };
 export type HourKL = { hour: number; kills: number; losses: number };
 export type PvpActivity = {
@@ -620,7 +625,12 @@ export type GamelogMiningValued = {
   by_ore: GlOreDay[];
   /** type_id → nombre de las menas vistas en el gamelog (ESI solo nombra las de su ventana). */
   ore_names: [number, string][];
+  /** Fase D — extraído por sistema (nombre) y día, valorado en el modo actual. */
+  by_sys: GlSysDay[];
+  /** Fracción del extraído del gamelog que pudo situarse en un sistema (0..1). */
+  sys_covered: number;
 };
+export type GlSysDay = { system: string; date: string; value: number };
 export type SysVisit = { system: string; visits: number };
 export type GamelogRecon = {
   mining_units: number;

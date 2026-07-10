@@ -255,6 +255,32 @@ const EN: Record<string, string> = {
   Saltos: "Jumps",
   "Sistemas más visitados": "Most visited systems",
   Dónde: "Where",
+  "Del extraído del gamelog, se pudo situar en un sistema el": "Of the gamelog's extracted ore, we could place in a system",
+  "Bruto (gamelog)": "Gross (gamelog)",
+  "Precio bounty de ratas (gamelog)": "Rat bounty value (gamelog)",
+  Fallos: "Misses",
+  Especiales: "Special",
+  "Daño por arma": "Damage per weapon",
+  "Fallos por arma": "Misses per weapon",
+  Oficiales: "Officers",
+  Capitales: "Capitals",
+  "Del gamelog, por arma o dron, y de todo tu histórico. Es daño y fallos, NO muertes: el log no dice qué arma remató a cada rata, y en un mismo segundo golpeas a varios objetivos.":
+    "From the gamelog, per weapon or drone, across your whole history. It is damage and misses, NOT kills: the log never says which weapon finished a rat, and in a single second you hit several targets.",
+  "Fuera de": "Outside",
+  "La ventana crece con cada sincronización.": "The window grows with every sync.",
+  "Prueba «Día» o «Semana»: en «Mes» hay muy pocos puntos.":
+    "Try “Day” or “Week”: “Month” has too few points here.",
+  "no hay desglose (las filas importadas del CSV no lo traen), así que el eje se recorta ahí: no es que mataras cero ratas, es que no se sabe.":
+    "there is no breakdown (rows imported from the CSV don't carry it), so the axis is clipped there: it's not that you killed zero rats, it's that we don't know.",
+  "Se pudo situar en un sistema el": "We could place in a system",
+  "del bruto.": "of the gross.",
+  "El bruto sale del gamelog y llega a 2019: es lo que valían las ratas, no lo que cobraste. No dividas una columna por la otra.":
+    "The gross comes from the gamelog and reaches back to 2019: it is what the rats were worth, not what you were paid. Don't divide one column by the other.",
+  "Del ISK cobrado, solo lleva sistema el": "Of the ISK you were paid, a system is known for only",
+  "el wallet solo sabe dónde ocurrió cada pago cuando ESI lo etiquetó, y las filas importadas del CSV no lo traen.":
+    "the wallet only knows where a payment happened when ESI tagged it, and rows imported from the CSV don't carry that tag.",
+  "el resto cuenta en el Total, pero no en ninguna línea de sistema.":
+    "the rest counts toward the Total, but not toward any system line.",
   "Dónde rateaste": "Where you ratted",
   "Dónde minaste": "Where you mined",
   "Dónde peleaste": "Where you fought",

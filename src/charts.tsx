@@ -148,6 +148,14 @@ export function Bars({
   );
 }
 
+// Path recto, de punto a punto. Para magnitudes de CUENTA (ratas, especiales, fallos): la spline
+// sobrepasa los puntos —dibujaba 8,2 ratas faction donde hubo 8— e interpola entre ellos valores que
+// nunca existieron, como media capital. Con ISK eso es una aproximación razonable; con enteros, no.
+function linePath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+}
+
 // Path suave (Catmull-Rom → bézier) que pasa por todos los puntos.
 function smoothPath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
@@ -198,13 +206,18 @@ export function MultiLineProgress({
   series,
   fmt = fmtIsk,
   legend = true,
+  straight = false,
 }: {
   labels: string[];
   series: { name: string; color: string; values: number[]; dash?: boolean }[];
   fmt?: (n: number) => string;
   /// false = sin leyenda propia (el contenedor gestiona qué series entran).
   legend?: boolean;
+  /// true = líneas rectas entre puntos, sin suavizar. Para magnitudes enteras: la spline sobrepasa e
+  /// interpola valores que nunca ocurrieron. Por defecto false, así ninguna gráfica existente cambia.
+  straight?: boolean;
 }) {
+  const path = straight ? linePath : smoothPath;
   const [iso, setIso] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const [allChips, setAllChips] = useState(false);
@@ -300,14 +313,14 @@ export function MultiLineProgress({
           vis.map((s, si) => (
             <path
               key={`a-${s.name}`}
-              d={`${smoothPath(s.values.map((v, i) => ({ x: x(i), y: y(v) })))} L${x(n - 1).toFixed(1)} ${zeroY.toFixed(1)} L${x(0).toFixed(1)} ${zeroY.toFixed(1)} Z`}
+              d={`${path(s.values.map((v, i) => ({ x: x(i), y: y(v) })))} L${x(n - 1).toFixed(1)} ${zeroY.toFixed(1)} L${x(0).toFixed(1)} ${zeroY.toFixed(1)} Z`}
               fill={`url(#mlg-${uid}-${si})`}
             />
           ))}
         {vis.map((s) => (
           <path
             key={s.name}
-            d={smoothPath(s.values.map((v, i) => ({ x: x(i), y: y(v) })))}
+            d={path(s.values.map((v, i) => ({ x: x(i), y: y(v) })))}
             fill="none"
             stroke={s.color}
             strokeWidth={iso ? 2.6 : 2}

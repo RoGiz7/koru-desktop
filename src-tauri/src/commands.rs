@@ -1227,6 +1227,14 @@ pub struct SpecialRatSystem {
     pub total: i64,
     pub by_type: Vec<SpecialRat>,
 }
+/// Ratas especiales caídas un día concreto, separadas por clase. Solo existe donde ESI trajo `reason`.
+#[derive(Debug, Serialize)]
+pub struct SpecialRatDay {
+    pub date: String,
+    pub officers: i64,
+    pub capitals: i64,
+    pub faction: i64,
+}
 #[derive(Debug, Serialize)]
 pub struct SpecialRatsResult {
     pub total: i64,
@@ -1235,6 +1243,7 @@ pub struct SpecialRatsResult {
     pub faction: i64,
     pub by_type: Vec<SpecialRat>,
     pub by_system: Vec<SpecialRatSystem>,
+    pub daily: Vec<SpecialRatDay>,
 }
 
 /// Cuenta las "ratas especiales" (oficiales/capitales/faction bonus) a partir del desglose por tipo
@@ -1249,9 +1258,11 @@ pub async fn get_special_rats(
     let reasons = state.db.rat_bounty_reasons(character_id)?;
     let mut counts: HashMap<i64, i64> = HashMap::new(); // typeID -> count (global)
     let mut sys_counts: HashMap<i64, HashMap<i64, i64>> = HashMap::new(); // system -> typeID -> count
-    for (sys, reason) in &reasons {
+    let mut day_counts: HashMap<String, HashMap<i64, i64>> = HashMap::new(); // día -> typeID -> count
+    for (date, sys, reason) in &reasons {
         for (tid, cnt) in parse_rat_breakdown(reason) {
             *counts.entry(tid).or_insert(0) += cnt;
+            *day_counts.entry(date.clone()).or_default().entry(tid).or_insert(0) += cnt;
             if let Some(s) = sys {
                 *sys_counts.entry(*s).or_default().entry(tid).or_insert(0) += cnt;
             }
@@ -1306,6 +1317,26 @@ pub async fn get_special_rats(
     }
     by_system.sort_by(|a, b| b.total.cmp(&a.total));
 
+    // Serie diaria por clase. Los días sin ninguna especial NO se emiten: el frontend los pinta a cero
+    // dentro de la ventana donde el `reason` existe, que es la única donde el cero significa "ninguna".
+    let mut daily: Vec<SpecialRatDay> = day_counts
+        .into_iter()
+        .map(|(date, tmap)| {
+            let (mut o, mut c, mut f) = (0i64, 0i64, 0i64);
+            for (tid, cnt) in tmap {
+                match cls.get(&tid).map(|(_, k)| k.as_str()) {
+                    Some("officer") => o += cnt,
+                    Some("capital") => c += cnt,
+                    Some("faction") => f += cnt,
+                    _ => {}
+                }
+            }
+            SpecialRatDay { date, officers: o, capitals: c, faction: f }
+        })
+        .filter(|d| d.officers + d.capitals + d.faction > 0)
+        .collect();
+    daily.sort_by(|a, b| a.date.cmp(&b.date));
+
     Ok(SpecialRatsResult {
         total: officers + capitals + faction,
         officers,
@@ -1313,7 +1344,34 @@ pub async fn get_special_rats(
         faction,
         by_type,
         by_system,
+        daily,
     })
+}
+
+/// Daño, disparos y fallos por arma/dron y día, del gamelog.
+///
+/// OJO con lo que esto NO es: el gamelog registra DAÑO, no muertes. La línea de `(bounty)` ni siquiera
+/// nombra a la rata, y en el mismo segundo hay golpes a varios objetivos. Así que aquí nunca se dirá
+/// "con qué arma mataste": se dice cuánto pegaste con cada una, y cuántas veces fallaste.
+#[derive(serde::Serialize)]
+pub struct WeaponDay {
+    pub date: String,
+    pub weapon: String,
+    pub dmg: i64,
+    pub shots: i64,
+    pub misses: i64,
+}
+#[tauri::command]
+pub async fn get_gamelog_weapons(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<WeaponDay>> {
+    Ok(state
+        .db
+        .gamelog_weapon_rows(subject_id)?
+        .into_iter()
+        .map(|(date, weapon, dmg, shots, misses)| WeaponDay { date, weapon, dmg, shots, misses })
+        .collect())
 }
 
 /// Devuelve "YYYY-MM" del mes anterior a un "YYYY-MM" dado.
@@ -1606,12 +1664,23 @@ pub struct GlOreDay {
     pub date: String,
     pub value: f64,
 }
+/// Extraído por SISTEMA y día, valorado (Fase D). El sistema va por nombre: es lo que da el chatlog.
+#[derive(serde::Serialize)]
+pub struct GlSysDay {
+    pub system: String,
+    pub date: String,
+    pub value: f64,
+}
 #[derive(serde::Serialize)]
 pub struct GamelogMiningValued {
     pub extracted: Vec<crate::db::bitacora::DayVal>,
     pub crit: Vec<crate::db::bitacora::DayVal>,
     pub by_ore: Vec<GlOreDay>, // extraído (base+crit) valorado por mena/día, para el empalme por mineral
     pub ore_names: Vec<(i64, String)>, // type_id → nombre EN de las menas vistas en el gamelog
+    /// Extraído por sistema/día. Solo los ciclos con sistema atribuido (Fase D): `sys_covered` dice
+    /// cuánto del extraído total representan, para no enseñar un desglose parcial como si fuera todo.
+    pub by_sys: Vec<GlSysDay>,
+    pub sys_covered: f64,
 }
 #[tauri::command]
 pub async fn get_gamelog_mining_valued(
@@ -1682,6 +1751,25 @@ pub async fn get_gamelog_mining_valued(
             *by_ore.entry((tid, date)).or_insert(0.0) += val;
         }
     }
+    // Fase D — el mismo extraído, repartido por sistema. Se valora igual (por mena y modo), así que
+    // la suma de los sistemas es comparable con el Extraído total… salvo por lo no atribuido, que es
+    // justo lo que informa `sys_covered`. Las menas ya están resueltas arriba: son las mismas.
+    let ext_total: f64 = ext.values().sum();
+    let mut by_sys_m: HashMap<(String, String), f64> = HashMap::new();
+    let mut sys_total = 0.0f64;
+    for (date, system, ore, units, crit) in state.db.gamelog_mining_sys_rows(subject_id)? {
+        let tid = name_to_id.get(&ore).copied().unwrap_or(0);
+        let val = (units + crit) as f64 * ore_per_unit(tid, mode, &prices);
+        sys_total += val;
+        *by_sys_m.entry((system, date)).or_insert(0.0) += val;
+    }
+    let mut by_sys: Vec<GlSysDay> = by_sys_m
+        .into_iter()
+        .map(|((system, date), value)| GlSysDay { system, date, value })
+        .collect();
+    by_sys.sort_by(|a, b| a.date.cmp(&b.date));
+    let sys_covered = if ext_total > 0.0 { sys_total / ext_total } else { 0.0 };
+
     let to_series = |m: HashMap<String, f64>| {
         let mut v: Vec<crate::db::bitacora::DayVal> = m
             .into_iter()
@@ -1710,6 +1798,8 @@ pub async fn get_gamelog_mining_valued(
         crit: to_series(crt),
         by_ore: ore_v,
         ore_names,
+        by_sys,
+        sys_covered,
     })
 }
 

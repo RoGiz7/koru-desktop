@@ -51,6 +51,9 @@ export function MineriaView({
   const [glValExt, setGlValExt] = useState<{ date: string; value: number }[]>([]);
   const [glValCrit, setGlValCrit] = useState<{ date: string; value: number }[]>([]);
   const [glByOre, setGlByOre] = useState<{ id: number; date: string; value: number }[]>([]);
+  // Fase D — extraído por SISTEMA (nombre, que es lo que da el chatlog) y qué parte del total cubre.
+  const [glBySys, setGlBySys] = useState<{ system: string; date: string; value: number }[]>([]);
+  const [glSysCov, setGlSysCov] = useState(0);
   // Nombres de las menas que solo aparecen en el gamelog (ESI no las nombra → saldrían como "#45494").
   const [glOreNames, setGlOreNames] = useState<Map<number, string>>(new Map());
   const [glWaste, setGlWaste] = useState<{ date: string; value: number }[]>([]); // solo unidades (sin mena)
@@ -72,12 +75,16 @@ export function MineriaView({
         setGlValCrit(v.crit);
         setGlByOre(v.by_ore);
         setGlOreNames(new Map(v.ore_names ?? []));
+        setGlBySys(v.by_sys ?? []);
+        setGlSysCov(v.sys_covered ?? 0);
       })
       .catch(() => {
         setGlValExt([]);
         setGlValCrit([]);
         setGlByOre([]);
         setGlOreNames(new Map());
+        setGlBySys([]);
+        setGlSysCov(0);
       });
   }, [subject, mode]);
 
@@ -282,7 +289,50 @@ export function MineriaView({
       .sort((a, b) => b.total - a.total)
       .map((s, i) => ({ name: oreName(s.id), color: oreColor(i), values: s.vals }));
   };
-  const sysSeries = [totalLine, ...buildDim(series.daily_by_system, sysName)];
+  // Fase D — «Por sistema» empalmado. Antes solo cubría la ventana del mining_ledger de ESI (2023 en
+  // adelante); el chatlog de Local sabe dónde estabas desde 2019. El sistema se empalma por NOMBRE,
+  // que es lo único que da el chatlog: mismo corte que las menas, ESI donde llega y gamelog antes.
+  const glSysBuckets = new Map<string, Map<string, number>>();
+  if (glOn) {
+    for (const d of glBySys) {
+      if (!inRange(d.date)) continue;
+      const k = bucketKey(d.date);
+      let mm = glSysBuckets.get(d.system);
+      if (!mm) {
+        mm = new Map();
+        glSysBuckets.set(d.system, mm);
+      }
+      mm.set(k, (mm.get(k) ?? 0) + d.value);
+    }
+  }
+  const sysLineData = () => {
+    const esiSys = new Map<string, Map<string, number>>();
+    for (const r of series.daily_by_system) {
+      if (!inRange(r.date)) continue;
+      const k = bucketKey(r.date);
+      const n = sysName(r.id);
+      let mm = esiSys.get(n);
+      if (!mm) {
+        mm = new Map();
+        esiSys.set(n, mm);
+      }
+      mm.set(k, (mm.get(k) ?? 0) + r.value);
+    }
+    const all = new Set<string>([...esiSys.keys(), ...(glOn ? glSysBuckets.keys() : [])]);
+    return [...all]
+      .map((n) => {
+        const e = esiSys.get(n) ?? new Map<string, number>();
+        const g = glSysBuckets.get(n) ?? new Map<string, number>();
+        const vals = glOn ? splice(e, g) : mkVals(e);
+        return { n, vals, total: vals.reduce((a, b) => a + b, 0) };
+      })
+      .filter((s) => s.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .map((s, i) => ({ name: s.n, color: oreColor(i), values: s.vals }));
+  };
+  // Sin gamelog, el desglose de ESI se recorta al top 8 como siempre. Con gamelog dibujamos todos los
+  // sistemas: recortar tiraría a un cajón el sistema que dominó un año entero.
+  const sysSeries = [totalLine, ...(glOn ? sysLineData() : buildDim(series.daily_by_system, sysName))];
   const charSeries = [totalLine, ...buildDim(series.daily_by_char, (id) => charNames.get(id) ?? `#${id}`)];
   // Ya se dibujan TODAS las menas identificadas, así que un residuo aquí significa mineral que no
   // hemos sabido nombrar (el #-1 de ESI, o una mena que el catálogo no reconoce). Eso es una SEÑAL,
@@ -404,6 +454,14 @@ export function MineriaView({
       {showGl && mode !== "units" && glWaste.length > 0 && (
         <p className="muted small gl-note">
           {tr("El desperdiciado solo se muestra en modo «Unidades» (el log no indica la mena del residuo).")}
+        </p>
+      )}
+      {/* El desglose por sistema del gamelog no cubre el 100%: hay sesiones sin su chatlog. Decirlo. */}
+      {glOn && dim === "sys" && glSysCov > 0 && glSysCov < 0.995 && (
+        <p className="muted small gl-note">
+          {tr("Del extraído del gamelog, se pudo situar en un sistema el")} {(glSysCov * 100).toFixed(0)}%
+          {" — "}
+          {tr("el resto cuenta en el Total, pero no en ninguna línea de sistema.")}
         </p>
       )}
 

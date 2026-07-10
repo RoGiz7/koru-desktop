@@ -1504,8 +1504,10 @@ impl Db {
         // como si fuera lo mismo.
         {
             let q = format!(
+                // 60 y no 15: la vista de Rateo cruza esta lista con los sistemas de ESI para sacar los
+                // que solo conoce el gamelog. Con un tope corto, esos sistemas ni aparecerían.
                 "SELECT system, SUM(isk), SUM(pays) FROM gamelog_bounty_sys WHERE 1=1 {who} \
-                 GROUP BY system ORDER BY SUM(isk) DESC LIMIT 15"
+                 GROUP BY system ORDER BY SUM(isk) DESC LIMIT 60"
             );
             let mut st = conn.prepare(&q)?;
             r.sys_bounty = st
@@ -1566,6 +1568,36 @@ impl Db {
                     r.get::<_, String>(1)?,
                     r.get::<_, i64>(2)?,
                     r.get::<_, i64>(3)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// Igual que `gamelog_mining_rows` pero con el SISTEMA (Fase D). Solo trae los ciclos que pudimos
+    /// situar; el resto sigue contando en el total, pero no aquí. Lleva la mena porque la valoración
+    /// (m³, bruto, comprimido…) es por mena: sin ella no se podría valorar el sistema.
+    pub fn gamelog_mining_sys_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(String, String, String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!("SELECT date, system, ore, units, crit FROM gamelog_mining_sys WHERE 1=1 {who}");
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
                 ))
             })?
             .flatten()

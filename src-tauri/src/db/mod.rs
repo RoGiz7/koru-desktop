@@ -2887,17 +2887,57 @@ impl Db {
 
     /// (context_id=sistema, reason) de bounty_prizes (reason = "typeID: n,…") para contar ratas por
     /// tipo y por sistema. context_id puede ser NULL (no atribuible a un sistema concreto).
-    pub fn rat_bounty_reasons(&self, character_id: Option<i64>) -> AppResult<Vec<(Option<i64>, String)>> {
+    /// (día, sistema, reason) de cada pago de bounty. El día permite contar las ratas especiales por
+    /// fecha; el `reason` solo existe en las filas que trajo ESI (el CSV de corptools no lo trae).
+    pub fn rat_bounty_reasons(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(String, Option<i64>, String)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT context_id, reason FROM wallet_journal
+            "SELECT substr(date,1,10), context_id, reason FROM wallet_journal
              WHERE (?1 IS NULL OR character_id = ?1)
-               AND ref_type = 'bounty_prizes' AND amount > 0 AND reason IS NOT NULL",
+               AND ref_type = 'bounty_prizes' AND amount > 0 AND reason IS NOT NULL
+               AND date IS NOT NULL",
         )?;
         let rows = stmt.query_map(rusqlite::params![character_id], |r| {
-            Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })?;
         Ok(rows.flatten().collect())
+    }
+
+    /// Daño, disparos y fallos por arma/dron y día, del gamelog. LOG-ONLY: ESI no expone nada de esto.
+    pub fn gamelog_weapon_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(String, String, i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT date, weapon, dmg, shots, misses FROM gamelog_weapons WHERE 1=1 {who}"
+        );
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
     }
 
     /// Todas las filas del journal (date, ref_type, amount, character) para la serie temporal de wallet.

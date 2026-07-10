@@ -6,7 +6,14 @@ import { loadNewEden } from "./neweden";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon, weekKey, daysAgo } from "./format";
 import { Kpi, MultiLineProgress, DONUT_COLORS, RangePresets } from "./charts";
-import type { RattingDetail, SpecialRatsResult, PaperSeries, AbyssalsData, GamelogRecon } from "./types";
+import type {
+  RattingDetail,
+  SpecialRatsResult,
+  PaperSeries,
+  AbyssalsData,
+  GamelogRecon,
+  WeaponDay,
+} from "./types";
 
 // Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
 export function RateoView({
@@ -28,6 +35,9 @@ export function RateoView({
 }) {
   // Fusión visual (opt-in): serie diaria del bounty reconstruido del gamelog (fuente SEPARADA).
   const [glBounty, setGlBounty] = useState<{ date: string; value: number }[]>([]);
+  // Fase D — bruto por sistema desde el gamelog (2019→), y qué parte del bruto total representa.
+  const [glSys, setGlSys] = useState<Map<string, { isk: number; pays: number }>>(new Map());
+  const [glSysCov, setGlSysCov] = useState(0);
   const [showGl, setShowGl] = useState(() => localStorage.getItem("koru-rateo-gl") === "1");
   useEffect(() => {
     localStorage.setItem("koru-rateo-gl", showGl ? "1" : "0");
@@ -35,14 +45,32 @@ export function RateoView({
   useEffect(() => {
     const sid = typeof subject === "number" ? subject : 0;
     invoke<GamelogRecon>("get_gamelog_recon", { subjectId: sid })
-      .then((r) => setGlBounty(r.bounty_series))
-      .catch(() => setGlBounty([]));
+      .then((r) => {
+        setGlBounty(r.bounty_series);
+        setGlSys(new Map((r.sys_bounty ?? []).map((s) => [s.system, { isk: s.isk, pays: s.pays }])));
+        setGlSysCov(r.bounty_isk > 0 ? r.sys_bounty_covered / r.bounty_isk : 0);
+      })
+      .catch(() => {
+        setGlBounty([]);
+        setGlSys(new Map());
+        setGlSysCov(0);
+      });
   }, [subject]);
   // Qué MAGNITUD pinta la gráfica. Mezclar ISK (miles de millones) con nº de ratas (miles) en el
   // mismo eje obliga a normalizar, y normalizar es maquillar. Se cambia de magnitud, no de escala.
-  const [mag, setMag] = useState<"isk" | "rats" | "iskrat">(
-    () => (localStorage.getItem("koru-rateo-mag") as "isk" | "rats" | "iskrat") || "isk",
-  );
+  // `dmg` y `miss` salen del gamelog (por arma/dron, todo el histórico); `rats` e `iskrat` salen del
+  // `reason` de ESI. Nunca en el mismo eje: son cosas distintas medidas por fuentes distintas.
+  // `spec` va aparte y no dentro de `rats`: nueve especiales contra cuatro mil ratas normales, en el
+  // mismo eje, son una línea plana pegada al cero. No se normaliza una escala; se cambia de magnitud.
+  type Mag = "isk" | "rats" | "iskrat" | "spec" | "dmg" | "miss";
+  const [mag, setMag] = useState<Mag>(() => (localStorage.getItem("koru-rateo-mag") as Mag) || "isk");
+  const [glWeapons, setGlWeapons] = useState<WeaponDay[]>([]);
+  useEffect(() => {
+    const sid = typeof subject === "number" ? subject : 0;
+    invoke<WeaponDay[]>("get_gamelog_weapons", { subjectId: sid })
+      .then(setGlWeapons)
+      .catch(() => setGlWeapons([]));
+  }, [subject]);
   useEffect(() => {
     localStorage.setItem("koru-rateo-mag", mag);
   }, [mag]);
@@ -131,6 +159,18 @@ export function RateoView({
   const iskPerHour = rangeHours > 0 ? totalIsk / rangeHours : 0;
   const rateoYears = [...new Set(data.daily.map((d) => +d.date.slice(0, 4)))].sort((a, b) => b - a);
   const topSystems = data.by_system.slice(0, 12);
+  // Sistemas que SOLO conoce el gamelog: rateaste ahí antes de que arrancara tu histórico de wallet.
+  const esiSysNames = new Set(data.by_system.map((s) => sysName(s.system_id)));
+  const glOnlySystems = [...glSys.entries()]
+    .filter(([n]) => !esiSysNames.has(n))
+    .sort((a, b) => b[1].isk - a[1].isk)
+    .slice(0, 12);
+  // Cuánto del COBRADO lleva sistema. El wallet solo sabe el sistema por el `context_id` de ESI, y las
+  // filas importadas del CSV de corptools no lo traen. Sin este dato, poner la columna ISK al lado del
+  // Bruto invita a una conclusión falsa: parecería que solo cobraste el 10% de lo que valían las ratas,
+  // cuando lo que pasa es que el 90% del cobrado no está atribuido a ningún sistema.
+  const esiSysIsk = data.by_system.reduce((a, s) => a + s.isk, 0);
+  const esiSysCov = allTimeIsk > 0 ? esiSysIsk / allTimeIsk : 0;
 
   // Fusión opcional con el gamelog: bucketea el bounty reconstruido igual que la serie ESI.
   const glDaily = glBounty.filter((d) => (!from || d.date >= from) && (!to || d.date <= to));
@@ -243,7 +283,9 @@ export function RateoView({
   const glVals = labels.map((l) => glBk.get(l) ?? 0);
   // Es el VALOR de la rata al matarla, no un cobro. Por eso no se llama "generado" ni "cobrado": no
   // compite con las otras dos líneas ni se resta contra ellas. Se sostiene sola.
-  const glLine = { name: tr("Precio bounty de ratas"), color: "#e0a458", values: glVals, dash: true };
+  // "(gamelog)" explícito: en la leyenda convivía con "Precio bounty de ratas (ESI)" y las dos líneas
+  // se pisan a propósito donde ambas existen. Sin la etiqueta, parecen la misma serie duplicada.
+  const glLine = { name: tr("Precio bounty de ratas (gamelog)"), color: "#e0a458", values: glVals, dash: true };
 
   // Lo que valían las ratas y nunca llegó a tu wallet: impuesto de corp, ESS que no cobraste y robos.
   // Se dibuja NEGATIVO: es dinero que no vas a recibir, y pintarlo positivo lo confundiría con ingreso.
@@ -281,18 +323,91 @@ export function RateoView({
   const grossLine = { name: tr("Precio bounty de ratas (ESI)"), color: "#d29922", values: grossVals };
   const hasGross = grossVals.some((v) => v > 0);
 
-  const ratsVals = labels.map((l) => bkRats.get(l) ?? 0);
+  // El nº de ratas sale del `reason` de cada pago, y ESI solo sirve el journal reciente: todo lo que
+  // importaste del CSV de corptools viene SIN `reason`. Fuera de esa ventana no hay dato — y un cero
+  // dibujado diría "no mataste ninguna rata", que es falso. Así que el eje se recorta a la ventana
+  // donde el dato existe, en vez de rellenar seis años de ceros.
+  const ratsWindow = labels.filter((l) => (bkRats.get(l) ?? 0) > 0);
+  const ratsFrom = ratsWindow[0];
+  const ratsTo = ratsWindow[ratsWindow.length - 1];
+  const ratsScoped = (mag === "rats" || mag === "iskrat" || mag === "spec") && ratsFrom !== undefined;
+  // El gamelog tiene su propio eje: cubre desde 2019, mucho más que la ventana de ESI.
+  const wpLabels = [
+    ...new Set(
+      glWeapons
+        .filter((w) => (!from || w.date >= from) && (!to || w.date <= to))
+        .map((w) => bucketKey(w.date)),
+    ),
+  ].sort();
+  const chartLabels =
+    mag === "dmg" || mag === "miss"
+      ? wpLabels
+      : ratsScoped
+        ? labels.filter((l) => l >= ratsFrom && l <= ratsTo)
+        : labels;
+  const cobradoBk = new Map(labels.map((l, i) => [l, cobradoLine.values[i]]));
+
+  const ratsVals = chartLabels.map((l) => bkRats.get(l) ?? 0);
   const ratsLine = { name: tr("Ratas muertas"), color: "#a371f7", values: ratsVals };
+  // Especiales: mismo origen (el `reason` de ESI) y por tanto misma ventana que "Ratas muertas". Van
+  // en el mismo eje porque son un SUBCONJUNTO de esas ratas, no otra magnitud.
+  const bkSpec = { officers: new Map<string, number>(), capitals: new Map<string, number>(), faction: new Map<string, number>() };
+  for (const d of special?.daily ?? []) {
+    if ((from && d.date < from) || (to && d.date > to)) continue;
+    const k = bucketKey(d.date);
+    bkSpec.officers.set(k, (bkSpec.officers.get(k) ?? 0) + d.officers);
+    bkSpec.capitals.set(k, (bkSpec.capitals.get(k) ?? 0) + d.capitals);
+    bkSpec.faction.set(k, (bkSpec.faction.get(k) ?? 0) + d.faction);
+  }
+  const specLines = (
+    [
+      ["Oficiales", "#f0883e", bkSpec.officers],
+      ["Capitales", "#e5534b", bkSpec.capitals],
+      ["Faction", "#d29922", bkSpec.faction],
+    ] as const
+  )
+    .map(([name, color, m]) => ({ name: tr(name), color, values: chartLabels.map((l) => m.get(l) ?? 0) }))
+    .filter((s) => s.values.some((v) => v > 0));
+
+  // ---- Armas y drones (gamelog). Daño hecho y fallos, por arma. No dice qué mató a la rata: el
+  // gamelog no registra muertes, solo golpes. Cubre TODO el histórico, no solo la ventana de ESI.
+  const wpAgg = (pick: (w: WeaponDay) => number) => {
+    const m = new Map<string, Map<string, number>>();
+    for (const w of glWeapons) {
+      if ((from && w.date < from) || (to && w.date > to)) continue;
+      const v = pick(w);
+      if (v <= 0) continue;
+      const k = bucketKey(w.date);
+      let mm = m.get(w.weapon);
+      if (!mm) {
+        mm = new Map();
+        m.set(w.weapon, mm);
+      }
+      mm.set(k, (mm.get(k) ?? 0) + v);
+    }
+    return m;
+  };
+  const wpLines = (m: Map<string, Map<string, number>>) =>
+    [...m.entries()]
+      .map(([weapon, mm]) => ({ weapon, mm, total: [...mm.values()].reduce((a, b) => a + b, 0) }))
+      .sort((a, b) => b.total - a.total)
+      .map((s, i) => ({
+        name: s.weapon,
+        color: i < DONUT_COLORS.length ? DONUT_COLORS[i] : `hsl(${(i * 137.5) % 360} 62% 62%)`,
+        values: wpLabels.map((l) => s.mm.get(l) ?? 0),
+      }));
+  const dmgLines = wpLines(wpAgg((w) => w.dmg));
+  const missLines = wpLines(wpAgg((w) => w.misses));
   // ISK por rata: calidad del rateo. Sube al cazar capitales, baja al limpiar frigatas.
   const iskRatLine = {
     name: tr("ISK por rata (bruto)"),
     color: "#d29922",
-    values: labels.map((_, i) => (ratsVals[i] > 0 ? grossVals[i] / ratsVals[i] : 0)),
+    values: chartLabels.map((l, i) => (ratsVals[i] > 0 ? (bkGross.get(l) ?? 0) / ratsVals[i] : 0)),
   };
   const iskRatNet = {
     name: tr("ISK por rata (cobrado)"),
     color: "#c8d3df",
-    values: labels.map((_, i) => (ratsVals[i] > 0 ? cobradoLine.values[i] / ratsVals[i] : 0)),
+    values: chartLabels.map((l, i) => (ratsVals[i] > 0 ? (cobradoBk.get(l) ?? 0) / ratsVals[i] : 0)),
   };
 
   // En modo "Ratas" e "ISK/rata" NO existe la línea del gamelog: el log registra daño, no muertes.
@@ -301,17 +416,36 @@ export function RateoView({
   const lineSeries =
     mag === "rats"
       ? [ratsLine]
-      : mag === "iskrat"
-        ? [iskRatNet, ...(hasGross ? [iskRatLine] : [])]
-        : [
-            ...baseLines,
-            ...(hasGross ? [grossLine] : []),
-            ...(glOn ? [glLine] : []),
-            ...(glOn && hasLost ? [lostLine] : []),
-          ];
-  const chartFmt = mag === "rats" ? (n: number) => fmtSp(Math.round(n)) : fmtIsk;
+      : mag === "spec"
+        ? specLines
+        : mag === "iskrat"
+          ? [iskRatNet, ...(hasGross ? [iskRatLine] : [])]
+          : mag === "dmg"
+            ? dmgLines
+            : mag === "miss"
+              ? missLines
+              : [
+                ...baseLines,
+                ...(hasGross ? [grossLine] : []),
+                ...(glOn ? [glLine] : []),
+                ...(glOn && hasLost ? [lostLine] : []),
+              ];
+  const countFmt = (n: number) => fmtSp(Math.round(n));
+  const chartFmt = mag === "isk" || mag === "iskrat" ? fmtIsk : countFmt;
   const magLabel =
-    mag === "rats" ? tr("Ratas") : mag === "iskrat" ? tr("ISK por rata") : cumulative ? `ISK (${tr("acumulado")})` : "ISK";
+    mag === "rats"
+      ? tr("Ratas")
+      : mag === "spec"
+        ? tr("Ratas especiales")
+        : mag === "iskrat"
+          ? tr("ISK por rata")
+          : mag === "dmg"
+            ? tr("Daño por arma")
+            : mag === "miss"
+              ? tr("Fallos por arma")
+              : cumulative
+                ? `ISK (${tr("acumulado")})`
+                : "ISK";
 
   return (
     <>
@@ -367,13 +501,20 @@ export function RateoView({
             [
               ["isk", "ISK"],
               ["rats", tr("Ratas")],
+              ["spec", tr("Especiales")],
               ["iskrat", tr("ISK/rata")],
+              ["dmg", tr("Daño")],
+              ["miss", tr("Fallos")],
             ] as const
-          ).map(([m, lbl]) => (
-            <button key={m} className={mag === m ? "active" : ""} onClick={() => setMag(m)}>
-              {lbl}
-            </button>
-          ))}
+          )
+            // Daño y Fallos solo tienen sentido si el gamelog está escaneado; Especiales, si cayó alguna.
+            .filter(([m]) => (m !== "dmg" && m !== "miss") || glWeapons.length > 0)
+            .filter(([m]) => m !== "spec" || (special?.daily?.length ?? 0) > 0)
+            .map(([m, lbl]) => (
+              <button key={m} className={mag === m ? "active" : ""} onClick={() => setMag(m)}>
+                {lbl}
+              </button>
+            ))}
         </div>
         {/* La línea del gamelog solo existe en ISK: el log registra daño, no muertes. */}
         {glBounty.length > 0 && mag === "isk" && (
@@ -386,9 +527,34 @@ export function RateoView({
           </button>
         )}
       </div>
-      {mag !== "isk" && (
+      {(mag === "dmg" || mag === "miss") && (
+        <p className="muted small gl-note">
+          {tr(
+            "Del gamelog, por arma o dron, y de todo tu histórico. Es daño y fallos, NO muertes: el log no dice qué arma remató a cada rata, y en un mismo segundo golpeas a varios objetivos.",
+          )}
+        </p>
+      )}
+      {(mag === "rats" || mag === "iskrat" || mag === "spec") && (
         <p className="muted small gl-note">
           {tr("Las ratas salen del desglose de cada pago de ESI. El gamelog no las cuenta: registra daño, no muertes.")}
+          {ratsScoped && (
+            <>
+              {" "}
+              {tr("Fuera de")} {ratsFrom}–{ratsTo}{" "}
+              {tr(
+                "no hay desglose (las filas importadas del CSV no lo traen), así que el eje se recorta ahí: no es que mataras cero ratas, es que no se sabe.",
+              )}{" "}
+              {tr("La ventana crece con cada sincronización.")}
+              {/* Con dos meses de dato, la vista mensual son dos puntos. No es un fallo, pero tampoco
+                  se lee: mejor decirle dónde SÍ hay curva que dejarle mirando una línea recta. */}
+              {chartLabels.length < 4 && gran === "month" && (
+                <>
+                  {" "}
+                  <b>{tr("Prueba «Día» o «Semana»: en «Mes» hay muy pocos puntos.")}</b>
+                </>
+              )}
+            </>
+          )}
         </p>
       )}
 
@@ -409,7 +575,14 @@ export function RateoView({
             </div>
           )}
         </div>
-        <MultiLineProgress labels={labels} series={lineSeries} fmt={chartFmt} />
+        {/* Ratas, Especiales y Fallos son CUENTAS: línea recta. Suavizarlas dibujaba media capital
+            entre dos semanas y sobrepasaba el máximo (8,2 faction donde hubo 8). ISK sí se suaviza. */}
+        <MultiLineProgress
+          labels={chartLabels}
+          series={lineSeries}
+          fmt={chartFmt}
+          straight={mag === "rats" || mag === "spec" || mag === "miss"}
+        />
       </div>
 
       {special && special.by_type.length > 0 && (
@@ -447,6 +620,32 @@ export function RateoView({
 
       <div className="top-list">
         <h4>{tr("Detalle por sistema")}</h4>
+        {/* Las dos columnas de ISK NO son comparables entre sí y hay que decirlo donde se ven. */}
+        <p className="muted small">
+          {esiSysCov < 0.995 && (
+            <>
+              {tr("Del ISK cobrado, solo lleva sistema el")} {(esiSysCov * 100).toFixed(0)}%
+              {": "}
+              {tr(
+                "el wallet solo sabe dónde ocurrió cada pago cuando ESI lo etiquetó, y las filas importadas del CSV no lo traen.",
+              )}{" "}
+            </>
+          )}
+          {showGl && glSysCov > 0 && (
+            <>
+              {tr(
+                "El bruto sale del gamelog y llega a 2019: es lo que valían las ratas, no lo que cobraste. No dividas una columna por la otra.",
+              )}
+              {glSysCov < 0.995 && (
+                <>
+                  {" "}
+                  {tr("Se pudo situar en un sistema el")} {(glSysCov * 100).toFixed(0)}%{" "}
+                  {tr("del bruto.")}
+                </>
+              )}
+            </>
+          )}
+        </p>
         <table className="km-table">
           <thead>
             <tr>
@@ -457,6 +656,7 @@ export function RateoView({
               <th>Bounty</th>
               <th>ESS</th>
               <th>{tr("Ratas")}</th>
+              {showGl && <th>{tr("Bruto (gamelog)")}</th>}
               <th>{tr("Ratas especiales")}</th>
             </tr>
           </thead>
@@ -474,6 +674,11 @@ export function RateoView({
                   <td>{fmtIsk(s.bounty)}</td>
                   <td>{fmtIsk(s.ess)}</td>
                   <td>{fmtSp(s.rats)}</td>
+                  {showGl && (
+                    <td className="muted">
+                      {glSys.has(sysName(s.system_id)) ? fmtIsk(glSys.get(sysName(s.system_id))!.isk) : "—"}
+                    </td>
+                  )}
                   <td>
                     {sp ? (
                       <div className="sys-special">
@@ -500,6 +705,22 @@ export function RateoView({
                 </tr>
               );
             })}
+            {/* Sistemas donde rateaste ANTES de que existiera tu histórico de wallet. Del wallet no hay
+                nada que enseñar ahí; del gamelog, sí. Guiones donde no hay dato, nunca un cero. */}
+            {showGl &&
+              glOnlySystems.map(([name, g]) => (
+                <tr key={`gl-${name}`} className="muted">
+                  <td>{name}</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td>{fmtIsk(g.isk)}</td>
+                  <td>—</td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
