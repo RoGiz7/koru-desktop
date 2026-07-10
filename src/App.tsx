@@ -1617,7 +1617,7 @@ function App() {
                 {/* Aviso legal: Koru usa material del juego (texturas de medallas extraídas
                     de la instalación del propio usuario). La marca va literal; la coletilla, tr(). */}
                 <div className="small muted">
-                  EVE Online © CCP hf. — {tr("CCP no respalda esta app ni es responsable de ella.")}
+                  EVE Online © Fenris Creations (FC) — {tr("FC no respalda esta app ni es responsable de ella.")}
                 </div>
               </div>
             </div>

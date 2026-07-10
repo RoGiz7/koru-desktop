@@ -409,8 +409,11 @@ impl Db {
         }
 
         // Crítico minero (gamelog_mining.crit): unidades extraídas en ciclos críticos, desde 2019.
+        // Umbrales recalibrados con datos reales (0.24.1): la estimación inicial [1M/25M/250M]
+        // dejaba la plata a 20× y el oro a 200× de un minero veterano — inalcanzable. Escalera
+        // ×10 como el resto del medallero; los niveles se recalculan al vuelo, retroactivos.
         {
-            let mut filon = Cross::new([1e6, 25e6, 250e6]);
+            let mut filon = Cross::new([100e3, 1e6, 10e6]);
             let sql = format!(
                 "SELECT date, crit FROM gamelog_mining WHERE crit > 0 {who} ORDER BY date ASC"
             );

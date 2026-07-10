@@ -219,8 +219,8 @@ const EN: Record<string, string> = {
     "Textures extracted: the Logbook draws your real decorations.",
   "Extrae las texturas de tu instalación de EVE para ver tus condecoraciones dibujadas.":
     "Extract the textures from your EVE install to see your decorations drawn.",
-  "CCP no respalda esta app ni es responsable de ella.":
-    "CCP has not endorsed and is not responsible for this app.",
+  "FC no respalda esta app ni es responsable de ella.":
+    "FC has not endorsed and is not responsible for this app.",
   Escaneado: "Scanned",
   ficheros: "files",
   "Pendiente de escanear": "Not scanned yet",
