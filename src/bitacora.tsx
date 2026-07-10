@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
+import { MedalArt } from "./medalArt";
 import type { Bitacora, AchievementState, Medal, SeriesPoint, CharacterDetail } from "./types";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
@@ -243,23 +244,43 @@ function MedalCard({
 }
 
 // ---- Condecoración oficial (medalla in-game de corp) para el medallero mixto. ----
-function OfficialMedal({ m }: { m: Medal }) {
-  const date = (m.date || "").slice(0, 10);
+// Si hay texturas extraídas de la SharedCache (Ajustes → Medallas de corp), se pinta el
+// dibujo REAL componiendo las capas de ESI; si no, el marco genérico de siempre.
+// `grants` = TODAS las entregas de la misma medalla (la corp puede otorgarla varias veces,
+// p.ej. reenviarla con el motivo corregido): una tarjeta, badge ×N y cada fecha con su motivo.
+function OfficialMedal({ grants }: { grants: Medal[] }) {
+  const m = grants[0]; // título/corp/descripción/dibujo son de la medalla; lo que varía es la entrega
   return (
     <div className="medal official">
-      <MedalFrame official icon="🎖️" />
+      <MedalArt graphics={m.graphics} fallback={<MedalFrame official icon="🎖️" />} />
       <div className="medal-info">
         <div className="medal-top">
           <strong>{m.title}</strong>
+          {grants.length > 1 && <span className="dia-badge">×{grants.length}</span>}
           {m.status === "public" && (
             <span className="dia-badge" style={{ color: "#8b7fd4", marginLeft: "auto" }}>
               {tr("Pública")}
             </span>
           )}
         </div>
-        <span className="muted small">{[m.corporation_name, date].filter(Boolean).join(" · ")}</span>
+        {grants.length === 1 ? (
+          <span className="muted small">
+            {[m.corporation_name, (m.date || "").slice(0, 10)].filter(Boolean).join(" · ")}
+          </span>
+        ) : (
+          <span className="muted small">
+            {m.corporation_name} · {grants.length} {tr("entregas")}
+          </span>
+        )}
         {m.description && <span className="muted small">{m.description}</span>}
-        {m.reason && <span className="muted small medal-reason">“{m.reason}”</span>}
+        {grants.length === 1
+          ? m.reason && <span className="muted small medal-reason">“{m.reason}”</span>
+          : grants.map((g) => (
+              <span key={g.date} className="muted small medal-reason">
+                {(g.date || "").slice(0, 10)}
+                {g.reason ? <> — “{g.reason}”</> : null}
+              </span>
+            ))}
       </div>
     </div>
   );
@@ -492,24 +513,36 @@ export function BitacoraView({
         );
       })}
 
-      {/* ---- Condecoraciones oficiales (medallas in-game de corp) → medallero MIXTO ---- */}
-      {medals.length > 0 && (
-        <>
-          <div className="bit-head">
-            <h4>🎖️ {tr("Condecoraciones")}</h4>
-            <span className="muted small">
-              {medals.length} {tr("medallas in-game de corporación")}
-            </span>
-          </div>
-          <div className="medal-grid">
-            {/* Key = medal_id + fecha: la misma medalla puede otorgarse VARIAS veces (p.ej. dos
-                "Hero of M2-XFE Battle") y el id solo, duplicado, rompe las keys de React. */}
-            {medals.map((m) => (
-              <OfficialMedal key={`${m.medal_id}-${m.date}`} m={m} />
-            ))}
-          </div>
-        </>
-      )}
+      {/* ---- Condecoraciones oficiales (medallas in-game de corp) → medallero MIXTO ----
+          Agrupadas por medalla (corp+medal_id): la misma puede otorgarse varias veces
+          (2× Hero of M2-XFE: reenviada con el motivo corregido) → una tarjeta con ×N.
+          Las entregas vienen ya ordenadas por fecha desc desde el backend. */}
+      {medals.length > 0 && (() => {
+        const groups = new Map<string, Medal[]>();
+        for (const m of medals) {
+          const k = `${m.corporation_id}-${m.medal_id}`;
+          const g = groups.get(k);
+          if (g) g.push(m);
+          else groups.set(k, [m]);
+        }
+        const cards = [...groups.values()];
+        return (
+          <>
+            <div className="bit-head">
+              <h4>🎖️ {tr("Condecoraciones")}</h4>
+              <span className="muted small">
+                {cards.length} {tr("medallas in-game de corporación")}
+                {medals.length > cards.length && ` · ${medals.length} ${tr("entregas")}`}
+              </span>
+            </div>
+            <div className="medal-grid">
+              {cards.map((g) => (
+                <OfficialMedal key={`${g[0].corporation_id}-${g[0].medal_id}`} grants={g} />
+              ))}
+            </div>
+          </>
+        );
+      })()}
 
       <p className="muted small bit-foot">
         {tr("Logros y retos generados por Koru desde tu histórico local — FC no expone esto por ESI: es tuyo y de nadie más.")}

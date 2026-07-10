@@ -10,6 +10,7 @@ mod db;
 mod error;
 mod esi;
 mod gamelog;
+mod medals;
 mod sso;
 
 use commands::AppState;
@@ -205,6 +206,10 @@ pub fn run() {
             commands::default_chatlogs_dir,
             commands::default_gamelogs_dir,
             commands::scan_gamelogs,
+            medals::default_sharedcache_dir,
+            medals::extract_medal_textures,
+            medals::medal_textures_ready,
+            medals::get_medal_texture,
             commands::read_audio_file,
             commands::intel_channels,
             commands::read_intel,

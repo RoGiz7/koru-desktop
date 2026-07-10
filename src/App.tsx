@@ -30,6 +30,7 @@ import { FreelanceView } from "./freelance";
 import { LogisView } from "./logis";
 import { ReconView } from "./recon";
 import { GamelogControl } from "./gamelogControl";
+import { MedalTexturesControl } from "./medalsControl";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
@@ -1537,6 +1538,9 @@ function App() {
               {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / reconstrucción Fase C) */}
               <GamelogControl />
 
+              {/* Medallas de corp pintadas: extraer texturas de la SharedCache del usuario. */}
+              <MedalTexturesControl />
+
               {/* Copias automáticas: van DESPUÉS de Logs; la fila es carpeta + frecuencia + retención
                   en una sola línea (la ruta completa vive en el tooltip del botón, que si no ocupa
                   un renglón entero para algo que no se lee). */}
@@ -1610,6 +1614,11 @@ function App() {
                 >
                   📂 {tr("Abrir carpeta de datos")}
                 </button>
+                {/* Aviso legal: Koru usa material del juego (texturas de medallas extraídas
+                    de la instalación del propio usuario). La marca va literal; la coletilla, tr(). */}
+                <div className="small muted">
+                  EVE Online © CCP hf. — {tr("CCP no respalda esta app ni es responsable de ella.")}
+                </div>
               </div>
             </div>
           )}

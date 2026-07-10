@@ -6,6 +6,22 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.24.0",
+    date: "2026-07-10",
+    es: [
+      "🎖️ Tus condecoraciones de corp, dibujadas de verdad: Koru compone cinta y medallón capa a capa (forma, tinte y orden exactos del juego) a partir de los datos de ESI.",
+      "📁 Las texturas salen de TU instalación de EVE: en Ajustes → «Medallas de corp», Koru localiza la SharedCache solo (o eliges la carpeta) y pulsas «Preparar medallas» una vez. Nada del juego viaja con Koru.",
+      "🥇 La misma medalla otorgada varias veces se agrupa en una tarjeta con «×N» y cada entrega con su fecha y su motivo.",
+      "⚖️ Aviso legal en Ajustes: EVE Online © CCP hf.",
+    ],
+    en: [
+      "🎖️ Your corp decorations, actually drawn: Koru composes ribbon and medallion layer by layer (the game's exact shapes, tint and stacking) from ESI data.",
+      "📁 Textures come from YOUR EVE install: in Settings → “Corp medals”, Koru finds the SharedCache on its own (or you pick the folder) and you press “Prepare medals” once. Nothing from the game ships with Koru.",
+      "🥇 The same medal awarded multiple times now groups into one card with “×N”, each award with its date and reason.",
+      "⚖️ Legal notice in Settings: EVE Online © CCP hf.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-07-10",
     es: [

@@ -206,6 +206,21 @@ const EN: Record<string, string> = {
     "Pick EVE's 'logs' folder (it contains Chatlogs and Gamelogs)",
   "Logs de EVE": "EVE logs",
   "Sin carpeta": "No folder",
+  // --- Medallas de corp pintadas (SharedCache, v0.24.0) ---
+  Error: "Error",
+  entregas: "awards",
+  "Medallas de corp (dibujo real)": "Corp medals (real artwork)",
+  "SharedCache de EVE no detectada": "EVE SharedCache not detected",
+  "Carpeta SharedCache": "SharedCache folder",
+  "Preparar medallas": "Prepare medals",
+  "Actualizar texturas": "Refresh textures",
+  "texturas listas": "textures ready",
+  "Texturas extraídas: la Bitácora pinta tus condecoraciones reales.":
+    "Textures extracted: the Logbook draws your real decorations.",
+  "Extrae las texturas de tu instalación de EVE para ver tus condecoraciones dibujadas.":
+    "Extract the textures from your EVE install to see your decorations drawn.",
+  "CCP no respalda esta app ni es responsable de ella.":
+    "CCP has not endorsed and is not responsible for this app.",
   Escaneado: "Scanned",
   ficheros: "files",
   "Pendiente de escanear": "Not scanned yet",

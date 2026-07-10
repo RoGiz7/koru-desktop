@@ -1,6 +1,6 @@
 [package]
 name = "koru-desktop"
-version = "0.23.0"
+version = "0.24.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -54,6 +54,9 @@ tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"
 # Notificaciones nativas del SO (alarma de intel aunque la app esté minimizada).
 tauri-plugin-notification = "2"
+# Codificar a PNG las texturas de medallas extraídas de la SharedCache (los DDS de las
+# hojas van sin comprimir → decode a mano; solo hace falta ESCRIBIR PNG).
+png = "0.17"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

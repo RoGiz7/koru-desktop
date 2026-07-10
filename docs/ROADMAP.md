@@ -1,11 +1,11 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-07-10 (v0.23.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-10 (v0.24.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.23.0 · 2026-07-10)
+## 📌 Estado actual (v0.24.0 · 2026-07-10)
 
 ### Hecho desde v0.16.1 (resumen por versión)
 - **v0.17–v0.18.4 — BITÁCORA completa**: motor de logros retroactivos + retos adaptativos
@@ -28,13 +28,17 @@
   Chatarrero, Prospector, Trotamundos, Demoledor, Artillero), magnitudes Calidad del golpe y
   Salvage en Rateo, tablas Residuo por mena y Bonificaciones de mando en Minería, banner con
   iconos reales, fix de condecoración duplicada, `get_medals` expone `graphics`.
+- **v0.24.0 — «Medallas pintadas»**: condecoraciones de corp DIBUJADAS (`medals.rs` +
+  `medalArt.tsx`): SharedCache autodetectada o picker en Ajustes, extracción en runtime a
+  app-data (cero redistribución — decisión EULA; las hojas resultaron DDS SIN comprimir → decode
+  a mano, solo crate `png`), canvas con la receta calibrada (tinte multiplicativo, capa 0 encima,
+  bbox, cinta+medallón), fallback al marco genérico, medallas repetidas agrupadas ×N con fecha y
+  motivo por entrega, aviso "EVE Online © CCP hf." en Ajustes. Validado en vivo con las 4 del
+  usuario.
 
 ### Pendiente REAL (orden recomendado)
-1. **⭐ 0.24.0 — Compositor de condecoraciones** (spike VALIDADO 2026-07-10 contra capturas
-   in-game): localizar SharedCache (autodetección + picker en Ajustes), extraer/decodificar las
-   texturas de medalla EN RUNTIME (cero redistribución — decisión EULA), canvas en `OfficialMedal`
-   con la receta calibrada, fallback al marco actual, aviso "EVE Online © CCP hf.". Acompañamiento:
-   recalibrar umbrales de las 8 medallas nuevas con valores reales, limpiar el `-1` en origen, DPS.
+1. **Acompañamiento 0.24.x**: recalibrar umbrales de las 8 medallas de la 0.23.0 con valores
+   reales, limpiar el `-1` en origen, DPS.
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
    fix del parser de boosts (preferir el hint EN localizado).
