@@ -388,6 +388,38 @@ CREATE TABLE IF NOT EXISTS gamelog_quality (
     PRIMARY KEY (character_id, date, quality)
 );
 
+-- Fase D — lo mismo que gamelog_bounty/mining/combat pero ATRIBUIDO AL SISTEMA, cruzando la hora del
+-- evento con la línea temporal del canal Local (ver `chatlog.rs`). Son tablas APARTE a propósito:
+-- añadir `system` a la clave primaria de las existentes obligaría a recrearlas y migrar. Solo se
+-- llenan cuando el gamelog encontró su sesión Local gemela; si no, el evento se queda sin sistema.
+CREATE TABLE IF NOT EXISTS gamelog_bounty_sys (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    system       TEXT NOT NULL,
+    isk          INTEGER NOT NULL DEFAULT 0,
+    pays         INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, system)
+);
+CREATE TABLE IF NOT EXISTS gamelog_mining_sys (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    system       TEXT NOT NULL,
+    ore          TEXT NOT NULL,
+    units        INTEGER NOT NULL DEFAULT 0,
+    crit         INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, system, ore)
+);
+CREATE TABLE IF NOT EXISTS gamelog_combat_sys (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    system       TEXT NOT NULL,
+    dmg_done     INTEGER NOT NULL DEFAULT 0,
+    dmg_taken    INTEGER NOT NULL DEFAULT 0,
+    shots_done   INTEGER NOT NULL DEFAULT 0,
+    shots_taken  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, system)
+);
+
 -- Rescate de restos por día. `failed` solo se llena en logs en inglés: el texto de fallo en español
 -- no aparece en la muestra, así que en logs ES la tasa de éxito saldrá al 100%. LOG-ONLY.
 CREATE TABLE IF NOT EXISTS gamelog_salvage (

@@ -305,7 +305,9 @@ export function MineriaView({
   // Extras LOG-ONLY del gamelog (discontinuos): Crítico (parte del total, bonus Equinox) y
   // Desperdiciado (residuo destruido, solo en modo unidades). El Extraído ya va empalmado arriba.
   const glCritLine = { name: tr("Crítico (gamelog)"), color: "#57c785", values: labels.map((l) => glCBk.get(l) ?? 0), dash: true };
-  const glWasteLine = { name: tr("Desperdiciado (gamelog)"), color: "#d76a6a", values: labels.map((l) => glWBk.get(l) ?? 0), dash: true };
+  // Bajo cero: es mena destruida, no extraída. Igual que "No ingresado" en Rateo. El dato guardado es
+  // positivo; solo se niega al pintar, porque su naturaleza es la de una pérdida.
+  const glWasteLine = { name: tr("Desperdiciado (gamelog)"), color: "#d76a6a", values: labels.map((l) => -(glWBk.get(l) ?? 0)), dash: true };
   const lineSeries = glOn
     ? [...baseLines, ...(glCBk.size > 0 ? [glCritLine] : []), ...(glWBk.size > 0 ? [glWasteLine] : [])]
     : baseLines;

@@ -354,7 +354,10 @@ fn clean_ore(s: &str) -> (String, i64) {
             o = o[..p].trim_end();
         }
     }
-    (o.trim_end_matches('.').trim().to_string(), residue)
+    // El cliente añade a veces un '*' al nombre visible (`<localized hint="Veldspar">Veldspar*`). Es el
+    // mismo asteroide: sin quitarlo, `Veldspar*` sale como una mena aparte, no resuelve a ningún typeID
+    // y por tanto no se valora. `clean_rat` ya lo quitaba; aquí faltaba.
+    (o.trim_end_matches(|c: char| c == '.' || c == '*').trim().to_string(), residue)
 }
 
 /// Minería: `(mining) ... Has extraído N unidades de <hint="ES">NombreEN`. None si no lo es.

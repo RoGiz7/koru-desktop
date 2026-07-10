@@ -10,6 +10,24 @@
 
 use super::Db;
 use crate::error::AppResult;
+
+/// Diccionario de nombres de NPC del SDE: (español → inglés, conjunto de nombres ingleses).
+/// El segundo sirve para reconocer, y descartar, los pares que el gamelog escribe al revés.
+fn sde_rat_alias() -> &'static (
+    std::collections::HashMap<String, String>,
+    std::collections::HashSet<String>,
+) {
+    static A: std::sync::OnceLock<(
+        std::collections::HashMap<String, String>,
+        std::collections::HashSet<String>,
+    )> = std::sync::OnceLock::new();
+    A.get_or_init(|| {
+        let map: std::collections::HashMap<String, String> =
+            serde_json::from_str(include_str!("../../rat_aliases.json")).unwrap_or_default();
+        let ens = map.values().cloned().collect();
+        (map, ens)
+    })
+}
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -793,8 +811,19 @@ impl Db {
         offset: i64,
         character_id: i64,
         batch: &crate::gamelog::ScanBatch,
+        // Línea temporal de sistemas de ESTA sesión (del chatlog Local gemelo). Vacía = no se pudo
+        // emparejar → los eventos no se atribuyen a ningún sistema. Nunca se hereda de otra sesión.
+        presence: &[crate::chatlog::Presence],
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
+        // Sistema de un evento: su hora contra la presencia. `None` si no hay gemelo o falta la hora.
+        let sys_of = |date: &str, sec: i64| -> Option<String> {
+            if presence.is_empty() {
+                return None;
+            }
+            let t = crate::chatlog::event_secs(date, sec)?;
+            crate::chatlog::system_at(presence, t).map(|s| s.to_string())
+        };
         for e in &batch.logi {
             // Solo PERSONAJES reales (formato [Nave] Piloto). Naves con nombre propio, drones, NPC y
             // estructuras se descartan por completo: el logi es curación entre jugadores, así que ni
@@ -842,6 +871,25 @@ impl Db {
                 rusqlite::params![character_id, m.date, m.ore, u, c, cyc, m.residue],
             )?;
         }
+        // Fase D — la misma minería, repartida por sistema. Agregada en memoria: un ciclo escribe una
+        // línea cada ~2 min, pero un día de flota son miles.
+        {
+            let mut agg: std::collections::HashMap<(String, String, String), [i64; 2]> = std::collections::HashMap::new();
+            for m in &batch.mining {
+                if let Some(sys) = sys_of(&m.date, m.sec) {
+                    let e = agg.entry((m.date.clone(), sys, m.ore.clone())).or_insert([0; 2]);
+                    if m.crit { e[1] += m.units } else { e[0] += m.units }
+                }
+            }
+            for ((date, sys, ore), v) in &agg {
+                conn.execute(
+                    "INSERT INTO gamelog_mining_sys (character_id, date, system, ore, units, crit) VALUES (?1,?2,?3,?4,?5,?6) \
+                     ON CONFLICT(character_id,date,system,ore) DO UPDATE SET \
+                       units = units + excluded.units, crit = crit + excluded.crit",
+                    rusqlite::params![character_id, date, sys, ore, v[0], v[1]],
+                )?;
+            }
+        }
         // Fase C — desperdicio de minería (LOG-ONLY): unidades residuales por personaje/día.
         for w in &batch.waste {
             conn.execute(
@@ -857,6 +905,25 @@ impl Db {
                  ON CONFLICT(character_id,date) DO UPDATE SET isk = isk + excluded.isk, pays = pays + 1",
                 rusqlite::params![character_id, b.date, b.isk],
             )?;
+        }
+        // Fase D — bounty por sistema. Esto es lo que el ESI nunca pudo darnos: la wallet dice cuánto
+        // rateaste, jamás dónde.
+        {
+            let mut agg: std::collections::HashMap<(String, String), [i64; 2]> = std::collections::HashMap::new();
+            for b in &batch.bounty {
+                if let Some(sys) = sys_of(&b.date, b.sec) {
+                    let e = agg.entry((b.date.clone(), sys)).or_insert([0; 2]);
+                    e[0] += b.isk;
+                    e[1] += 1;
+                }
+            }
+            for ((date, sys), v) in &agg {
+                conn.execute(
+                    "INSERT INTO gamelog_bounty_sys (character_id, date, system, isk, pays) VALUES (?1,?2,?3,?4,?5) \
+                     ON CONFLICT(character_id,date,system) DO UPDATE SET isk = isk + excluded.isk, pays = pays + excluded.pays",
+                    rusqlite::params![character_id, date, sys, v[0], v[1]],
+                )?;
+            }
         }
         // Rescate y boosts (categoría `notify`). Volumen bajo → upsert directo, sin agregar antes.
         {
@@ -912,7 +979,19 @@ impl Db {
             let mut wagg: std::collections::HashMap<(String, String), [i64; 3]> = std::collections::HashMap::new();
             let mut qagg: std::collections::HashMap<(String, u8), [i64; 2]> = std::collections::HashMap::new();
             let mut magg: std::collections::HashMap<String, [i64; 2]> = std::collections::HashMap::new(); // día → (fallos dados, recibidos)
+            // Fase D — (día, sistema) → daño dado/recibido, golpes dados/recibidos.
+            let mut sysagg: std::collections::HashMap<(String, String), [i64; 4]> = std::collections::HashMap::new();
             for c in &batch.combat {
+                if let Some(sys) = sys_of(&c.date, c.sec) {
+                    let e = sysagg.entry((c.date.clone(), sys)).or_insert([0; 4]);
+                    if c.done {
+                        e[0] += c.dmg;
+                        e[2] += 1;
+                    } else {
+                        e[1] += c.dmg;
+                        e[3] += 1;
+                    }
+                }
                 let e = cagg.entry(c.date.clone()).or_insert([0; 6]);
                 let w = i64::from(c.wreck);
                 if c.quality > 0 {
@@ -984,6 +1063,17 @@ impl Db {
                     rusqlite::params![character_id, date, v[0], v[1]],
                 )?;
             }
+            // Fase D — combate por sistema.
+            for ((date, sys), v) in &sysagg {
+                conn.execute(
+                    "INSERT INTO gamelog_combat_sys (character_id, date, system, dmg_done, dmg_taken, shots_done, shots_taken) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7) \
+                     ON CONFLICT(character_id,date,system) DO UPDATE SET \
+                       dmg_done = dmg_done + excluded.dmg_done, dmg_taken = dmg_taken + excluded.dmg_taken, \
+                       shots_done = shots_done + excluded.shots_done, shots_taken = shots_taken + excluded.shots_taken",
+                    rusqlite::params![character_id, date, sys, v[0], v[1], v[2], v[3]],
+                )?;
+            }
             // Por día: nº de segundos con daño y el mayor daño concentrado en uno solo.
             let mut dps: std::collections::HashMap<String, (i64, i64)> = std::collections::HashMap::new();
             for ((date, _sec), d) in &persec {
@@ -996,7 +1086,16 @@ impl Db {
                     e.1 = *d;
                 }
             }
+            // El par `<localized>` del log NO tiene un sentido fijo: el mismo NPC aparece como
+            // `hint="Pope corpus">Corpus Pope` y como `hint="Corpus Pope">Pope corpus`. Aceptamos el par
+            // solo si la clave NO es un nombre inglés conocido; si lo es, viene del revés y traduciría
+            // al español lo que ya está bien. Rellena los huecos del SDE (traducciones viejas del
+            // cliente que ya no existen), sin poder estropear lo que el SDE sabe.
+            let (_, en_names) = sde_rat_alias();
             for (es, en) in &alias {
+                if en_names.contains(es) {
+                    continue;
+                }
                 conn.execute(
                     "INSERT INTO gamelog_rat_alias (es, en) VALUES (?1,?2) ON CONFLICT(es) DO NOTHING",
                     rusqlite::params![es, en],
@@ -1400,6 +1499,52 @@ impl Db {
                 .flatten()
                 .collect();
         }
+        // Fase D — rankings por sistema. Las tablas `*_sys` solo tienen los eventos de sesiones cuyo
+        // Local gemelo apareció; por eso el total cubierto va aparte y no se compara con el de arriba
+        // como si fuera lo mismo.
+        {
+            let q = format!(
+                "SELECT system, SUM(isk), SUM(pays) FROM gamelog_bounty_sys WHERE 1=1 {who} \
+                 GROUP BY system ORDER BY SUM(isk) DESC LIMIT 15"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.sys_bounty = st
+                .query_map([], |row| {
+                    Ok(SysIsk { system: row.get(0)?, isk: row.get(1)?, pays: row.get(2)? })
+                })?
+                .flatten()
+                .collect();
+            let q = format!("SELECT COALESCE(SUM(isk),0) FROM gamelog_bounty_sys WHERE 1=1 {who}");
+            r.sys_bounty_covered = conn.query_row(&q, [], |row| row.get(0))?;
+        }
+        {
+            let q = format!(
+                "SELECT system, SUM(units + crit) FROM gamelog_mining_sys WHERE 1=1 {who} \
+                 GROUP BY system ORDER BY SUM(units + crit) DESC LIMIT 15"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.sys_mining = st
+                .query_map([], |row| Ok(SysUnits { system: row.get(0)?, units: row.get(1)? }))?
+                .flatten()
+                .collect();
+            let q = format!("SELECT COALESCE(SUM(units + crit),0) FROM gamelog_mining_sys WHERE 1=1 {who}");
+            r.sys_mining_covered = conn.query_row(&q, [], |row| row.get(0))?;
+        }
+        {
+            let q = format!(
+                "SELECT system, SUM(dmg_done), SUM(dmg_taken) FROM gamelog_combat_sys WHERE 1=1 {who} \
+                 GROUP BY system ORDER BY SUM(dmg_done) DESC LIMIT 15"
+            );
+            let mut st = conn.prepare(&q)?;
+            r.sys_combat = st
+                .query_map([], |row| {
+                    Ok(SysDmg { system: row.get(0)?, dmg_done: row.get(1)?, dmg_taken: row.get(2)? })
+                })?
+                .flatten()
+                .collect();
+            let q = format!("SELECT COALESCE(SUM(dmg_done),0) FROM gamelog_combat_sys WHERE 1=1 {who}");
+            r.sys_combat_covered = conn.query_row(&q, [], |row| row.get(0))?;
+        }
         Ok(r)
     }
 
@@ -1471,8 +1616,47 @@ impl Db {
              DELETE FROM gamelog_quality; \
              DELETE FROM gamelog_salvage; \
              DELETE FROM gamelog_boosts; \
+             DELETE FROM gamelog_bounty_sys; \
+             DELETE FROM gamelog_mining_sys; \
+             DELETE FROM gamelog_combat_sys; \
              COMMIT;",
         )?;
+        drop(conn);
+        // El diccionario de ratas no es un agregado del log: es catálogo. Se repone al vaciarlo.
+        self.seed_rat_alias()?;
+        Ok(())
+    }
+
+    /// Siembra `gamelog_rat_alias` con los nombres ES→EN del SDE (solo categoría 11 = Entidad), y
+    /// borra los pares invertidos que el log dejó.
+    ///
+    /// El diccionario salía SOLO de los pares `<localized hint="…">…` del gamelog, y esos pares
+    /// aparecen **en los dos sentidos**:
+    ///   `hint="Pope corpus">Corpus Pope`   (ES→EN)
+    ///   `hint="Corpus Pope">Pope corpus`   (EN→ES, el mismo NPC del revés)
+    /// Como el insert era "el primero gana", bastaba un par invertido para que el JOIN acabara
+    /// TRADUCIENDO AL ESPAÑOL los nombres que ya venían en inglés. El log no sabe qué lado es cuál; el
+    /// SDE sí. Por eso el SDE manda y se limpia lo que contradiga.
+    /// Comprobado sobre el SDE: 0 nombres ES coinciden con el nombre EN de otra entidad, así que la
+    /// traducción nunca puede renombrar una rata que ya viniera en inglés. Los 51 nombres ES ambiguos
+    /// (apuntan a dos EN distintos) se excluyeron al generar el JSON.
+    pub fn seed_rat_alias(&self) -> AppResult<()> {
+        let (es2en, en_names) = sde_rat_alias();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        {
+            // Fuera los pares al revés: si la clave es un nombre INGLÉS conocido, esa fila solo puede
+            // hacer daño (traduce EN→ES).
+            let mut del = tx.prepare("DELETE FROM gamelog_rat_alias WHERE es = ?1")?;
+            for en in en_names {
+                del.execute(rusqlite::params![en])?;
+            }
+            let mut st = tx.prepare("INSERT OR IGNORE INTO gamelog_rat_alias (es, en) VALUES (?1,?2)")?;
+            for (es, en) in es2en {
+                st.execute(rusqlite::params![es, en])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -1555,6 +1739,33 @@ pub struct GamelogRecon {
     /// Segundos con daño por día (denominador del DPS; el frontend agrega Σdaño/Σsegundos).
     pub combat_secs_series: Vec<DayVal>,
     pub top_rats: Vec<RatDmg>,
+    /// Fase D — dónde pasó todo, cruzando la hora del evento con la línea temporal del canal Local.
+    /// Los totales `*_covered` son el subconjunto ATRIBUIDO: si no encontramos el Local gemelo de una
+    /// sesión, sus eventos siguen contando en los totales de arriba pero no aparecen aquí. Enseñar la
+    /// cobertura evita el engaño de un ranking que parece completo y no lo es.
+    pub sys_bounty: Vec<SysIsk>,
+    pub sys_bounty_covered: i64,
+    pub sys_mining: Vec<SysUnits>,
+    pub sys_mining_covered: i64,
+    pub sys_combat: Vec<SysDmg>,
+    pub sys_combat_covered: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct SysIsk {
+    pub system: String,
+    pub isk: i64,
+    pub pays: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct SysUnits {
+    pub system: String,
+    pub units: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct SysDmg {
+    pub system: String,
+    pub dmg_done: i64,
+    pub dmg_taken: i64,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct RatDmg {

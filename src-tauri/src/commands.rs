@@ -4148,6 +4148,23 @@ pub async fn scan_gamelogs(
         prefix.push(acc);
     }
     let bytes_total = acc;
+    // Fase D — el gamelog solo nombra un sistema cuando SALTAS, así que un ratero puede pasar ocho
+    // horas sin decir dónde está. El canal Local sí escribe una línea en cada cambio de sistema.
+    // `Chatlogs` es hermana de `Gamelogs`. Si no está, `locals` queda vacío y no se atribuye nada:
+    // nunca inventamos un sistema.
+    let locals = base
+        .parent()
+        .map(|p| crate::chatlog::LocalIndex::build(&p.join("Chatlogs")))
+        .filter(|idx| !idx.is_empty());
+    // Los Local anteriores a 2021-02 no llevan charID en el nombre, pero sí nombran al piloto en la
+    // cabecera (`Listener:`). Traducimos ese nombre al character_id que ya conocemos.
+    let by_name: std::collections::HashMap<String, i64> = state
+        .db
+        .list_characters()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| (c.name, c.character_id))
+        .collect();
     // Emite el total ya de entrada: distingue "carpeta vacía" (0/0) de "escaneando" (0/N).
     let _ = window.emit("gamelog_scan_progress", (0usize, total, 0u64, bytes_total));
     let mut scanned = 0usize;
@@ -4162,9 +4179,39 @@ pub async fn scan_gamelogs(
             Some(s) => s.to_string(),
             None => continue,
         };
-        let char_id = match crate::gamelog::char_id_from_name(&fname) {
+        // Emparejamiento con la sesión de Local del mismo arranque (ventana -10s..+30s: el Local se
+        // crea unos segundos después). Sin gemelo no hay presencia y el fichero se procesa igual que
+        // antes, solo que sin sistema. Jamás se arrastra la presencia de otra sesión: un clon de salto
+        // teletransporta sin escribir línea de salto y contaminaría todo lo siguiente.
+        let stem = fname.strip_suffix(".txt").unwrap_or(&fname);
+        let session = crate::chatlog::session_secs(stem);
+        let mut char_id = crate::gamelog::char_id_from_name(&fname);
+        let mut twin: Option<std::path::PathBuf> = None;
+        if let (Some(idx), Some(sess)) = (locals.as_ref(), session) {
+            match char_id {
+                Some(c) => twin = idx.twin(&c.to_string(), sess).cloned(),
+                // Gamelog huérfano (los de antes de 2021-02 no llevan charID). Su dueño está en el
+                // Local gemelo. Solo lo aceptamos si el candidato es ÚNICO: con multiboxing hay
+                // varios a la vez y adivinar el más cercano acertaría el 71,7%, que no es aceptable.
+                None => {
+                    if let Some((ident, p)) = idx.twin_any(sess) {
+                        // El Local de esa época solo trae el NOMBRE del piloto. Lo traducimos con los
+                        // Local modernos (que traen nombre y charID) y, si eso falla, con los
+                        // personajes dados de alta en Koru.
+                        let resolved = idx
+                            .resolve_char(ident, sess)
+                            .or_else(|| by_name.get(ident).copied());
+                        if let Some(c) = resolved {
+                            char_id = Some(c);
+                            twin = Some(p.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let char_id = match char_id {
             Some(c) => c,
-            None => continue,
+            None => continue, // sin dueño: no sabemos de quién es, no lo contamos
         };
         let meta = match std::fs::metadata(path) {
             Ok(m) => m,
@@ -4187,9 +4234,13 @@ pub async fn scan_gamelogs(
             Err(_) => continue, // fichero ilegible/bloqueado (p. ej. la sesión activa): lo saltamos
         };
         healed += batch.logi.iter().map(|e| e.hp).sum::<f64>();
+        let presence = twin
+            .as_deref()
+            .map(crate::chatlog::presence)
+            .unwrap_or_default();
         state
             .db
-            .commit_gamelog(&fname, size, mtime, new_off as i64, char_id, &batch)
+            .commit_gamelog(&fname, size, mtime, new_off as i64, char_id, &batch, &presence)
             .map_err(|e| AppError::Other(format!("Guardando {fname}: {e}")))?;
         scanned += 1;
     }

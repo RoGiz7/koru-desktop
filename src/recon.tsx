@@ -56,6 +56,13 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
   }
   const critVals = mSeries.labels.map((l) => cByMonth.get(l) ?? 0);
   const critPct = r.mining_units > 0 ? (r.mining_crit / r.mining_units) * 100 : 0;
+  // Fase D — cobertura: qué parte del total pudimos situar en un sistema. Se enseña siempre que haya
+  // algo atribuido, porque un ranking al 40% de cobertura no significa lo mismo que uno al 99%.
+  const hasSys = r.sys_bounty.length > 0 || r.sys_mining.length > 0 || r.sys_combat.length > 0;
+  const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
+  const bountyCov = pct(r.sys_bounty_covered, r.bounty_isk);
+  const miningCov = pct(r.sys_mining_covered, r.mining_units);
+  const combatCov = pct(r.sys_combat_covered, r.combat_dmg_done);
   // Combate: daño hecho/recibido por mes + % wrecking (golpes de gracia).
   const cdSeries = monthly(r.combat_done_series);
   const ctByMonth = new Map<string, number>();
@@ -110,8 +117,17 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
               ...(r.mining_crit > 0
                 ? [{ name: tr("Crítico / mes"), color: "#57c785", values: critVals, dash: true }]
                 : []),
+              // El desperdicio es mena DESTRUIDA: nunca entró en la bodega. Se pinta bajo cero, como
+              // "No ingresado" en Rateo. El dato guardado sigue siendo positivo; solo se niega al pintar.
               ...(r.mining_wasted > 0
-                ? [{ name: tr("Desperdiciado / mes"), color: "#d76a6a", values: wasteVals, dash: true }]
+                ? [
+                    {
+                      name: tr("Desperdiciado / mes"),
+                      color: "#d76a6a",
+                      values: wasteVals.map((v) => -v),
+                      dash: true,
+                    },
+                  ]
                 : []),
             ]}
             fmt={fmtSp}
@@ -163,6 +179,54 @@ export function ReconView({ subject }: { subject?: number | "global" }) {
           </div>
         )}
       </div>
+
+      {/* Fase D — el gamelog no dice dónde estabas salvo cuando saltas; el canal Local sí. */}
+      {hasSys && (
+        <div className="recon-block">
+          <h5>📍 {tr("Dónde")}</h5>
+          <p className="muted small">
+            {tr(
+              "Sacado del canal Local, que anuncia cada cambio de sistema. Solo se atribuyen las sesiones cuyo chatlog se conserva; el resto cuenta en los totales de arriba, pero no aquí.",
+            )}
+          </p>
+          {r.sys_bounty.length > 0 && (
+            <div className="recon-bars">
+              <div className="muted small">
+                {tr("Dónde rateaste")} · {tr("atribuido")} {bountyCov.toFixed(0)}%
+              </div>
+              <Bars
+                items={r.sys_bounty.slice(0, 12).map((s) => ({ label: s.system, value: s.isk }))}
+                color="#e0b35c"
+                fmt={fmtSp}
+              />
+            </div>
+          )}
+          {r.sys_mining.length > 0 && (
+            <div className="recon-bars">
+              <div className="muted small">
+                {tr("Dónde minaste")} · {tr("atribuido")} {miningCov.toFixed(0)}%
+              </div>
+              <Bars
+                items={r.sys_mining.slice(0, 12).map((s) => ({ label: s.system, value: s.units }))}
+                color="#5b9bd1"
+                fmt={fmtInt}
+              />
+            </div>
+          )}
+          {r.sys_combat.length > 0 && (
+            <div className="recon-bars">
+              <div className="muted small">
+                {tr("Dónde peleaste")} · {tr("atribuido")} {combatCov.toFixed(0)}%
+              </div>
+              <Bars
+                items={r.sys_combat.slice(0, 12).map((s) => ({ label: s.system, value: s.dmg_done }))}
+                color="#57c785"
+                fmt={fmtSp}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Combate (LOG-ONLY: ESI no da nada de esto) */}
       {hasCombat && (

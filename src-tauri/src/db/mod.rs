@@ -186,9 +186,45 @@ impl Db {
                 rusqlite::params![crate::config::ESI_COMPATIBILITY_DATE],
             );
         }
-        Ok(Db {
+        // El gamelog escribe a veces `Veldspar*` (asterisco cosmético del nombre visible). Hasta ahora
+        // `clean_ore` no lo quitaba y esa mena vivía como una fila aparte que no resolvía a ningún
+        // typeID. Ya está arreglado en el parser, pero fundimos las filas viejas aquí para no obligar a
+        // otro reescaneo de 6,6 GB. Una sola vez, marcado en `meta`.
+        let star_done: String = conn
+            .query_row("SELECT value FROM meta WHERE key='ore_star_merged'", [], |r| r.get(0))
+            .unwrap_or_default();
+        if star_done.is_empty() {
+            let _ = conn.execute_batch(
+                "BEGIN; \
+                 INSERT INTO gamelog_mining (character_id, date, ore, units, crit, cycles, waste) \
+                   SELECT character_id, date, rtrim(ore,'*'), units, crit, cycles, waste \
+                   FROM gamelog_mining WHERE ore LIKE '%*' \
+                 ON CONFLICT(character_id,date,ore) DO UPDATE SET \
+                   units = units + excluded.units, crit = crit + excluded.crit, \
+                   cycles = cycles + excluded.cycles, waste = waste + excluded.waste; \
+                 DELETE FROM gamelog_mining WHERE ore LIKE '%*'; \
+                 INSERT INTO gamelog_mining_sys (character_id, date, system, ore, units, crit) \
+                   SELECT character_id, date, system, rtrim(ore,'*'), units, crit \
+                   FROM gamelog_mining_sys WHERE ore LIKE '%*' \
+                 ON CONFLICT(character_id,date,system,ore) DO UPDATE SET \
+                   units = units + excluded.units, crit = crit + excluded.crit; \
+                 DELETE FROM gamelog_mining_sys WHERE ore LIKE '%*'; \
+                 COMMIT;",
+            );
+            let _ = conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('ore_star_merged','1') \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            );
+        }
+
+        let db = Db {
             conn: Mutex::new(conn),
-        })
+        };
+        // Diccionario ES→EN de ratas desde el SDE. Es catálogo, no dato del usuario: sembrarlo aquí
+        // canoniza retroactivamente los años con el cliente en español SIN reescanear nada.
+        let _ = db.seed_rat_alias();
+        Ok(db)
     }
 }
 

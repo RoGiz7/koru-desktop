@@ -3,6 +3,7 @@
 // mientras el proyecto está en desarrollo.
 #![allow(dead_code)]
 
+mod chatlog;
 mod commands;
 mod config;
 mod db;

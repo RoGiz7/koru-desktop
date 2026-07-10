@@ -652,8 +652,19 @@ export type GamelogRecon = {
   /** Segundos con daño por día (denominador del DPS: Σdaño / Σsegundos). */
   combat_secs_series: DayVal[];
   top_rats: RatDmg[];
+  /** Fase D — dónde ocurrió cada cosa, sacado del canal Local. `*_covered` = el total ATRIBUIDO: las
+   *  sesiones sin chatlog gemelo cuentan en los totales generales, pero no aquí. */
+  sys_bounty: SysIsk[];
+  sys_bounty_covered: number;
+  sys_mining: SysUnits[];
+  sys_mining_covered: number;
+  sys_combat: SysDmg[];
+  sys_combat_covered: number;
 };
 export type RatDmg = { rat: string; dmg: number };
+export type SysIsk = { system: string; isk: number; pays: number };
+export type SysUnits = { system: string; units: number };
+export type SysDmg = { system: string; dmg_done: number; dmg_taken: number };
 // Un piloto del histórico de logi (a quién curaste / de quién recibiste).
 export type LogiPilot = {
   pilot: string;

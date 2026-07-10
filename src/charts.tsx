@@ -167,6 +167,31 @@ function smoothPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
+// Un "paso bonito" ≥ v: 1, 2, 2,5 o 5 por una potencia de 10. Sin esto, el eje Y se dibuja en cuartos
+// del máximo crudo y salen etiquetas como `438.300,75` — con decimales en unidades de daño, y tan
+// largas que el margen izquierdo las recorta.
+function niceStep(v: number): number {
+  if (!(v > 0)) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const m = v / pow;
+  const nice = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10;
+  return nice * pow;
+}
+
+// Extremos del eje redondeados a múltiplos del paso, y las marcas que caen dentro. El número de
+// divisiones NO es fijo: forzarlo a 4 obligaba a duplicar el paso cuando hay negativos, y el eje se
+// estiraba al doble de lo necesario (−50 B … 150 B para unos datos de −4 B a 76 B).
+function niceScale(min: number, max: number, target = 4): { lo: number; hi: number; ticks: number[] } {
+  // Todo lo que dibujamos (ISK, unidades, daño, DPS) es entero: con un recorrido diminuto, un paso
+  // fraccionario solo produciría `0,25` repetidos.
+  const step = Math.max(niceStep((max - min) / target || 1), max - min <= target ? 1 : 0);
+  const lo = Math.floor(min / step) * step;
+  const hi = Math.ceil(max / step) * step;
+  const ticks: number[] = [];
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v * 1e6) / 1e6);
+  return { lo, hi: hi > lo ? hi : lo + step, ticks };
+}
+
 // Varias curvas suaves superpuestas. Leyenda que aísla una serie al pulsarla; soporta negativos.
 export function MultiLineProgress({
   labels,
@@ -196,22 +221,25 @@ export function MultiLineProgress({
   const n = labels.length;
   const W = 760;
   const H = 250;
-  const PADL = 52;
   const PADR = 14;
   const PADTOP = 14;
   const PADBOT = 26;
+  const flat = vis.flatMap((s) => s.values);
+  // El eje se estira a números redondos: si no, las divisiones son cuartos del máximo crudo y las
+  // etiquetas salen con decimales (`438.300,75`) y demasiado largas para el margen.
+  const { lo: dMin, hi: dMax, ticks } = niceScale(Math.min(0, ...flat), Math.max(1, ...flat));
+  const span = dMax - dMin || 1;
+  // El margen izquierdo se ajusta a la etiqueta más larga. Fijarlo recortaba `246.556.019.418` por la
+  // izquierda en las gráficas de ISK, que es donde más dígitos hay.
+  const yLabels = ticks.map(fmt);
+  const PADL = Math.min(140, 20 + Math.max(...yLabels.map((s) => s.length)) * 6.6);
   const plotW = W - PADL - PADR;
   const plotH = H - PADTOP - PADBOT;
   const baseY = PADTOP + plotH;
-  const flat = vis.flatMap((s) => s.values);
-  const dMax = Math.max(1, ...flat);
-  const dMin = Math.min(0, ...flat);
-  const span = dMax - dMin || 1;
   const x = (i: number) => (n === 1 ? PADL + plotW / 2 : PADL + (i / (n - 1)) * plotW);
   const y = (v: number) => baseY - ((v - dMin) / span) * plotH;
   const zeroY = y(0);
   const step = Math.max(1, Math.ceil(n / 7));
-  const grid = [0, 0.25, 0.5, 0.75, 1];
   const uid = labels.length + "-" + vis.length;
   return (
     <div className="line-wrap">
@@ -254,13 +282,13 @@ export function MultiLineProgress({
             <feDropShadow dx="0" dy="0" stdDeviation="2.2" floodColor="#000" floodOpacity="0.5" />
           </filter>
         </defs>
-        {grid.map((g, gi) => {
-          const gy = baseY - g * plotH;
+        {ticks.map((t, gi) => {
+          const gy = y(t);
           return (
             <g key={gi}>
               <line x1={PADL} y1={gy} x2={W - PADR} y2={gy} stroke="rgba(255,255,255,0.06)" />
               <text x={PADL - 8} y={gy + 3} textAnchor="end" className="ml-ylabel">
-                {fmt(dMin + g * span)}
+                {yLabels[gi]}
               </text>
             </g>
           );

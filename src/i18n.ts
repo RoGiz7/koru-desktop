@@ -254,6 +254,13 @@ const EN: Record<string, string> = {
   Viaje: "Travel",
   Saltos: "Jumps",
   "Sistemas más visitados": "Most visited systems",
+  Dónde: "Where",
+  "Dónde rateaste": "Where you ratted",
+  "Dónde minaste": "Where you mined",
+  "Dónde peleaste": "Where you fought",
+  atribuido: "attributed",
+  "Sacado del canal Local, que anuncia cada cambio de sistema. Solo se atribuyen las sesiones cuyo chatlog se conserva; el resto cuenta en los totales de arriba, pero no aquí.":
+    "Taken from the Local channel, which announces every system change. Only sessions whose chatlog still exists are attributed; the rest count in the totals above, but not here.",
   "Aún no hay datos reconstruidos. Abre ⚙️ Ajustes → Logs de EVE y pulsa Escanear.":
     "No reconstructed data yet. Open ⚙️ Settings → EVE logs and press Scan.",
   gamelog: "gamelog",
