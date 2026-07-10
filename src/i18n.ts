@@ -307,6 +307,35 @@ const EN: Record<string, string> = {
     "Overlays Extracted (matches ESI) + Critical + Wasted from the gamelog (dashed lines)",
   "El desperdiciado solo se muestra en modo «Unidades» (el log no indica la mena del residuo).":
     "Wasted only shows in “Units” mode (the log doesn't state the residue's ore).",
+  // ---- v18 en las vistas: calidad del golpe, salvage, residuo por mena y bonificaciones de mando.
+  // La escala de calidad es la del juego; el par ES↔EN se fijó por daño medio, no por traducción.
+  Roza: "Grazes",
+  Alcanza: "Glances Off",
+  Impacta: "Hits",
+  Perfora: "Penetrates",
+  Destroza: "Smashes",
+  Destruye: "Wrecks",
+  Calidad: "Quality",
+  "Calidad del golpe": "Hit quality",
+  Dados: "Given",
+  Recibidos: "Taken",
+  "Del gamelog, todo tu histórico. Seis escalones de calidad, de Roza (el peor) a Destruye (wrecking): la misma escala en español y en inglés, emparejada por el daño medio de cada verbo, no por traducción.":
+    "From the gamelog, your whole history. Six quality steps, from Grazes (worst) to Wrecks: the same scale in Spanish and English, paired by each verb's average damage, not by translation.",
+  "Restos recuperados": "Wrecks salvaged",
+  "Intentos fallidos": "Failed attempts",
+  "Del gamelog, todo tu histórico: restos de naves recuperados con éxito e intentos que fallaron. El log no dice qué salió de cada resto; eso solo lo sabe tu bodega.":
+    "From the gamelog, your whole history: ship wrecks successfully salvaged and attempts that failed. The log doesn't say what came out of each wreck; only your cargo hold knows that.",
+  "Residuo por mena": "Residue by ore",
+  "Mena destruida por el módulo, atribuida a su mena. El log solo lo detalla desde":
+    "Ore destroyed by the module, attributed to its ore. The log only details it since",
+  "el % se calcula contra lo extraído desde esa fecha, no contra todo el histórico.":
+    "the % is computed against what was extracted since that date, not the whole history.",
+  "% perdido": "% lost",
+  "Bonificaciones de mando": "Command bursts",
+  "Pulsos de tus módulos de mando y a cuántos miembros de flota llegó cada uno (suma de todos los pulsos, no gente distinta: el log no dice a quién).":
+    "Pulses of your command burst modules and how many fleet members each one reached (sum across pulses, not distinct people: the log doesn't say who).",
+  Pulsos: "Pulses",
+  "Miembros bonificados": "Members boosted",
   Combate: "Combat",
   "Daño hecho": "Damage done",
   "Daño recibido": "Damage taken",
@@ -330,6 +359,24 @@ const EN: Record<string, string> = {
   Escudero: "Shield Warden",
   Chapista: "Field Mender",
   Soldador: "Welder",
+  Capataz: "Foreman",
+  "Voz de mando": "Voice of Command",
+  "Pulsos de Mining Foreman lanzados a la flota": "Mining Foreman bursts pulsed to your fleet",
+  "Miembros de flota bonificados por tus módulos de mando (suma de pulsos)":
+    "Fleet members boosted by your command bursts (sum across pulses)",
+  "Filón": "Motherlode",
+  "Unidades extraídas en ciclos críticos": "Ore units mined in critical cycles",
+  Chatarrero: "Scrapper",
+  "Restos de naves recuperados": "Ship wrecks salvaged",
+  Trotamundos: "Globetrotter",
+  "Saltos entre sistemas": "Jumps between systems",
+  Demoledor: "Wrecker",
+  "Golpes wrecking asestados (Destruye)": "Wrecking hits landed (Wrecks)",
+  Artillero: "Gunner",
+  "Daño total infligido (del gamelog, con o sin muerte detrás)":
+    "Total damage dealt (from the gamelog, kill or no kill behind it)",
+  "Sistemas distintos donde has minado (del gamelog + chatlog)":
+    "Distinct systems you've mined in (from the gamelog + chatlog)",
   "Escudo remoto reparado (dado)": "Remote shield repaired (given)",
   "Blindaje remoto reparado (dado)": "Remote armor repaired (given)",
   "Casco remoto reparado (dado)": "Remote hull repaired (given)",

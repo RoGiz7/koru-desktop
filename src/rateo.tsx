@@ -13,6 +13,8 @@ import type {
   AbyssalsData,
   GamelogRecon,
   WeaponDay,
+  QualityDay,
+  SalvageDay,
 } from "./types";
 
 // Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
@@ -62,14 +64,31 @@ export function RateoView({
   // `reason` de ESI. Nunca en el mismo eje: son cosas distintas medidas por fuentes distintas.
   // `spec` va aparte y no dentro de `rats`: nueve especiales contra cuatro mil ratas normales, en el
   // mismo eje, son una línea plana pegada al cero. No se normaliza una escala; se cambia de magnitud.
-  type Mag = "isk" | "rats" | "iskrat" | "spec" | "dmg" | "miss";
+  type Mag = "isk" | "rats" | "iskrat" | "spec" | "dmg" | "miss" | "qual" | "salv";
   const [mag, setMag] = useState<Mag>(() => (localStorage.getItem("koru-rateo-mag") as Mag) || "isk");
   const [glWeapons, setGlWeapons] = useState<WeaponDay[]>([]);
+  // Calidad del golpe (1..6) y salvage: v18, del gamelog, todo el histórico. Cuentas, no ISK.
+  const [glQuality, setGlQuality] = useState<QualityDay[]>([]);
+  const [glSalvage, setGlSalvage] = useState<SalvageDay[]>([]);
+  // Dirección de la calidad: tus golpes o los que recibes. En los recibidos el arma falta a menudo,
+  // pero la CALIDAD sí está: la distribución es igual de real en ambos sentidos.
+  const [qdir, setQdir] = useState<"done" | "taken">(
+    () => (localStorage.getItem("koru-rateo-qdir") as "done" | "taken") || "done",
+  );
+  useEffect(() => {
+    localStorage.setItem("koru-rateo-qdir", qdir);
+  }, [qdir]);
   useEffect(() => {
     const sid = typeof subject === "number" ? subject : 0;
     invoke<WeaponDay[]>("get_gamelog_weapons", { subjectId: sid })
       .then(setGlWeapons)
       .catch(() => setGlWeapons([]));
+    invoke<QualityDay[]>("get_gamelog_quality", { subjectId: sid })
+      .then(setGlQuality)
+      .catch(() => setGlQuality([]));
+    invoke<SalvageDay[]>("get_gamelog_salvage", { subjectId: sid })
+      .then(setGlSalvage)
+      .catch(() => setGlSalvage([]));
   }, [subject]);
   useEffect(() => {
     localStorage.setItem("koru-rateo-mag", mag);
@@ -339,12 +358,31 @@ export function RateoView({
         .map((w) => bucketKey(w.date)),
     ),
   ].sort();
+  // Calidad y salvage: mismo origen (gamelog) y por tanto su propio eje, como Daño/Fallos.
+  const qlLabels = [
+    ...new Set(
+      glQuality
+        .filter((q) => (!from || q.date >= from) && (!to || q.date <= to))
+        .map((q) => bucketKey(q.date)),
+    ),
+  ].sort();
+  const svLabels = [
+    ...new Set(
+      glSalvage
+        .filter((s) => (!from || s.date >= from) && (!to || s.date <= to))
+        .map((s) => bucketKey(s.date)),
+    ),
+  ].sort();
   const chartLabels =
     mag === "dmg" || mag === "miss"
       ? wpLabels
-      : ratsScoped
-        ? labels.filter((l) => l >= ratsFrom && l <= ratsTo)
-        : labels;
+      : mag === "qual"
+        ? qlLabels
+        : mag === "salv"
+          ? svLabels
+          : ratsScoped
+            ? labels.filter((l) => l >= ratsFrom && l <= ratsTo)
+            : labels;
   const cobradoBk = new Map(labels.map((l, i) => [l, cobradoLine.values[i]]));
 
   const ratsVals = chartLabels.map((l) => bkRats.get(l) ?? 0);
@@ -398,6 +436,35 @@ export function RateoView({
       }));
   const dmgLines = wpLines(wpAgg((w) => w.dmg));
   const missLines = wpLines(wpAgg((w) => w.misses));
+
+  // ---- Calidad del golpe (gamelog): seis escalones, de Roza a Destruye. El emparejamiento ES↔EN se
+  // fijó por daño medio relativo al arma, no por traducción. Rampa de color de gris (peor) a rojo
+  // (mejor): la leyenda se lee sola sin memorizar seis colores arbitrarios.
+  const QUAL_NAMES = ["Roza", "Alcanza", "Impacta", "Perfora", "Destroza", "Destruye"] as const;
+  const QUAL_COLORS = ["#8b949e", "#5b9bd1", "#57c785", "#d29922", "#f0883e", "#e5534b"] as const;
+  const qualLines = QUAL_NAMES.map((name, i) => {
+    const m = new Map<string, number>();
+    for (const q of glQuality) {
+      if (q.quality !== i + 1) continue;
+      if ((from && q.date < from) || (to && q.date > to)) continue;
+      const k = bucketKey(q.date);
+      m.set(k, (m.get(k) ?? 0) + (qdir === "done" ? q.done : q.taken));
+    }
+    return { name: tr(name), color: QUAL_COLORS[i], values: qlLabels.map((l) => m.get(l) ?? 0) };
+  }).filter((s) => s.values.some((v) => v > 0));
+
+  // ---- Salvage (gamelog): restos recuperados e intentos fallidos. Cuentas, no ISK.
+  const bkSalv = { ok: new Map<string, number>(), fail: new Map<string, number>() };
+  for (const s of glSalvage) {
+    if ((from && s.date < from) || (to && s.date > to)) continue;
+    const k = bucketKey(s.date);
+    bkSalv.ok.set(k, (bkSalv.ok.get(k) ?? 0) + s.salvaged);
+    bkSalv.fail.set(k, (bkSalv.fail.get(k) ?? 0) + s.failed);
+  }
+  const salvLines = [
+    { name: tr("Restos recuperados"), color: "#57c785", values: svLabels.map((l) => bkSalv.ok.get(l) ?? 0) },
+    { name: tr("Intentos fallidos"), color: "#d76a6a", values: svLabels.map((l) => bkSalv.fail.get(l) ?? 0) },
+  ].filter((s) => s.values.some((v) => v > 0));
   // ISK por rata: calidad del rateo. Sube al cazar capitales, baja al limpiar frigatas.
   const iskRatLine = {
     name: tr("ISK por rata (bruto)"),
@@ -424,7 +491,11 @@ export function RateoView({
             ? dmgLines
             : mag === "miss"
               ? missLines
-              : [
+              : mag === "qual"
+                ? qualLines
+                : mag === "salv"
+                  ? salvLines
+                  : [
                 ...baseLines,
                 ...(hasGross ? [grossLine] : []),
                 ...(glOn ? [glLine] : []),
@@ -443,9 +514,13 @@ export function RateoView({
             ? tr("Daño por arma")
             : mag === "miss"
               ? tr("Fallos por arma")
-              : cumulative
-                ? `ISK (${tr("acumulado")})`
-                : "ISK";
+              : mag === "qual"
+                ? tr("Calidad del golpe")
+                : mag === "salv"
+                  ? tr("Salvage")
+                  : cumulative
+                    ? `ISK (${tr("acumulado")})`
+                    : "ISK";
 
   return (
     <>
@@ -505,17 +580,34 @@ export function RateoView({
               ["iskrat", tr("ISK/rata")],
               ["dmg", tr("Daño")],
               ["miss", tr("Fallos")],
+              ["qual", tr("Calidad")],
+              ["salv", tr("Salvage")],
             ] as const
           )
             // Daño y Fallos solo tienen sentido si el gamelog está escaneado; Especiales, si cayó alguna.
             .filter(([m]) => (m !== "dmg" && m !== "miss") || glWeapons.length > 0)
             .filter(([m]) => m !== "spec" || (special?.daily?.length ?? 0) > 0)
+            // Calidad y Salvage: solo si el gamelog trajo alguna fila (v18 exige haber reescaneado).
+            .filter(([m]) => m !== "qual" || glQuality.length > 0)
+            .filter(([m]) => m !== "salv" || glSalvage.length > 0)
             .map(([m, lbl]) => (
               <button key={m} className={mag === m ? "active" : ""} onClick={() => setMag(m)}>
                 {lbl}
               </button>
             ))}
         </div>
+        {/* La calidad existe en las DOS direcciones (en los golpes recibidos falta a menudo el arma,
+            pero el escalón sí está). Un toggle, no dos magnitudes: es la misma pregunta con otro sujeto. */}
+        {mag === "qual" && (
+          <div className="seg seg-sm">
+            <button className={qdir === "done" ? "active" : ""} onClick={() => setQdir("done")}>
+              {tr("Dados")}
+            </button>
+            <button className={qdir === "taken" ? "active" : ""} onClick={() => setQdir("taken")}>
+              {tr("Recibidos")}
+            </button>
+          </div>
+        )}
         {/* La línea del gamelog solo existe en ISK: el log registra daño, no muertes. */}
         {glBounty.length > 0 && mag === "isk" && (
           <button
@@ -531,6 +623,20 @@ export function RateoView({
         <p className="muted small gl-note">
           {tr(
             "Del gamelog, por arma o dron, y de todo tu histórico. Es daño y fallos, NO muertes: el log no dice qué arma remató a cada rata, y en un mismo segundo golpeas a varios objetivos.",
+          )}
+        </p>
+      )}
+      {mag === "qual" && (
+        <p className="muted small gl-note">
+          {tr(
+            "Del gamelog, todo tu histórico. Seis escalones de calidad, de Roza (el peor) a Destruye (wrecking): la misma escala en español y en inglés, emparejada por el daño medio de cada verbo, no por traducción.",
+          )}
+        </p>
+      )}
+      {mag === "salv" && (
+        <p className="muted small gl-note">
+          {tr(
+            "Del gamelog, todo tu histórico: restos de naves recuperados con éxito e intentos que fallaron. El log no dice qué salió de cada resto; eso solo lo sabe tu bodega.",
           )}
         </p>
       )}
@@ -581,7 +687,7 @@ export function RateoView({
           labels={chartLabels}
           series={lineSeries}
           fmt={chartFmt}
-          straight={mag === "rats" || mag === "spec" || mag === "miss"}
+          straight={mag === "rats" || mag === "spec" || mag === "miss" || mag === "qual" || mag === "salv"}
         />
       </div>
 

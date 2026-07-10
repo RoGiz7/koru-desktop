@@ -6,6 +6,64 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.23.0",
+    date: "2026-07-10",
+    es: [
+      "🎖️ Ocho medallas nuevas del gamelog, con desbloqueo retroactivo: Capataz y Voz de mando (módulos de mando), Filón (crítico minero), Chatarrero (salvage), Prospector (sistemas distintos minados), Trotamundos (saltos), Demoledor (golpes wrecking) y Artillero (daño total).",
+      "🎯 Rateo gana dos magnitudes: Calidad del golpe (seis escalones de Roza a Destruye, dados o recibidos) y Salvage (restos recuperados e intentos fallidos), de todo tu histórico.",
+      "⛏️ Minería: tabla «Residuo por mena» (la mena que tu módulo destruyó, con su % perdido calculado solo contra la época en que el log lo detalla) y «Bonificaciones de mando» (pulsos de foreman y a cuántos llegaron).",
+      "✨ El aviso de logros nuevos usa los mismos iconos de EVE que el medallero.",
+      "📝 Este modal de Novedades recupera las entradas de la 0.21.0 y la 0.22.0 que faltaban.",
+      "🐛 Arreglado: la misma condecoración otorgada dos veces rompía el medallero de corp; y retirado un resto de «Escanear» huérfano en Trabajos y proyectos (el escaneo vive en Configuración).",
+    ],
+    en: [
+      "🎖️ Eight new gamelog medals, retroactively unlocked: Foreman and Voice of Command (command bursts), Motherlode (mining crits), Scrapper (salvage), Prospector (distinct systems mined), Globetrotter (jumps), Wrecker (wrecking hits) and Gunner (total damage).",
+      "🎯 Ratting gains two magnitudes: Hit quality (six steps from Grazes to Wrecks, given or taken) and Salvage (wrecks recovered and failed attempts), across your whole history.",
+      "⛏️ Mining: “Residue by ore” table (the ore your module destroyed, with its % lost computed only against the era the log details it) and “Command bursts” (foreman pulses and how many they reached).",
+      "✨ The new-achievements banner now uses the same EVE icons as the medal case.",
+      "📝 This What's-new dialog recovers the missing 0.21.0 and 0.22.0 entries.",
+      "🐛 Fixed: the same decoration awarded twice broke the corp medal case; and removed an orphaned “Scan” leftover in Jobs & projects (scanning lives in Settings).",
+    ],
+  },
+  {
+    version: "0.22.0",
+    date: "2026-07-10",
+    es: [
+      "⛏️ Minería «Por sistema» desde 2019: el desglose se empalma con el gamelog más allá de la ventana de ESI, valorado en el modo que tengas puesto (m³, bruto, comprimido, 85%), con el % del extraído que pudo situarse.",
+      "💰 Rateo: columna «Bruto (gamelog)» en el detalle por sistema + sistemas anteriores a tu histórico de wallet. Donde el dato no existe va un guion, nunca un cero — y la vista advierte que cobrado y bruto no son comparables.",
+      "🎯 Daño y Fallos por arma, de todo tu histórico: cuánto pegaste con cada arma o dron y cuántas veces fallaste, desde 2019. (Con qué arma mataste no se inventa: el gamelog registra daño, no muertes.)",
+      "👑 Ratas especiales (oficiales, capitales, faction) con magnitud y eje propios — junto a miles de ratas normales eran una línea plana en el cero.",
+      "🐛 Fin de seis años de ceros falsos en Ratas e ISK/rata: el eje se recorta a donde el dato existe. Un cero afirma «no ocurrió»; el hueco dice «no se sabe».",
+      "📈 Las cuentas van rectas de punto a punto (la curva dibujaba 8,2 ratas donde hubo 8); los ISK, continuos, siguen suavizados.",
+      "⚡ El intel lee solo lo que el log ha crecido, en vez de releer el fichero entero cada tres segundos.",
+    ],
+    en: [
+      "⛏️ Mining “By system” since 2019: the breakdown splices with the gamelog beyond ESI's window, valued in your current mode (m³, raw, compressed, 85%), showing the % of extraction that could be placed.",
+      "💰 Ratting: “Gross (gamelog)” column in the per-system detail + systems older than your wallet history. Missing data shows a dash, never a zero — and the view warns that earned and gross aren't comparable.",
+      "🎯 Damage and Misses per weapon, across your whole history: how hard you hit with each weapon or drone and how often you missed, since 2019. (Which weapon got the kill isn't invented: the gamelog records damage, not deaths.)",
+      "👑 Special rats (officers, capitals, faction) get their own magnitude and axis — next to thousands of normal rats they were a flat line at zero.",
+      "🐛 End of six years of false zeros in Rats and ISK/rat: the axis now trims to where data exists. A zero claims “it didn't happen”; a gap says “unknown”.",
+      "📈 Counts now go straight from point to point (the curve drew 8.2 rats where there were 8); ISK, being continuous, stays smoothed.",
+      "⚡ Intel reads only what the log has grown, instead of re-reading the whole file every three seconds.",
+    ],
+  },
+  {
+    version: "0.21.0",
+    date: "2026-07-10",
+    es: [
+      "📍 Nuevo bloque «Dónde» en Reconstrucción: dónde rateaste, minaste y peleaste, por sistema y desde 2019, cruzando cada evento del gamelog con el canal Local. Cada ranking muestra su % de cobertura real.",
+      "🗂️ 596 gamelogs huérfanos rescatados (2019–2021, 294 MB): los anteriores a feb-2021 no llevan el ID del personaje y se descartaban; su dueño estaba en el chatlog de la misma sesión. Si hay duda, no se adivina.",
+      "🐛 Ratas que salían en español (una sola línea invertida en 6,6 GB envenenaba el diccionario; ahora manda el catálogo oficial: 6.192 NPC), «Veldspar*» como mena fantasma y «PS-94K*» partiendo su sistema en dos — los tres se corrigen solos, sin reescanear.",
+      "📈 Eje Y con números redondos (adiós a etiquetas como 438.300,75) y el desperdicio de minería pintado bajo cero: es mena destruida, se lee como la pérdida que es.",
+    ],
+    en: [
+      "📍 New “Where” block in Reconstruction: where you ratted, mined and fought, per system since 2019, by crossing each gamelog event with the Local channel. Each ranking shows its real coverage %.",
+      "🗂️ 596 orphan gamelogs rescued (2019–2021, 294 MB): files before Feb 2021 lack the character ID and were discarded; their owner was in the same session's chatlog. When in doubt, no guessing.",
+      "🐛 Rat names showing in Spanish (a single reversed line in 6.6 GB poisoned the dictionary; the official catalogue now rules: 6,192 NPCs), “Veldspar*” as a ghost ore, and “PS-94K*” splitting its system in two — all three self-heal, no re-scan needed.",
+      "📈 Round numbers on the Y axis (goodbye to labels like 438,300.75) and mining waste drawn below zero: it's destroyed ore, read as the loss it is.",
+    ],
+  },
+  {
     version: "0.20.1",
     date: "2026-07-07",
     es: [

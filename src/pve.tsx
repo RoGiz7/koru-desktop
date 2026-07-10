@@ -7,7 +7,7 @@ import { tr } from "./i18n";
 import { fmtIsk, fmtSp, weekKey, daysAgo } from "./format";
 import { TypeIcon, Kpi, MultiLineProgress, DONUT_COLORS, RangePresets } from "./charts";
 import { FW_FACTIONS } from "./constants";
-import type { MiningSeries, MineDimDay, FactionalView as FactionalData, AbyssalsData, GamelogRecon, GamelogMiningValued } from "./types";
+import type { MiningSeries, MineDimDay, FactionalView as FactionalData, AbyssalsData, GamelogRecon, GamelogMiningValued, GlOreWasteDay, BoostDay } from "./types";
 
 export function MineriaView({
   subject,
@@ -57,6 +57,10 @@ export function MineriaView({
   // Nombres de las menas que solo aparecen en el gamelog (ESI no las nombra → saldrían como "#45494").
   const [glOreNames, setGlOreNames] = useState<Map<number, string>>(new Map());
   const [glWaste, setGlWaste] = useState<{ date: string; value: number }[]>([]); // solo unidades (sin mena)
+  // Residuo POR MENA (v18): la época en que el log escribe el residuo junto a su extracción.
+  const [glWasteOre, setGlWasteOre] = useState<GlOreWasteDay[]>([]);
+  // Pulsos de módulos de mando (Mining Foreman Burst y compañía), del gamelog.
+  const [glBoosts, setGlBoosts] = useState<BoostDay[]>([]);
   const [showGl, setShowGl] = useState(() => localStorage.getItem("koru-mineria-gl") === "1");
   useEffect(() => {
     localStorage.setItem("koru-mineria-gl", showGl ? "1" : "0");
@@ -66,6 +70,9 @@ export function MineriaView({
     invoke<GamelogRecon>("get_gamelog_recon", { subjectId: sid })
       .then((r) => setGlWaste(r.mining_waste_series))
       .catch(() => setGlWaste([]));
+    invoke<BoostDay[]>("get_gamelog_boosts", { subjectId: sid })
+      .then(setGlBoosts)
+      .catch(() => setGlBoosts([]));
   }, [subject]);
   useEffect(() => {
     const sid = typeof subject === "number" ? subject : 0;
@@ -77,6 +84,7 @@ export function MineriaView({
         setGlOreNames(new Map(v.ore_names ?? []));
         setGlBySys(v.by_sys ?? []);
         setGlSysCov(v.sys_covered ?? 0);
+        setGlWasteOre(v.waste_by_ore ?? []);
       })
       .catch(() => {
         setGlValExt([]);
@@ -85,6 +93,7 @@ export function MineriaView({
         setGlOreNames(new Map());
         setGlBySys([]);
         setGlSysCov(0);
+        setGlWasteOre([]);
       });
   }, [subject, mode]);
 
@@ -385,6 +394,50 @@ export function MineriaView({
     .filter((y) => y > 0)
     .sort((a, b) => b - a);
 
+  // ---- Residuo por mena (v18). El % perdido se calcula SOLO contra el extraído del gamelog desde
+  // que existe atribución de residuo (la época del sufijo): meter el extraído anterior —cuando el
+  // log no decía de qué mena era el residuo— haría el % artificialmente bajo. Dentro de una misma
+  // mena el valor y las unidades guardan la misma proporción, así que el % por valor no maquilla.
+  const wasteEraStart = glWasteOre.reduce(
+    (a, w) => (a === "" || w.date < a ? w.date : a),
+    "",
+  );
+  const wasteAgg = new Map<number, { units: number; value: number }>();
+  for (const w of glWasteOre) {
+    if ((from && w.date < from) || (to && w.date > to)) continue;
+    const e = wasteAgg.get(w.id) ?? { units: 0, value: 0 };
+    e.units += w.units;
+    e.value += w.value;
+    wasteAgg.set(w.id, e);
+  }
+  const extInWasteEra = new Map<number, number>();
+  for (const r of glByOre) {
+    if (r.date < wasteEraStart) continue;
+    if ((from && r.date < from) || (to && r.date > to)) continue;
+    extInWasteEra.set(r.id, (extInWasteEra.get(r.id) ?? 0) + r.value);
+  }
+  const wasteRows = [...wasteAgg.entries()]
+    .map(([id, v]) => {
+      const ext = extInWasteEra.get(id) ?? 0;
+      return { id, ...v, pct: ext + v.value > 0 ? v.value / (ext + v.value) : 0 };
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 15);
+
+  // ---- Bonificaciones de mando (v18): pulsos por módulo en el rango. `members` es la SUMA de
+  // miembros bonificados en cada pulso, no gente distinta: el log no identifica a quién.
+  const boostAgg = new Map<string, { pulses: number; members: number }>();
+  for (const b of glBoosts) {
+    if ((from && b.date < from) || (to && b.date > to)) continue;
+    const e = boostAgg.get(b.module) ?? { pulses: 0, members: 0 };
+    e.pulses += b.pulses;
+    e.members += b.members;
+    boostAgg.set(b.module, e);
+  }
+  const boostRows = [...boostAgg.entries()]
+    .map(([module, v]) => ({ module, ...v }))
+    .sort((a, b) => b.pulses - a.pulses);
+
   return (
     <>
       <div className="km-header">
@@ -516,6 +569,72 @@ export function MineriaView({
           </table>
         )}
       </div>
+
+      {/* Residuo por mena (v18, gamelog). Mena DESTRUIDA: nunca entró en la bodega. Solo cubre la
+          época en que el log escribe el residuo junto a su extracción; el residuo antiguo (sin mena)
+          sigue en la línea global «Desperdiciado» y no está aquí. No coexisten: no hay doble conteo. */}
+      {wasteRows.length > 0 && (
+        <div className="top-list">
+          <h4>{tr("Residuo por mena")}</h4>
+          <p className="muted small">
+            {tr("Mena destruida por el módulo, atribuida a su mena. El log solo lo detalla desde")}{" "}
+            {wasteEraStart}
+            {"; "}
+            {tr("el % se calcula contra lo extraído desde esa fecha, no contra todo el histórico.")}
+          </p>
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Mineral")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Unidades")}</th>
+                <th style={{ textAlign: "right" }}>{modeLabel}</th>
+                <th style={{ textAlign: "right" }}>{tr("% perdido")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wasteRows.map((w) => (
+                <tr key={w.id}>
+                  <td>
+                    <TypeIcon typeId={w.id} />
+                    {oreName(w.id)}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(w.units)}</td>
+                  <td style={{ textAlign: "right" }}>{valFmt(w.value)}</td>
+                  <td style={{ textAlign: "right" }}>{(w.pct * 100).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Bonificaciones de mando (v18, gamelog): pulsos de foreman y a cuántos llegaron. */}
+      {boostRows.length > 0 && (
+        <div className="top-list">
+          <h4>{tr("Bonificaciones de mando")}</h4>
+          <p className="muted small">
+            {tr("Pulsos de tus módulos de mando y a cuántos miembros de flota llegó cada uno (suma de todos los pulsos, no gente distinta: el log no dice a quién).")}
+          </p>
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Módulo")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Pulsos")}</th>
+                <th style={{ textAlign: "right" }}>{tr("Miembros bonificados")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {boostRows.map((b) => (
+                <tr key={b.module}>
+                  <td>{b.module}</td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(b.pulses)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(b.members)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

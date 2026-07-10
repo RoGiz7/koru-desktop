@@ -392,6 +392,12 @@ export type SpecialRatsResult = {
 };
 /** Daño, disparos y fallos por arma/dron y día. Del gamelog: es daño, NUNCA muertes. */
 export type WeaponDay = { date: string; weapon: string; dmg: number; shots: number; misses: number };
+/** Calidad del golpe (1 Roza … 6 Destruye) por día y dirección. Del gamelog. */
+export type QualityDay = { date: string; quality: number; done: number; taken: number };
+/** Salvage por día: restos recuperados e intentos fallidos. Del gamelog. */
+export type SalvageDay = { date: string; salvaged: number; failed: number };
+/** Pulsos de módulos de mando por módulo/día: nº de pulsos y suma de miembros bonificados. */
+export type BoostDay = { date: string; module: string; pulses: number; members: number };
 export type DayKL = { date: string; kills: number; losses: number };
 export type HourKL = { hour: number; kills: number; losses: number };
 export type PvpActivity = {
@@ -629,7 +635,11 @@ export type GamelogMiningValued = {
   by_sys: GlSysDay[];
   /** Fracción del extraído del gamelog que pudo situarse en un sistema (0..1). */
   sys_covered: number;
+  /** Residuo POR MENA (v18): unidades destruidas y su valor en el modo actual. Solo la época en que
+   *  el log escribe el residuo junto a su extracción; el anterior vive suelto (sin mena). */
+  waste_by_ore: GlOreWasteDay[];
 };
+export type GlOreWasteDay = { id: number; date: string; units: number; value: number };
 export type GlSysDay = { system: string; date: string; value: number };
 export type SysVisit = { system: string; visits: number };
 export type GamelogRecon = {
@@ -739,7 +749,10 @@ export type Medal = {
   date: string;
   reason: string;
   status: string;
+  /** Capas del dibujo real (part 1=cinta, 2=medallón; graphic → textura del cliente; color ARGB). */
+  graphics: MedalGraphic[];
 };
+export type MedalGraphic = { part: number; layer: number; graphic: string; color: number | null };
 
 /// Datos vivos del ticker del dock (comando get_ticker, solo BD local).
 export type TickerData = {

@@ -660,6 +660,13 @@ select,
   border-radius: 3px;
   flex-shrink: 0;
 }
+/* En el banner de nuevos, el icono va en flujo de texto: alinearlo con la línea. */
+.bit-fresh-item {
+  white-space: nowrap;
+}
+.bit-fresh-item .bit-icon-img {
+  vertical-align: -5px;
+}
 .bit-cat-img {
   width: 18px;
   height: 18px;

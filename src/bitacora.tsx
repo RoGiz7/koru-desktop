@@ -37,6 +37,14 @@ export const ACH_UI: Record<string, { icon: string; label: string; desc: string;
   logi_shield: { icon: "🛡️", label: "Escudero", desc: "Escudo remoto reparado (dado)", tid: 11985 }, // Basilisk
   logi_armor: { icon: "🩹", label: "Chapista", desc: "Blindaje remoto reparado (dado)", tid: 11987 }, // Guardian
   logi_hull: { icon: "🔧", label: "Soldador", desc: "Casco remoto reparado (dado)", tid: 11989 }, // Oneiros
+  boost_capataz: { icon: "⛏️", label: "Capataz", desc: "Pulsos de Mining Foreman lanzados a la flota", tid: 43551 }, // Mining Foreman Burst II
+  boost_miembros: { icon: "📣", label: "Voz de mando", desc: "Miembros de flota bonificados por tus módulos de mando (suma de pulsos)", tid: 43555 }, // Shield Command Burst II
+  mineria_crit: { icon: "✨", label: "Filón", desc: "Unidades extraídas en ciclos críticos", tid: 17912 }, // Modulated Strip Miner II
+  salvage_total: { icon: "🧲", label: "Chatarrero", desc: "Restos de naves recuperados", tid: 30836 }, // Salvager II
+  saltos_total: { icon: "🚪", label: "Trotamundos", desc: "Saltos entre sistemas", tid: 672 }, // Caldari Shuttle
+  wrecks_dados: { icon: "💢", label: "Demoledor", desc: "Golpes wrecking asestados (Destruye)", tid: 2478 }, // Berserker II
+  dano_total: { icon: "💣", label: "Artillero", desc: "Daño total infligido (del gamelog, con o sin muerte detrás)", tid: 645 }, // Dominix
+  sistemas_mineria: { icon: "🧭", label: "Prospector", desc: "Sistemas distintos donde has minado (del gamelog + chatlog)", tid: 32880 }, // Venture
 };
 
 // Dominios (como las facciones de EVE, pero propios): color + emblema (typeID real) + qué agrupan.
@@ -47,14 +55,14 @@ const CATS: Cat[] = [
     label: "Guerra",
     color: "#d1495b",
     tid: 587, // Rifter
-    ids: ["kills_totales", "isk_destruido_total", "killmail_caro", "solo_kills", "final_blows", "meses_eficaces"],
+    ids: ["kills_totales", "isk_destruido_total", "killmail_caro", "solo_kills", "final_blows", "meses_eficaces", "wrecks_dados", "dano_total"],
   },
   {
     key: "travesia",
     label: "Travesía",
     color: "#4a90d9",
     tid: 33468, // Astero (exploración)
-    ids: ["sistemas_pvp", "racha_semanas"],
+    ids: ["sistemas_pvp", "racha_semanas", "saltos_total"],
   },
   {
     key: "fortuna",
@@ -68,14 +76,14 @@ const CATS: Cat[] = [
     label: "Industria",
     color: "#3fa66a",
     tid: 34, // Tritanium
-    ids: ["mineria_total"],
+    ids: ["mineria_total", "boost_capataz", "mineria_crit", "salvage_total", "sistemas_mineria"],
   },
   {
     key: "apoyo",
     label: "Apoyo",
     color: "#2eb8b8", // cian sanador
     tid: 11978, // Scimitar (logi)
-    ids: ["logi_shield", "logi_armor", "logi_hull"],
+    ids: ["logi_shield", "logi_armor", "logi_hull", "boost_miembros"],
   },
 ];
 
@@ -358,11 +366,26 @@ export function BitacoraView({
         </div>
       </div>
 
-      {/* Cascada de medallas nuevas (incl. retroactivas del histórico) */}
+      {/* Cascada de medallas nuevas (incl. retroactivas del histórico). El icono es el MISMO del
+          medallero (typeIcon del image server), con el emoji solo de reserva: los emoji del banner
+          se veían distintos a las medallas de abajo y parecían otra cosa. */}
       {fresh.length > 0 && (
         <div className="bit-fresh">
           ✨ {tr("Logros nuevos desbloqueados")}:{" "}
-          {fresh.map((a) => `${ACH_UI[a.id]?.icon ?? "🏅"} ${tr(ACH_UI[a.id]?.label ?? a.id)}`).join(" · ")}
+          {fresh.map((a, i) => {
+            const ui = ACH_UI[a.id];
+            return (
+              <span key={a.id} className="bit-fresh-item">
+                {i > 0 && " · "}
+                {ui?.tid ? (
+                  <img className="bit-icon-img" src={typeIcon(ui.tid, 32)} alt="" loading="lazy" />
+                ) : (
+                  <span>{ui?.icon ?? "🏅"}</span>
+                )}{" "}
+                {tr(ui?.label ?? a.id)}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -479,8 +502,10 @@ export function BitacoraView({
             </span>
           </div>
           <div className="medal-grid">
+            {/* Key = medal_id + fecha: la misma medalla puede otorgarse VARIAS veces (p.ej. dos
+                "Hero of M2-XFE Battle") y el id solo, duplicado, rompe las keys de React. */}
             {medals.map((m) => (
-              <OfficialMedal key={m.medal_id} m={m} />
+              <OfficialMedal key={`${m.medal_id}-${m.date}`} m={m} />
             ))}
           </div>
         </>

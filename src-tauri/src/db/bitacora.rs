@@ -377,6 +377,131 @@ impl Db {
             ach.push(hu.state("logi_hull", "count"));
         }
 
+        // Mando de flota (v18, gamelog_boosts): pulsos de foreman minero y alcance de TODOS tus
+        // módulos de mando. Como el logi: solo progresa si escaneaste gamelogs y los usaste.
+        {
+            let mut cap = Cross::new([1e3, 10e3, 100e3]);
+            let mut voz = Cross::new([1e3, 20e3, 200e3]);
+            let sql = format!(
+                "SELECT date, module, pulses, members FROM gamelog_boosts WHERE 1=1 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })?;
+            for (date, module, pulses, members) in rows.flatten() {
+                // El módulo puede venir localizado de logs viejos ("Estallido de capataz minero II*"):
+                // se aceptan ES y EN. Canonizar en el parser irá con el próximo reescaneo (no aquí:
+                // maquillar el dato en la query escondería el bug).
+                let m = module.to_lowercase();
+                if m.contains("mining foreman") || m.contains("capataz minero") {
+                    cap.add(&date, pulses as f64);
+                }
+                voz.add(&date, members as f64);
+            }
+            ach.push(cap.state("boost_capataz", "count"));
+            ach.push(voz.state("boost_miembros", "count"));
+        }
+
+        // Crítico minero (gamelog_mining.crit): unidades extraídas en ciclos críticos, desde 2019.
+        {
+            let mut filon = Cross::new([1e6, 25e6, 250e6]);
+            let sql = format!(
+                "SELECT date, crit FROM gamelog_mining WHERE crit > 0 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for (date, crit) in rows.flatten() {
+                filon.add(&date, crit as f64);
+            }
+            ach.push(filon.state("mineria_crit", "count"));
+        }
+
+        // Salvage (gamelog_salvage): restos recuperados con éxito. Los fallidos no puntúan.
+        {
+            let mut chatarra = Cross::new([2.5e3, 25e3, 250e3]);
+            let sql = format!(
+                "SELECT date, salvaged FROM gamelog_salvage WHERE salvaged > 0 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for (date, n) in rows.flatten() {
+                chatarra.add(&date, n as f64);
+            }
+            ach.push(chatarra.state("salvage_total", "count"));
+        }
+
+        // Saltos entre sistemas (gamelog_jumps): la distancia recorrida de la carrera entera.
+        {
+            let mut viaje = Cross::new([1e3, 10e3, 100e3]);
+            let sql = format!(
+                "SELECT date, jumps FROM gamelog_jumps WHERE jumps > 0 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for (date, n) in rows.flatten() {
+                viaje.add(&date, n as f64);
+            }
+            ach.push(viaje.state("saltos_total", "count"));
+        }
+
+        // Wrecking dados (gamelog_quality, escalón 6 "Destruye") y daño total hecho (gamelog_combat).
+        // Complementan a los logros de killmails: esto es TODO el daño, con o sin muerte detrás.
+        {
+            let mut demo = Cross::new([1e3, 25e3, 250e3]);
+            let sql = format!(
+                "SELECT date, done FROM gamelog_quality WHERE quality = 6 AND done > 0 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for (date, n) in rows.flatten() {
+                demo.add(&date, n as f64);
+            }
+            ach.push(demo.state("wrecks_dados", "count"));
+        }
+        {
+            let mut arti = Cross::new([100e6, 1e9, 10e9]);
+            let sql = format!(
+                "SELECT date, dmg_done FROM gamelog_combat WHERE dmg_done > 0 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for (date, n) in rows.flatten() {
+                arti.add(&date, n as f64);
+            }
+            ach.push(arti.state("dano_total", "count"));
+        }
+
+        // Sistemas distintos donde has minado (gamelog_mining_sys, Fase D): la gemela industrial de
+        // "Nómada de guerra". Solo los ciclos con sistema atribuido por el chatlog (~93% medido);
+        // el resto de la minería cuenta en los totales, pero no puede decir DÓNDE fue.
+        {
+            let mut prospector = Cross::new([10.0, 50.0, 200.0]);
+            let mut seen: std::collections::HashSet<String> = Default::default();
+            let sql = format!(
+                "SELECT date, system FROM gamelog_mining_sys WHERE 1=1 {who} ORDER BY date ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for (date, system) in rows.flatten() {
+                if seen.insert(system) {
+                    prospector.add(&date, 1.0);
+                }
+            }
+            ach.push(prospector.state("sistemas_mineria", "count"));
+        }
+
         // Patrimonio (mejor marca de snapshots; global = suma por día).
         {
             let mut patri = Cross::new([50e9, 200e9, 1e12]);
@@ -1598,6 +1723,115 @@ impl Db {
                     r.get::<_, String>(2)?,
                     r.get::<_, i64>(3)?,
                     r.get::<_, i64>(4)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// Residuo (mena destruida) ATRIBUIDO a su mena, por día. Solo existe en la época en que el log
+    /// escribe el sufijo "…con un residuo perdido de N unidades" junto a la extracción; el residuo de
+    /// épocas anteriores vive suelto en `gamelog_mining_waste` (sin mena) y NO está aquí. Validado:
+    /// las dos formas nunca coexisten en un mismo log → sumarlas no doble-cuenta.
+    pub fn gamelog_waste_by_ore_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(String, String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!("SELECT date, ore, waste FROM gamelog_mining WHERE waste > 0 {who}");
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// Reparto de la CALIDAD del golpe (1..6, de Roza a Destruye) por día y dirección. LOG-ONLY.
+    pub fn gamelog_quality_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(String, i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT date, quality, done, taken FROM gamelog_quality WHERE quality BETWEEN 1 AND 6 {who}"
+        );
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// Salvage por día: restos recuperados e intentos fallidos. LOG-ONLY (viene de `(notify)`).
+    pub fn gamelog_salvage_rows(&self, subject_id: i64) -> AppResult<Vec<(String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!("SELECT date, salvaged, failed FROM gamelog_salvage WHERE 1=1 {who}");
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// Pulsos de módulos de mando (Mining Foreman Burst, etc.) por módulo y día: nº de pulsos y suma
+    /// de miembros bonificados. LOG-ONLY.
+    pub fn gamelog_boost_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(String, String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!("SELECT date, module, pulses, members FROM gamelog_boosts WHERE 1=1 {who}");
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
                 ))
             })?
             .flatten()

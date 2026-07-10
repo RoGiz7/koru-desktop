@@ -1374,6 +1374,69 @@ pub async fn get_gamelog_weapons(
         .collect())
 }
 
+/// Reparto de la CALIDAD del golpe (1..6, de Roza/Grazes a Destruye/Wrecks) por día y dirección.
+/// La escala unificó ES y EN por daño medio relativo al arma, no por traducción. Del gamelog.
+#[derive(serde::Serialize)]
+pub struct QualityDay {
+    pub date: String,
+    pub quality: i64, // 1 Roza · 2 Alcanza · 3 Impacta · 4 Perfora · 5 Destroza · 6 Destruye
+    pub done: i64,
+    pub taken: i64,
+}
+#[tauri::command]
+pub async fn get_gamelog_quality(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<QualityDay>> {
+    Ok(state
+        .db
+        .gamelog_quality_rows(subject_id)?
+        .into_iter()
+        .map(|(date, quality, done, taken)| QualityDay { date, quality, done, taken })
+        .collect())
+}
+
+/// Salvage por día: restos recuperados e intentos fallidos. Del gamelog (`(notify)`), LOG-ONLY.
+#[derive(serde::Serialize)]
+pub struct SalvageDay {
+    pub date: String,
+    pub salvaged: i64,
+    pub failed: i64,
+}
+#[tauri::command]
+pub async fn get_gamelog_salvage(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<SalvageDay>> {
+    Ok(state
+        .db
+        .gamelog_salvage_rows(subject_id)?
+        .into_iter()
+        .map(|(date, salvaged, failed)| SalvageDay { date, salvaged, failed })
+        .collect())
+}
+
+/// Pulsos de módulos de mando por módulo y día: nº de pulsos y suma de miembros bonificados.
+#[derive(serde::Serialize)]
+pub struct BoostDay {
+    pub date: String,
+    pub module: String,
+    pub pulses: i64,
+    pub members: i64,
+}
+#[tauri::command]
+pub async fn get_gamelog_boosts(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<BoostDay>> {
+    Ok(state
+        .db
+        .gamelog_boost_rows(subject_id)?
+        .into_iter()
+        .map(|(date, module, pulses, members)| BoostDay { date, module, pulses, members })
+        .collect())
+}
+
 /// Devuelve "YYYY-MM" del mes anterior a un "YYYY-MM" dado.
 fn prev_month(ym: &str) -> String {
     let y: i32 = ym.get(0..4).and_then(|s| s.parse().ok()).unwrap_or(2026);
@@ -1671,6 +1734,15 @@ pub struct GlSysDay {
     pub date: String,
     pub value: f64,
 }
+/// Residuo (mena destruida) atribuido a su mena, por día: unidades y su valor en el modo actual.
+/// Solo la época en que el log escribe el residuo junto a la extracción; el anterior va sin mena.
+#[derive(serde::Serialize)]
+pub struct GlOreWasteDay {
+    pub id: i64,
+    pub date: String,
+    pub units: i64,
+    pub value: f64,
+}
 #[derive(serde::Serialize)]
 pub struct GamelogMiningValued {
     pub extracted: Vec<crate::db::bitacora::DayVal>,
@@ -1681,6 +1753,9 @@ pub struct GamelogMiningValued {
     /// cuánto del extraído total representan, para no enseñar un desglose parcial como si fuera todo.
     pub by_sys: Vec<GlSysDay>,
     pub sys_covered: f64,
+    /// Residuo POR MENA (v18). Mismo `ore_per_unit` y modo que `by_ore`: el % perdido por valor
+    /// coincide con el % por unidades dentro de una misma mena, así que no maquilla nada.
+    pub waste_by_ore: Vec<GlOreWasteDay>,
 }
 #[tauri::command]
 pub async fn get_gamelog_mining_valued(
@@ -1783,6 +1858,23 @@ pub async fn get_gamelog_mining_valued(
         .map(|((id, date), value)| GlOreDay { id, date, value })
         .collect();
     ore_v.sort_by(|a, b| a.date.cmp(&b.date));
+    // Residuo por mena (v18): mismas menas que arriba (misma tabla), así que `name_to_id` ya las
+    // conoce. tid=0 (mena irresoluble) se salta, igual que en `by_ore`: sin tipo no hay valor.
+    let mut waste_m: HashMap<(i64, String), (i64, f64)> = HashMap::new();
+    for (date, ore, waste) in state.db.gamelog_waste_by_ore_rows(subject_id)? {
+        let tid = name_to_id.get(&ore).copied().unwrap_or(0);
+        if tid == 0 {
+            continue;
+        }
+        let e = waste_m.entry((tid, date)).or_insert((0, 0.0));
+        e.0 += waste;
+        e.1 += waste as f64 * ore_per_unit(tid, mode, &prices);
+    }
+    let mut waste_v: Vec<GlOreWasteDay> = waste_m
+        .into_iter()
+        .map(|((id, date), (units, value))| GlOreWasteDay { id, date, units, value })
+        .collect();
+    waste_v.sort_by(|a, b| a.date.cmp(&b.date));
     // Nombres de las menas del gamelog: sin esto el frontend pinta "#45494" para las menas que solo
     // existen en el histórico del log (ESI solo nombra las que hay en su ventana de mining_ledger).
     // Devolvemos el nombre CANÓNICO ACTUAL del catálogo, no el que escribió el log: así el histórico
@@ -1800,6 +1892,7 @@ pub async fn get_gamelog_mining_valued(
         ore_names,
         by_sys,
         sys_covered,
+        waste_by_ore: waste_v,
     })
 }
 
@@ -1928,8 +2021,24 @@ pub async fn get_corp_history(
     Ok(out)
 }
 
-/// Una medalla in-game tal cual la da ESI (`/characters/{id}/medals/`). Ignoramos `graphic_layers`
-/// (el dibujo se compone por capas del SDE; mostramos la info textual, que es la que importa).
+/// Capa gráfica de una medalla in-game: la medalla se COMPONE apilando estas capas por `part`
+/// (1 cinta, 2 medallón) y `layer`. `graphic` apunta a las texturas del cliente
+/// (SharedCache → res:/ui/texture/medals/…, hojas de sprites de 256×256) y `color` es un ARGB
+/// entero. El mapeo graphic→textura/celda se fija mirando datos reales (ver
+/// scripts/find_medal_textures.py y documentacion/medals/).
+#[derive(Debug, serde::Deserialize, Serialize)]
+pub struct MedalGraphic {
+    #[serde(default)]
+    pub part: i64,
+    #[serde(default)]
+    pub layer: i64,
+    #[serde(default)]
+    pub graphic: String,
+    #[serde(default)]
+    pub color: Option<i64>,
+}
+
+/// Una medalla in-game tal cual la da ESI (`/characters/{id}/medals/`).
 #[derive(serde::Deserialize)]
 struct MedalRaw {
     medal_id: i64,
@@ -1945,6 +2054,8 @@ struct MedalRaw {
     reason: String,
     #[serde(default)]
     status: String,
+    #[serde(default)]
+    graphics: Vec<MedalGraphic>,
 }
 
 /// Condecoración oficial de corporación para el medallero mixto de la Bitácora.
@@ -1958,6 +2069,8 @@ pub struct Medal {
     pub date: String,
     pub reason: String,
     pub status: String,
+    /// Capas para el dibujo real de la medalla. Vacío si ESI no las trae.
+    pub graphics: Vec<MedalGraphic>,
 }
 
 /// Medallas in-game del personaje (condecoraciones de corp). Requiere scope
@@ -1994,6 +2107,7 @@ pub async fn get_medals(character_id: i64, state: State<'_, AppState>) -> AppRes
             date: m.date,
             reason: m.reason,
             status: m.status,
+            graphics: m.graphics,
         })
         .collect();
     out.sort_by(|a, b| b.date.cmp(&a.date)); // más reciente primero
