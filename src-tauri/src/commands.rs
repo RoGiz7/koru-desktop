@@ -4328,12 +4328,65 @@ fn parse_intel_text(text: &str, channel: &str) -> Vec<IntelLine> {
     out
 }
 
-/// Caché de parseo por fichero: ruta → (mtime_ns, tamaño, líneas). Evita re-decodificar/re-parsear
-/// en cada poll los logs que no han cambiado (una carpeta de EVE acumula cientos de ficheros).
+/// Estado del intel por fichero: ruta → (byte hasta donde ya leímos, líneas vivas ya parseadas).
 type IntelCache = std::collections::HashMap<std::path::PathBuf, (u64, Vec<IntelLine>)>;
 fn intel_cache() -> &'static std::sync::Mutex<IntelCache> {
     static C: std::sync::OnceLock<std::sync::Mutex<IntelCache>> = std::sync::OnceLock::new();
     C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Lee SOLO lo que el log ha crecido desde el tick anterior y devuelve las líneas vivas del canal.
+///
+/// Antes se releía y reparseaba el fichero ENTERO cada 3 segundos. Un canal de intel movido pasa de
+/// los 250 KB en una sesión larga, así que el coste crecía sin parar mientras jugabas — justo cuando
+/// más importa que la alarma llegue rápido. Ahora el trabajo por tick es proporcional a lo que se ha
+/// escrito, no a lo que hay escrito.
+///
+/// Detalles que hacen que esto sea correcto y no una fuente de líneas perdidas o partidas:
+/// - El tamaño se pide al HANDLE abierto, no a la entrada de directorio: en Windows el directorio no
+///   se actualiza mientras EVE mantiene el fichero abierto (por eso el código viejo releía siempre).
+/// - Solo se consume hasta el ÚLTIMO salto de línea. Si EVE está a medio escribir una línea, esa se
+///   queda fuera y el offset no avanza: entrará entera en el siguiente tick.
+/// - UTF-16LE: se avanza en unidades de 16 bits (× 2 bytes), nunca por bytes sueltos.
+/// - Si el fichero encoge, es que EVE lo rotó: se relee desde cero.
+fn intel_tail(path: &std::path::Path, channel: &str, keep_after_ms: i64) -> Vec<IntelLine> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut cache = match intel_cache().lock() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let entry = cache.entry(path.to_path_buf()).or_insert((0, Vec::new()));
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return entry.1.clone(), // bloqueado un instante: servimos lo que ya teníamos
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if len < entry.0 {
+        *entry = (0, Vec::new());
+    }
+    if len > entry.0 && f.seek(SeekFrom::Start(entry.0)).is_ok() {
+        let mut buf = Vec::with_capacity((len - entry.0) as usize);
+        if f.read_to_end(&mut buf).is_ok() {
+            let bom = usize::from(entry.0 == 0 && buf.len() >= 2 && buf[0] == 0xFF && buf[1] == 0xFE) * 2;
+            let units: Vec<u16> = buf[bom..]
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            if let Some(nl) = units.iter().rposition(|&u| u == 0x000A) {
+                let text = String::from_utf16_lossy(&units[..=nl]);
+                entry.0 += bom as u64 + (nl as u64 + 1) * 2;
+                entry.1.append(&mut parse_intel_text(&text, channel));
+            }
+        }
+    }
+    // El intel es efímero: no acumulamos la sesión entera en RAM. Pero la caché la comparten el hilo
+    // vigilante (ventana de minutos) y el comando `read_intel` (ventana mayor), así que podamos con el
+    // horizonte MÁS ANTIGUO de los dos: si podáramos con el del vigilante, la vista perdería historia
+    // que ya no podemos recuperar, porque el offset del fichero ya ha avanzado.
+    const HORIZONTE_MS: i64 = 6 * 60 * 60 * 1000;
+    let floor = keep_after_ms.min(chrono::Utc::now().timestamp_millis() - HORIZONTE_MS);
+    entry.1.retain(|l| l.ts_ms >= floor);
+    entry.1.clone()
 }
 
 /// Lee los logs de los `channels` indicados en `folder`, parsea las líneas de los últimos
@@ -4360,7 +4413,6 @@ fn collect_intel_lines(
     let mut out: Vec<IntelLine> = Vec::new();
     let mut seen: HashSet<(i64, String, String)> = HashSet::new();
     let skip_before = cutoff - chrono::Duration::minutes(10);
-    let cache = intel_cache();
 
     // 1ª pasada: un canal de intel es el MISMO feed para todos los alts → sus logs son idénticos.
     // Así que por canal nos quedamos SOLO con el fichero VIVO (el de mtime más reciente = la sesión
@@ -4368,13 +4420,18 @@ fn collect_intel_lines(
     // live[channel] = (mtime_ns, len, path)
     let mut live: std::collections::HashMap<String, (u128, u64, std::path::PathBuf)> =
         std::collections::HashMap::new();
+    // Los prefijos, una vez. Antes se construía un `format!("{c}_")` por cada fichero y cada canal, en
+    // cada tick: con 5.100 ficheros en la carpeta son decenas de miles de asignaciones cada 3 s.
+    let prefixes: Vec<(String, String)> =
+        channels.iter().map(|c| (format!("{c}_"), c.clone())).collect();
     for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
+        let fname = e.file_name();
+        let name = fname.to_string_lossy();
         if !name.ends_with(".txt") {
             continue;
         }
-        let ch = match channels.iter().find(|c| name.starts_with(&format!("{c}_"))) {
-            Some(c) => c.clone(),
+        let ch = match prefixes.iter().find(|(p, _)| name.starts_with(p.as_str())) {
+            Some((_, c)) => c.clone(),
             None => continue,
         };
         let md = match e.metadata() {
@@ -4399,38 +4456,9 @@ fn collect_intel_lines(
         }
     }
 
-    // 2ª pasada: parsear SOLO el log vivo de cada canal.
-    // IMPORTANTE: en Windows, mientras EVE tiene el log abierto y escribiendo, el tamaño/fecha del
-    // *metadata* del directorio NO se actualiza al vuelo → si cacheáramos por mtime+len del metadata,
-    // la caché creería que el fichero no cambió y devolvería líneas viejas (el feed se "congela" hasta
-    // reabrir Koru). Por eso leemos SIEMPRE el contenido real y cacheamos el parseo por el tamaño en
-    // bytes de lo leído: si el fichero creció, el len cambia y reparseamos; si no, reutilizamos.
+    // 2ª pasada: leer SOLO la cola nueva del log vivo de cada canal (ver `intel_tail`).
     for (ch, (_mtime_ns, _len, path)) in live {
-        let bytes = match std::fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        let blen = bytes.len() as u64;
-        let mut lines: Option<Vec<IntelLine>> = None;
-        if let Ok(c) = cache.lock() {
-            if let Some((cl, cv)) = c.get(&path) {
-                if *cl == blen {
-                    lines = Some(cv.clone());
-                }
-            }
-        }
-        let lines = match lines {
-            Some(v) => v,
-            None => {
-                let parsed = parse_intel_text(&decode_utf16le(&bytes), &ch);
-                if let Ok(mut c) = cache.lock() {
-                    c.insert(path.clone(), (blen, parsed.clone()));
-                }
-                parsed
-            }
-        };
-
-        for l in lines {
+        for l in intel_tail(&path, &ch, skip_before.timestamp_millis()) {
             if l.ts_ms < cutoff_ms {
                 continue;
             }
