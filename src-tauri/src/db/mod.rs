@@ -125,6 +125,10 @@ impl Db {
         // gamelog_combat: columnas de DPS (segundos activos y pico por segundo) añadidas en v15.
         let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN active_secs INTEGER NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN peak_dps INTEGER NOT NULL DEFAULT 0", []);
+        // v18: fallos (dados = puntería, recibidos = evasión) y desperdicio atribuido a su mena.
+        let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN misses_done INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN misses_taken INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE gamelog_mining ADD COLUMN waste INTEGER NOT NULL DEFAULT 0", []);
         // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
         // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó

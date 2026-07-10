@@ -836,9 +836,10 @@ impl Db {
         for m in &batch.mining {
             let (u, c, cyc) = if m.crit { (0, m.units, 0) } else { (m.units, 0, 1) };
             conn.execute(
-                "INSERT INTO gamelog_mining (character_id, date, ore, units, crit, cycles) VALUES (?1,?2,?3,?4,?5,?6) \
-                 ON CONFLICT(character_id,date,ore) DO UPDATE SET units = units + excluded.units, crit = crit + excluded.crit, cycles = cycles + excluded.cycles",
-                rusqlite::params![character_id, m.date, m.ore, u, c, cyc],
+                "INSERT INTO gamelog_mining (character_id, date, ore, units, crit, cycles, waste) VALUES (?1,?2,?3,?4,?5,?6,?7) \
+                 ON CONFLICT(character_id,date,ore) DO UPDATE SET units = units + excluded.units, crit = crit + excluded.crit, \
+                   cycles = cycles + excluded.cycles, waste = waste + excluded.waste",
+                rusqlite::params![character_id, m.date, m.ore, u, c, cyc, m.residue],
             )?;
         }
         // Fase C — desperdicio de minería (LOG-ONLY): unidades residuales por personaje/día.
@@ -856,6 +857,36 @@ impl Db {
                  ON CONFLICT(character_id,date) DO UPDATE SET isk = isk + excluded.isk, pays = pays + 1",
                 rusqlite::params![character_id, b.date, b.isk],
             )?;
+        }
+        // Rescate y boosts (categoría `notify`). Volumen bajo → upsert directo, sin agregar antes.
+        {
+            let mut sagg: std::collections::HashMap<String, [i64; 2]> = std::collections::HashMap::new();
+            for s in &batch.salvage {
+                let e = sagg.entry(s.date.clone()).or_insert([0; 2]);
+                if s.ok { e[0] += 1 } else { e[1] += 1 }
+            }
+            for (date, v) in &sagg {
+                conn.execute(
+                    "INSERT INTO gamelog_salvage (character_id, date, salvaged, failed) VALUES (?1,?2,?3,?4) \
+                     ON CONFLICT(character_id,date) DO UPDATE SET \
+                       salvaged = salvaged + excluded.salvaged, failed = failed + excluded.failed",
+                    rusqlite::params![character_id, date, v[0], v[1]],
+                )?;
+            }
+            let mut bagg: std::collections::HashMap<(String, String), [i64; 2]> = std::collections::HashMap::new();
+            for b in &batch.boosts {
+                let e = bagg.entry((b.date.clone(), b.module.clone())).or_insert([0; 2]);
+                e[0] += 1;
+                e[1] += b.members;
+            }
+            for ((date, module), v) in &bagg {
+                conn.execute(
+                    "INSERT INTO gamelog_boosts (character_id, date, module, pulses, members) VALUES (?1,?2,?3,?4,?5) \
+                     ON CONFLICT(character_id,date,module) DO UPDATE SET \
+                       pulses = pulses + excluded.pulses, members = members + excluded.members",
+                    rusqlite::params![character_id, date, module, v[0], v[1]],
+                )?;
+            }
         }
         // Fase C — saltos: nº por arista (origen→destino) y día.
         for j in &batch.jumps {
@@ -876,9 +907,23 @@ impl Db {
             // DPS: daño HECHO por (día, segundo). Los segundos con daño = tiempo de combate real;
             // el máximo de un segundo = pico de DPS. Se resuelve al cerrar el fichero.
             let mut persec: std::collections::HashMap<(String, i64), i64> = std::collections::HashMap::new();
+            // Arma → (daño, disparos, fallos) y calidad 1..6 → (dados, recibidos). Agregado en memoria
+            // por el mismo motivo que el combate: son millones de líneas.
+            let mut wagg: std::collections::HashMap<(String, String), [i64; 3]> = std::collections::HashMap::new();
+            let mut qagg: std::collections::HashMap<(String, u8), [i64; 2]> = std::collections::HashMap::new();
+            let mut magg: std::collections::HashMap<String, [i64; 2]> = std::collections::HashMap::new(); // día → (fallos dados, recibidos)
             for c in &batch.combat {
                 let e = cagg.entry(c.date.clone()).or_insert([0; 6]);
                 let w = i64::from(c.wreck);
+                if c.quality > 0 {
+                    let q = qagg.entry((c.date.clone(), c.quality)).or_insert([0; 2]);
+                    if c.done { q[0] += 1 } else { q[1] += 1 }
+                }
+                if c.done && !c.weapon.is_empty() {
+                    let a = wagg.entry((c.date.clone(), c.weapon.clone())).or_insert([0; 3]);
+                    a[0] += c.dmg;
+                    a[1] += 1;
+                }
                 if c.done {
                     e[0] += c.dmg;
                     e[2] += 1;
@@ -899,6 +944,45 @@ impl Db {
                     e[3] += 1;
                     e[5] += w;
                 }
+            }
+            // Fallos: los dados alimentan el ratio de acierto (y el de su arma); los recibidos, la
+            // evasión. El gamelog registra ambos, con verbos distintos según idioma y dirección.
+            for m in &batch.misses {
+                let e = magg.entry(m.date.clone()).or_insert([0; 2]);
+                if m.done {
+                    e[0] += 1;
+                    if !m.weapon.is_empty() {
+                        wagg.entry((m.date.clone(), m.weapon.clone())).or_insert([0; 3])[2] += 1;
+                    }
+                } else {
+                    e[1] += 1;
+                }
+            }
+            for ((date, weapon), v) in &wagg {
+                conn.execute(
+                    "INSERT INTO gamelog_weapons (character_id, date, weapon, dmg, shots, misses) VALUES (?1,?2,?3,?4,?5,?6) \
+                     ON CONFLICT(character_id,date,weapon) DO UPDATE SET \
+                       dmg = dmg + excluded.dmg, shots = shots + excluded.shots, misses = misses + excluded.misses",
+                    rusqlite::params![character_id, date, weapon, v[0], v[1], v[2]],
+                )?;
+            }
+            for ((date, q), v) in &qagg {
+                conn.execute(
+                    "INSERT INTO gamelog_quality (character_id, date, quality, done, taken) VALUES (?1,?2,?3,?4,?5) \
+                     ON CONFLICT(character_id,date,quality) DO UPDATE SET \
+                       done = done + excluded.done, taken = taken + excluded.taken",
+                    rusqlite::params![character_id, date, *q as i64, v[0], v[1]],
+                )?;
+            }
+            // Un día puede tener fallos sin un solo golpe (te tirotean y no aciertas): esa fila de
+            // gamelog_combat no existiría, así que la creamos aquí con el resto a cero.
+            for (date, v) in &magg {
+                conn.execute(
+                    "INSERT INTO gamelog_combat (character_id, date, misses_done, misses_taken) VALUES (?1,?2,?3,?4) \
+                     ON CONFLICT(character_id,date) DO UPDATE SET \
+                       misses_done = misses_done + excluded.misses_done, misses_taken = misses_taken + excluded.misses_taken",
+                    rusqlite::params![character_id, date, v[0], v[1]],
+                )?;
             }
             // Por día: nº de segundos con daño y el mayor daño concentrado en uno solo.
             let mut dps: std::collections::HashMap<String, (i64, i64)> = std::collections::HashMap::new();
@@ -1383,6 +1467,10 @@ impl Db {
              DELETE FROM gamelog_combat; \
              DELETE FROM gamelog_rats; \
              DELETE FROM gamelog_rat_alias; \
+             DELETE FROM gamelog_weapons; \
+             DELETE FROM gamelog_quality; \
+             DELETE FROM gamelog_salvage; \
+             DELETE FROM gamelog_boosts; \
              COMMIT;",
         )?;
         Ok(())

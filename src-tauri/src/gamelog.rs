@@ -87,6 +87,23 @@ pub struct CombatEvent {
     pub alias_en: String,
 }
 
+/// Rescate de restos (categoría `notify`). `ok=false` = el ciclo del salvager falló.
+/// OJO: el texto de FALLO solo se ha visto en inglés ("Your salvaging attempt failed this time.");
+/// no hay muestra del equivalente español, así que en logs ES la tasa de éxito saldrá al 100%.
+pub struct SalvageEvent {
+    pub date: String,
+    pub sec: i64,
+    pub ok: bool,
+}
+
+/// Pulso de un módulo de mando (`Tu Mining Foreman Burst II ha aplicado bonificaciones a N miembros`).
+pub struct BoostEvent {
+    pub date: String,
+    pub sec: i64,
+    pub module: String,
+    pub members: i64,
+}
+
 /// Todo lo que un fichero de gamelog aporta en UNA pasada (se lee una sola vez).
 #[derive(Default)]
 pub struct ScanBatch {
@@ -97,6 +114,8 @@ pub struct ScanBatch {
     pub waste: Vec<WasteEvent>,
     pub combat: Vec<CombatEvent>,
     pub misses: Vec<MissEvent>,
+    pub salvage: Vec<SalvageEvent>,
+    pub boosts: Vec<BoostEvent>,
 }
 
 /// Calidad del golpe → 1..6 (peor a mejor), unificando ES y EN. El emparejamiento NO viene de la
@@ -216,31 +235,51 @@ pub fn parse_logi_line(line: &str) -> Option<LogiEvent> {
     if !line.contains("(combat)") {
         return None;
     }
-    // Tipo de rep.
-    let kind = if line.contains("escudo remoto") {
-        "shield"
-    } else if line.contains("blindaje remoto") {
-        "armor"
-    } else if line.contains("casco remoto") {
-        "hull"
-    } else {
-        return None;
-    };
-    // Dirección: "... potenciado/reparado por <fuente>" (recibido) | "... a <objetivo>" (dado).
-    let direction = if line.contains("potenciado por ") || line.contains("reparado por ") {
-        "received"
-    } else if line.contains("potenciado a ") || line.contains("reparado a ") {
-        "given"
-    } else {
-        return None;
-    };
+    // Tipo de rep, bilingüe. Incluye el CUARTO tipo (capacitor), que antes no seguíamos.
+    // OJO: no basta con buscar "remote" — `N to Remote Cloaking Array - Templar I - Hits` es un
+    // golpe normal contra una estructura llamada así. Por eso exigimos la frase completa.
+    const KINDS: [(&str, &str); 9] = [
+        ("escudo remoto", "shield"),
+        ("blindaje remoto", "armor"),
+        ("casco remoto", "hull"),
+        ("capacitor remoto", "cap"),
+        ("condensador remoto", "cap"),
+        ("remote shield boosted", "shield"),
+        ("remote armor repaired", "armor"),
+        ("remote hull repaired", "hull"),
+        ("remote capacitor transmitted", "cap"),
+    ];
+    let kind = KINDS.iter().find(|(m, _)| line.contains(m)).map(|(_, k)| *k)?;
+    // Dirección. En español hay TRES preposiciones ("por", "de" y "a"); antes solo se leían dos, y
+    // las líneas con "potenciado de" se descartaban en silencio.
+    const DIRS: [(&str, bool); 15] = [
+        (" potenciado a ", true),
+        (" reparado a ", true),
+        (" transmitido a ", true),
+        (" potenciado por ", false),
+        (" reparado por ", false),
+        (" transmitido por ", false),
+        (" potenciado de ", false),
+        (" reparado de ", false),
+        (" transmitido de ", false),
+        (" boosted to ", true),
+        (" repaired to ", true),
+        (" transmitted to ", true),
+        (" boosted by ", false),
+        (" repaired by ", false),
+        (" transmitted by ", false),
+    ];
+    // Se busca sobre el texto SIN tags: el marcador va dentro de `<font size=10>…</font>`.
+    let plain_all = strip_tags(line);
+    let (mark, given) = *DIRS.iter().find(|(m, _)| plain_all.contains(m))?;
+    let direction = if given { "given" } else { "received" };
     let hp = first_bold_number(line)?;
     let date = line_date(line)?;
-    // Piloto + nave + módulo: lo que va tras "potenciado/reparado por|a ".
-    let after = ["potenciado por ", "reparado por ", "potenciado a ", "reparado a "]
-        .iter()
-        .find_map(|p| line.find(p).map(|i| &line[i + p.len()..]))
-        .unwrap_or("");
+    // Piloto + nave + módulo: lo que va tras el marcador. Se toma de la línea CON tags porque
+    // `is_char` distingue jugador de dron por la presencia de `<localized>`. El marcador puede tener
+    // un `</font>` justo detrás, así que buscamos la frase sin el espacio final.
+    let needle = mark.trim_end();
+    let after = line.find(needle).map(|i| &line[i + needle.len()..]).unwrap_or("");
     // is_char: formato con corchetes "[Nave] Piloto" = personaje real. Pero drones, NPC y estructuras
     // TAMBIÉN usan corchetes ("[Nave] Nave"), así que el corchete no basta. La diferencia real: el
     // nombre del JUGADOR va en texto plano tras "]", mientras que el de un dron/NPC/estructura va
@@ -444,6 +483,48 @@ fn parse_bounty_line(line: &str) -> Option<BountyEvent> {
     Some(BountyEvent { date, sec: line_secs(line).unwrap_or(-1), isk })
 }
 
+/// Rescate, de la categoría `notify`. Éxito en ES y EN; el fallo, solo visto en EN.
+fn parse_salvage_line(line: &str) -> Option<SalvageEvent> {
+    let plain = strip_tags(line);
+    let ok = plain.contains("recuperado satisfactoriamente los restos")
+        || plain.contains("successfully salvage")
+        || plain.contains("salvager successfully completes");
+    let fail = plain.contains("salvaging attempt failed");
+    if !ok && !fail {
+        return None;
+    }
+    Some(SalvageEvent { date: line_date(line)?, sec: line_secs(line).unwrap_or(-1), ok })
+}
+
+/// Pulso de módulo de mando: `Tu <módulo> ha aplicado bonificaciones a N miembro(s) de la flota.`
+/// / `Your <módulo> has applied bonuses to N fleet member(s).`
+fn parse_boost_line(line: &str) -> Option<BoostEvent> {
+    let plain = strip_tags(line);
+    let (mark, es) = if let Some(i) = plain.find(" ha aplicado bonificaciones a ") {
+        (i, true)
+    } else {
+        (plain.find(" has applied bonuses to ")?, false)
+    };
+    // Módulo: entre "Tu "/"Your " y el marcador.
+    let head = &plain[..mark];
+    let module = head
+        .rfind(if es { "Tu " } else { "Your " })
+        .map(|i| head[i + if es { 3 } else { 5 }..].trim().to_string())
+        .unwrap_or_default();
+    // Nº de miembros: primer número tras el marcador.
+    let tail = &plain[mark..];
+    let digits: String = tail
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let members: i64 = digits.parse().unwrap_or(0);
+    if module.is_empty() || members <= 0 {
+        return None;
+    }
+    Some(BoostEvent { date: line_date(line)?, sec: line_secs(line).unwrap_or(-1), module, members })
+}
+
 /// Salto: `(None) Saltando de <hint="A">A a <hint="B">B`. Coge los DOS hint = origen y destino.
 fn parse_jump_line(line: &str) -> Option<JumpEvent> {
     let date = line_date(line)?;
@@ -615,6 +696,12 @@ pub fn scan_file(path: &Path, from: u64) -> std::io::Result<(u64, ScanBatch)> {
         } else if line.contains("(bounty)") {
             if let Some(ev) = parse_bounty_line(&line) {
                 batch.bounty.push(ev);
+            }
+        } else if line.contains("(notify)") {
+            if let Some(ev) = parse_salvage_line(&line) {
+                batch.salvage.push(ev);
+            } else if let Some(ev) = parse_boost_line(&line) {
+                batch.boosts.push(ev);
             }
         } else if line.contains("Saltando de ") || line.contains("Jumping from ") {
             if let Some(ev) = parse_jump_line(&line) {

@@ -301,6 +301,10 @@ CREATE TABLE IF NOT EXISTS gamelog_mining (
     units        INTEGER NOT NULL DEFAULT 0,  -- base (ciclo normal)
     crit         INTEGER NOT NULL DEFAULT 0,  -- bonus de "extracción crítica" (Equinox); base+crit = ESI
     cycles       INTEGER NOT NULL DEFAULT 0,
+    -- Residuo destruido, ATRIBUIDO A SU MENA. Solo existe en la era en que la línea de extracción
+    -- trae el sufijo "…con un residuo perdido de N unidades". En la otra era el residuo va en línea
+    -- aparte y sin mena (tabla `gamelog_mining_waste`). Nunca coexisten: no hay doble conteo.
+    waste        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date, ore)
 );
 -- Bounty (rateo) reconstruido: ISK y nº de pagos por personaje/día.
@@ -344,6 +348,10 @@ CREATE TABLE IF NOT EXISTS gamelog_combat (
     -- `peak_dps` = daño máximo concentrado en un solo segundo. DPS medio = dmg_done / active_secs.
     active_secs  INTEGER NOT NULL DEFAULT 0,
     peak_dps     INTEGER NOT NULL DEFAULT 0,
+    -- Disparos sin daño. `misses_done` = fallaste tú (ratio de acierto); `misses_taken` = te
+    -- fallaron (evasión). El log registra AMBOS, con verbos distintos en cada idioma.
+    misses_done  INTEGER NOT NULL DEFAULT 0,
+    misses_taken INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date)
 );
 -- Daño hecho por OBJETIVO (rata) y día → "ratas más batidas". LOG-ONLY.
@@ -354,6 +362,50 @@ CREATE TABLE IF NOT EXISTS gamelog_rats (
     dmg          INTEGER NOT NULL DEFAULT 0,
     shots        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (character_id, date, rat)
+);
+
+-- Daño, disparos y FALLOS por arma/módulo y día. El arma va en el penúltimo segmento de la línea de
+-- combate y está en el 100% de los golpes dados. Con `misses` sale el ratio de acierto por arma:
+-- medido en logs reales, Berserker II 92,9% frente a Curator II 41,7%. LOG-ONLY.
+CREATE TABLE IF NOT EXISTS gamelog_weapons (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    weapon       TEXT NOT NULL,
+    dmg          INTEGER NOT NULL DEFAULT 0,
+    shots        INTEGER NOT NULL DEFAULT 0,
+    misses       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, weapon)
+);
+
+-- Reparto de la CALIDAD del golpe (1..6, de peor a mejor), en cada dirección. La escala unifica ES y
+-- EN por daño medio, no por traducción: 1 Roza/Grazes … 6 Destruye/Wrecks. LOG-ONLY.
+CREATE TABLE IF NOT EXISTS gamelog_quality (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    quality      INTEGER NOT NULL,
+    done         INTEGER NOT NULL DEFAULT 0,
+    taken        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, quality)
+);
+
+-- Rescate de restos por día. `failed` solo se llena en logs en inglés: el texto de fallo en español
+-- no aparece en la muestra, así que en logs ES la tasa de éxito saldrá al 100%. LOG-ONLY.
+CREATE TABLE IF NOT EXISTS gamelog_salvage (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    salvaged     INTEGER NOT NULL DEFAULT 0,
+    failed       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date)
+);
+
+-- Pulsos de módulos de mando (Mining Foreman Burst, etc.): cuántas veces y a cuántos de la flota.
+CREATE TABLE IF NOT EXISTS gamelog_boosts (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    module       TEXT NOT NULL,
+    pulses       INTEGER NOT NULL DEFAULT 0,
+    members      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, module)
 );
 
 -- Diccionario ES→EN de nombres de rata, extraído del propio gamelog (`<localized hint="ES">EN`).
