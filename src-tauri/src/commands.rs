@@ -1431,6 +1431,29 @@ pub async fn get_gamelog_pvp_series(
         .collect())
 }
 
+/// DPS por día, del gamelog: daño hecho, segundos ACTIVOS (segundos distintos con daño — tiempo
+/// de combate real, muy por debajo del de sesión) y mejor segundo del día. El DPS medio de un
+/// período = SUM(dmg)/SUM(secs), calculado en el frontend.
+#[derive(serde::Serialize)]
+pub struct DpsDay {
+    pub date: String,
+    pub dmg: i64,
+    pub secs: i64,
+    pub peak: i64,
+}
+#[tauri::command]
+pub async fn get_gamelog_dps(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<DpsDay>> {
+    Ok(state
+        .db
+        .gamelog_dps_rows(subject_id)?
+        .into_iter()
+        .map(|(date, dmg, secs, peak)| DpsDay { date, dmg, secs, peak })
+        .collect())
+}
+
 /// Reparto de la CALIDAD del golpe (1..6, de Roza/Grazes a Destruye/Wrecks) por día y dirección.
 /// La escala unificó ES y EN por daño medio relativo al arma, no por traducción. Del gamelog.
 #[derive(serde::Serialize)]

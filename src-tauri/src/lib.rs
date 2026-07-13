@@ -113,6 +113,7 @@ pub fn run() {
             commands::get_gamelog_weapons,
             commands::get_gamelog_pvp,
             commands::get_gamelog_pvp_series,
+            commands::get_gamelog_dps,
             commands::get_gamelog_quality,
             commands::get_gamelog_salvage,
             commands::get_gamelog_boosts,

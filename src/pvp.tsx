@@ -290,6 +290,10 @@ export function PvpView(props: {
   onKmPage: (offset: number) => void;
   /// id del personaje activo, o null en Global (para las series de tops).
   subjectChar?: number | null;
+  /// Latidos de datos (App): relanzan las peticiones internas al sincronizar/escanear,
+  /// para que la gráfica abierta cambie sola según pasan las cosas.
+  syncTick?: number;
+  glTick?: number;
 }) {
   const {
     stats,
@@ -311,6 +315,8 @@ export function PvpView(props: {
     onKmKind,
     onKmPage,
     subjectChar,
+    syncTick,
+    glTick,
   } = props;
 
   // Rango compartido por las tres gráficas de líneas (tendencia + tops). 90 días por defecto.
@@ -335,10 +341,13 @@ export function PvpView(props: {
     return () => {
       alive = false;
     };
-  }, [subjectChar]);
+    // glTick: al acabar un escaneo de gamelogs, la serie de daño PvP se refresca sola.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectChar, glTick]);
   useEffect(() => {
     let alive = true;
-    setShipSeries(null);
+    // Sin reset a null: en el refresco de fondo (syncTick) los datos se intercambian en sitio,
+    // sin parpadeo — la gráfica "se mueve", no se apaga y enciende.
     invoke<TopSeriesPoint[]>("get_pvp_top_series", { characterId: subjectChar ?? null, dim: shipDim })
       .then((r) => {
         if (alive) setShipSeries(r);
@@ -347,10 +356,10 @@ export function PvpView(props: {
     return () => {
       alive = false;
     };
-  }, [subjectChar, shipDim]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectChar, shipDim, syncTick]);
   useEffect(() => {
     let alive = true;
-    setSysSeries(null);
     invoke<TopSeriesPoint[]>("get_pvp_top_series", { characterId: subjectChar ?? null, dim: "system" })
       .then((r) => {
         if (alive) setSysSeries(r);
@@ -359,7 +368,8 @@ export function PvpView(props: {
     return () => {
       alive = false;
     };
-  }, [subjectChar]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectChar, syncTick]);
   // Región por sistema desde el SDE local (para kills más caros y killmails).
   const [regionOf, setRegionOf] = useState<Map<number, string> | null>(null);
   useEffect(() => {
@@ -627,7 +637,7 @@ export function PvpView(props: {
       </div>
 
       {/* Cara a cara del gamelog: daño real contra jugadores, CON y SIN killmail. */}
-      <GamelogPvpBlock subjectChar={subjectChar ?? null} />
+      <GamelogPvpBlock subjectChar={subjectChar ?? null} glTick={glTick} />
     </>
   );
 }
@@ -635,7 +645,7 @@ export function PvpView(props: {
 // ---- PvP del gamelog (#45): contra quién pegaste y quién te pegó, del log de combate. ----
 // Lo que zKill nunca tendrá: las peleas sin killmail. La misma honestidad que Daño por arma:
 // esto es DAÑO y fallos, no muertes — y tu propia nave el gamelog no la dice.
-function GamelogPvpBlock({ subjectChar }: { subjectChar: number | null }) {
+function GamelogPvpBlock({ subjectChar, glTick }: { subjectChar: number | null; glTick?: number }) {
   const [rows, setRows] = useState<GamelogPvpRow[]>([]);
   const [kind, setKind] = useState<"ships" | "structs">("ships");
   useEffect(() => {
@@ -646,7 +656,9 @@ function GamelogPvpBlock({ subjectChar }: { subjectChar: number | null }) {
     return () => {
       alive = false;
     };
-  }, [subjectChar]);
+    // glTick: la tabla se refresca sola al completar un escaneo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectChar, glTick]);
 
   // Fusiona dado/recibido por (piloto, ticker): una fila por rival, con ambos sentidos.
   // (STRUCT_TYPES, arriba: deployables/POS sin prefijo van a la pestaña Estructuras.)

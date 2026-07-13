@@ -290,10 +290,14 @@ export function BitacoraView({
   data,
   busy,
   subject,
+  syncTick,
 }: {
   data: Bitacora | null;
   busy: boolean;
   subject?: number | "global";
+  /// Latido de App: sube tras cada auto-sync → medallas, puntuación oficial y series se
+  /// refrescan solas (un logro desbloqueado en el sync aparece sin cambiar de vista).
+  syncTick?: number;
 }) {
   // Medallas in-game (condecoraciones de corp): por personaje, best-effort (scope read_medals).
   const [medals, setMedals] = useState<Medal[]>([]);
@@ -309,7 +313,8 @@ export function BitacoraView({
     return () => {
       alive = false;
     };
-  }, [subject]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, syncTick]);
 
   // Puntuación de logros OFICIAL de EVE (Cradle of War, ruta pública): por personaje, best-effort.
   const [officialScore, setOfficialScore] = useState<number | null>(null);
@@ -325,7 +330,8 @@ export function BitacoraView({
     return () => {
       alive = false;
     };
-  }, [subject]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, syncTick]);
 
   // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
   const [series, setSeries] = useState<Record<string, SeriesPoint[]>>({});
@@ -340,7 +346,8 @@ export function BitacoraView({
     return () => {
       alive = false;
     };
-  }, [subject]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, syncTick]);
   const toggle = (id: string) => setOpenMedal((o) => (o === id ? null : id));
 
   if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;

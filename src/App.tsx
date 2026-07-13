@@ -1074,6 +1074,13 @@ function App() {
     loadTab(subject, t);
   }
 
+  // Latidos de datos: las vistas piden parte de sus datos con `invoke` propio, y esos efectos
+  // solo se relanzaban al cambiar de sujeto/sección — la gráfica abierta se quedaba congelada
+  // aunque el auto-sync o un escaneo trajeran datos nuevos. Estos contadores van en las deps de
+  // esos efectos: sube el contador → la vista abierta se refresca sola. Dos fuentes, dos ticks.
+  const [syncTick, setSyncTick] = useState(0); // tras cada auto-sync (datos ESI)
+  const [glTick, setGlTick] = useState(0); // tras cada escaneo de gamelogs completado
+
   async function runAutoSync() {
     if (autoBusy) return;
     setAutoBusy(true);
@@ -1093,6 +1100,7 @@ function App() {
       loadHeadline(subject);
       loadMap(subject);
       loadTab(subject, tab, true);
+      setSyncTick((t) => t + 1); // y las peticiones internas de la vista abierta (minería, tops…)
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1535,8 +1543,9 @@ function App() {
                 </div>
               )}
 
-              {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / reconstrucción Fase C) */}
-              <GamelogControl />
+              {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / reconstrucción Fase C).
+                  Al completar un escaneo, las gráficas del gamelog abiertas se refrescan solas. */}
+              <GamelogControl onScanned={() => setGlTick((t) => t + 1)} />
 
               {/* Medallas de corp pintadas: extraer texturas de la SharedCache del usuario. */}
               <MedalTexturesControl />
@@ -1865,6 +1874,8 @@ function App() {
               onKmKind={(k) => loadKillmails(subject, k, 0)}
               onKmPage={(off) => loadKillmails(subject, kmKind, off)}
               subjectChar={isGlobal ? null : subjectId}
+              syncTick={syncTick}
+              glTick={glTick}
             />
           )}
           {tab === "rivales" && <RivalsView data={rivalsData} busy={sectionBusy} />}
@@ -1927,7 +1938,9 @@ function App() {
             />
           )}
           {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
-          {tab === "bitacora" && <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} />}
+          {tab === "bitacora" && (
+            <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} syncTick={syncTick} />
+          )}
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "logis" && <LogisView subject={subject} />}
@@ -1943,6 +1956,7 @@ function App() {
               abyssals={abyssalsData}
               busy={sectionBusy}
               subject={subject}
+              glTick={glTick}
             />
           )}
           {tab === "resumen" && <ResumenView subject={subject} />}
@@ -1952,6 +1966,8 @@ function App() {
               subject={subject}
               charNames={new Map(Object.values(cards).map((c) => [c.character_id, c.name]))}
               onSyncMining={handleSyncMining}
+              syncTick={syncTick}
+              glTick={glTick}
             />
           )}
           {tab === "contactos" &&

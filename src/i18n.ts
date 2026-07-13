@@ -859,6 +859,14 @@ const EN: Record<string, string> = {
   "DPS pico": "Peak DPS",
   "Tiempo en combate": "Time in combat",
   "DPS medio / mes": "Average DPS / month",
+  "DPS medio (en combate)": "Average DPS (in combat)",
+  "Pico (mejor segundo)": "Peak (best second)",
+  "Del gamelog. El DPS medio divide el daño entre los segundos EN COMBATE (segundos con al menos un golpe tuyo), no entre el tiempo de sesión — es tu ritmo real mientras disparas. El pico es el mejor segundo del período.":
+    "From the gamelog. Average DPS divides damage by seconds IN COMBAT (seconds with at least one hit of yours), not session time — your real pace while shooting. The peak is the best second of the period.",
+  "Solo contra NPC: tu daño a jugadores vive en la sección PvP, en Cara a cara.":
+    "NPC only: your damage against players lives in the PvP section, under Face to face.",
+  "Suma PvE y PvP: separarlos exige reprocesar el histórico (pendiente del próximo lote).":
+    "Adds PvE and PvP together: splitting them requires reprocessing the history (pending for the next batch).",
   "El DPS se mide sobre los segundos en los que hubo daño, no sobre el tiempo de sesión. El pico es el mayor daño concentrado en un solo segundo.":
     "DPS is measured over the seconds in which damage occurred, not over session time. The peak is the highest damage concentrated in a single second.",
   "Por mineral": "By ore",

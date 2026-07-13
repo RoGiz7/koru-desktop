@@ -13,10 +13,16 @@ export function MineriaView({
   subject,
   charNames,
   onSyncMining,
+  syncTick,
+  glTick,
 }: {
   subject: number | "global";
   charNames: Map<number, string>;
   onSyncMining?: (id: number) => Promise<void>;
+  /// Latidos de App: la serie ESI se refresca con cada auto-sync (syncTick) y las del gamelog
+  /// al completar un escaneo (glTick) — la gráfica abierta cambia sola según pasan las cosas.
+  syncTick?: number;
+  glTick?: number;
 }) {
   const isGlobal = subject === "global";
   const [series, setSeries] = useState<MiningSeries | null>(null);
@@ -73,7 +79,8 @@ export function MineriaView({
     invoke<BoostDay[]>("get_gamelog_boosts", { subjectId: sid })
       .then(setGlBoosts)
       .catch(() => setGlBoosts([]));
-  }, [subject]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, glTick]);
   useEffect(() => {
     const sid = typeof subject === "number" ? subject : 0;
     invoke<GamelogMiningValued>("get_gamelog_mining_valued", { subjectId: sid, mode })
@@ -95,7 +102,8 @@ export function MineriaView({
         setGlSysCov(0);
         setGlWasteOre([]);
       });
-  }, [subject, mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, mode, glTick]);
 
   useEffect(() => {
     loadNewEden()
@@ -105,7 +113,7 @@ export function MineriaView({
 
   useEffect(() => {
     let alive = true;
-    setBusy(true);
+    if (!series) setBusy(true); // skeleton solo en la primera carga; los refrescos van en sitio
     (async () => {
       try {
         const d = isGlobal
@@ -121,7 +129,10 @@ export function MineriaView({
     return () => {
       alive = false;
     };
-  }, [subject, reload, mode]);
+    // syncTick: cada auto-sync trae mining ledger fresco → la serie se refresca en sitio,
+    // sin salir de la vista. (El skeleton solo en la primera carga: series ya tiene datos.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, reload, mode, syncTick]);
 
   async function doSync() {
     if (typeof subject !== "number" || !onSyncMining) return;

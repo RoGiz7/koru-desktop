@@ -104,6 +104,12 @@ impl Db {
         if tracked == 0 {
             let _ = conn.execute("DELETE FROM logi_ledger", []);
         }
+        // Fósiles de un ingestor antiguo: filas de mining_ledger con type_id -1 (mena perdida para
+        // siempre — la ventana de ESI de esa época pasó). El código actual no puede crearlas (ESI
+        // exige type_id; el gamelog usa 0 para lo irresoluble) y esa era ya la cubre el gamelog
+        // CON la mena real, así que solo estorban: cajón "#-1" en desgloses y riesgo de doble
+        // conteo en el empalme. Idempotente y barato: tras la primera pasada borra 0 filas.
+        let _ = conn.execute("DELETE FROM mining_ledger WHERE type_id < 0", []);
         // logi_pilots: columnas añadidas en 0.20.0 (nave, módulo y HP por tipo).
         let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN ship TEXT NOT NULL DEFAULT ''", []);
         let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN module TEXT NOT NULL DEFAULT ''", []);
@@ -2918,7 +2924,14 @@ impl Db {
         Ok(rows.flatten().collect())
     }
 
-    /// Daño, disparos y fallos por arma/dron y día, del gamelog. LOG-ONLY: ESI no expone nada de esto.
+    /// Daño, disparos y fallos por arma/dron y día, del gamelog — SOLO contra NPC. LOG-ONLY.
+    ///
+    /// `gamelog_weapons` acumula TODO el daño (ratas + jugadores + estructuras: es daño real y
+    /// los totales lo conservan), pero esta query alimenta las magnitudes Daño/Fallos de RATEO,
+    /// que es una vista PvE: una semana de guerra pintaría daño PvP como si fuera rateo. La
+    /// resta contra `gamelog_pvp` (misma pasada de parseo, mismas filas de origen) es EXACTA,
+    /// no una estimación; MAX(...,0) es solo cinturón. Calidad y segundos de DPS aún no llevan
+    /// la dimensión jugador/rata en sus tablas → separarlos va en el próximo lote de reescaneo.
     pub fn gamelog_weapon_rows(
         &self,
         subject_id: i64,
@@ -2927,10 +2940,19 @@ impl Db {
         let who = if subject_id == 0 {
             String::new()
         } else {
-            format!("AND character_id = {subject_id}")
+            format!("AND w.character_id = {subject_id}")
         };
         let q = format!(
-            "SELECT date, weapon, dmg, shots, misses FROM gamelog_weapons WHERE 1=1 {who}"
+            "SELECT w.date, w.weapon, \
+                    MAX(w.dmg    - COALESCE(p.dmg, 0),    0), \
+                    MAX(w.shots  - COALESCE(p.shots, 0),  0), \
+                    MAX(w.misses - COALESCE(p.misses, 0), 0) \
+             FROM gamelog_weapons w \
+             LEFT JOIN (SELECT character_id, date, weapon, SUM(dmg) dmg, SUM(shots) shots, \
+                               SUM(misses) misses \
+                        FROM gamelog_pvp WHERE done = 1 GROUP BY character_id, date, weapon) p \
+               ON p.character_id = w.character_id AND p.date = w.date AND p.weapon = w.weapon \
+             WHERE 1=1 {who}"
         );
         let mut st = conn.prepare(&q)?;
         let rows = st
@@ -3020,6 +3042,35 @@ impl Db {
                     r.get::<_, String>(2)?,
                     r.get::<_, String>(3)?,
                     r.get::<_, i64>(4)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// DPS por día, del gamelog: (date, dmg_done, active_secs, peak_dps). Solo días con segundos
+    /// activos (sin denominador no hay DPS que valga). El DPS medio del bucket lo calcula el
+    /// frontend como SUM(dmg)/SUM(secs) — promediar promedios mentiría.
+    pub fn gamelog_dps_rows(&self, subject_id: i64) -> AppResult<Vec<(String, i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT date, SUM(dmg_done), SUM(active_secs), MAX(peak_dps) FROM gamelog_combat \
+             WHERE active_secs > 0 {who} GROUP BY date"
+        );
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
                 ))
             })?
             .flatten()

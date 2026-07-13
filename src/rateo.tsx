@@ -15,6 +15,7 @@ import type {
   WeaponDay,
   QualityDay,
   SalvageDay,
+  DpsDay,
 } from "./types";
 
 // Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
@@ -26,6 +27,7 @@ export function RateoView({
   abyssals,
   busy,
   subject,
+  glTick,
 }: {
   data: RattingDetail | null;
   special: SpecialRatsResult | null;
@@ -34,6 +36,8 @@ export function RateoView({
   abyssals: AbyssalsData | null;
   busy: boolean;
   subject?: number | "global";
+  /// Latido de App: sube al completar un escaneo de gamelogs → las series del log se refrescan solas.
+  glTick?: number;
 }) {
   // Fusión visual (opt-in): serie diaria del bounty reconstruido del gamelog (fuente SEPARADA).
   const [glBounty, setGlBounty] = useState<{ date: string; value: number }[]>([]);
@@ -57,19 +61,23 @@ export function RateoView({
         setGlSys(new Map());
         setGlSysCov(0);
       });
-  }, [subject]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, glTick]);
   // Qué MAGNITUD pinta la gráfica. Mezclar ISK (miles de millones) con nº de ratas (miles) en el
   // mismo eje obliga a normalizar, y normalizar es maquillar. Se cambia de magnitud, no de escala.
   // `dmg` y `miss` salen del gamelog (por arma/dron, todo el histórico); `rats` e `iskrat` salen del
   // `reason` de ESI. Nunca en el mismo eje: son cosas distintas medidas por fuentes distintas.
   // `spec` va aparte y no dentro de `rats`: nueve especiales contra cuatro mil ratas normales, en el
   // mismo eje, son una línea plana pegada al cero. No se normaliza una escala; se cambia de magnitud.
-  type Mag = "isk" | "rats" | "iskrat" | "spec" | "dmg" | "miss" | "qual" | "salv";
+  type Mag = "isk" | "rats" | "iskrat" | "spec" | "dmg" | "miss" | "qual" | "salv" | "dps";
   const [mag, setMag] = useState<Mag>(() => (localStorage.getItem("koru-rateo-mag") as Mag) || "isk");
   const [glWeapons, setGlWeapons] = useState<WeaponDay[]>([]);
   // Calidad del golpe (1..6) y salvage: v18, del gamelog, todo el histórico. Cuentas, no ISK.
   const [glQuality, setGlQuality] = useState<QualityDay[]>([]);
   const [glSalvage, setGlSalvage] = useState<SalvageDay[]>([]);
+  // DPS (gamelog): daño/segundos ACTIVOS por día + mejor segundo. Los datos existen desde v15;
+  // hasta ahora solo asomaban en Reconstrucción como KPI.
+  const [glDps, setGlDps] = useState<DpsDay[]>([]);
   // Dirección de la calidad: tus golpes o los que recibes. En los recibidos el arma falta a menudo,
   // pero la CALIDAD sí está: la distribución es igual de real en ambos sentidos.
   const [qdir, setQdir] = useState<"done" | "taken">(
@@ -89,7 +97,12 @@ export function RateoView({
     invoke<SalvageDay[]>("get_gamelog_salvage", { subjectId: sid })
       .then(setGlSalvage)
       .catch(() => setGlSalvage([]));
-  }, [subject]);
+    invoke<DpsDay[]>("get_gamelog_dps", { subjectId: sid })
+      .then(setGlDps)
+      .catch(() => setGlDps([]));
+    // glTick: acabar un escaneo refresca armas/calidad/salvage/DPS sin salir de la vista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, glTick]);
   useEffect(() => {
     localStorage.setItem("koru-rateo-mag", mag);
   }, [mag]);
@@ -373,6 +386,13 @@ export function RateoView({
         .map((s) => bucketKey(s.date)),
     ),
   ].sort();
+  const dpLabels = [
+    ...new Set(
+      glDps
+        .filter((d) => (!from || d.date >= from) && (!to || d.date <= to))
+        .map((d) => bucketKey(d.date)),
+    ),
+  ].sort();
   const chartLabels =
     mag === "dmg" || mag === "miss"
       ? wpLabels
@@ -380,9 +400,11 @@ export function RateoView({
         ? qlLabels
         : mag === "salv"
           ? svLabels
-          : ratsScoped
-            ? labels.filter((l) => l >= ratsFrom && l <= ratsTo)
-            : labels;
+          : mag === "dps"
+            ? dpLabels
+            : ratsScoped
+              ? labels.filter((l) => l >= ratsFrom && l <= ratsTo)
+              : labels;
   const cobradoBk = new Map(labels.map((l, i) => [l, cobradoLine.values[i]]));
 
   const ratsVals = chartLabels.map((l) => bkRats.get(l) ?? 0);
@@ -465,6 +487,35 @@ export function RateoView({
     { name: tr("Restos recuperados"), color: "#57c785", values: svLabels.map((l) => bkSalv.ok.get(l) ?? 0) },
     { name: tr("Intentos fallidos"), color: "#d76a6a", values: svLabels.map((l) => bkSalv.fail.get(l) ?? 0) },
   ].filter((s) => s.values.some((v) => v > 0));
+
+  // ---- DPS (gamelog): daño / segundos ACTIVOS del bucket. La división va DESPUÉS de agregar
+  // (SUM(dmg)/SUM(secs)): promediar los DPS diarios daría más peso a los días flojos. El pico es
+  // el mejor segundo del bucket — el máximo no se promedia, se conserva.
+  const bkDps = new Map<string, { dmg: number; secs: number; peak: number }>();
+  for (const d of glDps) {
+    if ((from && d.date < from) || (to && d.date > to)) continue;
+    const k = bucketKey(d.date);
+    const e = bkDps.get(k) ?? { dmg: 0, secs: 0, peak: 0 };
+    e.dmg += d.dmg;
+    e.secs += d.secs;
+    if (d.peak > e.peak) e.peak = d.peak;
+    bkDps.set(k, e);
+  }
+  const dpsLines = [
+    {
+      name: tr("DPS medio (en combate)"),
+      color: "#57c785",
+      values: dpLabels.map((l) => {
+        const e = bkDps.get(l);
+        return e && e.secs > 0 ? e.dmg / e.secs : 0;
+      }),
+    },
+    {
+      name: tr("Pico (mejor segundo)"),
+      color: "#f0883e",
+      values: dpLabels.map((l) => bkDps.get(l)?.peak ?? 0),
+    },
+  ].filter((s) => s.values.some((v) => v > 0));
   // ISK por rata: calidad del rateo. Sube al cazar capitales, baja al limpiar frigatas.
   const iskRatLine = {
     name: tr("ISK por rata (bruto)"),
@@ -495,7 +546,9 @@ export function RateoView({
                 ? qualLines
                 : mag === "salv"
                   ? salvLines
-                  : [
+                  : mag === "dps"
+                    ? dpsLines
+                    : [
                 ...baseLines,
                 ...(hasGross ? [grossLine] : []),
                 ...(glOn ? [glLine] : []),
@@ -518,7 +571,9 @@ export function RateoView({
                 ? tr("Calidad del golpe")
                 : mag === "salv"
                   ? tr("Salvage")
-                  : cumulative
+                  : mag === "dps"
+                    ? "DPS"
+                    : cumulative
                     ? `ISK (${tr("acumulado")})`
                     : "ISK";
 
@@ -582,14 +637,16 @@ export function RateoView({
               ["miss", tr("Fallos")],
               ["qual", tr("Calidad")],
               ["salv", tr("Salvage")],
+              ["dps", "DPS"],
             ] as const
           )
             // Daño y Fallos solo tienen sentido si el gamelog está escaneado; Especiales, si cayó alguna.
             .filter(([m]) => (m !== "dmg" && m !== "miss") || glWeapons.length > 0)
             .filter(([m]) => m !== "spec" || (special?.daily?.length ?? 0) > 0)
-            // Calidad y Salvage: solo si el gamelog trajo alguna fila (v18 exige haber reescaneado).
+            // Calidad, Salvage y DPS: solo si el gamelog trajo alguna fila (exigen haber reescaneado).
             .filter(([m]) => m !== "qual" || glQuality.length > 0)
             .filter(([m]) => m !== "salv" || glSalvage.length > 0)
+            .filter(([m]) => m !== "dps" || glDps.length > 0)
             .map(([m, lbl]) => (
               <button key={m} className={mag === m ? "active" : ""} onClick={() => setMag(m)}>
                 {lbl}
@@ -623,14 +680,16 @@ export function RateoView({
         <p className="muted small gl-note">
           {tr(
             "Del gamelog, por arma o dron, y de todo tu histórico. Es daño y fallos, NO muertes: el log no dice qué arma remató a cada rata, y en un mismo segundo golpeas a varios objetivos.",
-          )}
+          )}{" "}
+          {tr("Solo contra NPC: tu daño a jugadores vive en la sección PvP, en Cara a cara.")}
         </p>
       )}
       {mag === "qual" && (
         <p className="muted small gl-note">
           {tr(
             "Del gamelog, todo tu histórico. Seis escalones de calidad, de Roza (el peor) a Destruye (wrecking): la misma escala en español y en inglés, emparejada por el daño medio de cada verbo, no por traducción.",
-          )}
+          )}{" "}
+          {tr("Suma PvE y PvP: separarlos exige reprocesar el histórico (pendiente del próximo lote).")}
         </p>
       )}
       {mag === "salv" && (
@@ -638,6 +697,14 @@ export function RateoView({
           {tr(
             "Del gamelog, todo tu histórico: restos de naves recuperados con éxito e intentos que fallaron. El log no dice qué salió de cada resto; eso solo lo sabe tu bodega.",
           )}
+        </p>
+      )}
+      {mag === "dps" && (
+        <p className="muted small gl-note">
+          {tr(
+            "Del gamelog. El DPS medio divide el daño entre los segundos EN COMBATE (segundos con al menos un golpe tuyo), no entre el tiempo de sesión — es tu ritmo real mientras disparas. El pico es el mejor segundo del período.",
+          )}{" "}
+          {tr("Suma PvE y PvP: separarlos exige reprocesar el histórico (pendiente del próximo lote).")}
         </p>
       )}
       {(mag === "rats" || mag === "iskrat" || mag === "spec") && (
@@ -687,7 +754,7 @@ export function RateoView({
           labels={chartLabels}
           series={lineSeries}
           fmt={chartFmt}
-          straight={mag === "rats" || mag === "spec" || mag === "miss" || mag === "qual" || mag === "salv"}
+          straight={mag === "rats" || mag === "spec" || mag === "miss" || mag === "qual" || mag === "salv" || mag === "dps"}
         />
       </div>
 

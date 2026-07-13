@@ -414,6 +414,8 @@ export type GamelogPvpDay = { date: string; done: boolean; pilot: string; ship: 
 export type QualityDay = { date: string; quality: number; done: number; taken: number };
 /** Salvage por día: restos recuperados e intentos fallidos. Del gamelog. */
 export type SalvageDay = { date: string; salvaged: number; failed: number };
+/** DPS por día (gamelog): daño hecho, segundos ACTIVOS (con daño) y mejor segundo del día. */
+export type DpsDay = { date: string; dmg: number; secs: number; peak: number };
 /** Pulsos de módulos de mando por módulo/día: nº de pulsos y suma de miembros bonificados. */
 export type BoostDay = { date: string; module: string; pulses: number; members: number };
 export type DayKL = { date: string; kills: number; losses: number };
