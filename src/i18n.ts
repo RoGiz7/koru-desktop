@@ -243,6 +243,10 @@ const EN: Record<string, string> = {
   y: "and",
   "rivales más (ordenado por daño cruzado)": "more rivals (sorted by crossed damage)",
   "Daño PvP (gamelog)": "PvP damage (gamelog)",
+  // --- Retos de corporación (Bitácora, 0.26.0) ---
+  "Retos de corporación": "Corporation challenges",
+  "El objetivo lo pone tu corp; la aportación es tuya": "Your corp sets the goal; the contribution is yours",
+  "tu aportación": "your contribution",
   // "Daño" ya existe más abajo (con comillas — el grep anti-duplicados debe ignorarlas).
   Escaneado: "Scanned",
   ficheros: "files",

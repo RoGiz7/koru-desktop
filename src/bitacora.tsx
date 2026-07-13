@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { MedalArt } from "./medalArt";
-import type { Bitacora, AchievementState, Medal, SeriesPoint, CharacterDetail } from "./types";
+import type { Bitacora, AchievementState, Medal, SeriesPoint, CharacterDetail, CorpProject } from "./types";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
 // inmersión — el mismo image server que ya usa toda la app (retratos, naves, logos). `tid` es un
@@ -316,6 +316,25 @@ export function BitacoraView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject, syncTick]);
 
+  // Retos de corporación: los proyectos de corp (ESI read_projects, lo concede el propio miembro)
+  // como retos de la Bitácora — el objetivo lo pone tu corp, la aportación es tuya. Best-effort:
+  // sin scope o en Global, el bloque no aparece. Los detalles finos viven en Trabajos y proyectos.
+  const [corpProjects, setCorpProjects] = useState<CorpProject[]>([]);
+  useEffect(() => {
+    if (typeof subject !== "number") {
+      setCorpProjects([]);
+      return;
+    }
+    let alive = true;
+    invoke<CorpProject[]>("get_corp_projects", { characterId: subject })
+      .then((p) => alive && setCorpProjects(p))
+      .catch(() => alive && setCorpProjects([]));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, syncTick]);
+
   // Puntuación de logros OFICIAL de EVE (Cradle of War, ruta pública): por personaje, best-effort.
   const [officialScore, setOfficialScore] = useState<number | null>(null);
   useEffect(() => {
@@ -462,6 +481,59 @@ export function BitacoraView({
           })}
         </div>
       )}
+
+      {/* ---- Retos de corporación: los objetivos de tu corp como retos, con TU aportación. ----
+           Mismas cartas que los retos del mes; el detalle fino (método, entrega, recompensa)
+           sigue viviendo en Trabajos y proyectos — aquí solo el reto y cuánto has puesto tú. */}
+      {(() => {
+        const active = corpProjects.filter((p) => p.state === "Active" && p.progress_desired > 0);
+        if (active.length === 0) return null;
+        return (
+          <>
+            <div className="bit-head">
+              <h4>🏢 {tr("Retos de corporación")}</h4>
+              <span className="muted small">
+                {tr("El objetivo lo pone tu corp; la aportación es tuya")}
+              </span>
+            </div>
+            <div className="bit-challenges">
+              {active.map((p) => {
+                const pct = Math.min(100, (p.progress_current / p.progress_desired) * 100);
+                const done = p.progress_current >= p.progress_desired;
+                return (
+                  <div key={p.id} className={`bit-card ${done ? "done" : ""}`}>
+                    <div className="bit-card-head">
+                      {p.icon_type_id ? (
+                        <img className="bit-icon-img" src={typeIcon(p.icon_type_id, 32)} alt="" loading="lazy" />
+                      ) : (
+                        <span className="bit-icon">🏢</span>
+                      )}
+                      <strong>{p.name || tr("Proyecto")}</strong>
+                      {done && <span className="bit-done">✔ {tr("¡Conseguido!")}</span>}
+                    </div>
+                    <div className="bit-bar">
+                      <div className="bit-bar-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="bit-card-nums">
+                      <span className="bit-cur">{fmtSp(p.progress_current)}</span>
+                      <span className="muted small">
+                        {tr("objetivo")} {fmtSp(p.progress_desired)}
+                        {p.contributed > 0 && (
+                          <>
+                            {" "}
+                            · {tr("tu aportación")} {fmtSp(p.contributed)}
+                          </>
+                        )}
+                      </span>
+                      <span className={`bit-pct ${done ? "tk-up" : ""}`}>{pct.toFixed(0)}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
 
       {/* ---- Home: progresando + completados recientemente (inspirado en la home de Logros) ---- */}
       {progresando.length > 0 && (
