@@ -243,6 +243,7 @@ const EN: Record<string, string> = {
   y: "and",
   "rivales más (ordenado por daño cruzado)": "more rivals (sorted by crossed damage)",
   "Daño PvP (gamelog)": "PvP damage (gamelog)",
+  "Título oficial equipado (Cradle of War)": "Equipped official title (Cradle of War)",
   // --- Cazador: fichar por nombre (Fase 3.5, 0.26.0) ---
   "Nadie con ese nombre entre tus aprendidos.": "Nobody by that name among your learned hostiles.",
   "Fichar por nombre (ESI)": "File by name (ESI)",

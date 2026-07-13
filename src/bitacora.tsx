@@ -7,7 +7,7 @@
 // devuelve el motor Rust (id/level/value/thresholds/unlocked_at); no hace falta ESI ni Rust.
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { tr } from "./i18n";
+import { tr, getLang } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { MedalArt } from "./medalArt";
 import type { Bitacora, AchievementState, Medal, SeriesPoint, CharacterDetail, CorpProject } from "./types";
@@ -335,22 +335,43 @@ export function BitacoraView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject, syncTick]);
 
-  // Puntuación de logros OFICIAL de EVE (Cradle of War, ruta pública): por personaje, best-effort.
+  // Puntuación de logros OFICIAL de EVE (Cradle of War) + título oficial equipado (novedad ESI
+  // 2026): por personaje, best-effort. El catálogo de títulos es SDE local (character_titles.json).
   const [officialScore, setOfficialScore] = useState<number | null>(null);
+  const [officialTitleId, setOfficialTitleId] = useState<string | null>(null);
+  const [titleNames, setTitleNames] = useState<Record<string, { es: string; en: string }>>({});
+  useEffect(() => {
+    fetch("/character_titles.json").then((r) => r.json()).then(setTitleNames).catch(() => setTitleNames({}));
+  }, []);
   useEffect(() => {
     if (typeof subject !== "number") {
       setOfficialScore(null);
+      setOfficialTitleId(null);
       return;
     }
     let alive = true;
     invoke<CharacterDetail>("get_character_detail", { characterId: subject })
-      .then((d) => alive && setOfficialScore(d.achievement_score))
-      .catch(() => alive && setOfficialScore(null));
+      .then((d) => {
+        if (!alive) return;
+        setOfficialScore(d.achievement_score);
+        setOfficialTitleId(d.title_id);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setOfficialScore(null);
+        setOfficialTitleId(null);
+      });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject, syncTick]);
+  const officialTitle = officialTitleId ? titleNames[officialTitleId] : undefined;
+  const officialTitleLabel = officialTitle
+    ? getLang() === "es"
+      ? officialTitle.es
+      : officialTitle.en
+    : "";
 
   // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
   const [series, setSeries] = useState<Record<string, SeriesPoint[]>>({});
@@ -408,6 +429,11 @@ export function BitacoraView({
           {officialScore != null && officialScore > 0 && (
             <span className="bit-score-eve" title={tr("Puntuación de logros oficial de EVE (Cradle of War)")}>
               🏆 {officialScore.toLocaleString()} <span className="muted small">{tr("logros EVE")}</span>
+            </span>
+          )}
+          {officialTitleLabel && (
+            <span className="bit-score-eve" title={tr("Título oficial equipado (Cradle of War)")}>
+              👑 {officialTitleLabel}
             </span>
           )}
         </div>

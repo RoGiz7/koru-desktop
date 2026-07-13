@@ -1,11 +1,11 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-07-11 (v0.25.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-11 (v0.26.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.25.0 · 2026-07-11)
+## 📌 Estado actual (v0.26.0 · 2026-07-11)
 
 ### Hecho desde v0.16.1 (resumen por versión)
 - **v0.17–v0.18.4 — BITÁCORA completa**: motor de logros retroactivos + retos adaptativos
@@ -46,8 +46,15 @@
   LOGI_DATA_VERSION=19. Lección de era: hint localized cambia de idioma según época → parsear
   el VISIBLE; validar parsers también contra la carpeta principal, no solo `old/`.
 
+- **v0.26.0 — «Pulso»**: gráficas VIVAS (syncTick/glTick: la vista abierta se refresca en sitio
+  con cada sync/escaneo), retos de corporación en la Bitácora (proyectos activos con TU
+  aportación), Cazador ficha por nombre vía ESI (Fase 3.5; get_pilot_profile con respaldo de id
+  en name_cache), banner intel con «+N más» (el más cercano manda; timer renovado), magnitud DPS
+  en Rateo, Daño/Fallos PvE-puros (resta exacta de gamelog_pvp por día+arma), título oficial en
+  la Bitácora, fósiles «#-1» borrados del mining_ledger. Sin reescaneo.
+
 ### Pendiente REAL (orden recomendado)
-1. **Acompañamiento 0.25.x**: limpiar el `-1` en origen, DPS en vistas.
+1. **Menores**: partir App() en `useAppData()`, deriva del QA.sql (medallas nuevas sin cubrir).
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
    fix del parser de boosts (preferir el hint EN localizado).

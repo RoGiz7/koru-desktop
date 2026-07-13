@@ -6,6 +6,28 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.26.0",
+    date: "2026-07-11",
+    es: [
+      "💓 Las gráficas laten: cada sincronización y cada escaneo refrescan la vista abierta en sitio, sin parpadeos ni cambiar de sección. Lo que pasa, se ve pasar.",
+      "🏢 Retos de corporación en la Bitácora: los proyectos activos de tu corp como cartas de reto, con la barra de todos y TU aportación.",
+      "🎯 Cazador: ficha a un objetivo NUEVO por nombre (resolución ESI exacta) — retrato y zKill al momento, y su rastro nace solo cuando aparezca en tu intel.",
+      "🚨 El banner de intel ya no se pisa: el reporte más cercano manda y los demás suman «+N más». Y cada aviso renueva el tiempo en pantalla.",
+      "📈 Rateo gana la magnitud DPS (medio en combate y pico del mejor segundo, desde 2019) y sus magnitudes de Daño/Fallos ahora son PvE puro: lo PvP vive en su sección.",
+      "👑 Tu título oficial equipado, junto a la puntuación de logros de EVE en la Bitácora.",
+      "🐛 Limpieza: fuera las filas fósiles de mena irresoluble («#-1») del ledger de minería.",
+    ],
+    en: [
+      "💓 Charts now have a pulse: every sync and every scan refresh the open view in place — no flicker, no section-hopping. What happens, you watch happen.",
+      "🏢 Corporation challenges in the Logbook: your corp's active projects as challenge cards, with everyone's bar and YOUR contribution.",
+      "🎯 Hunter: file a NEW target by name (exact ESI resolution) — portrait and zKill instantly, and their trail is born the moment they show up in your intel.",
+      "🚨 The intel banner no longer overwrites itself: the closest report leads and the rest add up as “+N more”. Each new alert renews its time on screen.",
+      "📈 Ratting gains a DPS magnitude (in-combat average and best-second peak, since 2019) and its Damage/Misses magnitudes are now pure PvE: PvP lives in its own section.",
+      "👑 Your equipped official title, next to EVE's achievement score in the Logbook.",
+      "🐛 Cleanup: fossil rows of unresolvable ore (“#-1”) removed from the mining ledger.",
+    ],
+  },
+  {
     version: "0.25.0",
     date: "2026-07-11",
     es: [
