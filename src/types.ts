@@ -314,6 +314,23 @@ export type NewEden = {
 export type SystemKills = { system_id: number; ship_kills: number; pod_kills: number; npc_kills: number };
 export type SystemJumps = { system_id: number; ship_jumps: number };
 export type AssetSystem = { system_id: number; count: number };
+/** Una colonia para el panel del mapa (status resumido al clicar un sistema en la capa de PI). */
+export type PiColony = {
+  character: string;
+  planet_type: string;
+  worst_hours: number | null;
+  products: number[];
+  factories: number;
+};
+/** Salud de PI por sistema para el overlay del mapa (get_pi_map): peor extractor + detalle. */
+export type PiSystem = {
+  system_id: number;
+  colonies: number;
+  worst_hours: number | null;
+  dead: number;
+  soon: number;
+  detail: PiColony[];
+};
 export type SovSystem = { system_id: number; owner_id: number | null; kind: string; owner_name: string | null };
 export type FwSystem = {
   solar_system_id: number;

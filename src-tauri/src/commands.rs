@@ -234,7 +234,16 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
     // R1a Planetología: alarmas de extractores recolectadas durante el bucle de personajes
     // (personaje, sistema_id, horas restantes; horas<=0 = caducado). Se notifican al final.
     let mut pi_alerts: Vec<(String, i64, String, i64)> = Vec::new(); // (char, sistema, tipo_planeta, horas)
-    let mut pi_alert_keys: Vec<String> = Vec::new();
+    let mut pi_alert_keys: Vec<(String, String)> = Vec::new(); // (clave dedup, expiry completo)
+    // Umbrales de alarma de PI configurables (horas), doble/triple aviso a gusto del usuario.
+    // meta "pi_alert_hours" = JSON [8, 1]. Por defecto 8h y 1h (24h fijo freía con reprogramado diario).
+    let mut pi_thresholds: Vec<f64> = state
+        .db
+        .meta_get("pi_alert_hours")
+        .and_then(|v| serde_json::from_str::<Vec<f64>>(&v).ok())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| vec![8.0, 1.0]);
+    pi_thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     for c in state.db.list_characters()? {
         let valid = match state
             .tokens
@@ -349,10 +358,12 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                         let hours = (exp.with_timezone(&chrono::Utc) - chrono::Utc::now())
                             .num_minutes() as f64
                             / 60.0;
-                        let stage = if hours <= 0.0 {
-                            "dead"
-                        } else if hours <= 24.0 {
-                            "soon"
+                        // Banda más ajustada que cruza: dead (<=0) o el menor umbral T con horas<=T.
+                        // Por encima del mayor umbral no avisa. Cada banda dispara una sola vez (dedup).
+                        let stage: String = if hours <= 0.0 {
+                            "dead".to_string()
+                        } else if let Some(t) = pi_thresholds.iter().find(|&&t| hours <= t) {
+                            format!("h{}", *t as i64)
                         } else {
                             continue;
                         };
@@ -362,7 +373,10 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                             p.planet_type.clone(),
                             hours.ceil() as i64,
                         ));
-                        pi_alert_keys.push(format!("{pid}:{}:{expiry}:{stage}", pin.pin_id));
+                        pi_alert_keys.push((
+                            format!("{pid}:{}:{expiry}:{stage}", pin.pin_id),
+                            expiry.clone(),
+                        ));
                     }
                 }
             }
@@ -415,18 +429,18 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_default();
         let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
-        seen.retain(|k, _| {
-            k.split(':')
-                .nth(2)
-                .and_then(|e| chrono::DateTime::parse_from_rfc3339(e).ok())
+        // Poda por el VALOR (expiry completo). Antes se troceaba la clave por ':' pero el expiry
+        // RFC3339 lleva ':' → nth(2) devolvía un trozo que no parseaba y la poda vaciaba el mapa.
+        seen.retain(|_k, v| {
+            chrono::DateTime::parse_from_rfc3339(v)
+                .ok()
                 .map(|e| e.with_timezone(&chrono::Utc) > cutoff)
                 .unwrap_or(false)
         });
         let mut fresh: Vec<(String, i64, String, i64)> = Vec::new();
-        for (alert, key) in pi_alerts.into_iter().zip(pi_alert_keys.iter()) {
+        for (alert, (key, expiry)) in pi_alerts.into_iter().zip(pi_alert_keys.iter()) {
             if !seen.contains_key(key) {
-                let expiry = key.split(':').nth(2).unwrap_or_default().to_string();
-                seen.insert(key.clone(), expiry);
+                seen.insert(key.clone(), expiry.clone());
                 fresh.push(alert);
             }
         }
@@ -6733,6 +6747,214 @@ pub async fn get_planet_detail(
             Some(&token),
         )
         .await
+}
+
+/// Una colonia para el panel del mapa: personaje, tipo de planeta, peor extractor, productos y nº
+/// de fábricas. Es el "status resumido" que sale al clicar un sistema en la capa de PI.
+#[derive(Debug, Clone, Serialize)]
+pub struct PiColony {
+    pub character: String,
+    pub planet_type: String,
+    /// Horas del peor extractor (None = sin extractor programado).
+    pub worst_hours: Option<f64>,
+    pub products: Vec<i64>, // typeIDs de lo que extrae (para iconos)
+    pub factories: i64,
+}
+
+/// Salud de PI por sistema para el overlay del mapa (idea de Zigor): peor extractor + detalle por
+/// colonia. Reusa /planets/ + /planets/{id}/ (cacheados por ETag).
+#[derive(Debug, Clone, Serialize)]
+pub struct PiSystem {
+    pub system_id: i64,
+    pub colonies: i64,
+    /// Horas del peor extractor del sistema (None = ninguna colonia con extractor programado).
+    pub worst_hours: Option<f64>,
+    pub dead: i64, // colonias con extractor parado (<=0h)
+    pub soon: i64, // colonias con extractor <24h
+    pub detail: Vec<PiColony>,
+}
+
+/// Colonias de un personaje como (system_id, PiColony). Silencioso ante errores (mapa best-effort).
+async fn pi_colonies_for_char(
+    esi: &EsiClient,
+    db: &Db,
+    cid: i64,
+    char_name: &str,
+    token: &str,
+) -> Vec<(i64, PiColony)> {
+    let mut out: Vec<(i64, PiColony)> = Vec::new();
+    let planets = match esi
+        .get_cached::<Vec<PlanetRaw>>(db, cid, &format!("/characters/{cid}/planets/"), Some(token))
+        .await
+    {
+        Ok(p) => p,
+        Err(_) => return out,
+    };
+    for p in &planets {
+        if p.planet_id == 0 {
+            continue;
+        }
+        let pid = p.planet_id;
+        let Ok(detail) = esi
+            .get_cached::<PlanetDetail>(
+                db,
+                cid,
+                &format!("/characters/{cid}/planets/{pid}/"),
+                Some(token),
+            )
+            .await
+        else {
+            continue;
+        };
+        let mut worst: Option<f64> = None;
+        let mut products: Vec<i64> = Vec::new();
+        let mut factories = 0i64;
+        for pin in &detail.pins {
+            if let Some(ex) = &pin.extractor {
+                let programmed = ex.product_type_id.is_some()
+                    && ex.qty_per_cycle.is_some()
+                    && ex.cycle_time.is_some();
+                if let Some(pt) = ex.product_type_id {
+                    if !products.contains(&pt) {
+                        products.push(pt);
+                    }
+                }
+                let h = pin
+                    .expiry_time
+                    .as_deref()
+                    .and_then(|e| chrono::DateTime::parse_from_rfc3339(e).ok())
+                    .map(|e| {
+                        (e.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_minutes() as f64
+                            / 60.0
+                    });
+                let eff = h.or(if programmed { None } else { Some(0.0) });
+                if let Some(v) = eff {
+                    worst = Some(worst.map_or(v, |w| w.min(v)));
+                }
+            } else if pin.schematic_id.is_some() {
+                factories += 1;
+            }
+        }
+        out.push((
+            p.solar_system_id,
+            PiColony {
+                character: char_name.to_string(),
+                planet_type: p.planet_type.clone(),
+                worst_hours: worst,
+                products,
+                factories,
+            },
+        ));
+    }
+    out
+}
+
+/// Agrupa colonias por sistema en PiSystem (conteos + peor extractor + detalle).
+fn pi_systems_from(colonies: Vec<(i64, PiColony)>) -> Vec<PiSystem> {
+    use std::collections::HashMap;
+    let mut by: HashMap<i64, Vec<PiColony>> = HashMap::new();
+    for (sid, col) in colonies {
+        by.entry(sid).or_default().push(col);
+    }
+    by.into_iter()
+        .map(|(system_id, detail)| {
+            let colonies = detail.len() as i64;
+            let mut worst: Option<f64> = None;
+            let mut dead = 0i64;
+            let mut soon = 0i64;
+            for c in &detail {
+                if let Some(w) = c.worst_hours {
+                    worst = Some(worst.map_or(w, |cur| cur.min(w)));
+                    if w <= 0.0 {
+                        dead += 1;
+                    } else if w <= 24.0 {
+                        soon += 1;
+                    }
+                }
+            }
+            PiSystem {
+                system_id,
+                colonies,
+                worst_hours: worst,
+                dead,
+                soon,
+                detail,
+            }
+        })
+        .collect()
+}
+
+/// Salud de PI por sistema de UN personaje (overlay del mapa).
+#[tauri::command]
+pub async fn get_pi_map(character_id: i64, state: State<'_, AppState>) -> AppResult<Vec<PiSystem>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-planets.manage_planets.v1",
+        "Planetología",
+    )
+    .await?;
+    let name = state
+        .db
+        .list_characters()
+        .ok()
+        .and_then(|cs| cs.into_iter().find(|c| c.character_id == character_id).map(|c| c.name))
+        .unwrap_or_default();
+    Ok(pi_systems_from(
+        pi_colonies_for_char(&state.esi, &state.db, character_id, &name, &token).await,
+    ))
+}
+
+/// Salud de PI por sistema de TODOS los personajes (overlay del mapa, vista global).
+#[tauri::command]
+pub async fn get_pi_map_global(state: State<'_, AppState>) -> AppResult<Vec<PiSystem>> {
+    let mut all: Vec<(i64, PiColony)> = Vec::new();
+    for c in state.db.list_characters()? {
+        if !c.scopes.iter().any(|s| s == "esi-planets.manage_planets.v1") {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let mut cols =
+            pi_colonies_for_char(&state.esi, &state.db, c.character_id, &c.name, &valid.access_token)
+                .await;
+        all.append(&mut cols);
+    }
+    Ok(pi_systems_from(all))
+}
+
+/// Umbrales (horas) de la alarma de PI, configurables por el usuario. Por defecto [8, 1].
+#[tauri::command]
+pub fn get_pi_alert_hours(state: State<'_, AppState>) -> AppResult<Vec<f64>> {
+    Ok(state
+        .db
+        .meta_get("pi_alert_hours")
+        .and_then(|v| serde_json::from_str::<Vec<f64>>(&v).ok())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| vec![8.0, 1.0]))
+}
+
+/// Guarda los umbrales de la alarma de PI (horas): positivos, <=720h, únicos, orden desc, máx 4.
+/// Devuelve la lista saneada para que la UI la refleje.
+#[tauri::command]
+pub fn set_pi_alert_hours(hours: Vec<f64>, state: State<'_, AppState>) -> AppResult<Vec<f64>> {
+    let mut clean: Vec<f64> = hours.into_iter().filter(|h| *h > 0.0 && *h <= 720.0).collect();
+    clean.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    clean.dedup();
+    clean.truncate(4);
+    if clean.is_empty() {
+        clean = vec![8.0, 1.0];
+    }
+    state
+        .db
+        .meta_set("pi_alert_hours", &serde_json::to_string(&clean).unwrap_or_default())?;
+    Ok(clean)
 }
 
 /// Vista de un job de industria con nombres legibles.

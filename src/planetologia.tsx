@@ -130,12 +130,20 @@ export function PlanetologiaView({
   const [prices, setPrices] = useState<Map<number, number>>(new Map());
   const [open, setOpen] = useState<string | null>(null);
   const [planTarget, setPlanTarget] = useState<string>(""); // objetivo del planificador inverso
+  const [alertHours, setAlertHours] = useState<number[] | null>(null); // umbrales de alarma (horas)
+  const [alertHoursText, setAlertHoursText] = useState("");
 
   const [p0table, setP0table] = useState<P0Planets | null>(null);
 
   useEffect(() => {
     fetch("/pi_schematics.json").then((r) => r.json()).then(setSchematics).catch(() => setSchematics({}));
     fetch("/pi_p0_planets.json").then((r) => r.json()).then(setP0table).catch(() => setP0table(null));
+    invoke<number[]>("get_pi_alert_hours")
+      .then((h) => {
+        setAlertHours(h);
+        setAlertHoursText(h.join(", "));
+      })
+      .catch(() => {});
   }, []);
 
   // Detalle de cada colonia (≤6 por personaje; get_cached con ETag → refresco barato).
@@ -291,6 +299,38 @@ export function PlanetologiaView({
         {tr("Capacidad = lo que tus esquemas pueden producir a ciclo lleno, valorado a precio medio de mercado. La producción real depende de que los insumos lleguen (eso llega en la siguiente fase).")}
         {!allPriced && ` ${tr("* Algún producto sin precio de mercado aún: sincroniza y vuelve.")}`}
       </p>
+
+      <div className="pi-alert-cfg small">
+        <span className="muted">{tr("Avisos de extractor (horas, separadas por coma):")}</span>
+        <input
+          value={alertHoursText}
+          onChange={(e) => setAlertHoursText(e.target.value)}
+          placeholder="8, 1"
+          style={{ width: "6rem" }}
+        />
+        <button
+          onClick={async () => {
+            const nums = alertHoursText
+              .split(",")
+              .map((s) => parseFloat(s.trim()))
+              .filter((n) => !Number.isNaN(n) && n > 0);
+            try {
+              const saved = await invoke<number[]>("set_pi_alert_hours", { hours: nums });
+              setAlertHours(saved);
+              setAlertHoursText(saved.join(", "));
+            } catch {
+              /* saneo en backend; si falla, se queda como estaba */
+            }
+          }}
+        >
+          {tr("Guardar avisos")}
+        </button>
+        {alertHours && alertHours.length > 0 && (
+          <span className="muted">
+            {tr("Avisará a")} {alertHours.map((h) => `${h}h`).join(" · ")} {tr("y al pararse.")}
+          </span>
+        )}
+      </div>
 
       <div className="medal-grid">
         {ordered.map((c) => {

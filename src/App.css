@@ -5582,6 +5582,20 @@ h4 {
 .pi-planner h3 {
   margin: 0 0 0.2rem;
 }
+.pi-alert-cfg {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0.2rem;
+}
+.pi-alert-cfg input {
+  background: var(--bg-control, #2f2f2f);
+  color: var(--fg, #e8e8e8);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 5px;
+  padding: 0.2rem 0.4rem;
+}
 .pi-select {
   background: var(--bg-control, #2f2f2f);
   color: var(--fg, #e8e8e8);
@@ -5685,4 +5699,20 @@ h4 {
 .pi-chip-click:hover {
   border-color: var(--accent-border, #4f9cff);
   filter: brightness(1.15);
+}
+
+/* Panel de PI del mapa (colonias del sistema seleccionado) */
+.pi-sys-colony {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0;
+  font-size: 0.85em;
+}
+.pi-sys-planet {
+  text-transform: capitalize;
+  font-weight: 600;
+}
+.pi-sys-worst {
+  font-variant-numeric: tabular-nums;
 }

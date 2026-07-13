@@ -278,6 +278,14 @@ const EN: Record<string, string> = {
     "Amounts for one cycle of the target (theoretical tree ratios, not your real output).",
   "Ya extraes todos los P0 que necesita.": "You already extract every P0 it needs.",
   "Te faltan P0 por extraer:": "P0 you still need to extract:",
+  "Avisos de extractor (horas, separadas por coma):":
+    "Extractor alerts (hours, comma-separated):",
+  "Guardar avisos": "Save alerts",
+  "Avisará a": "Will alert at",
+  "y al pararse.": "and when stopped.",
+  "Colonias de PI aquí": "PI colonies here",
+  "sin extractor": "no extractor",
+  "Ver en Planetología": "View in Planetary",
   "Cadenas P0→P4": "P0→P4 chains",
   "Lo que produces (verde), lo que podrías hacer con tus insumos (ámbar) y lo que te falta (gris).":
     "What you produce (green), what you could make from your inputs (amber), and what you're missing (gray).",

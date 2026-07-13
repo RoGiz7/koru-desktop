@@ -21,6 +21,7 @@ import type {
   SysActivity,
   SovSystem,
   FwSystem,
+  PiSystem,
   Incursion,
   WhConn,
   CharLoc,
@@ -94,6 +95,7 @@ export function MapView(props: {
   miningBySystem?: Map<number, number> | null;
   sovBySystem?: Map<number, SovSystem> | null;
   fwBySystem?: Map<number, FwSystem> | null;
+  piBySystem?: Map<number, PiSystem> | null;
   factionStandings?: Map<number, number> | null;
   agentSystems?: Map<number, number> | null;
   corpSystems?: Map<number, number> | null;
@@ -108,6 +110,7 @@ export function MapView(props: {
   onSystemAssets?: (systemName: string) => void;
   onOpenCazador?: (name?: string) => void;
   onOpenMisiones?: () => void;
+  onOpenPi?: () => void;
   openTrack?: { name: string; nonce: number } | null;
 }) {
   const {
@@ -118,11 +121,13 @@ export function MapView(props: {
     onSystemAssets,
     onOpenCazador,
     onOpenMisiones,
+    onOpenPi,
     openTrack,
     assetsBySystem,
     miningBySystem,
     sovBySystem,
     fwBySystem,
+    piBySystem,
     factionStandings,
     agentSystems,
     corpSystems,
@@ -876,6 +881,9 @@ export function MapView(props: {
       .map((d) => d.system_id)
   );
 
+  // Salud de PI → color por horas del peor extractor (gris = sin extractor programado).
+  const piHealthColor = (h: number | null): string =>
+    h == null ? "#8a8a8a" : h <= 0 ? "#e5534b" : h <= 6 ? "#f0883e" : h <= 24 ? "#d29922" : "#3fb950";
   const liveMap =
     overlay === "kills"
       ? liveKills
@@ -885,6 +893,12 @@ export function MapView(props: {
       ? assetsBySystem ?? null
       : overlay === "mineria"
       ? miningBySystem ?? null
+      : overlay === "pi"
+      ? piBySystem
+        ? new Map<number, number>(
+            [...piBySystem.entries()].map(([sid, v]) => [sid, v.colonies] as [number, number]),
+          )
+        : null
       : null;
   const liveMax = liveMap ? Math.max(...liveMap.values(), 1) : 1;
   const liveColor = overlay === "assets" ? "#5fd0c0" : overlay === "mineria" ? "#d8b24a" : null;
@@ -914,6 +928,8 @@ export function MapView(props: {
       ? "Saltos por sistema en la última hora (datos en vivo de ESI)."
       : overlay === "mineria"
       ? "Dónde has minado (mining ledger, últimos 90 días)."
+      : overlay === "pi"
+      ? "Salud de tus colonias de PI por sistema: verde = sano · ámbar <24h · rojo parado · gris sin extractor. Tamaño = nº de colonias."
       : "Dónde tienes assets (estaciones, estructuras y en el espacio).";
 
   // Capa activa + KPI contextual para el panel de la derecha
@@ -1348,21 +1364,15 @@ export function MapView(props: {
                 if (!s || v <= 0) return null;
                 const p = geo.proj(s);
                 const r = (1.5 + Math.sqrt(v / liveMax) * 16) / view.z;
-                return (
-                  <circle
-                    key={`live-${sid}`}
-                    cx={p.px}
-                    cy={p.py}
-                    r={r}
-                    fill={liveColor ?? heatColor(v / liveMax)}
-                    fillOpacity={0.55}
-                    className="clickable-sys"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      clickSystem(sid);
-                    }}
-                  >
-                    <title>{`${s.n}\n${
+                const pi = overlay === "pi" ? piBySystem?.get(sid) ?? null : null;
+                const fill = pi ? piHealthColor(pi.worst_hours) : liveColor ?? heatColor(v / liveMax);
+                const label = pi
+                  ? `${v} ${v === 1 ? "colonia" : "colonias"}${
+                      pi.worst_hours != null
+                        ? ` · peor: ${pi.worst_hours <= 0 ? "parado" : `${Math.ceil(pi.worst_hours)}h`}`
+                        : " · sin extractor programado"
+                    }${pi.dead > 0 ? ` · ${pi.dead} parada(s)` : ""}`
+                  : `${
                       overlay === "kills"
                         ? "Kills"
                         : overlay === "jumps"
@@ -1370,7 +1380,22 @@ export function MapView(props: {
                         : overlay === "mineria"
                         ? "Minado"
                         : "Assets (stacks)"
-                    }: ${fmtSp(v)}`}</title>
+                    }: ${fmtSp(v)}`;
+                return (
+                  <circle
+                    key={`live-${sid}`}
+                    cx={p.px}
+                    cy={p.py}
+                    r={r}
+                    fill={fill}
+                    fillOpacity={overlay === "pi" ? 0.7 : 0.55}
+                    className="clickable-sys"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clickSystem(sid);
+                    }}
+                  >
+                    <title>{`${s.n}\n${label}`}</title>
                   </circle>
                 );
               })}
@@ -1596,14 +1621,16 @@ export function MapView(props: {
                 <div className="muted small">
                   {tr("Seguridad")} <span style={{ color: secColor(s.s) }}>{s.s.toFixed(1)}</span> · {region}
                 </div>
-                <div className="sys-stats">
-                  <div>{tr("Tus kills")}: <strong>{act?.kills ?? 0}</strong></div>
-                  <div>{tr("Tus losses")}: <strong>{act?.losses ?? 0}</strong></div>
-                  <div>{tr("Tu ISK")}: <strong>{act ? fmtIsk(act.isk) : "0"}</strong></div>
-                  {kv != null && <div>{tr("Kills 1h")}: <strong>{kv}</strong></div>}
-                  {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
-                  {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
-                </div>
+                {overlay !== "pi" && (
+                  <div className="sys-stats">
+                    <div>{tr("Tus kills")}: <strong>{act?.kills ?? 0}</strong></div>
+                    <div>{tr("Tus losses")}: <strong>{act?.losses ?? 0}</strong></div>
+                    <div>{tr("Tu ISK")}: <strong>{act ? fmtIsk(act.isk) : "0"}</strong></div>
+                    {kv != null && <div>{tr("Kills 1h")}: <strong>{kv}</strong></div>}
+                    {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
+                    {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
+                  </div>
+                )}
                 {overlay === "agentes" && (agentDetails?.get(selected)?.length ?? 0) > 0 && (
                   <div className="sys-agents">
                     <div className="muted small">🧑‍✈️ {tr("Tus agentes aquí")}:</div>
@@ -1645,6 +1672,52 @@ export function MapView(props: {
                         </div>
                       ))}
                   </div>
+                )}
+                {overlay === "pi" && (piBySystem?.get(selected)?.detail.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🪐 {tr("Colonias de PI aquí")}:</div>
+                    {piBySystem!
+                      .get(selected)!
+                      .detail.slice()
+                      .sort((a, b) => (a.worst_hours ?? 1e9) - (b.worst_hours ?? 1e9))
+                      .map((col, i) => (
+                        <div key={i} className="pi-sys-colony">
+                          <span className="pi-sys-planet">{col.planet_type}</span>
+                          <span className="muted small">{col.character}</span>
+                          {col.products.map((pid) => (
+                            <img
+                              key={pid}
+                              src={typeIcon(pid, 32) ?? undefined}
+                              alt=""
+                              width={14}
+                              height={14}
+                            />
+                          ))}
+                          {col.factories > 0 && <span className="muted small">🏭{col.factories}</span>}
+                          <span
+                            className="pi-sys-worst"
+                            style={{ marginLeft: "auto", color: piHealthColor(col.worst_hours) }}
+                          >
+                            {col.worst_hours == null
+                              ? tr("sin extractor")
+                              : col.worst_hours <= 0
+                                ? tr("parado")
+                                : `${Math.ceil(col.worst_hours)}h`}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {overlay === "pi" && onOpenPi && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      onOpenPi();
+                      setSelected(null);
+                    }}
+                  >
+                    🪐 {tr("Ver en Planetología")}
+                  </button>
                 )}
                 {(overlay === "agentes" || overlay === "corps_npc") && onOpenMisiones && (
                   <button

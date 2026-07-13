@@ -65,6 +65,7 @@ import type {
   Battle,
   Rivals,
   AssetSystem,
+  PiSystem,
   SovSystem,
   FwSystem,
   Incursion,
@@ -488,6 +489,7 @@ function App() {
   const [mapData, setMapData] = useState<SysActivity[] | null>(null);
   const [assetsMap, setAssetsMap] = useState<Map<number, number> | null>(null);
   const [miningMap, setMiningMap] = useState<Map<number, number> | null>(null);
+  const [piMap, setPiMap] = useState<Map<number, PiSystem> | null>(null);
   const [sovMap, setSovMap] = useState<Map<number, SovSystem> | null>(null);
   const [fwMap, setFwMap] = useState<Map<number, FwSystem> | null>(null);
   const [incursions, setIncursions] = useState<Incursion[] | null>(null);
@@ -755,6 +757,7 @@ function App() {
     setMapData(null);
     setAssetsMap(null);
     setMiningMap(null);
+    setPiMap(null);
     setFactionStd(null);
     setAgentSystems(null);
     setMyCorpSystems(null);
@@ -787,6 +790,20 @@ function App() {
       const m = new Map<number, number>();
       for (const r of rows) m.set(r.system_id, r.count);
       setMiningMap(m);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function loadPiMap(subj: number | "global") {
+    try {
+      const rows =
+        subj === "global"
+          ? await invoke<PiSystem[]>("get_pi_map_global")
+          : await invoke<PiSystem[]>("get_pi_map", { characterId: subj });
+      const m = new Map<number, PiSystem>();
+      for (const r of rows) m.set(r.system_id, r);
+      setPiMap(m);
     } catch (e) {
       setError(String(e));
     }
@@ -919,6 +936,7 @@ function App() {
     setMapOverlay(o);
     if (o === "assets" && !assetsMap) loadAssetsMap(subject);
     if (o === "mineria" && !miningMap) loadMiningMap(subject);
+    if (o === "pi" && !piMap) loadPiMap(subject);
     if (o === "soberania" && !sovMap) loadSov();
     if (o === "fw" && !fwMap) loadFw();
     if (o === "incursion" && !incursions) loadIncursions();
@@ -1737,6 +1755,7 @@ function App() {
           miningBySystem={miningMap}
           sovBySystem={sovMap}
           fwBySystem={fwMap}
+          piBySystem={piMap}
           factionStandings={factionStd}
           agentSystems={agentSystems}
           corpSystems={myCorpSystems}
@@ -1745,6 +1764,16 @@ function App() {
           onOpenMisiones={() => {
             changeTab("lealtad");
             // Dejar que la pestaña renderice y bajar hasta la sección (la Bitácora/mapa quedan arriba).
+            window.setTimeout(
+              () =>
+                document
+                  .querySelector(".section-header")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+              60,
+            );
+          }}
+          onOpenPi={() => {
+            changeTab("planetologia");
             window.setTimeout(
               () =>
                 document

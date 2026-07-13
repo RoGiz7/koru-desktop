@@ -142,6 +142,7 @@ export type MapOverlay =
   | "jumps"
   | "assets"
   | "mineria"
+  | "pi"
   | "standings"
   | "agentes"
   | "corps_npc"
@@ -317,6 +318,7 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "pvp", label: "Tu PvP", short: "Tu PvP", icon: "⚔️", typeId: 587, cat: "tu" }, // Rifter
   { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", typeId: 17366, cat: "tu" }, // Station Container
   { key: "mineria", label: "Tu minería", short: "Minería", icon: "⛏️", typeId: 1230, cat: "tu" }, // Veldspar
+  { key: "pi", label: "Tu PI (colonias)", short: "PI", icon: "🪐", cat: "tu" }, // salud de extractores por sistema
   { key: "standings", label: "Standings NPC", short: "Standings", icon: "🤝", cat: "tu" },
   { key: "agentes", label: "Tus agentes", short: "Agentes", icon: "🧑‍✈️", cat: "tu" },
   { key: "corps_npc", label: "Mis corps NPC (LP)", short: "Corps NPC", icon: "🏢", cat: "tu" },
