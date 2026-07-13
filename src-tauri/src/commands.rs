@@ -233,7 +233,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     // R1a Planetología: alarmas de extractores recolectadas durante el bucle de personajes
     // (personaje, sistema_id, horas restantes; horas<=0 = caducado). Se notifican al final.
-    let mut pi_alerts: Vec<(String, i64, i64)> = Vec::new();
+    let mut pi_alerts: Vec<(String, i64, String, i64)> = Vec::new(); // (char, sistema, tipo_planeta, horas)
     let mut pi_alert_keys: Vec<String> = Vec::new();
     for c in state.db.list_characters()? {
         let valid = match state
@@ -356,7 +356,12 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                         } else {
                             continue;
                         };
-                        pi_alerts.push((c.name.clone(), p.solar_system_id, hours.ceil() as i64));
+                        pi_alerts.push((
+                            c.name.clone(),
+                            p.solar_system_id,
+                            p.planet_type.clone(),
+                            hours.ceil() as i64,
+                        ));
                         pi_alert_keys.push(format!("{pid}:{}:{expiry}:{stage}", pin.pin_id));
                     }
                 }
@@ -417,7 +422,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                 .map(|e| e.with_timezone(&chrono::Utc) > cutoff)
                 .unwrap_or(false)
         });
-        let mut fresh: Vec<(String, i64, i64)> = Vec::new();
+        let mut fresh: Vec<(String, i64, String, i64)> = Vec::new();
         for (alert, key) in pi_alerts.into_iter().zip(pi_alert_keys.iter()) {
             if !seen.contains_key(key) {
                 let expiry = key.split(':').nth(2).unwrap_or_default().to_string();
@@ -427,17 +432,27 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         }
         if !fresh.is_empty() {
             // Nombres de sistema para el mensaje (resolve_names cachea; ids repetidos, gratis).
-            let sys_ids: Vec<i64> = fresh.iter().map(|(_, s, _)| *s).collect();
+            let sys_ids: Vec<i64> = fresh.iter().map(|(_, s, _, _)| *s).collect();
             let names = state.esi.resolve_names(&sys_ids).await.unwrap_or_default();
-            let dead = fresh.iter().filter(|(_, _, h)| *h <= 0).count();
+            let dead = fresh.iter().filter(|(_, _, _, h)| *h <= 0).count();
+            // Capitaliza el tipo de planeta ("barren" → "Barren") para distinguir colonias del
+            // mismo sistema (antes salían idénticas: "C-J6MT · C-J6MT · C-J6MT").
+            let cap = |s: &str| -> String {
+                let mut ch = s.chars();
+                match ch.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + ch.as_str(),
+                    None => String::new(),
+                }
+            };
             let head = fresh
                 .iter()
-                .map(|(who, sys, h)| {
+                .map(|(who, sys, ptype, h)| {
                     let s = names.get(sys).cloned().unwrap_or_else(|| format!("#{sys}"));
+                    let planeta = if ptype.is_empty() { s } else { format!("{s} {}", cap(ptype)) };
                     if *h <= 0 {
-                        format!("{s} ({who}): parado")
+                        format!("{planeta} ({who}): parado")
                     } else {
-                        format!("{s} ({who}): {h}h")
+                        format!("{planeta} ({who}): {h}h")
                     }
                 })
                 .take(3)
@@ -521,6 +536,27 @@ pub fn get_type_prices(
         .into_iter()
         .filter_map(|id| prices.get(&id).map(|p| (id, *p)))
         .collect())
+}
+
+/// R2 (memoria de precios): histórico diario de un tipo (por defecto en The Forge / Jita).
+/// Trae la serie fresca de ESI (~400 días, cacheada por ETag), la PERSISTE en price_history
+/// (para acumular más allá de la ventana de ESI) y devuelve lo almacenado (unión de todo lo visto).
+#[tauri::command]
+pub async fn get_market_history(
+    type_id: i64,
+    region_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::PriceHistoryRow>> {
+    let region = region_id.unwrap_or(10000002); // The Forge (Jita)
+    let hist = crate::esi::market::region_history(&state.esi, &state.db, region, type_id).await;
+    if !hist.is_empty() {
+        let rows: Vec<(String, f64, f64, f64, i64, i64)> = hist
+            .iter()
+            .map(|h| (h.date.clone(), h.average, h.highest, h.lowest, h.volume, h.order_count))
+            .collect();
+        let _ = state.db.price_history_upsert(region, type_id, &rows);
+    }
+    state.db.price_history_get(region, type_id)
 }
 
 /// Vista de patrimonio: valor actual (último snapshot) + serie histórica.
@@ -6162,6 +6198,15 @@ async fn build_watch_item(
 
     // Histórico (región): tendencia de precio y volumen.
     let hist = crate::esi::market::region_history(esi, db, region_id, type_id).await;
+    // R2 (memoria de precios): persistir cada vez que se mira el watchlist → la historia se
+    // ACUMULA más allá de la ventana de ESI, sin trabajo extra para el usuario.
+    if !hist.is_empty() {
+        let rows: Vec<(String, f64, f64, f64, i64, i64)> = hist
+            .iter()
+            .map(|h| (h.date.clone(), h.average, h.highest, h.lowest, h.volume, h.order_count))
+            .collect();
+        let _ = db.price_history_upsert(region_id, type_id, &rows);
+    }
     let day_volume = hist.last().map(|h| h.volume).unwrap_or(0);
     let tail: Vec<&crate::esi::market::HistoryEntry> = hist.iter().rev().take(30).collect();
     let avg_volume = if tail.is_empty() {

@@ -144,6 +144,21 @@ CREATE TABLE IF NOT EXISTS paper_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_paper_date ON paper_snapshots(date);
 
+-- R2 (memoria de precios): histórico diario de mercado por región y tipo. Se alimenta de ESI
+-- /markets/{region}/history/ (~400 días) y se persiste para ACUMULAR más allá de esa ventana y
+-- servir la gráfica sin refetch. Un registro por (región, tipo, día). PK → idempotente al re-backfill.
+CREATE TABLE IF NOT EXISTS price_history (
+    region_id   INTEGER NOT NULL,
+    type_id     INTEGER NOT NULL,
+    date        TEXT NOT NULL,            -- YYYY-MM-DD
+    average     REAL NOT NULL DEFAULT 0,
+    highest     REAL NOT NULL DEFAULT 0,
+    lowest      REAL NOT NULL DEFAULT 0,
+    volume      INTEGER NOT NULL DEFAULT 0,
+    order_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (region_id, type_id, date)
+);
+
 -- Caché persistente de resolución ubicación → sistema (estaciones NPC y estructuras de jugador).
 -- system_id = 0 = "no resuelta" (negative cache): evita reintentar estructuras sin acceso (403) que
 -- agotarían el error budget de ESI. Cada location_id se resuelve como mucho una vez.

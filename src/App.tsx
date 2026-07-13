@@ -538,10 +538,13 @@ function App() {
   }
   // Aviso flotante global (toast): visible en cualquier sección cuando salta intel. El sonido y la
   // notificación nativa los dispara MapView/Rust; aquí solo mostramos el toast.
-  const [globalAlert, setGlobalAlert] = useState<string | null>(null);
+  const [globalAlert, setGlobalAlert] = useState<{ text: string; kind: "intel" | "pi" } | null>(
+    null,
+  );
   const globalAlertTimer = useRef<number | null>(null);
-  function showGlobalAlert(text: string) {
-    setGlobalAlert(text);
+  // kind decide el destino del clic y el estilo: "intel" → mapa/intel (rojo), "pi" → Planetología (ámbar).
+  function showGlobalAlert(text: string, kind: "intel" | "pi" = "intel") {
+    setGlobalAlert({ text, kind });
     if (globalAlertTimer.current) window.clearTimeout(globalAlertTimer.current);
     globalAlertTimer.current = window.setTimeout(() => setGlobalAlert(null), 12000);
   }
@@ -576,7 +579,7 @@ function App() {
   }, []);
   // Planetología: alarma de extractores (auto_sync ya lanzó la notificación nativa; aquí el toast).
   useEffect(() => {
-    const un = listen<string>("pi-alert", (e) => showGlobalAlert(`⛏️ PI: ${e.payload}`));
+    const un = listen<string>("pi-alert", (e) => showGlobalAlert(`⛏️ PI: ${e.payload}`, "pi"));
     return () => {
       un.then((f) => f());
     };
@@ -1684,25 +1687,39 @@ function App() {
         {error && <p className="error tb-error">{error}</p>}
       </header>
 
-      {/* Aviso flotante global de intel: visible en cualquier sección (no solo en el mapa). */}
+      {/* Aviso flotante global: visible en cualquier sección. Intel → mapa/intel (rojo);
+          alarma de PI → Planetología (ámbar). El destino del clic depende del tipo. */}
       {globalAlert && (
         <div
-          className="intel-global-alert"
+          className={`intel-global-alert${globalAlert.kind === "pi" ? " intel-global-alert--pi" : ""}`}
           onClick={() => {
-            handleOverlayChange("intel");
             setGlobalAlert(null);
-            window.setTimeout(
-              () =>
-                document
-                  .querySelector(".map-wrap")
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-              50,
-            );
+            if (globalAlert.kind === "pi") {
+              changeTab("planetologia");
+              window.setTimeout(
+                () =>
+                  document
+                    .querySelector(".section-header")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                60,
+              );
+            } else {
+              handleOverlayChange("intel");
+              window.setTimeout(
+                () =>
+                  document
+                    .querySelector(".map-wrap")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                50,
+              );
+            }
           }}
-          title={tr("Ir al intel")}
+          title={globalAlert.kind === "pi" ? tr("Ir a Planetología") : tr("Ir al intel")}
         >
-          {globalAlert}
-          <span className="intel-alert-cta">{tr("Ir al intel")} ▸</span>
+          {globalAlert.text}
+          <span className="intel-alert-cta">
+            {globalAlert.kind === "pi" ? tr("Ir a Planetología") : tr("Ir al intel")} ▸
+          </span>
         </div>
       )}
 

@@ -167,6 +167,7 @@ pub fn run() {
             commands::watch_add,
             commands::watch_remove,
             commands::scan_opportunities,
+            commands::get_market_history,
             commands::get_planets,
             commands::get_planets_global,
             commands::get_industry,

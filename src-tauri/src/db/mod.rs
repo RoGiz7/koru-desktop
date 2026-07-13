@@ -2507,6 +2507,17 @@ pub struct JournalImportRow {
     pub reason: Option<String>,
 }
 
+/// Una fila del histórico de precios de mercado (price_history) para la gráfica temporal de R2.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PriceHistoryRow {
+    pub date: String,
+    pub average: f64,
+    pub highest: f64,
+    pub lowest: f64,
+    pub volume: i64,
+    pub order_count: i64,
+}
+
 impl Db {
     /// Inserta/actualiza precios de mercado en bloque (type_id, average, adjusted).
     pub fn upsert_prices(&self, rows: &[(i64, Option<f64>, Option<f64>)]) -> AppResult<()> {
@@ -2528,6 +2539,60 @@ impl Db {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// R2: inserta/actualiza en bloque el histórico de precios de una (región, tipo).
+    /// rows = (date, average, highest, lowest, volume, order_count). Idempotente (re-backfill).
+    pub fn price_history_upsert(
+        &self,
+        region_id: i64,
+        type_id: i64,
+        rows: &[(String, f64, f64, f64, i64, i64)],
+    ) -> AppResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO price_history
+                    (region_id, type_id, date, average, highest, lowest, volume, order_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(region_id, type_id, date) DO UPDATE SET
+                    average = excluded.average, highest = excluded.highest,
+                    lowest = excluded.lowest, volume = excluded.volume,
+                    order_count = excluded.order_count",
+            )?;
+            for (date, avg, hi, lo, vol, oc) in rows {
+                stmt.execute(rusqlite::params![region_id, type_id, date, avg, hi, lo, vol, oc])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// R2: histórico de precios almacenado de una (región, tipo), en orden cronológico ascendente.
+    pub fn price_history_get(
+        &self,
+        region_id: i64,
+        type_id: i64,
+    ) -> AppResult<Vec<PriceHistoryRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT date, average, highest, lowest, volume, order_count
+             FROM price_history WHERE region_id = ?1 AND type_id = ?2 ORDER BY date ASC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![region_id, type_id], |r| {
+                Ok(PriceHistoryRow {
+                    date: r.get(0)?,
+                    average: r.get(1)?,
+                    highest: r.get(2)?,
+                    lowest: r.get(3)?,
+                    volume: r.get(4)?,
+                    order_count: r.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Mapa type_id -> precio medio (average_price). Para valorar assets.

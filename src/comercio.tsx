@@ -199,6 +199,16 @@ function WatchlistPanel() {
   const hSeries = selItem
     ? [{ name: tr("Precio medio"), color: "#58a6ff", values: selItem.history.map((h) => h.average) }]
     : [];
+  // R2: posición del precio actual respecto a su media del histórico. Dato neutro (sin recomendar).
+  const hMean =
+    selItem && selItem.history.length
+      ? selItem.history.reduce((s, h) => s + h.average, 0) / selItem.history.length
+      : 0;
+  const hLast =
+    selItem && selItem.history.length
+      ? selItem.history[selItem.history.length - 1].average
+      : 0;
+  const hPct = hMean > 0 ? (hLast - hMean) / hMean : 0;
 
   const arbList = arb ?? [];
 
@@ -585,6 +595,12 @@ function WatchlistPanel() {
                   {tr("Precio medio")} ·{" "}
                   {tr("últimos")} {selItem.history.length} {tr("días")}
                 </span>
+                {selItem.history.length > 0 && (
+                  <span className="muted small">
+                    · {tr("actual")} {hPct >= 0 ? "+" : ""}
+                    {(hPct * 100).toFixed(0)}% {tr("vs su media")}
+                  </span>
+                )}
               </div>
               {selItem.history.length === 0 ? (
                 <p className="muted small">{tr("Sin histórico para este ítem en esta región.")}</p>
