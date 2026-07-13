@@ -5618,3 +5618,62 @@ h4 {
 .pi-p0-table tr.pi-dead td:nth-child(4) {
   color: #e5534b;
 }
+
+/* --- R1b: explorador de cadenas P0→P4 --- */
+.pi-chains {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #333);
+}
+.pi-chains h3 {
+  margin: 0 0 0.2rem;
+}
+.pi-chain-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+.pi-chain-label {
+  flex: 0 0 2.2rem;
+  font-weight: 700;
+  color: var(--fg-muted, #888);
+  padding-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.pi-chain-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.pi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 5px;
+  font-size: 0.82em;
+  border: 1px solid var(--border-2, #3a3a3a);
+  background: var(--bg-surface-2, #262626);
+}
+.pi-chip img {
+  border-radius: 3px;
+}
+.pi-chip-green {
+  border-color: #3fb950;
+  color: #b9f0c6;
+}
+.pi-chip-amber {
+  border-color: #d29922;
+  color: #f0d79a;
+}
+.pi-chip-gray {
+  opacity: 0.45;
+}
+.pi-chip-click {
+  cursor: pointer;
+}
+.pi-chip-click:hover {
+  border-color: var(--accent-border, #4f9cff);
+  filter: brightness(1.15);
+}

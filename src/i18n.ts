@@ -278,6 +278,9 @@ const EN: Record<string, string> = {
     "Amounts for one cycle of the target (theoretical tree ratios, not your real output).",
   "Ya extraes todos los P0 que necesita.": "You already extract every P0 it needs.",
   "Te faltan P0 por extraer:": "P0 you still need to extract:",
+  "Cadenas P0→P4": "P0→P4 chains",
+  "Lo que produces (verde), lo que podrías hacer con tus insumos (ámbar) y lo que te falta (gris).":
+    "What you produce (green), what you could make from your inputs (amber), and what you're missing (gray).",
   // Tipos de planeta (ESI planet_type, en minúsculas)
   barren: "barren",
   gas: "gas",

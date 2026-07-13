@@ -129,6 +129,7 @@ export function PlanetologiaView({
   const [schematics, setSchematics] = useState<Record<string, PiSchematic>>({});
   const [prices, setPrices] = useState<Map<number, number>>(new Map());
   const [open, setOpen] = useState<string | null>(null);
+  const [planTarget, setPlanTarget] = useState<string>(""); // objetivo del planificador inverso
 
   const [p0table, setP0table] = useState<P0Planets | null>(null);
 
@@ -367,8 +368,107 @@ export function PlanetologiaView({
         })}
       </div>
 
-      <InversePlanner schematics={schematics} p0table={p0table} mine={mine} />
+      <ChainsExplorer
+        schematics={schematics}
+        p0table={p0table}
+        mine={mine}
+        onPick={setPlanTarget}
+      />
+      <InversePlanner
+        schematics={schematics}
+        p0table={p0table}
+        mine={mine}
+        target={planTarget}
+        onTarget={setPlanTarget}
+      />
     </>
+  );
+}
+
+/** Explorador de cadenas P0→P4: los 68 esquemas + 15 P0 por tier, coloreados por tu estado.
+ *  Verde = lo produces hoy · ámbar = tienes todos sus insumos directos (podrías añadir la
+ *  fábrica / extractor) · gris = te falta. R1b (SPEC §2 "Cadenas"). */
+function ChainsExplorer({
+  schematics,
+  p0table,
+  mine,
+  onPick,
+}: {
+  schematics: Record<string, PiSchematic>;
+  p0table: P0Planets | null;
+  mine: { planetTypes: Set<string>; p0: Set<number>; outputs: Set<number> };
+  /// Clic en un producto P1-P4 → cargarlo en el planificador inverso.
+  onPick: (sid: string) => void;
+}) {
+  const outIndex = useMemo(() => buildOutIndex(schematics), [schematics]);
+  const p0set = useMemo(
+    () => new Set<number>(p0table ? Object.keys(p0table.p0).map(Number) : []),
+    [p0table],
+  );
+
+  const rows = useMemo(() => {
+    if (!p0table) return [];
+    const memo = new Map<number, number>();
+    // ¿produces este typeID hoy? P0 = lo extraes; P1-P4 = sale de tus fábricas.
+    const produces = (tid: number) => (p0set.has(tid) ? mine.p0.has(tid) : mine.outputs.has(tid));
+    type Node = { tid: number; name: string; state: "green" | "amber" | "gray" };
+    const out: { tier: number; nodes: Node[] }[] = [0, 1, 2, 3, 4].map((tier) => ({ tier, nodes: [] }));
+
+    for (const [tidStr, info] of Object.entries(p0table.p0)) {
+      const tid = Number(tidStr);
+      const state: Node["state"] = mine.p0.has(tid)
+        ? "green"
+        : info.planets.some((pk) => mine.planetTypes.has(pk))
+          ? "amber" // tienes el tipo de planeta, podrías poner el extractor
+          : "gray";
+      out[0].nodes.push({ tid, name: info.en, state });
+    }
+    for (const v of Object.values(schematics)) {
+      const tid = v.out[0];
+      const tier = tierOf(tid, schematics, outIndex, p0set, memo);
+      if (tier < 1 || tier > 4) continue;
+      const state: Node["state"] = mine.outputs.has(tid)
+        ? "green"
+        : v.in.every(([itid]) => produces(itid))
+          ? "amber" // ya produces todos sus insumos directos
+          : "gray";
+      out[tier].nodes.push({ tid, name: getLang() === "es" ? v.n.es : v.n.en, state });
+    }
+    for (const r of out) r.nodes.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }, [schematics, p0table, mine, outIndex, p0set]);
+
+  if (!p0table) return null;
+
+  return (
+    <div className="pi-chains">
+      <h3>{tr("Cadenas P0→P4")}</h3>
+      <p className="muted small">
+        {tr("Lo que produces (verde), lo que podrías hacer con tus insumos (ámbar) y lo que te falta (gris).")}
+      </p>
+      {rows.map((row) => (
+        <div key={row.tier} className="pi-chain-row">
+          <span className="pi-chain-label">{`P${row.tier}`}</span>
+          <div className="pi-chain-nodes">
+            {row.nodes.map((n) => {
+              const sid = outIndex.get(n.tid);
+              const clickable = row.tier >= 1 && sid != null;
+              return (
+                <span
+                  key={n.tid}
+                  className={`pi-chip pi-chip-${n.state}${clickable ? " pi-chip-click" : ""}`}
+                  title={n.name}
+                  onClick={clickable ? () => onPick(sid) : undefined}
+                >
+                  <img src={typeIcon(n.tid, 32) ?? undefined} alt="" width={16} height={16} />
+                  {n.name}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -378,12 +478,16 @@ function InversePlanner({
   schematics,
   p0table,
   mine,
+  target,
+  onTarget,
 }: {
   schematics: Record<string, PiSchematic>;
   p0table: P0Planets | null;
   mine: { planetTypes: Set<string>; p0: Set<number>; outputs: Set<number> };
+  /// Objetivo controlado por el padre (para que el explorador de cadenas pueda cargarlo).
+  target: string;
+  onTarget: (sid: string) => void;
 }) {
-  const [target, setTarget] = useState<string>("");
   const outIndex = useMemo(() => buildOutIndex(schematics), [schematics]);
   const p0set = useMemo(
     () => new Set<number>(p0table ? Object.keys(p0table.p0).map(Number) : []),
@@ -438,7 +542,7 @@ function InversePlanner({
       <select
         className="pi-select"
         value={target}
-        onChange={(e) => setTarget(e.target.value)}
+        onChange={(e) => onTarget(e.target.value)}
       >
         <option value="">{tr("— Elige un producto PI —")}</option>
         {options.map((o) => (
