@@ -61,9 +61,12 @@ pub struct WasteEvent {
 pub struct MissEvent {
     pub date: String,
     pub sec: i64,
-    pub done: bool,     // true = fallaste tú; false = te fallaron
-    pub weapon: String, // solo en los dados
-    pub other: String,  // la rata: objetivo si done, atacante si no
+    pub done: bool, // true = fallaste tú; false = te fallaron
+    /// Dado: tu arma (siempre presente). Recibido: el arma del ATACANTE si la firma — solo los
+    /// jugadores lo hacen (`kurosen1 misses you completely - 125mm…`), las ratas no. Con arma en
+    /// un recibido, el commit lo trata como fallo PvP.
+    pub weapon: String,
+    pub other: String, // objetivo si done, atacante si no (rata o jugador)
 }
 /// Un golpe de combate (LOG-ONLY, ESI no da nada de esto). done = hecho por ti (`a`) / recibido (`de`);
 /// wreck = calidad "Destruye" (wrecking hit, ~crítico de combate).
@@ -85,6 +88,17 @@ pub struct CombatEvent {
     // canoniza los nombres de logs viejos escritos en español. ("", "") si la línea no lo trae.
     pub alias_es: String,
     pub alias_en: String,
+    /// PvP (#45): clase del otro lado del golpe. 0 = NPC (todo lo de siempre) · 1 = nave de
+    /// jugador · 2 = dron/fighter de jugador (nombre == tipo) · 3 = estructura de jugador (el
+    /// nombre lleva "SISTEMA - " delante; Ansiblex/citadelas/Athanor…). Se detecta por la firma
+    /// `Nombre[TICKER](Nave)`, que las ratas jamás llevan. En ambos sentidos (dado Y recibido).
+    pub kind: u8,
+    /// Piloto (o "SISTEMA - nombre" si estructura). "" si kind == 0.
+    pub pilot: String,
+    /// Ticker de la corp del otro. "" si kind == 0.
+    pub ticker: String,
+    /// Nave/tipo del otro (canónico EN vía hint). "" si kind == 0.
+    pub pship: String,
 }
 
 /// Rescate de restos (categoría `notify`). `ok=false` = el ciclo del salvager falló.
@@ -316,6 +330,70 @@ fn clean_rat(s: &str) -> String {
         .to_string()
 }
 
+/// Como `strip_tags`, pero cada `<localized hint="X">Y*` se sustituye por X, DESCARTANDO el texto
+/// visible hasta el siguiente `<`.
+///
+/// ⚠️ NO USAR en rutas de parseo: dos males confirmados en vivo (2026-07-10, PvP #45):
+/// 1. El visible arrastra puntuación del FORMATO que no es parte del nombre — en
+///    `(<localized hint="Scimitar">Scimitar)` el salto se come el `)` y rompe la firma
+///    `Nombre[TICK](Nave)`: todos los golpes PvP de 2026 acabaron clasificados como ratas.
+/// 2. El sentido del hint NO es estable entre eras: en logs viejos hint=EN/visible=ES, en los de
+///    2026 hint=ES/visible=EN. "Preferir el hint" no canoniza nada: cambia el idioma según la era.
+/// El texto VISIBLE plano (strip_tags) conserva la puntuación del formato y es lo único
+/// estructuralmente fiable; la canonización de idioma va aparte (diccionario/SDE), como las ratas.
+#[allow(dead_code)]
+fn strip_tags_hint(s: &str) -> String {
+    const P: &str = "<localized hint=\"";
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find(P) {
+        out.push_str(&strip_tags(&rest[..i]));
+        let after = &rest[i + P.len()..];
+        let Some(q) = after.find('"') else {
+            rest = after;
+            break;
+        };
+        out.push_str(&after[..q]);
+        // Saltar el cierre del tag y el texto VISIBLE duplicado (hasta el siguiente '<' o el final).
+        let tail = &after[q..];
+        match tail.find('>') {
+            Some(gt) => {
+                let vis = &tail[gt + 1..];
+                rest = &vis[vis.find('<').unwrap_or(vis.len())..];
+            }
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(&strip_tags(rest));
+    out
+}
+
+/// Entidad de JUGADOR en un objetivo de combate: `Nombre[TICKER](Nave)`. Las ratas jamás llevan
+/// esta firma; las estructuras/deployables de jugador sí (con el ticker de la corp dueña).
+/// Validado en Python sobre 784k golpes reales: 14 sin parsear (0,002%).
+/// Devuelve (nombre, ticker, nave/tipo). None = no es un jugador (camino NPC de siempre).
+fn parse_entity(s: &str) -> Option<(String, String, String)> {
+    if !s.ends_with(')') {
+        return None;
+    }
+    let open = s.rfind("](")?;
+    // clean_rat en nombre y nave: el visible localizado arrastra un `*` suelto
+    // (`(Flycatcher*)`) que si no partiría la misma nave en dos filas.
+    let ship = clean_rat(&s[open + 2..s.len() - 1]);
+    let head = &s[..open + 1]; // "…[TICKER]"
+    let ti = head.rfind('[')?;
+    let ticker = head[ti + 1..head.len() - 1].trim();
+    let name = clean_rat(&head[..ti]);
+    // Tickers EVE: 1-5 caracteres. Más largo = otra cosa (p. ej. un NPC con corchetes raros).
+    if name.is_empty() || ticker.is_empty() || ticker.chars().count() > 5 || ship.is_empty() {
+        return None;
+    }
+    Some((name, ticker.to_string(), ship))
+}
+
 /// Del primer `<localized hint="NombreES">NombreEN` que aparezca en `seg`, devuelve (ES, EN).
 /// El gamelog escribe el nombre ES en el hint y el EN como texto visible. Con logs de años en los
 /// que el cliente estuvo en español (sin tag), esto nos da el diccionario para canonizar al EN.
@@ -501,6 +579,10 @@ fn parse_salvage_line(line: &str) -> Option<SalvageEvent> {
 
 /// Pulso de módulo de mando: `Tu <módulo> ha aplicado bonificaciones a N miembro(s) de la flota.`
 /// / `Your <módulo> has applied bonuses to N fleet member(s).`
+/// FIX (lote PvP, 2ª iteración): texto VISIBLE plano + quitar el `*` suelto del localized. La fila
+/// fantasma ("Estallido de capataz minero II*") la creaba sobre todo el asterisco; preferir el
+/// hint resultó peor remedio (su idioma cambia por era — en 2026 el hint es ES). Entre eras el
+/// módulo puede salir ES o EN: el catálogo de medallas ya acepta ambos.
 fn parse_boost_line(line: &str) -> Option<BoostEvent> {
     let plain = strip_tags(line);
     let (mark, es) = if let Some(i) = plain.find(" ha aplicado bonificaciones a ") {
@@ -512,7 +594,7 @@ fn parse_boost_line(line: &str) -> Option<BoostEvent> {
     let head = &plain[..mark];
     let module = head
         .rfind(if es { "Tu " } else { "Your " })
-        .map(|i| head[i + if es { 3 } else { 5 }..].trim().to_string())
+        .map(|i| clean_rat(&head[i + if es { 3 } else { 5 }..]))
         .unwrap_or_default();
     // Nº de miembros: primer número tras el marcador.
     let tail = &plain[mark..];
@@ -560,14 +642,24 @@ fn parse_jump_line(line: &str) -> Option<JumpEvent> {
 
 /// Disparo sin daño. Ver `MissEvent` para los cuatro verbos. Validado sobre los logs reales:
 /// 88.701 fallos, 0 sin parsear.
+///
+/// DISCRIMINADOR CORREGIDO en el lote PvP (#45): la cola `" - <arma>"` NO distingue dado de
+/// recibido — el fallo recibido de un JUGADOR también la lleva (`kurosen1 misses you completely
+/// - 125mm Gatling AutoCannon II`), y el criterio viejo lo contaba como fallo TUYO con su arma.
+/// El discriminador fiable es el arranque: los dados empiezan por `Tu `/`Your ` (validado: las
+/// ratas nunca firman el arma al fallarte; los jugadores sí).
 fn parse_miss_line(line: &str) -> Option<MissEvent> {
     let date = line_date(line)?;
     let sec = line_secs(line).unwrap_or(-1);
     let i = line.find("(combat)")? + "(combat)".len();
+    // strip_tags PLANO (el de los 88.701 fallos validados): el hint se comía el texto visible
+    // que sigue al nombre localizado — verbos incluidos — y su idioma baila por era.
     let plain = strip_tags(&line[i..]);
     let p = plain.trim();
-    // DADO: es el único que lleva " - <arma>" al final, igual que un golpe.
-    if let Some((head, weapon)) = p.rsplit_once(" - ") {
+    if p.starts_with("Tu ") || p.starts_with("Your ") {
+        // DADO: `Tu <arma> no acierta en <objetivo> por mucho. - <arma>` /
+        //       `Your <arma> misses <objetivo> completely - <arma>`.
+        let (head, weapon) = p.rsplit_once(" - ")?;
         let weapon = clean_rat(weapon);
         for (a, b) in [(" no acierta en ", " por mucho"), (" misses ", " completely")] {
             if let Some(j) = head.find(a) {
@@ -580,12 +672,18 @@ fn parse_miss_line(line: &str) -> Option<MissEvent> {
         }
         return None;
     }
-    // RECIBIDO: "<rata> falla por mucho." / "<rata> misses you completely".
+    // RECIBIDO: "<rata> falla por mucho." / "<atacante> misses you completely[ - <arma>]".
+    // Si tras el verbo viene " - <arma>", el atacante es un JUGADOR (las ratas no firman el arma):
+    // esa arma se conserva y el commit lo usa como señal PvP.
     for b in [" falla por mucho", " misses you completely"] {
         if let Some(j) = p.find(b) {
             let other = clean_rat(&p[..j]);
+            let weapon = p[j + b.len()..]
+                .rsplit_once(" - ")
+                .map(|(_, w)| clean_rat(w))
+                .unwrap_or_default();
             if !other.is_empty() {
-                return Some(MissEvent { date, sec, done: false, weapon: String::new(), other });
+                return Some(MissEvent { date, sec, done: false, weapon, other });
             }
         }
     }
@@ -595,16 +693,16 @@ fn parse_miss_line(line: &str) -> Option<MissEvent> {
 /// Golpe de combate: `(combat) <b>N</b> ... <font size=10>(a|de)</font> ... - <calidad>`. None si no.
 /// done = `a` (hecho por ti) / `de` (recibido). wreck = la calidad final es "Destruye" (wrecking).
 fn parse_combat_line(line: &str) -> Option<CombatEvent> {
-    // Marcador de dirección, bilingüe. `mark` = el tag exacto (para anclar el alias);
-    // `sep` = cómo se ve ese marcador ya sin tags, para recortar el objetivo del texto plano.
-    let (done, mark, sep) = if line.contains("size=10>a</font>") {
-        (true, "size=10>a</font>", " a ")
+    // Marcador de dirección, bilingüe. `mark` = el tag exacto: ancla tanto el objetivo (el
+    // <b>…</b> que le sigue) como el alias <localized>.
+    let (done, mark) = if line.contains("size=10>a</font>") {
+        (true, "size=10>a</font>")
     } else if line.contains("size=10>to</font>") {
-        (true, "size=10>to</font>", " to ")
+        (true, "size=10>to</font>")
     } else if line.contains("size=10>de</font>") {
-        (false, "size=10>de</font>", " de ")
+        (false, "size=10>de</font>")
     } else if line.contains("size=10>from</font>") {
-        (false, "size=10>from</font>", " from ")
+        (false, "size=10>from</font>")
     } else {
         return None;
     };
@@ -624,18 +722,46 @@ fn parse_combat_line(line: &str) -> Option<CombatEvent> {
     };
     // Wrecking hit (≈ crítico de combate): el escalón 6 de la calidad ("Destruye"/"Wrecks").
     let wreck = quality == 6;
-    // Objetivo (solo en HECHOS): entre el marcador de dirección y el primer " - ".
-    let target = if done {
-        plain
-            .find(sep)
-            .and_then(|i| {
-                let after = &plain[i + sep.len()..];
-                after.find(" - ").map(|j| clean_rat(&after[..j]))
-            })
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    // Objetivo/origen: el contenido del `<b>…</b>` que sigue al marcador, en la línea CRUDA.
+    // Anclarse al bold es lo único fiable — los nombres de estructura de jugador llevan " - "
+    // dentro (`M2-XFE - Grandma shark…[THXFC](Astrahus)`) y el antiguo corte por " - " en texto
+    // plano los partía: años registrando el SISTEMA como si fuera una rata. Validado en Python:
+    // 784k golpes, 14 sin extraer (0,002%).
+    let mut kind = 0u8;
+    let mut pilot = String::new();
+    let mut ticker = String::new();
+    let mut pship = String::new();
+    let mut target = String::new();
+    if let Some(mi) = line.find(mark) {
+        let rest = &line[mi + mark.len()..];
+        if let Some(bi) = rest.find("<b>") {
+            let inner_start = bi + 3;
+            if let Some(bj) = rest[inner_start..].find("</b>") {
+                let inner = &rest[inner_start..inner_start + bj];
+                // Texto VISIBLE plano: conserva la puntuación del formato (el `)` del cierre de
+                // la nave). El hint NO sirve aquí — se comía ese `)` y su idioma cambia por era
+                // (ver strip_tags_hint). El idioma del nombre lo canoniza el diccionario, como
+                // siempre; para la FIRMA de jugador la estructura es lo que importa.
+                let norm = clean_rat(&strip_tags(inner));
+                if let Some((n, t, s)) = parse_entity(&norm) {
+                    // JUGADOR: nave, dron (nombre == tipo) o estructura ("SISTEMA - nombre").
+                    kind = if n.contains(" - ") {
+                        3
+                    } else if n == s {
+                        2
+                    } else {
+                        1
+                    };
+                    pilot = n;
+                    ticker = t;
+                    pship = s;
+                    // target queda vacío A PROPÓSITO: los jugadores no van a la tabla de ratas.
+                } else if done {
+                    target = norm; // rata de siempre (solo dados, como antes)
+                }
+            }
+        }
+    }
     // Diccionario ES→EN del objetivo: el primer `<localized>` que hay TRAS el marcador de dirección
     // y ANTES del primer " - " (después de ese guion viene el arma, que no queremos meter aquí).
     let mut alias_es = String::new();
@@ -650,7 +776,22 @@ fn parse_combat_line(line: &str) -> Option<CombatEvent> {
             }
         }
     }
-    Some(CombatEvent { date, dmg, done, wreck, target, sec, weapon, quality, alias_es, alias_en })
+    Some(CombatEvent {
+        date,
+        dmg,
+        done,
+        wreck,
+        target,
+        sec,
+        weapon,
+        quality,
+        alias_es,
+        alias_en,
+        kind,
+        pilot,
+        ticker,
+        pship,
+    })
 }
 
 /// Lee el fichero desde `from` hasta el final y devuelve (nuevo_offset, lote de eventos).

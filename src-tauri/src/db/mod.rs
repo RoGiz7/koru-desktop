@@ -145,7 +145,15 @@ impl Db {
         //      patrón y eran invisibles. + sufijo de residuo en inglés al limpiar el nombre de mena.
         // v17: fix del bounty ×100 en los logs viejos, que escriben decimales ("1.104.375,00 ISK").
         //      El parser bilingüe de v16 filtraba TODOS los dígitos y se comía la coma decimal.
-        const LOGI_DATA_VERSION: i64 = 17;
+        // v18: PvP del gamelog (#45): tabla gamelog_pvp (daño/golpes/fallos contra jugadores,
+        //      drones y estructuras, con piloto/ticker/nave). De paso arregla DOS venenos: los
+        //      golpes a estructuras registraban el SISTEMA como rata ("M2-XFE"), y los fallos
+        //      recibidos de jugador se contaban como fallos propios.
+        // v19: fix de la era 2026: el "preferir hint" de v18 se comía el `)` tras la nave
+        //      localizada y TODO el PvP de 2026 caía como rata ("Hoeybye[UKMF](Scimitar").
+        //      Entidad/fallos/boosts vuelven al texto VISIBLE plano (el hint cambia de idioma
+        //      según la era); `*` suelto limpiado en nombre/nave/módulo.
+        const LOGI_DATA_VERSION: i64 = 19;
         let uv: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
         // Semilla al introducir `meta`: la versión de datos heredada = la última user_version que forzó
         // un reparse en el build anterior (comparten numerado). Así, quien ya reprocesó a v7 NO queda
@@ -2932,6 +2940,85 @@ impl Db {
                     r.get::<_, String>(1)?,
                     r.get::<_, i64>(2)?,
                     r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// PvP del gamelog (#45): cara a cara con entidades de jugador, agregado por (done, kind,
+    /// piloto, ticker, nave). Devuelve (done, kind, pilot, ticker, ship, dmg, shots, wrecks,
+    /// misses, primera fecha, última fecha). LOG-ONLY: cubre las peleas SIN killmail.
+    #[allow(clippy::type_complexity)]
+    pub fn gamelog_pvp_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(bool, i64, String, String, String, i64, i64, i64, i64, String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT done, kind, pilot, ticker, ship, SUM(dmg), SUM(shots), SUM(wrecks), SUM(misses), \
+                    MIN(date), MAX(date) \
+             FROM gamelog_pvp WHERE 1=1 {who} \
+             GROUP BY done, kind, pilot, ticker, ship"
+        );
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)? != 0,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, i64>(6)?,
+                    r.get::<_, i64>(7)?,
+                    r.get::<_, i64>(8)?,
+                    r.get::<_, String>(9)?,
+                    r.get::<_, String>(10)?,
+                ))
+            })?
+            .flatten()
+            .collect();
+        Ok(rows)
+    }
+
+    /// Serie diaria del PvP del gamelog para la gráfica: (date, done, pilot, ship, dmg) SOLO de
+    /// naves y drones (kind 1-2) y SOLO con daño real (las filas de solo-fallos dejaban la gráfica
+    /// plana en cero con rivales listados). Las estructuras con "SYS - " quedan fuera aquí; los
+    /// deployables sin prefijo (CRAB, POS…) los filtra el frontend por TIPO, con la misma regla
+    /// que la tabla cara a cara — por eso viaja `ship`.
+    #[allow(clippy::type_complexity)]
+    pub fn gamelog_pvp_series_rows(
+        &self,
+        subject_id: i64,
+    ) -> AppResult<Vec<(String, bool, String, String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let who = if subject_id == 0 {
+            String::new()
+        } else {
+            format!("AND character_id = {subject_id}")
+        };
+        let q = format!(
+            "SELECT date, done, pilot, ship, SUM(dmg) FROM gamelog_pvp \
+             WHERE kind IN (1,2) {who} GROUP BY date, done, pilot, ship \
+             HAVING SUM(dmg) > 0"
+        );
+        let mut st = conn.prepare(&q)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)? != 0,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
                     r.get::<_, i64>(4)?,
                 ))
             })?

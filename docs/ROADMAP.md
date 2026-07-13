@@ -1,11 +1,11 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-07-10 (v0.24.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-11 (v0.25.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.24.0 · 2026-07-10)
+## 📌 Estado actual (v0.25.0 · 2026-07-11)
 
 ### Hecho desde v0.16.1 (resumen por versión)
 - **v0.17–v0.18.4 — BITÁCORA completa**: motor de logros retroactivos + retos adaptativos
@@ -36,9 +36,18 @@
   motivo por entrega, aviso "EVE Online © CCP hf." en Ajustes. Validado en vivo con las 4 del
   usuario.
 
+- **v0.24.1 — «Filón»**: umbrales recalibrados con datos reales (100k/1M/10M; el resto de las 8
+  medallas de la 0.23.0 quedaron clavadas: verificadas 7/8 en plata con el oro a la vista).
+- **v0.25.0 — «Cara a cara»**: PvP del gamelog (#45) COMPLETO — tabla cara a cara (naves/drones/
+  estructuras, peleas sin killmail, desde 2019), magnitud «Daño PvP (gamelog)» en la gráfica con
+  top-5 rivales, fix intel (mtime congelado de Windows → fecha del nombre como respaldo),
+  reescaneo REANUDABLE (marca reset_done por versión), y 3 venenos fuera (ratas fantasma tipo
+  "M2-XFE"/"Hoeybye[UKMF](Scimitar", fallos enemigos como propios, fila `*` en boosts).
+  LOGI_DATA_VERSION=19. Lección de era: hint localized cambia de idioma según época → parsear
+  el VISIBLE; validar parsers también contra la carpeta principal, no solo `old/`.
+
 ### Pendiente REAL (orden recomendado)
-1. **Acompañamiento 0.24.x**: recalibrar umbrales de las 8 medallas de la 0.23.0 con valores
-   reales, limpiar el `-1` en origen, DPS.
+1. **Acompañamiento 0.25.x**: limpiar el `-1` en origen, DPS en vistas.
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
    fix del parser de boosts (preferir el hint EN localizado).

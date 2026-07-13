@@ -7,7 +7,7 @@ import { tr } from "./i18n";
 import { fmtIsk, fmtSp, shipIcon, zkillUrl, daysAgo, weekKey } from "./format";
 import { Kpi, Bars, Th, MultiLineProgress, RangePresets } from "./charts";
 import { loadNewEden } from "./neweden";
-import type { PvpStats, PvpTrendPoint, KillmailRow, NameCount, TopSeriesPoint } from "./types";
+import type { PvpStats, PvpTrendPoint, KillmailRow, NameCount, TopSeriesPoint, GamelogPvpRow, GamelogPvpDay } from "./types";
 
 // ---- Gráfica ÚNICA de actividad PvP ----
 // Unifica tendencia (Kills/Losses) + top naves + top sistemas en una sola multilínea.
@@ -16,6 +16,12 @@ import type { PvpStats, PvpTrendPoint, KillmailRow, NameCount, TopSeriesPoint } 
 // Paletas locales: evitan chocar con el verde de Kills y el rojo de Losses.
 const SHIP_COLORS = ["#4f9cff", "#a371f7", "#d29922", "#db61a2", "#6e7681"];
 const SYS_COLORS = ["#2dd4bf", "#f0883e", "#c9adf9", "#8b949e", "#58d0ff"];
+
+// Deployables y POS sin prefijo de sistema en el nombre (CRAB Beacon, torres, aduanas,
+// contenedores…): el parser no los puede marcar como estructura (kind=3 exige "SYS - "), pero el
+// TIPO los delata. La misma regla filtra la tabla cara a cara Y la serie de la gráfica.
+const STRUCT_TYPES =
+  /control tower|customs office|container|beacon|jammer|cyno|jump gate|array|battery|silo|bunker|depot|mobile |skyhook/i;
 
 type USeries = {
   key: string;
@@ -71,6 +77,7 @@ function UnifiedPvpChart({
   sysSeries,
   shipNames,
   sysNames,
+  pvpDays,
   from,
   to,
 }: {
@@ -79,10 +86,15 @@ function UnifiedPvpChart({
   sysSeries: TopSeriesPoint[] | null;
   shipNames: NameCount[];
   sysNames: NameCount[];
+  /// Serie diaria del gamelog (daño contra jugadores, naves/drones). null = sin datos/escaneo.
+  pvpDays: GamelogPvpDay[] | null;
   from: string;
   to: string;
 }) {
-  // Series visibles (por clave). Por defecto, la tendencia.
+  // Magnitud de la gráfica. Kills y daño NO comparten eje (miles vs millones): cada una el suyo,
+  // como en Rateo. "dmg" = daño real contra jugadores del gamelog, peleas sin killmail incluidas.
+  const [mag, setMag] = useState<"kills" | "dmg">("kills");
+  // Series visibles (por clave). Por defecto, la tendencia de la magnitud activa.
   const [selected, setSelected] = useState<Set<string>>(() => new Set(["kills", "losses"]));
   const toggle = (k: string) =>
     setSelected((prev) => {
@@ -91,6 +103,10 @@ function UnifiedPvpChart({
       else nx.add(k);
       return nx;
     });
+  const switchMag = (m: "kills" | "dmg") => {
+    setMag(m);
+    setSelected(new Set(m === "kills" ? ["kills", "losses"] : ["gdado", "grecibido"]));
+  };
 
   if (trend.length < 2)
     return <p className="muted small">{tr("Hace falta historial de varias semanas para ver la tendencia.")}</p>;
@@ -110,7 +126,30 @@ function UnifiedPvpChart({
   }
   const ships = topOf(shipSeries, shipNames, from, to, SHIP_COLORS, "n");
   const systems = topOf(sysSeries, sysNames, from, to, SYS_COLORS, "s");
-  const active = [sKills, sLosses, ...ships, ...systems].filter((s) => selected.has(s.key));
+
+  // --- Magnitud "Daño PvP (gamelog)": daño dado/recibido semanal + top-5 rivales del rango. ---
+  // Fuera deployables (CRAB/POS/aduanas, por tipo): esto va de peleas contra gente.
+  const pvpSel = (pvpDays ?? []).filter(
+    (p) => (!from || p.date >= from) && (!to || p.date <= to) && !STRUCT_TYPES.test(p.ship)
+  );
+  const sDado = mkSeries("gdado", tr("Daño dado"), "#3fb950");
+  const sRecibido = mkSeries("grecibido", tr("Daño recibido"), "#e5534b");
+  const rivalTotals = new Map<string, number>();
+  for (const p of pvpSel) {
+    addPt(p.done ? sDado : sRecibido, p.date, p.dmg);
+    // El ranking de rivales cruza ambos sentidos: quien más te pegó también cuenta.
+    rivalTotals.set(p.pilot, (rivalTotals.get(p.pilot) ?? 0) + p.dmg);
+  }
+  const rivalNames = [...rivalTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n]) => n);
+  const rivals = rivalNames.map((n, i) => mkSeries(`r${n}`, n, SHIP_COLORS[i % SHIP_COLORS.length]));
+  const rivalBy = new Map(rivalNames.map((n, i) => [n, rivals[i]]));
+  for (const p of pvpSel) {
+    const s = rivalBy.get(p.pilot);
+    if (s) addPt(s, p.date, p.dmg);
+  }
+
+  const pool = mag === "kills" ? [sKills, sLosses, ...ships, ...systems] : [sDado, sRecibido, ...rivals];
+  const active = pool.filter((s) => selected.has(s.key));
 
   // Semanas = unión de las series activas; etiqueta = primera fecha vista en esa semana.
   const weekDates = new Map<string, string>();
@@ -140,16 +179,42 @@ function UnifiedPvpChart({
     </button>
   );
 
+  const dmgDado = pvpSel.reduce((a, p) => a + (p.done ? p.dmg : 0), 0);
+  const dmgRecibido = pvpSel.reduce((a, p) => a + (p.done ? 0 : p.dmg), 0);
+
   return (
     <div className="trend-chart">
       <div className="multiline-legend">
-        <span className="muted small">{tr("Tendencia")}:</span>
-        {chip(sKills)}
-        {chip(sLosses)}
-        {ships.length > 0 && <span className="muted small">· {tr("Naves")}:</span>}
-        {ships.map(chip)}
-        {systems.length > 0 && <span className="muted small">· {tr("Sistemas")}:</span>}
-        {systems.map(chip)}
+        {/* Conmutador de magnitud: killmails (ESI/zKill) o daño contra jugadores (gamelog).
+            Solo aparece si el gamelog aportó datos; sin escaneo, la gráfica es la de siempre. */}
+        {(pvpDays?.length ?? 0) > 0 && (
+          <span className="tabs" style={{ marginRight: "0.4rem" }}>
+            {(["kills", "dmg"] as const).map((m) => (
+              <button key={m} className={`tab ${mag === m ? "active" : ""}`} onClick={() => switchMag(m)}>
+                {m === "kills" ? "Kills" : tr("Daño PvP (gamelog)")}
+              </button>
+            ))}
+          </span>
+        )}
+        {mag === "kills" ? (
+          <>
+            <span className="muted small">{tr("Tendencia")}:</span>
+            {chip(sKills)}
+            {chip(sLosses)}
+            {ships.length > 0 && <span className="muted small">· {tr("Naves")}:</span>}
+            {ships.map(chip)}
+            {systems.length > 0 && <span className="muted small">· {tr("Sistemas")}:</span>}
+            {systems.map(chip)}
+          </>
+        ) : (
+          <>
+            <span className="muted small">{tr("Daño")}:</span>
+            {chip(sDado)}
+            {chip(sRecibido)}
+            {rivals.length > 0 && <span className="muted small">· {tr("Rivales")}:</span>}
+            {rivals.map(chip)}
+          </>
+        )}
       </div>
 
       {active.length === 0 ? (
@@ -165,13 +230,22 @@ function UnifiedPvpChart({
         </div>
       )}
 
-      <div className="kpis" style={{ marginTop: "0.6rem" }}>
-        <Kpi label="Kills" value={fmtSp(kills)} tone="pos" />
-        <Kpi label="Losses" value={fmtSp(losses)} tone="neg" />
-        <Kpi label={tr("ISK destruido")} value={fmtIsk(iskD)} tone="pos" />
-        <Kpi label={tr("ISK perdido")} value={fmtIsk(iskL)} tone="neg" />
-        <Kpi label={tr("Eficacia")} value={`${eff.toFixed(0)}%`} tone={eff >= 50 ? "pos" : "neg"} />
-      </div>
+      {mag === "kills" ? (
+        <div className="kpis" style={{ marginTop: "0.6rem" }}>
+          <Kpi label="Kills" value={fmtSp(kills)} tone="pos" />
+          <Kpi label="Losses" value={fmtSp(losses)} tone="neg" />
+          <Kpi label={tr("ISK destruido")} value={fmtIsk(iskD)} tone="pos" />
+          <Kpi label={tr("ISK perdido")} value={fmtIsk(iskL)} tone="neg" />
+          <Kpi label={tr("Eficacia")} value={`${eff.toFixed(0)}%`} tone={eff >= 50 ? "pos" : "neg"} />
+        </div>
+      ) : (
+        <div className="kpis" style={{ marginTop: "0.6rem" }}>
+          <Kpi label={tr("Daño dado")} value={fmtSp(dmgDado)} tone="pos" />
+          <Kpi label={tr("Daño recibido")} value={fmtSp(dmgRecibido)} tone="neg" />
+          <Kpi label={tr("Rivales")} value={fmtSp(rivalTotals.size)} />
+          {/* Es daño del log de combate, no muertes: la honestidad de siempre. */}
+        </div>
+      )}
     </div>
   );
 }
@@ -251,6 +325,17 @@ export function PvpView(props: {
   const [shipDim, setShipDim] = useState<"ship" | "victim">("ship");
   const [shipSeries, setShipSeries] = useState<TopSeriesPoint[] | null>(null);
   const [sysSeries, setSysSeries] = useState<TopSeriesPoint[] | null>(null);
+  // Serie diaria del PvP del gamelog (daño contra jugadores) para la magnitud "Daño PvP".
+  const [pvpDays, setPvpDays] = useState<GamelogPvpDay[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    invoke<GamelogPvpDay[]>("get_gamelog_pvp_series", { subjectId: subjectChar ?? 0 })
+      .then((r) => alive && setPvpDays(r))
+      .catch(() => alive && setPvpDays(null));
+    return () => {
+      alive = false;
+    };
+  }, [subjectChar]);
   useEffect(() => {
     let alive = true;
     setShipSeries(null);
@@ -388,6 +473,7 @@ export function PvpView(props: {
                 sysSeries={sysSeries}
                 shipNames={stats.top_ships}
                 sysNames={stats.top_systems}
+                pvpDays={pvpDays}
                 from={from}
                 to={to}
               />
@@ -539,6 +625,147 @@ export function PvpView(props: {
           {tr("Siguiente")} →
         </button>
       </div>
+
+      {/* Cara a cara del gamelog: daño real contra jugadores, CON y SIN killmail. */}
+      <GamelogPvpBlock subjectChar={subjectChar ?? null} />
+    </>
+  );
+}
+
+// ---- PvP del gamelog (#45): contra quién pegaste y quién te pegó, del log de combate. ----
+// Lo que zKill nunca tendrá: las peleas sin killmail. La misma honestidad que Daño por arma:
+// esto es DAÑO y fallos, no muertes — y tu propia nave el gamelog no la dice.
+function GamelogPvpBlock({ subjectChar }: { subjectChar: number | null }) {
+  const [rows, setRows] = useState<GamelogPvpRow[]>([]);
+  const [kind, setKind] = useState<"ships" | "structs">("ships");
+  useEffect(() => {
+    let alive = true;
+    invoke<GamelogPvpRow[]>("get_gamelog_pvp", { subjectId: subjectChar ?? 0 })
+      .then((r) => alive && setRows(r))
+      .catch(() => alive && setRows([]));
+    return () => {
+      alive = false;
+    };
+  }, [subjectChar]);
+
+  // Fusiona dado/recibido por (piloto, ticker): una fila por rival, con ambos sentidos.
+  // (STRUCT_TYPES, arriba: deployables/POS sin prefijo van a la pestaña Estructuras.)
+  type Face = {
+    pilot: string;
+    ticker: string;
+    ship: string;
+    dmgDone: number;
+    shotsDone: number;
+    wrecks: number;
+    missesDone: number;
+    dmgTaken: number;
+    shotsTaken: number;
+    missesTaken: number;
+    last: string;
+  };
+  const faces = new Map<string, Face>();
+  for (const r of rows) {
+    const wantStructs = kind === "structs";
+    const isStruct = r.kind === 3 || STRUCT_TYPES.test(r.ship);
+    if (isStruct !== wantStructs) continue;
+    const k = `${r.pilot}|${r.ticker}`;
+    const f =
+      faces.get(k) ??
+      ({
+        pilot: r.pilot,
+        ticker: r.ticker,
+        ship: "",
+        dmgDone: 0,
+        shotsDone: 0,
+        wrecks: 0,
+        missesDone: 0,
+        dmgTaken: 0,
+        shotsTaken: 0,
+        missesTaken: 0,
+        last: "",
+      } as Face);
+    if (r.ship && (!f.ship || r.dmg > 0)) f.ship = r.ship; // la nave con la que más se le vio
+    if (r.done) {
+      f.dmgDone += r.dmg;
+      f.shotsDone += r.shots;
+      f.wrecks += r.wrecks;
+      f.missesDone += r.misses;
+    } else {
+      f.dmgTaken += r.dmg;
+      f.shotsTaken += r.shots;
+      f.missesTaken += r.misses;
+    }
+    if (r.last > f.last) f.last = r.last;
+    faces.set(k, f);
+  }
+  const list = [...faces.values()].sort(
+    (a, b) => b.dmgDone + b.dmgTaken - (a.dmgDone + a.dmgTaken)
+  );
+  const TOP = 30;
+  const shown = list.slice(0, TOP);
+
+  return (
+    <>
+      <div className="km-header" style={{ marginTop: "1.5rem" }}>
+        <h4>⚔️ {tr("Cara a cara (gamelog)")}</h4>
+        <div className="km-filters">
+          {(["ships", "structs"] as const).map((k) => (
+            <button key={k} className={`tab ${kind === k ? "active" : ""}`} onClick={() => setKind(k)}>
+              {k === "ships" ? tr("Naves y drones") : tr("Estructuras")}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        {tr("Daño real contra jugadores, con y sin killmail — del log de combate, desde 2019. Daño y fallos, no muertes.")}
+      </p>
+      {list.length === 0 ? (
+        <p className="muted small">
+          {tr("Sin datos todavía: reescanea tus gamelogs en ⚙️ Ajustes → Logs de EVE para poblar esta tabla.")}
+        </p>
+      ) : (
+        <>
+          <table className="km-table">
+            <thead>
+              <tr>
+                <th>{kind === "structs" ? tr("Estructura") : tr("Piloto")}</th>
+                <th>{kind === "structs" ? tr("Tipo") : tr("Nave")}</th>
+                <th title={tr("Daño que le hiciste")}>{tr("Daño dado")}</th>
+                <th title={tr("Golpes · de ellos wrecking")}>{tr("Golpes")}</th>
+                <th title={tr("Tus disparos que no acertaron")}>{tr("Fallos")}</th>
+                <th title={tr("Daño que te hizo")}>{tr("Daño recibido")}</th>
+                <th title={tr("Sus disparos que no te acertaron")}>{tr("Te falló")}</th>
+                <th>{tr("Última vez")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((f) => (
+                <tr key={`${f.pilot}|${f.ticker}`}>
+                  <td title={f.ticker ? `[${f.ticker}]` : undefined}>
+                    {f.pilot}
+                    {f.ticker && <span className="muted small"> [{f.ticker}]</span>}
+                  </td>
+                  <td className="muted">{f.ship || "-"}</td>
+                  <td>{f.dmgDone > 0 ? fmtSp(f.dmgDone) : "-"}</td>
+                  <td>
+                    {f.shotsDone > 0 ? fmtSp(f.shotsDone) : "-"}
+                    {f.wrecks > 0 && <span className="muted small"> · {fmtSp(f.wrecks)}💥</span>}
+                  </td>
+                  <td className="muted">{f.missesDone > 0 ? fmtSp(f.missesDone) : "-"}</td>
+                  <td>{f.dmgTaken > 0 ? fmtSp(f.dmgTaken) : "-"}</td>
+                  <td className="muted">{f.missesTaken > 0 ? fmtSp(f.missesTaken) : "-"}</td>
+                  <td className="muted">{f.last || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {list.length > TOP && (
+            <p className="muted small">
+              {tr("y")} {fmtSp(list.length - TOP)} {tr("rivales más (ordenado por daño cruzado)")}
+            </p>
+          )}
+        </>
+      )}
     </>
   );
 }

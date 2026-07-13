@@ -1107,6 +1107,16 @@ impl Db {
             let mut wagg: std::collections::HashMap<(String, String), [i64; 3]> = std::collections::HashMap::new();
             let mut qagg: std::collections::HashMap<(String, u8), [i64; 2]> = std::collections::HashMap::new();
             let mut magg: std::collections::HashMap<String, [i64; 2]> = std::collections::HashMap::new(); // día → (fallos dados, recibidos)
+            // PvP (#45) — (día, done, kind, piloto, ticker, nave, arma) → [daño, golpes, wrecks, fallos].
+            // Los golpes PvP SIGUEN contando en los totales (daño/calidad/armas/DPS: son daño real);
+            // lo único que cambia es que ya no van a la tabla de ratas (target va vacío) y ganan
+            // su propia tabla cara a cara. Agregado en memoria, como todo el combate.
+            let mut pagg: std::collections::HashMap<(String, bool, u8, String, String, String, String), [i64; 4]> =
+                std::collections::HashMap::new();
+            // Piloto → (ticker, nave) visto en los GOLPES de esta sesión. Doble uso: confirmar que
+            // un fallo dado fue contra un jugador (el fallo va sin firma y NO se adivina contra
+            // catálogo: tiene huecos tipo "Factory Guard Sentry") y completarle ticker/nave.
+            let mut pvp_seen: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new();
             // Fase D — (día, sistema) → daño dado/recibido, golpes dados/recibidos.
             let mut sysagg: std::collections::HashMap<(String, String), [i64; 4]> = std::collections::HashMap::new();
             for c in &batch.combat {
@@ -1119,6 +1129,28 @@ impl Db {
                         e[1] += c.dmg;
                         e[3] += 1;
                     }
+                }
+                // PvP (#45): el otro lado es una entidad de jugador → tabla propia (ambos sentidos).
+                if c.kind > 0 {
+                    if c.kind == 1 {
+                        pvp_seen
+                            .entry(c.pilot.clone())
+                            .or_insert_with(|| (c.ticker.clone(), c.pship.clone()));
+                    }
+                    let p = pagg
+                        .entry((
+                            c.date.clone(),
+                            c.done,
+                            c.kind,
+                            c.pilot.clone(),
+                            c.ticker.clone(),
+                            c.pship.clone(),
+                            c.weapon.clone(),
+                        ))
+                        .or_insert([0; 4]);
+                    p[0] += c.dmg;
+                    p[1] += 1;
+                    p[2] += i64::from(c.wreck);
                 }
                 let e = cagg.entry(c.date.clone()).or_insert([0; 6]);
                 let w = i64::from(c.wreck);
@@ -1161,9 +1193,57 @@ impl Db {
                     if !m.weapon.is_empty() {
                         wagg.entry((m.date.clone(), m.weapon.clone())).or_insert([0; 3])[2] += 1;
                     }
+                    // PvP: el objetivo del fallo va SIN firma → solo cuenta si esta misma sesión
+                    // lo vio como jugador en los golpes. Lo no confirmado se queda fuera: honesto.
+                    if let Some((tick, ship)) = pvp_seen.get(&m.other) {
+                        pagg.entry((
+                            m.date.clone(),
+                            true,
+                            1,
+                            m.other.clone(),
+                            tick.clone(),
+                            ship.clone(),
+                            m.weapon.clone(),
+                        ))
+                        .or_insert([0; 4])[3] += 1;
+                    }
                 } else {
                     e[1] += 1;
+                    // Fallo recibido CON arma = jugador seguro (las ratas no firman el arma).
+                    // Antes del fix del discriminador, estas líneas se contaban como fallos TUYOS.
+                    if !m.weapon.is_empty() {
+                        let (tick, ship) = pvp_seen
+                            .get(&m.other)
+                            .cloned()
+                            .unwrap_or((String::new(), String::new()));
+                        pagg.entry((m.date.clone(), false, 1, m.other.clone(), tick, ship, m.weapon.clone()))
+                            .or_insert([0; 4])[3] += 1;
+                    }
                 }
+            }
+            // PvP (#45) — upsert cara a cara.
+            for ((date, done, kind, pilot, tick, ship, weapon), v) in &pagg {
+                conn.execute(
+                    "INSERT INTO gamelog_pvp (character_id, date, done, kind, pilot, ticker, ship, weapon, dmg, shots, wrecks, misses) \
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) \
+                     ON CONFLICT(character_id,date,done,kind,pilot,ticker,ship,weapon) DO UPDATE SET \
+                       dmg = dmg + excluded.dmg, shots = shots + excluded.shots, \
+                       wrecks = wrecks + excluded.wrecks, misses = misses + excluded.misses",
+                    rusqlite::params![
+                        character_id,
+                        date,
+                        i64::from(*done),
+                        *kind as i64,
+                        pilot,
+                        tick,
+                        ship,
+                        weapon,
+                        v[0],
+                        v[1],
+                        v[2],
+                        v[3]
+                    ],
+                )?;
             }
             for ((date, weapon), v) in &wagg {
                 conn.execute(
@@ -1888,6 +1968,7 @@ impl Db {
              DELETE FROM gamelog_bounty_sys; \
              DELETE FROM gamelog_mining_sys; \
              DELETE FROM gamelog_combat_sys; \
+             DELETE FROM gamelog_pvp; \
              COMMIT;",
         )?;
         drop(conn);
@@ -1930,7 +2011,7 @@ impl Db {
     }
 
     /// Marca el reprocesado como completado: fija logi_data_version al target pendiente y limpia la
-    /// bandera. Idempotente.
+    /// bandera (y la marca de "borrado inicial hecho" de la reanudación). Idempotente.
     pub fn logi_mark_reparsed(&self) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         let target = conn
@@ -1947,6 +2028,37 @@ impl Db {
             "INSERT INTO meta (key, value) VALUES ('logi_reparse_pending', '0') \
              ON CONFLICT(key) DO UPDATE SET value = '0'",
             [],
+        )?;
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('logi_reparse_reset_done', '0') \
+             ON CONFLICT(key) DO UPDATE SET value = '0'",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Reanudación de un reprocesado interrumpido: ¿el borrado inicial de la migración PENDIENTE
+    /// ya se ejecutó? Los checkpoints reales son el commit por fichero + `gamelog_parsed`; lo único
+    /// que impedía reanudar era volver a borrar. Se compara contra el TARGET pendiente: una
+    /// migración futura (v19+) no casa con la marca vieja y borra de cero, como debe.
+    /// (Nació el 2026-07-10: un reescaneo de 6+ horas interrumpido volvía a empezar de cero.)
+    pub fn logi_reparse_reset_done(&self) -> bool {
+        let target = self.meta_get("logi_reparse_pending").unwrap_or_default();
+        if target.is_empty() || target == "0" {
+            return false;
+        }
+        self.meta_get("logi_reparse_reset_done").unwrap_or_default() == target
+    }
+
+    /// Deja constancia de que el borrado inicial del reprocesado ya se hizo para el target
+    /// pendiente. Se escribe JUSTO después de `logi_reset_for_reparse`, antes de escanear.
+    pub fn logi_mark_reparse_reset(&self) -> AppResult<()> {
+        let target = self.meta_get("logi_reparse_pending").unwrap_or_default();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('logi_reparse_reset_done', ?1) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![target],
         )?;
         Ok(())
     }

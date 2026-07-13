@@ -221,6 +221,29 @@ const EN: Record<string, string> = {
     "Extract the textures from your EVE install to see your decorations drawn.",
   "FC no respalda esta app ni es responsable de ella.":
     "FC has not endorsed and is not responsible for this app.",
+  // --- PvP del gamelog (#45, v0.25.0) ---
+  "Cara a cara (gamelog)": "Face to face (gamelog)",
+  "Naves y drones": "Ships & drones",
+  // "Estructuras", "Tipo", "Fallos" y "Daño recibido" ya existen arriba: no duplicar (TS1117).
+  "Daño real contra jugadores, con y sin killmail — del log de combate, desde 2019. Daño y fallos, no muertes.":
+    "Real damage against players, with and without a killmail — from the combat log, since 2019. Damage and misses, not kills.",
+  "Sin datos todavía: reescanea tus gamelogs en ⚙️ Ajustes → Logs de EVE para poblar esta tabla.":
+    "No data yet: rescan your gamelogs in ⚙️ Settings → EVE logs to fill this table.",
+  Piloto: "Pilot",
+  Estructura: "Structure",
+  "Daño dado": "Damage dealt",
+  Golpes: "Hits",
+  "Te falló": "Missed you",
+  "Última vez": "Last seen",
+  "Daño que le hiciste": "Damage you dealt them",
+  "Golpes · de ellos wrecking": "Hits · of them wrecking",
+  "Tus disparos que no acertaron": "Your shots that missed",
+  "Daño que te hizo": "Damage they dealt you",
+  "Sus disparos que no te acertaron": "Their shots that missed you",
+  y: "and",
+  "rivales más (ordenado por daño cruzado)": "more rivals (sorted by crossed damage)",
+  "Daño PvP (gamelog)": "PvP damage (gamelog)",
+  // "Daño" ya existe más abajo (con comillas — el grep anti-duplicados debe ignorarlas).
   Escaneado: "Scanned",
   ficheros: "files",
   "Pendiente de escanear": "Not scanned yet",

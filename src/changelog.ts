@@ -6,6 +6,24 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.25.0",
+    date: "2026-07-11",
+    es: [
+      "⚔️ Cara a cara: tu PvP del log de combate, desde 2019 — daño real dado y recibido contra cada piloto, dron y estructura, incluidas las peleas SIN killmail que zKill no tiene. Con quién, cuánto y cuándo.",
+      "📈 La gráfica de Actividad PvP gana la magnitud «Daño PvP (gamelog)»: daño semanal dado/recibido y tus 5 mayores rivales del rango, con su propio eje.",
+      "🚨 Intel en vivo: arreglado el silencio a los pocos minutos de sesión — Windows congela la fecha del log mientras EVE escribe y Koru lo daba por viejo. Ya puedes usar la recencia corta que quieras.",
+      "♻️ El reescaneo de gamelogs es reanudable: si se cierra la app a mitad, el siguiente escaneo continúa donde iba en vez de empezar de cero.",
+      "🐛 Tres venenos históricos fuera: golpes a estructuras registrados como ratas fantasma (sistemas como «M2-XFE»), fallos enemigos contados como tuyos, y la fila duplicada con asterisco en Bonificaciones de mando.",
+    ],
+    en: [
+      "⚔️ Face to face: your PvP from the combat log, since 2019 — real damage dealt and taken against every pilot, drone and structure, including fights WITHOUT a killmail that zKill never saw. Who, how much, and when.",
+      "📈 The PvP Activity chart gains a “PvP damage (gamelog)” magnitude: weekly damage dealt/taken plus your top-5 rivals in range, on its own axis.",
+      "🚨 Live intel: fixed going silent minutes into a session — Windows freezes the log's timestamp while EVE writes and Koru deemed it stale. Use whatever short recency you like.",
+      "♻️ Gamelog rescans are resumable: if the app closes mid-scan, the next scan continues where it left off instead of starting over.",
+      "🐛 Three historical poisons removed: structure hits recorded as ghost rats (systems like “M2-XFE”), enemy misses counted as yours, and the starred duplicate row in Command bursts.",
+    ],
+  },
+  {
     version: "0.24.1",
     date: "2026-07-10",
     es: [

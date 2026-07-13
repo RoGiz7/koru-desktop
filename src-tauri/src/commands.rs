@@ -1374,6 +1374,63 @@ pub async fn get_gamelog_weapons(
         .collect())
 }
 
+/// PvP del gamelog (#45): cara a cara contra entidades de JUGADOR — naves, drones y estructuras —
+/// incluyendo las peleas sin killmail que zKill no tiene. La misma honestidad que las armas: esto
+/// es DAÑO y fallos, no muertes; y tu propia nave el gamelog no la dice.
+#[derive(serde::Serialize)]
+pub struct GamelogPvpRow {
+    pub done: bool,   // true = tú a ellos · false = ellos a ti
+    pub kind: i64,    // 1 nave · 2 dron/fighter · 3 estructura
+    pub pilot: String,
+    pub ticker: String,
+    pub ship: String, // '' si al piloto solo se le vio fallar
+    pub dmg: i64,
+    pub shots: i64,
+    pub wrecks: i64,
+    pub misses: i64,
+    pub first: String,
+    pub last: String,
+}
+#[tauri::command]
+pub async fn get_gamelog_pvp(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<GamelogPvpRow>> {
+    Ok(state
+        .db
+        .gamelog_pvp_rows(subject_id)?
+        .into_iter()
+        .map(|(done, kind, pilot, ticker, ship, dmg, shots, wrecks, misses, first, last)| {
+            GamelogPvpRow { done, kind, pilot, ticker, ship, dmg, shots, wrecks, misses, first, last }
+        })
+        .collect())
+}
+
+/// Punto diario de la serie PvP del gamelog (solo naves/drones) para la gráfica unificada:
+/// daño por día, dirección y piloto. El frontend agrupa por semana y rankea rivales en el rango.
+#[derive(serde::Serialize)]
+pub struct GamelogPvpDay {
+    pub date: String,
+    pub done: bool,
+    pub pilot: String,
+    /// Tipo de nave/dron: el frontend descarta deployables (CRAB, POS…) con la misma regla
+    /// por tipo que usa la tabla cara a cara.
+    pub ship: String,
+    pub dmg: i64,
+}
+#[tauri::command]
+pub async fn get_gamelog_pvp_series(
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<GamelogPvpDay>> {
+    Ok(state
+        .db
+        .gamelog_pvp_series_rows(subject_id)?
+        .into_iter()
+        .map(|(date, done, pilot, ship, dmg)| GamelogPvpDay { date, done, pilot, ship, dmg })
+        .collect())
+}
+
 /// Reparto de la CALIDAD del golpe (1..6, de Roza/Grazes a Destruye/Wrecks) por día y dirección.
 /// La escala unificó ES y EN por daño medio relativo al arma, no por traducción. Del gamelog.
 #[derive(serde::Serialize)]
@@ -4331,10 +4388,23 @@ pub async fn scan_gamelogs(
     // marca queda pendiente para el próximo escaneo con logs disponibles.
     let do_reparse = state.db.logi_reparse_pending() && !files.is_empty();
     if do_reparse {
-        state
-            .db
-            .logi_reset_for_reparse()
-            .map_err(|e| AppError::Other(format!("Preparando reprocesado: {e}")))?;
+        if state.db.logi_reparse_reset_done() {
+            // REANUDACIÓN: el borrado de ESTA migración ya se hizo en un escaneo que se quedó a
+            // medias (cierre de la app, corte…). `gamelog_parsed` conserva los ficheros ya
+            // completados → seguimos incremental desde donde se quedó, sin tirar horas de I/O.
+        } else {
+            state
+                .db
+                .logi_reset_for_reparse()
+                .map_err(|e| AppError::Other(format!("Preparando reprocesado: {e}")))?;
+            // La marca va ANTES de escanear: si este escaneo también se interrumpe, el próximo
+            // ya no vuelve a borrar. El banner de "reescaneo pendiente" sigue visible hasta
+            // completar de verdad (logi_mark_reparsed limpia ambas claves al final).
+            state
+                .db
+                .logi_mark_reparse_reset()
+                .map_err(|e| AppError::Other(format!("Marcando borrado inicial: {e}")))?;
+        }
     }
     // El progreso por NÚMERO de fichero miente: un gamelog de 4 KB y otro de 300 MB cuentan igual, y
     // la estimación de tiempo se dispara al topar con los grandes. Emitimos también BYTES, que es
@@ -4604,6 +4674,32 @@ pub fn read_intel(
     collect_intel_lines(&folder, &channels, since_minutes)
 }
 
+/// Fecha de sesión sacada del NOMBRE de un log de chat (`Canal_YYYYMMDD_HHMMSS_charid.txt`).
+///
+/// Es el respaldo del mtime, y hace falta por un mal de Windows CONFIRMADO EN VIVO (2026-07-10):
+/// el mtime que enseña el DIRECTORIO se congela mientras EVE mantiene el fichero abierto. Como la
+/// poda decide qué ficheros se abren siquiera, un fichero "viejo" a ojos del directorio no vuelve
+/// a abrirse jamás → el intel enmudecía a los `recencia+10` minutos de sesión. (El código antiguo
+/// no lo sufría de rebote: abría TODOS los ficheros en cada tick y ese acceso refrescaba los
+/// metadatos.) La fecha del nombre = inicio de sesión: una sesión abierta sigue siendo candidata
+/// aunque el directorio no refresque; el tamaño real ya se pide al HANDLE en `intel_tail`.
+fn intel_fname_session(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let stem = name.strip_suffix(".txt")?;
+    let parts: Vec<&str> = stem.split('_').collect();
+    // Moderno: ..._YYYYMMDD_HHMMSS_charid · viejo: ..._YYYYMMDD_HHMMSS. Probar ambas posiciones.
+    for (d, t) in [
+        (parts.len().checked_sub(3)?, parts.len() - 2),
+        (parts.len() - 2, parts.len() - 1),
+    ] {
+        let (ds, ts) = (parts.get(d)?, parts.get(t)?);
+        if ds.len() == 8 && ts.len() == 6 && ds.bytes().all(|b| b.is_ascii_digit()) && ts.bytes().all(|b| b.is_ascii_digit()) {
+            let ndt = chrono::NaiveDateTime::parse_from_str(&format!("{ds}{ts}"), "%Y%m%d%H%M%S").ok()?;
+            return Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc));
+        }
+    }
+    None
+}
+
 /// Núcleo de lectura/parseo/dedup de intel (lo usan el comando `read_intel` y el hilo vigilante).
 fn collect_intel_lines(
     folder: &str,
@@ -4643,20 +4739,28 @@ fn collect_intel_lines(
             Err(_) => continue,
         };
         let modt = md.modified().ok();
-        // Saltar ficheros claramente viejos (mtime muy anterior al cutoff).
-        if let Some(mt) = modt {
-            let mdt: chrono::DateTime<chrono::Utc> = mt.into();
-            if mdt < skip_before {
+        // Poda de ficheros viejos por lo MÁS RECIENTE entre el mtime visible y la fecha de sesión
+        // del NOMBRE. Solo con el mtime, Windows nos mentía: se congela mientras EVE escribe (ver
+        // `intel_fname_session`) y el log VIVO acababa podado a los `recencia+10` min de sesión.
+        let mdt: Option<chrono::DateTime<chrono::Utc>> = modt.map(Into::into);
+        let fdt = intel_fname_session(&name);
+        let eff = match (mdt, fdt) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+        if let Some(d) = eff {
+            if d < skip_before {
                 continue;
             }
         }
-        let mtime_ns = modt
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos())
+        // Fichero vivo del canal = el de sesión más reciente. También aquí manda el efectivo:
+        // con los mtime congelados en el arranque de cada sesión, el nombre ordena mejor.
+        let eff_ns = eff
+            .map(|d| d.timestamp_millis().max(0) as u128 * 1_000_000)
             .unwrap_or(0);
         let entry = live.entry(ch).or_insert((0, 0, e.path()));
-        if mtime_ns >= entry.0 {
-            *entry = (mtime_ns, md.len(), e.path());
+        if eff_ns >= entry.0 {
+            *entry = (eff_ns, md.len(), e.path());
         }
     }
 

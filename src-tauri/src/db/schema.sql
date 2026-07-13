@@ -388,6 +388,29 @@ CREATE TABLE IF NOT EXISTS gamelog_quality (
     PRIMARY KEY (character_id, date, quality)
 );
 
+-- PvP del gamelog (#45): daño/golpes/fallos contra ENTIDADES DE JUGADOR, cara a cara y por arma.
+-- Cubre las peleas SIN killmail (zKill no las tiene). La firma `Nombre[TICKER](Nave)` separa
+-- jugadores de ratas; kind: 1 nave · 2 dron/fighter (nombre == tipo) · 3 estructura (el nombre
+-- lleva "SISTEMA - " delante). El gamelog NO dice tu propia nave (se cruza con killmails si hace
+-- falta). LOG-ONLY. Fallos dados: solo si el nombre se vio como jugador en los GOLPES de la misma
+-- sesión (el fallo va sin firma; no se adivina contra catálogo). Fallos recibidos: el atacante
+-- jugador firma su arma en la línea; las ratas no.
+CREATE TABLE IF NOT EXISTS gamelog_pvp (
+    character_id INTEGER NOT NULL,
+    date         TEXT NOT NULL,
+    done         INTEGER NOT NULL,             -- 1 = tú a ellos · 0 = ellos a ti
+    kind         INTEGER NOT NULL,             -- 1 nave · 2 dron/fighter · 3 estructura
+    pilot        TEXT NOT NULL,                -- piloto (o "SISTEMA - nombre" si estructura)
+    ticker       TEXT NOT NULL,                -- corp del otro
+    ship         TEXT NOT NULL,                -- nave/tipo del otro ('' si solo se le vio fallar)
+    weapon       TEXT NOT NULL DEFAULT '',     -- tu arma si done, la suya si no ('' si no consta)
+    dmg          INTEGER NOT NULL DEFAULT 0,
+    shots        INTEGER NOT NULL DEFAULT 0,
+    wrecks       INTEGER NOT NULL DEFAULT 0,   -- golpes "Destruye"/Wrecks
+    misses       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (character_id, date, done, kind, pilot, ticker, ship, weapon)
+);
+
 -- Fase D — lo mismo que gamelog_bounty/mining/combat pero ATRIBUIDO AL SISTEMA, cruzando la hora del
 -- evento con la línea temporal del canal Local (ver `chatlog.rs`). Son tablas APARTE a propósito:
 -- añadir `system` a la clave primaria de las existentes obligaría a recrearlas y migrar. Solo se

@@ -392,6 +392,24 @@ export type SpecialRatsResult = {
 };
 /** Daño, disparos y fallos por arma/dron y día. Del gamelog: es daño, NUNCA muertes. */
 export type WeaponDay = { date: string; weapon: string; dmg: number; shots: number; misses: number };
+/** PvP del gamelog (#45): cara a cara con entidades de jugador (kind: 1 nave · 2 dron · 3
+ *  estructura). done=true tú a ellos. Daño y fallos, no muertes; ship='' si solo se le vio fallar. */
+export type GamelogPvpRow = {
+  done: boolean;
+  kind: number;
+  pilot: string;
+  ticker: string;
+  ship: string;
+  dmg: number;
+  shots: number;
+  wrecks: number;
+  misses: number;
+  first: string;
+  last: string;
+};
+/** Punto diario de la serie PvP del gamelog (solo naves/drones, solo daño real):
+ *  daño por día/dirección/piloto. `ship` viaja para filtrar deployables por tipo en la vista. */
+export type GamelogPvpDay = { date: string; done: boolean; pilot: string; ship: string; dmg: number };
 /** Calidad del golpe (1 Roza … 6 Destruye) por día y dirección. Del gamelog. */
 export type QualityDay = { date: string; quality: number; done: number; taken: number };
 /** Salvage por día: restos recuperados e intentos fallidos. Del gamelog. */
