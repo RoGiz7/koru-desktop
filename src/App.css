@@ -5563,3 +5563,58 @@ h4 {
   flex-wrap: wrap;
   padding-left: 0.4rem;
 }
+
+/* --- R1b: planificador inverso --- */
+.pi-planner {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #333);
+}
+.pi-planner h3 {
+  margin: 0 0 0.2rem;
+}
+.pi-select {
+  background: var(--bg-control, #2f2f2f);
+  color: var(--fg, #e8e8e8);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  min-width: 18rem;
+  max-width: 100%;
+}
+.pi-plan {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.pi-p0-table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 40rem;
+}
+.pi-p0-table th,
+.pi-p0-table td {
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border, #333);
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+.pi-p0-table th {
+  color: var(--fg-muted, #888);
+  font-weight: 600;
+}
+.pi-p0-table td:nth-child(4) {
+  text-align: center;
+  font-weight: 700;
+}
+.pi-p0-table tr.pi-ok td:nth-child(4) {
+  color: #3fb950;
+}
+.pi-p0-table tr.pi-warn td:nth-child(4) {
+  color: #d29922;
+}
+.pi-p0-table tr.pi-dead td:nth-child(4) {
+  color: #e5534b;
+}

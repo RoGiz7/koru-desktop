@@ -262,6 +262,22 @@ const EN: Record<string, string> = {
     "Capacity = what your schematics can produce at full cycle, valued at average market price. Real output depends on inputs actually arriving (that lands in the next phase).",
   "* Algún producto sin precio de mercado aún: sincroniza y vuelve.":
     "* Some product has no market price yet: sync and come back.",
+  // --- Planetología R1b (planificador inverso) ---
+  "Planificador inverso": "Reverse planner",
+  "Elige qué quieres fabricar: te digo qué P0 hacen falta, de qué tipos de planeta salen, y qué te falta según tus colonias.":
+    "Pick what you want to make: I'll tell you which P0 it needs, which planet types produce them, and what you're missing based on your colonies.",
+  "— Elige un producto PI —": "— Pick a PI product —",
+  Receta: "Recipe",
+  "P0 necesario": "P0 needed",
+  "por ciclo": "per cycle",
+  "Tipos de planeta": "Planet types",
+  Tú: "You",
+  "✓ ya lo extraes · ◐ tienes el planeta pero no ese extractor · ✗ te falta el tipo de planeta":
+    "✓ you already extract it · ◐ you have the planet but not that extractor · ✗ you're missing the planet type",
+  "Cantidades por un ciclo del objetivo (ratios teóricos del árbol, no de tu producción real).":
+    "Amounts for one cycle of the target (theoretical tree ratios, not your real output).",
+  "Ya extraes todos los P0 que necesita.": "You already extract every P0 it needs.",
+  "Te faltan P0 por extraer:": "P0 you still need to extract:",
   // Tipos de planeta (ESI planet_type, en minúsculas)
   barren: "barren",
   gas: "gas",

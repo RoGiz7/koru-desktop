@@ -40,6 +40,70 @@ function fmtHours(h: number): string {
   return `${Math.floor(h / 24)}d ${Math.floor(h % 24)}h`;
 }
 
+// --- R1b: planificador inverso (¿qué necesito para fabricar T?) ---
+// Datos: pi_schematics.json (árbol de insumos) + pi_p0_planets.json (P0 → tipos de planeta,
+// verificado contra EVE University). El árbol resuelve SIEMPRE a P0 (grafo comprobado sin huecos).
+
+/** public/pi_p0_planets.json: P0 (materia prima) ↔ tipos de planeta que la producen. */
+type P0Planets = {
+  p0: Record<string, { en: string; planets: string[] }>;
+  planets: Record<string, { en: string; p0: number[] }>;
+};
+
+type SchemRec = Record<string, PiSchematic>;
+
+/** Índice output typeID → id de esquema (cada producto lo fabrica un único esquema). */
+function buildOutIndex(s: SchemRec): Map<number, string> {
+  const m = new Map<number, string>();
+  for (const [sid, v] of Object.entries(s)) m.set(v.out[0], sid);
+  return m;
+}
+
+/** Tier de un producto: P0 = 0; esquema = 1 + max(tier de sus insumos). Memoizado. */
+function tierOf(
+  tid: number,
+  s: SchemRec,
+  out: Map<number, string>,
+  p0: Set<number>,
+  memo: Map<number, number>,
+): number {
+  if (p0.has(tid)) return 0;
+  const c = memo.get(tid);
+  if (c != null) return c;
+  const sid = out.get(tid);
+  if (sid == null) return 0;
+  let t = 0;
+  for (const [itid] of s[sid].in) t = Math.max(t, tierOf(itid, s, out, p0, memo));
+  const r = t + 1;
+  memo.set(tid, r);
+  return r;
+}
+
+/** Huella de P0 para un ciclo del objetivo: suma por ratios el árbol hasta las materias primas. */
+function p0Footprint(
+  targetTid: number,
+  s: SchemRec,
+  out: Map<number, string>,
+  p0: Set<number>,
+): Map<number, number> {
+  const acc = new Map<number, number>();
+  const need = (tid: number, qty: number) => {
+    if (p0.has(tid)) {
+      acc.set(tid, (acc.get(tid) ?? 0) + qty);
+      return;
+    }
+    const sid = out.get(tid);
+    if (sid == null) return; // no debería: el grafo resuelve todo a P0
+    const sch = s[sid];
+    const cycles = qty / sch.out[1];
+    for (const [itid, iq] of sch.in) need(itid, iq * cycles);
+  };
+  const sid = out.get(targetTid);
+  if (sid == null) return acc;
+  need(targetTid, s[sid].out[1]);
+  return acc;
+}
+
 type ColonyCalc = {
   key: string;
   planet: Planet;
@@ -66,8 +130,11 @@ export function PlanetologiaView({
   const [prices, setPrices] = useState<Map<number, number>>(new Map());
   const [open, setOpen] = useState<string | null>(null);
 
+  const [p0table, setP0table] = useState<P0Planets | null>(null);
+
   useEffect(() => {
     fetch("/pi_schematics.json").then((r) => r.json()).then(setSchematics).catch(() => setSchematics({}));
+    fetch("/pi_p0_planets.json").then((r) => r.json()).then(setP0table).catch(() => setP0table(null));
   }, []);
 
   // Detalle de cada colonia (≤6 por personaje; get_cached con ETag → refresco barato).
@@ -179,6 +246,20 @@ export function PlanetologiaView({
     });
   }, [planets, details, schematics, prices]);
 
+  // Lo que TÚ tienes hoy: tipos de planeta, P0 que extraes, productos que fabricas.
+  // Alimenta el diff del planificador inverso ("te falta X").
+  const mine = useMemo(() => {
+    const planetTypes = new Set<string>();
+    const p0 = new Set<number>();
+    const outputs = new Set<number>();
+    for (const c of colonies) {
+      if (c.planet.planet_type) planetTypes.add(c.planet.planet_type);
+      for (const e of c.extraction) if (e.tid > 0) p0.add(e.tid);
+      for (const f of c.factories) outputs.add(f.tid);
+    }
+    return { planetTypes, p0, outputs };
+  }, [colonies]);
+
   if (!planets) return <p className="muted">{busy ? tr("Cargando colonias…") : tr("Sin datos.")}</p>;
   if (planets.length === 0)
     return <p className="muted small">{tr("No tienes colonias de Planetary Interaction.")}</p>;
@@ -285,7 +366,138 @@ export function PlanetologiaView({
           );
         })}
       </div>
+
+      <InversePlanner schematics={schematics} p0table={p0table} mine={mine} />
     </>
+  );
+}
+
+/** Planificador inverso: elige un producto PI y te dice qué P0 hacen falta, de qué tipos de
+ *  planeta salen, y qué te falta según tus colonias actuales. R1b (SPEC §1.4 / §2). */
+function InversePlanner({
+  schematics,
+  p0table,
+  mine,
+}: {
+  schematics: Record<string, PiSchematic>;
+  p0table: P0Planets | null;
+  mine: { planetTypes: Set<string>; p0: Set<number>; outputs: Set<number> };
+}) {
+  const [target, setTarget] = useState<string>("");
+  const outIndex = useMemo(() => buildOutIndex(schematics), [schematics]);
+  const p0set = useMemo(
+    () => new Set<number>(p0table ? Object.keys(p0table.p0).map(Number) : []),
+    [p0table],
+  );
+
+  // Opciones del selector: todos los productos P1–P4, ordenados por tier y nombre.
+  const options = useMemo(() => {
+    const memo = new Map<number, number>();
+    const list = Object.entries(schematics).map(([sid, v]) => ({
+      sid,
+      name: getLang() === "es" ? v.n.es : v.n.en,
+      tier: tierOf(v.out[0], schematics, outIndex, p0set, memo),
+    }));
+    list.sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
+    return list;
+  }, [schematics, outIndex, p0set]);
+
+  const plan = useMemo(() => {
+    if (!target || !p0table) return null;
+    const sch = schematics[target];
+    if (!sch) return null;
+    const foot = p0Footprint(sch.out[0], schematics, outIndex, p0set);
+    const rows = [...foot.entries()]
+      .map(([tid, qty]) => {
+        const info = p0table.p0[String(tid)];
+        const planets = info ? info.planets : [];
+        return {
+          tid,
+          qty,
+          name: info?.en ?? `#${tid}`,
+          planets,
+          haveP0: mine.p0.has(tid),
+          havePlanet: planets.some((pk) => mine.planetTypes.has(pk)),
+        };
+      })
+      .sort((a, b) => b.qty - a.qty);
+    const neededPlanets = new Set<string>();
+    for (const r of rows) for (const pk of r.planets) neededPlanets.add(pk);
+    const missing = rows.filter((r) => !r.haveP0).length;
+    return { sch, rows, neededPlanets, missing };
+  }, [target, schematics, outIndex, p0set, p0table, mine]);
+
+  if (Object.keys(schematics).length === 0 || !p0table) return null;
+
+  return (
+    <div className="pi-planner">
+      <h3>{tr("Planificador inverso")}</h3>
+      <p className="muted small">
+        {tr("Elige qué quieres fabricar: te digo qué P0 hacen falta, de qué tipos de planeta salen, y qué te falta según tus colonias.")}
+      </p>
+      <select
+        className="pi-select"
+        value={target}
+        onChange={(e) => setTarget(e.target.value)}
+      >
+        <option value="">{tr("— Elige un producto PI —")}</option>
+        {options.map((o) => (
+          <option key={o.sid} value={o.sid}>
+            {`P${o.tier} · ${o.name}`}
+          </option>
+        ))}
+      </select>
+
+      {plan && (
+        <div className="pi-plan">
+          <div className="pi-row small">
+            <strong>{tr("Receta")}:</strong>
+            {plan.sch.in.map(([itid, iq]) => (
+              <span key={itid} className="pi-prod">
+                <img src={typeIcon(itid, 32) ?? undefined} alt="" width={18} height={18} />
+                {fmtSp(iq)}
+              </span>
+            ))}
+            <span className="muted">
+              → {fmtSp(plan.sch.out[1])}/{Math.round(plan.sch.t / 60)}min
+            </span>
+          </div>
+
+          <table className="pi-p0-table small">
+            <thead>
+              <tr>
+                <th>{tr("P0 necesario")}</th>
+                <th>{tr("por ciclo")}</th>
+                <th>{tr("Tipos de planeta")}</th>
+                <th title={tr("✓ ya lo extraes · ◐ tienes el planeta pero no ese extractor · ✗ te falta el tipo de planeta")}>
+                  {tr("Tú")}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {plan.rows.map((r) => (
+                <tr key={r.tid} className={r.haveP0 ? "pi-ok" : r.havePlanet ? "pi-warn" : "pi-dead"}>
+                  <td>
+                    <img src={typeIcon(r.tid, 32) ?? undefined} alt="" width={16} height={16} />{" "}
+                    {tr(r.name)}
+                  </td>
+                  <td>{fmtSp(Math.round(r.qty))}</td>
+                  <td className="muted">{r.planets.map((pk) => tr(pk)).join(", ")}</td>
+                  <td>{r.haveP0 ? "✓" : r.havePlanet ? "◐" : "✗"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <p className="muted small">
+            {tr("Cantidades por un ciclo del objetivo (ratios teóricos del árbol, no de tu producción real).")}{" "}
+            {plan.missing === 0
+              ? tr("Ya extraes todos los P0 que necesita.")
+              : `${tr("Te faltan P0 por extraer:")} ${plan.missing}.`}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
