@@ -55,8 +55,19 @@ export function useIntel({
   const [anchorInput, setAnchorInput] = useState("");
   const [intelAlert, setIntelAlert] = useState<{
     text: string;
+    /// Reportes ADICIONALES llegados con el banner visible (el "+N más" del texto).
+    extra: number;
+    /// Saltos del titular vigente: el más CERCANO manda; el resto solo engorda el +N.
+    jumps: number;
     report: { sysId: number; sysName: string; ts: number; author: string; message: string };
   } | null>(null);
+  // Espejo del banner para leerlo dentro del listener sin side-effects en el updater (y para
+  // que un cierre manual desde el mapa (setIntelAlert(null)) también resetee el contador).
+  const intelAlertRef = useRef<typeof intelAlert>(null);
+  useEffect(() => {
+    intelAlertRef.current = intelAlert;
+  }, [intelAlert]);
+  const intelAlertTimer = useRef<number | null>(null);
 
   // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
   const intelDetailCount = useMemo(() => {
@@ -177,6 +188,12 @@ export function useIntel({
 
   // Escuchar las alertas que emite el hilo de Rust → banner + sonido (la notificación nativa
   // ya la lanza Rust, así que aquí NO la repetimos).
+  //
+  // "+N más": si llegan varios reportes con el banner visible, NO se pisan — el titular es el
+  // más CERCANO en saltos (una alerta a 2 saltos no la tapa ruido a 9) y el resto se cuenta.
+  // El timer se RENUEVA con cada reporte (antes, el timer del primero cerraba antes de tiempo
+  // los banners que lo sustituían). El contador se resetea al cerrar el banner (timeout, clr o
+  // clic), porque el espejo intelAlertRef sigue al estado.
   useEffect(() => {
     const un = listen<{
       sys_id: number;
@@ -187,18 +204,30 @@ export function useIntel({
       ts_ms: number;
     }>("intel-alert", (e) => {
       const a = e.payload;
-      const text = `⚠ ${tr("Intel a")} ${a.jumps} ${tr("salto(s)")}: ${a.system} — ${a.author}`;
-      setIntelAlert({
-        text,
-        report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
-      });
+      const prev = intelAlertRef.current;
+      const extra = prev ? prev.extra + 1 : 0;
+      const lead =
+        !prev || a.jumps <= prev.jumps
+          ? {
+              jumps: a.jumps,
+              report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
+            }
+          : { jumps: prev.jumps, report: prev.report };
+      const text =
+        `⚠ ${tr("Intel a")} ${lead.jumps} ${tr("salto(s)")}: ${lead.report.sysName} — ${lead.report.author}` +
+        (extra > 0 ? ` · +${extra} ${tr("más")}` : "");
+      const next = { text, extra, jumps: lead.jumps, report: lead.report };
+      intelAlertRef.current = next;
+      setIntelAlert(next);
       intel?.onIntelAlert?.(text); // toast global (visible en cualquier sección)
       if (intel?.sound) playAlertChoice(intel.soundChoice);
-      window.setTimeout(() => setIntelAlert(null), 12000);
+      if (intelAlertTimer.current) window.clearTimeout(intelAlertTimer.current);
+      intelAlertTimer.current = window.setTimeout(() => setIntelAlert(null), 12000);
     });
     return () => {
       un.then((f) => f());
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intel?.sound, intel?.soundChoice]);
 
   // Cargar el sonido personalizado cuando se elige/ cambia el archivo.

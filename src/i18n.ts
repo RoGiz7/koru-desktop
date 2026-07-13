@@ -243,6 +243,14 @@ const EN: Record<string, string> = {
   y: "and",
   "rivales más (ordenado por daño cruzado)": "more rivals (sorted by crossed damage)",
   "Daño PvP (gamelog)": "PvP damage (gamelog)",
+  // --- Cazador: fichar por nombre (Fase 3.5, 0.26.0) ---
+  "Nadie con ese nombre entre tus aprendidos.": "Nobody by that name among your learned hostiles.",
+  "Fichar por nombre (ESI)": "File by name (ESI)",
+  "ESI no conoce ese nombre. Tiene que ser exacto (las mayúsculas dan igual).":
+    "ESI doesn't know that name. It must be exact (case doesn't matter).",
+  "No se pudo consultar ESI. Inténtalo en un momento.": "Couldn't reach ESI. Try again in a moment.",
+  "Fichado. Aún sin avistamientos: en cuanto aparezca en tu intel, su rastro, sus horas y sus naves nacen aquí.":
+    "Filed. No sightings yet: as soon as they show up in your intel, their trail, hours and ships are born here.",
   // --- Retos de corporación (Bitácora, 0.26.0) ---
   "Retos de corporación": "Corporation challenges",
   "El objetivo lo pone tu corp; la aportación es tuya": "Your corp sets the goal; the contribution is yours",

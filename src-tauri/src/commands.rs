@@ -5267,7 +5267,17 @@ pub struct PilotProfile {
 #[tauri::command]
 pub fn get_pilot_profile(state: State<'_, AppState>, name: String) -> AppResult<PilotProfile> {
     let nl = name.trim().to_lowercase();
-    let (total, first_ms, last_ms, character_id) = state.db.pilot_stats(&nl);
+    let (total, first_ms, last_ms, mut character_id) = state.db.pilot_stats(&nl);
+    // Fichados por nombre (Fase 3.5) o aprendidos aún sin avistamientos: el id vive en
+    // name_cache aunque intel_sightings no tenga filas. Sin este respaldo, la ficha del
+    // recién fichado saldría sin retrato ni botón de zKill.
+    if character_id.is_none() {
+        character_id = state
+            .db
+            .name_cache_get(&nl)
+            .and_then(|(id, _, _)| id)
+            .filter(|&x| x > 0);
+    }
     let by_system = state
         .db
         .pilot_by_system(&nl, 12)
