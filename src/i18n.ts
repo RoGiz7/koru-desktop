@@ -244,6 +244,33 @@ const EN: Record<string, string> = {
   "rivales más (ordenado por daño cruzado)": "more rivals (sorted by crossed damage)",
   "Daño PvP (gamelog)": "PvP damage (gamelog)",
   "Título oficial equipado (Cradle of War)": "Equipped official title (Cradle of War)",
+  // --- Planetología R1a (dashboard de colonias) ---
+  parado: "stopped",
+  "sin programa": "no program",
+  nivel: "level",
+  pins: "pins",
+  rutas: "routes",
+  Capacidad: "Capacity",
+  "Peor extractor": "Worst extractor",
+  Extractores: "Extractors",
+  Fábricas: "Factories",
+  "Almacenes y launchpads": "Storage & launchpads",
+  "Extractores parados": "Stopped extractors",
+  "Caducan en <24h": "Expiring in <24h",
+  "Sin detalle (aún cargando o sin acceso).": "No detail yet (loading or no access).",
+  "Capacidad = lo que tus esquemas pueden producir a ciclo lleno, valorado a precio medio de mercado. La producción real depende de que los insumos lleguen (eso llega en la siguiente fase).":
+    "Capacity = what your schematics can produce at full cycle, valued at average market price. Real output depends on inputs actually arriving (that lands in the next phase).",
+  "* Algún producto sin precio de mercado aún: sincroniza y vuelve.":
+    "* Some product has no market price yet: sync and come back.",
+  // Tipos de planeta (ESI planet_type, en minúsculas)
+  barren: "barren",
+  gas: "gas",
+  ice: "ice",
+  lava: "lava",
+  oceanic: "oceanic",
+  plasma: "plasma",
+  storm: "storm",
+  temperate: "temperate",
   // --- Cazador: fichar por nombre (Fase 3.5, 0.26.0) ---
   "Nadie con ese nombre entre tus aprendidos.": "Nobody by that name among your learned hostiles.",
   "Fichar por nombre (ESI)": "File by name (ESI)",

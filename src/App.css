@@ -5504,3 +5504,62 @@ h4 {
 .intel-ship img {
   border-radius: 3px;
 }
+
+/* ---- Planetología R1a: dashboard de colonias (SPEC_PLANETOLOGIA.md §2) ---- */
+.pi-card {
+  background: var(--panel, #161b22);
+  border: 1px solid #2b3138;
+  border-left: 3px solid #2b3138;
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.pi-card.pi-ok { border-left-color: #3fb950; }
+.pi-card.pi-warn { border-left-color: #d29922; }
+.pi-card.pi-crit { border-left-color: #f0883e; }
+.pi-card.pi-dead { border-left-color: #e5534b; }
+.pi-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.pi-expiry { margin-left: auto; font-variant-numeric: tabular-nums; }
+.pi-expiry.pi-ok { color: #3fb950; }
+.pi-expiry.pi-warn { color: #d29922; }
+.pi-expiry.pi-crit { color: #f0883e; }
+.pi-expiry.pi-dead { color: #e5534b; font-weight: 700; }
+.pi-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.pi-prod {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.pi-prod img { border-radius: 3px; }
+.pi-dead-txt { color: #e5534b; }
+.pi-pins {
+  border-top: 1px solid #2b3138;
+  margin-top: 0.3rem;
+  padding-top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  cursor: default;
+}
+.pi-pin-group { display: flex; flex-direction: column; gap: 0.2rem; }
+.pi-pin {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  padding-left: 0.4rem;
+}

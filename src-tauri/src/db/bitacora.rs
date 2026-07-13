@@ -1936,6 +1936,17 @@ impl Db {
             .ok()
     }
 
+    /// Escribe (upsert) un valor en `meta`. Contraparte genérica de meta_get.
+    pub fn meta_set(&self, key: &str, value: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![key, value],
+        )?;
+        Ok(())
+    }
+
     /// ¿Hay un reprocesado de logi pendiente? (una migración de datos marcó que hay que releer el
     /// gamelog). El reprocesado real se hace en el próximo escaneo y solo si hay logs.
     pub fn logi_reparse_pending(&self) -> bool {

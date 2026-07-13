@@ -503,10 +503,46 @@ export type FinancialSummary = {
 export type Planet = {
   system_id: number;
   system_name: string | null;
+  /// Llave del detalle (/planets/{planet_id}/) y dueño: el dashboard PI es multi-personaje.
+  planet_id: number;
+  character_id: number;
   planet_type: string;
   upgrade_level: number;
   num_pins: number;
   last_update: string | null;
+};
+// ---- R1a Planetología: detalle de colonia (SPEC_PLANETOLOGIA.md) ----
+export type PlanetPinExtractor = {
+  product_type_id: number | null;
+  qty_per_cycle: number | null;
+  cycle_time: number | null;
+};
+export type PlanetPinContent = { type_id: number; amount: number };
+export type PlanetPin = {
+  pin_id: number;
+  type_id: number;
+  schematic_id: number | null;
+  /** Caducidad del programa del extractor: LA alarma de Planetología. */
+  expiry_time: string | null;
+  install_time: string | null;
+  last_cycle_start: string | null;
+  extractor: PlanetPinExtractor | null;
+  contents: PlanetPinContent[];
+};
+export type PlanetRoute = {
+  source_pin_id: number;
+  destination_pin_id: number;
+  content_type_id: number;
+  quantity: number;
+};
+export type PlanetDetail = { pins: PlanetPin[]; routes: PlanetRoute[] };
+/** Esquema PI del SDE (public/pi_schematics.json): ciclo, insumos, producto y pins válidos. */
+export type PiSchematic = {
+  n: { es: string; en: string };
+  t: number;
+  in: [number, number][];
+  out: [number, number];
+  pins: number[];
 };
 export type MarketOrder = {
   type_id: number;

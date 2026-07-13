@@ -58,10 +58,45 @@
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
    fix del parser de boosts (preferir el hint EN localizado).
-3. Horizonte: sistema del `Description` del CSV (cobrado-por-sistema 2023-09→), corp projects como
-   retos de la Bitácora, Fase 3.5 (cazar objetivo nuevo por nombre ESI), logros/títulos oficiales
-   públicos (ESI 2026, subir compat date), Ansiblex (sigue bloqueado), repo público + firma
-   (SignPath), menores (contador +N intel, `useAppData()`, deriva del QA.sql).
+3. Horizonte: Ansiblex (sigue bloqueado por FC) y el PILAR INDUSTRIAL (ver abajo). HECHOS y
+   fuera de esta lista: corp projects como retos (0.26.0), Fase 3.5 (0.26.0), títulos oficiales
+   (0.26.0), +N intel (0.26.0), sistema del CSV → al lote de reescaneo, **repo público + firma
+   SignPath (ya operativos)**.
+
+### 🏭 PILAR INDUSTRIAL — comercio · contratos · transporte · fabricación e invención
+Research y confrontación con la comunidad: `../documentacion/RESEARCH_INDUSTRIA.md` (2026-07-11).
+Ventaja estructural: lo que Ravworks/IPH piden pegado a mano (stock, skills, jobs, precios),
+Koru lo sabe EN VIVO y multi-personaje; y el transporte como coste (que nadie integra) tenemos
+mapa y rutas para hacerlo. Dependía a propósito de todo lo construido.
+
+**REFUERZOS previos (el pilar no arranca sin ellos):**
+- **R1 — Planetología de verdad** (el módulo más débil de la app: 43 líneas, tabla plana):
+  detalle por planeta con `/planets/{planet_id}/` (el scope manage_planets YA lo autoriza):
+  pins, extractores con **caducidad + alarma nativa** (patrón intel/bitácora), cadenas P0→P4
+  desde planetSchematics del SDE, valor/día por colonia a precios de mercado. Multi-personaje.
+- **R2 — Comercio: memoria de precios** ⚠️ CUANTO ANTES (la historia solo existe desde que se
+  empieza a guardar): recolector de snapshots diarios de precios (patrón paper_snapshots) +
+  backfill con `/markets/{region}/history/` (400 días) + `adjusted_price` al prices_map
+  (imprescindible para el coste de instalación de jobs). Gráfica temporal por ítem en Comercio.
+- **R3 — Pipeline SDE → public/**: script de extracción (estilo neweden/ores) de
+  blueprints.jsonl (3,5 MB) y planetSchematics a JSONs compactos: typeID → materiales/producto/
+  tiempos/skills por actividad (manufacturing/invention/copying) + esquemas PI. Offline puro.
+- **R4 — Scopes nuevos**: `esi-characters.read_blueprints.v1` (ME/TE reales de tus BPO/BPC) +
+  `esi-contracts.read_character_contracts.v1`, como grupo de login "Industria" (patrón
+  Conceder acceso). Un relogin por usuario, una vez.
+
+**FASES del pilar (tras los refuerzos; spec fina por fase antes de codificar):**
+- **F1 — Fabricación**: árbol BOM (SDE) + coste real (materiales a precio de hub + índice de
+  sistema de `/industry/systems/` + tax de instalación) + build-vs-buy POR NODO + "qué me falta"
+  contra Assets en vivo + config de instalaciones persistida (estilo Ravworks).
+- **F2 — Invención**: esperanza por decryptor con skills reales, coste POR ÉXITO, propiedades
+  del BPC resultante, encadenado al coste de F1.
+- **F3 — Jobs con economía**: cada job con coste/valor esperado/beneficio; al entregar, cruce
+  con wallet → beneficio REAL por línea de producción (EVE Tycoon, pero automático).
+- **F4 — Transporte**: coste de mover BOM/producto (ISK/salto configurable estilo Red Frog +
+  m³ + colateral) integrado en build-vs-buy. El hueco que nadie cubre.
+- **F5 — Contratos**: leer contratos del personaje, valorarlos (mini-Janice interno con
+  nuestros precios) y unirlos al P&L.
 
 ---
 

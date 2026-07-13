@@ -574,6 +574,14 @@ function App() {
       un.then((f) => f());
     };
   }, []);
+  // Planetología: alarma de extractores (auto_sync ya lanzó la notificación nativa; aquí el toast).
+  useEffect(() => {
+    const un = listen<string>("pi-alert", (e) => showGlobalAlert(`⛏️ PI: ${e.payload}`));
+    return () => {
+      un.then((f) => f());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Bitácora: logros nuevos detectados en auto_sync (Rust ya lanzó la notificación nativa).
   // Aquí sonamos la fanfarria y mostramos un toast con los nombres (el catálogo vive en TS).
   useEffect(() => {
@@ -1937,7 +1945,9 @@ function App() {
               view={tab === "comercio_pnl" ? "pnl" : tab === "comercio_watch" ? "watch" : "orders"}
             />
           )}
-          {tab === "planetologia" && <PlanetologiaView planets={planets} busy={sectionBusy} />}
+          {tab === "planetologia" && (
+            <PlanetologiaView planets={planets} busy={sectionBusy} syncTick={syncTick} />
+          )}
           {tab === "bitacora" && (
             <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} syncTick={syncTick} />
           )}

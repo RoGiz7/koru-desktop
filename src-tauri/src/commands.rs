@@ -231,6 +231,10 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
 
     let prices = state.db.prices_map().unwrap_or_default();
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // R1a Planetología: alarmas de extractores recolectadas durante el bucle de personajes
+    // (personaje, sistema_id, horas restantes; horas<=0 = caducado). Se notifican al final.
+    let mut pi_alerts: Vec<(String, i64, i64)> = Vec::new();
+    let mut pi_alert_keys: Vec<String> = Vec::new();
     for c in state.db.list_characters()? {
         let valid = match state
             .tokens
@@ -301,6 +305,64 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             }
         }
 
+        // ---- R1a Planetología: vigilancia de extractores (SPEC_PLANETOLOGIA.md §3) ----
+        // El dolor nº1 de PI es "se me paró el extractor y no me enteré". Con el ciclo normal
+        // de sync (get_cached + ETag: los 304 son gratis) revisamos la caducidad de cada
+        // extractor: <24h = aviso, <=0 = caducado. La clave incluye expiry: reinstalar el
+        // extractor cambia la fecha → clave nueva → volverá a avisar cuando toque.
+        if has("esi-planets.manage_planets.v1") {
+            let cid = c.character_id;
+            if let Ok(planets) = state
+                .esi
+                .get_cached::<Vec<PlanetRaw>>(
+                    &state.db,
+                    cid,
+                    &format!("/characters/{cid}/planets/"),
+                    Some(&valid.access_token),
+                )
+                .await
+            {
+                for p in &planets {
+                    if p.planet_id == 0 {
+                        continue;
+                    }
+                    let pid = p.planet_id;
+                    let Ok(detail) = state
+                        .esi
+                        .get_cached::<PlanetDetail>(
+                            &state.db,
+                            cid,
+                            &format!("/characters/{cid}/planets/{pid}/"),
+                            Some(&valid.access_token),
+                        )
+                        .await
+                    else {
+                        continue;
+                    };
+                    for pin in &detail.pins {
+                        let (Some(_ex), Some(expiry)) = (&pin.extractor, &pin.expiry_time) else {
+                            continue;
+                        };
+                        let Ok(exp) = chrono::DateTime::parse_from_rfc3339(expiry) else {
+                            continue;
+                        };
+                        let hours = (exp.with_timezone(&chrono::Utc) - chrono::Utc::now())
+                            .num_minutes() as f64
+                            / 60.0;
+                        let stage = if hours <= 0.0 {
+                            "dead"
+                        } else if hours <= 24.0 {
+                            "soon"
+                        } else {
+                            continue;
+                        };
+                        pi_alerts.push((c.name.clone(), p.solar_system_id, hours.ceil() as i64));
+                        pi_alert_keys.push(format!("{pid}:{}:{expiry}:{stage}", pin.pin_id));
+                    }
+                }
+            }
+        }
+
         // Snapshot de patrimonio del día: liquid (wallet) + valor estimado de assets.
         let mut liquid = 0.0;
         let mut asset_value = 0.0;
@@ -336,6 +398,68 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         {
             res.snapshots += 1;
         }
+    }
+
+    // ---- R1a Planetología: notificar extractores caducados/por caducar (con dedup persistente) ----
+    // meta "pi_alerted" = JSON {clave: expiry}. Solo se notifican claves NUEVAS; las claves cuya
+    // expiry quedó >7 días atrás se podan (el pin se reinstaló o la colonia murió hace tiempo).
+    if !pi_alert_keys.is_empty() {
+        let mut seen: std::collections::HashMap<String, String> = state
+            .db
+            .meta_get("pi_alerted")
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default();
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+        seen.retain(|k, _| {
+            k.split(':')
+                .nth(2)
+                .and_then(|e| chrono::DateTime::parse_from_rfc3339(e).ok())
+                .map(|e| e.with_timezone(&chrono::Utc) > cutoff)
+                .unwrap_or(false)
+        });
+        let mut fresh: Vec<(String, i64, i64)> = Vec::new();
+        for (alert, key) in pi_alerts.into_iter().zip(pi_alert_keys.iter()) {
+            if !seen.contains_key(key) {
+                let expiry = key.split(':').nth(2).unwrap_or_default().to_string();
+                seen.insert(key.clone(), expiry);
+                fresh.push(alert);
+            }
+        }
+        if !fresh.is_empty() {
+            // Nombres de sistema para el mensaje (resolve_names cachea; ids repetidos, gratis).
+            let sys_ids: Vec<i64> = fresh.iter().map(|(_, s, _)| *s).collect();
+            let names = state.esi.resolve_names(&sys_ids).await.unwrap_or_default();
+            let dead = fresh.iter().filter(|(_, _, h)| *h <= 0).count();
+            let head = fresh
+                .iter()
+                .map(|(who, sys, h)| {
+                    let s = names.get(sys).cloned().unwrap_or_else(|| format!("#{sys}"));
+                    if *h <= 0 {
+                        format!("{s} ({who}): parado")
+                    } else {
+                        format!("{s} ({who}): {h}h")
+                    }
+                })
+                .take(3)
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let extra = fresh.len().saturating_sub(3);
+            let cuerpo = format!(
+                "{head}{}",
+                if extra > 0 { format!(" · +{extra} más") } else { String::new() }
+            );
+            use tauri_plugin_notification::NotificationExt;
+            let titulo = if dead > 0 {
+                "⛏️ PI: extractores PARADOS"
+            } else {
+                "⛏️ PI: extractores a punto de caducar"
+            };
+            let _ = app.notification().builder().title(titulo).body(&cuerpo).show();
+            let _ = app.emit("pi-alert", &cuerpo);
+        }
+        let _ = state
+            .db
+            .meta_set("pi_alerted", &serde_json::to_string(&seen).unwrap_or_default());
     }
 
     // ---- Bitácora: avisar de logros NUEVOS del medallero global ----
@@ -383,6 +507,20 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
 #[tauri::command]
 pub async fn sync_market(state: State<'_, AppState>) -> AppResult<usize> {
     market::sync_prices(&state.esi, &state.db).await
+}
+
+/// Precios medios de mercado para una lista de typeIDs (del prices_map local, sin red).
+/// Lo usa Planetología para valorar producción; sirve para cualquier vista que necesite precios.
+#[tauri::command]
+pub fn get_type_prices(
+    ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<i64, f64>> {
+    let prices = state.db.prices_map().unwrap_or_default();
+    Ok(ids
+        .into_iter()
+        .filter_map(|id| prices.get(&id).map(|p| (id, *p)))
+        .collect())
 }
 
 /// Vista de patrimonio: valor actual (último snapshot) + serie histórica.
@@ -6343,6 +6481,9 @@ pub async fn scan_opportunities(
 struct PlanetRaw {
     #[serde(default)]
     solar_system_id: i64,
+    /// Id del planeta: la llave del DETALLE (/planets/{planet_id}/). Hasta R1a se tiraba.
+    #[serde(default)]
+    planet_id: i64,
     #[serde(default)]
     planet_type: String,
     #[serde(default)]
@@ -6358,13 +6499,20 @@ struct PlanetRaw {
 pub struct PlanetView {
     pub system_id: i64,
     pub system_name: Option<String>,
+    pub planet_id: i64,
+    /// Personaje dueño de la colonia (el dashboard es multi-personaje).
+    pub character_id: i64,
     pub planet_type: String,
     pub upgrade_level: i64,
     pub num_pins: i64,
     pub last_update: Option<String>,
 }
 
-async fn resolve_planets(esi: &EsiClient, rows: Vec<PlanetRaw>) -> AppResult<Vec<PlanetView>> {
+async fn resolve_planets(
+    esi: &EsiClient,
+    rows: Vec<PlanetRaw>,
+    character_id: i64,
+) -> AppResult<Vec<PlanetView>> {
     let mut ids: HashSet<i64> = HashSet::new();
     for p in &rows {
         if p.solar_system_id != 0 {
@@ -6380,6 +6528,8 @@ async fn resolve_planets(esi: &EsiClient, rows: Vec<PlanetRaw>) -> AppResult<Vec
         .map(|p| PlanetView {
             system_id: p.solar_system_id,
             system_name: names.get(&p.solar_system_id).cloned(),
+            planet_id: p.planet_id,
+            character_id,
             planet_type: p.planet_type,
             upgrade_level: p.upgrade_level,
             num_pins: p.num_pins,
@@ -6407,7 +6557,7 @@ pub async fn get_planets(character_id: i64, state: State<'_, AppState>) -> AppRe
             Some(&token),
         )
         .await?;
-    resolve_planets(&state.esi, rows).await
+    resolve_planets(&state.esi, rows, character_id).await
 }
 
 /// Colonias PI global (todos los personajes con el scope).
@@ -6437,12 +6587,107 @@ pub async fn get_planets_global(state: State<'_, AppState>) -> AppResult<Vec<Pla
             )
             .await
         {
-            if let Ok(mut v) = resolve_planets(&state.esi, rows).await {
+            if let Ok(mut v) = resolve_planets(&state.esi, rows, cid).await {
                 all.append(&mut v);
             }
         }
     }
     Ok(all)
+}
+
+// ---- R1a Planetología (SPEC_PLANETOLOGIA.md): detalle de colonia ----
+// Passthrough TIPADO de /characters/{id}/planets/{planet_id}/ — mismo scope que la lista
+// (manage_planets, ya concedido: sin relogin). Los pins traen la caducidad del extractor (la
+// alarma), el esquema de cada fábrica y el CONTENIDO de los almacenes; las rutas son el
+// cableado del flujo (para detectar fábricas hambrientas y pintar el diagrama, R1c).
+
+/// Detalle del extractor de un pin (heads fuera: no aportan a los cálculos y abultan).
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct PlanetPinExtractor {
+    #[serde(default)]
+    pub product_type_id: Option<i64>,
+    #[serde(default)]
+    pub qty_per_cycle: Option<i64>,
+    #[serde(default)]
+    pub cycle_time: Option<i64>,
+}
+
+/// Un ítem almacenado dentro de un pin (launchpad/almacén/fábrica).
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct PlanetPinContent {
+    pub type_id: i64,
+    #[serde(default)]
+    pub amount: i64,
+}
+
+/// Un pin de la colonia: extractor, fábrica, almacén, launchpad o centro de mando.
+/// La CLASE se decide en el frontend por el grupo del type_id (SDE), no por listas mágicas.
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct PlanetPin {
+    pub pin_id: i64,
+    pub type_id: i64,
+    #[serde(default)]
+    pub schematic_id: Option<i64>,
+    /// Caducidad del programa del extractor: LA alarma de Planetología.
+    #[serde(default)]
+    pub expiry_time: Option<String>,
+    #[serde(default)]
+    pub install_time: Option<String>,
+    #[serde(default)]
+    pub last_cycle_start: Option<String>,
+    // OJO: rename SOLO de lectura. Con `rename = "..."` a secas, serde también reemite
+    // `extractor_details` al serializar al frontend, que lee `.extractor` → el extractor no se
+    // pintaba (las fábricas sí, porque schematic_id no lleva rename). deserialize-only lo arregla:
+    // lee `extractor_details` de ESI y emite `extractor` para el TS.
+    #[serde(default, rename(deserialize = "extractor_details"))]
+    pub extractor: Option<PlanetPinExtractor>,
+    #[serde(default)]
+    pub contents: Vec<PlanetPinContent>,
+}
+
+/// Una ruta de material entre pins (cantidad por ciclo, float en ESI).
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct PlanetRoute {
+    pub source_pin_id: i64,
+    pub destination_pin_id: i64,
+    pub content_type_id: i64,
+    #[serde(default)]
+    pub quantity: f64,
+}
+
+/// Detalle completo de una colonia.
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct PlanetDetail {
+    #[serde(default)]
+    pub pins: Vec<PlanetPin>,
+    #[serde(default)]
+    pub routes: Vec<PlanetRoute>,
+}
+
+/// Detalle de una colonia PI (pins + rutas). Cacheado como el resto de ESI (ETag): ≤6 planetas
+/// por personaje, el ciclo normal de refresco no martillea nada.
+#[tauri::command]
+pub async fn get_planet_detail(
+    character_id: i64,
+    planet_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<PlanetDetail> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-planets.manage_planets.v1",
+        "Planetología",
+    )
+    .await?;
+    state
+        .esi
+        .get_cached(
+            &state.db,
+            character_id,
+            &format!("/characters/{character_id}/planets/{planet_id}/"),
+            Some(&token),
+        )
+        .await
 }
 
 /// Vista de un job de industria con nombres legibles.
