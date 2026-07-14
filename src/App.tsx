@@ -1981,7 +1981,7 @@ function App() {
             />
           )}
           {tab === "industria" && (
-            <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} />
+            <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} subject={subject} />
           )}
           {(tab === "comercio" || tab === "comercio_pnl" || tab === "comercio_watch") && (
             <ComercioView

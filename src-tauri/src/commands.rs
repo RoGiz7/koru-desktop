@@ -7233,6 +7233,99 @@ pub async fn get_industry_global(state: State<'_, AppState>) -> AppResult<Vec<Jo
     Ok(views)
 }
 
+/// Un blueprint tuyo con su nombre resuelto y sus ME/TE REALES (F1a).
+/// El PRODUCTO no se resuelve aquí: sale de `public/bp_industry.json` (SDE) en el frontend,
+/// que ya carga el resto del SDE. Aquí solo va lo que ESI sabe y el SDE no: tus ME/TE.
+#[derive(Debug, Serialize)]
+pub struct BlueprintView {
+    /// typeID del BLUEPRINT (no del producto).
+    pub type_id: i64,
+    pub name: Option<String>,
+    pub me: i64,
+    pub te: i64,
+    /// -1 = BPO (infinitas). En un BPC, las carreras restantes.
+    pub runs: i64,
+    /// -1 = BPO · -2 = BPC · >0 = pila de BPCs.
+    pub quantity: i64,
+    pub location_id: i64,
+    /// Solo se rellena en la vista global (dónde vive el blueprint).
+    pub character: Option<String>,
+}
+
+/// Convierte los blueprints crudos en vistas con nombre resuelto.
+async fn blueprint_views(
+    state: &State<'_, AppState>,
+    raw: Vec<(Option<String>, crate::esi::industry::BlueprintRaw)>,
+) -> Vec<BlueprintView> {
+    let ids: HashSet<i64> = raw.iter().map(|(_, b)| b.type_id).collect();
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+    raw.into_iter()
+        .map(|(who, b)| BlueprintView {
+            type_id: b.type_id,
+            name: names.get(&b.type_id).cloned(),
+            me: b.material_efficiency,
+            te: b.time_efficiency,
+            runs: b.runs,
+            quantity: b.quantity,
+            location_id: b.location_id,
+            character: who,
+        })
+        .collect()
+}
+
+/// Tu biblioteca de blueprints (BPO/BPC con ME/TE reales) de UN personaje.
+#[tauri::command]
+pub async fn get_blueprints(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<BlueprintView>> {
+    let token = token_with_scope(
+        &state,
+        character_id,
+        "esi-characters.read_blueprints.v1",
+        "Industria",
+    )
+    .await?;
+    let raw = industry::fetch_blueprints(&state.esi, &state.db, character_id, &token).await?;
+    Ok(blueprint_views(&state, raw.into_iter().map(|b| (None, b)).collect()).await)
+}
+
+/// Tu biblioteca de blueprints de TODOS los personajes (cada uno con su dueño).
+#[tauri::command]
+pub async fn get_blueprints_global(state: State<'_, AppState>) -> AppResult<Vec<BlueprintView>> {
+    let mut raw: Vec<(Option<String>, crate::esi::industry::BlueprintRaw)> = Vec::new();
+    for c in state.db.list_characters()? {
+        if !c
+            .scopes
+            .iter()
+            .any(|s| s == "esi-characters.read_blueprints.v1")
+        {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Ok(bps) =
+            industry::fetch_blueprints(&state.esi, &state.db, c.character_id, &valid.access_token)
+                .await
+        {
+            for b in bps {
+                raw.push((Some(c.name.clone()), b));
+            }
+        }
+    }
+    Ok(blueprint_views(&state, raw).await)
+}
+
 /// Minería GLOBAL desde la BD acumulada (todos los personajes).
 #[tauri::command]
 pub async fn get_mining_global(state: State<'_, AppState>) -> AppResult<MiningSummary> {

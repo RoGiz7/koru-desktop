@@ -56,6 +56,12 @@ export function typeIcon(typeId: number, size = 32): string {
   return `https://images.evetech.net/types/${typeId}/icon?size=${size}`;
 }
 
+/** Icono de BLUEPRINT. El servidor de EVE tiene variantes propias para planos —`bp` (original) y
+ *  `bpc` (copia)— y NO responde a `icon` para ellos: con typeIcon() salen rotos. */
+export function bpIcon(typeId: number, isOriginal: boolean, size = 32): string {
+  return `https://images.evetech.net/types/${typeId}/${isOriginal ? "bp" : "bpc"}?size=${size}`;
+}
+
 // Render 3D de un tipo (naves, estructuras) desde el servidor oficial de EVE.
 export function typeRender(typeId: number, size = 32): string {
   return `https://images.evetech.net/types/${typeId}/render?size=${size}`;

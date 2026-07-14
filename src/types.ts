@@ -314,6 +314,18 @@ export type NewEden = {
 export type SystemKills = { system_id: number; ship_kills: number; pod_kills: number; npc_kills: number };
 export type SystemJumps = { system_id: number; ship_jumps: number };
 export type AssetSystem = { system_id: number; count: number };
+/** Un blueprint tuyo con sus ME/TE REALES (F1a, scope read_blueprints).
+ *  `quantity`: -1 = BPO · -2 = BPC · >0 = pila de BPCs. `runs`: -1 = BPO (infinitas). */
+export type Blueprint = {
+  type_id: number;
+  name: string | null;
+  me: number;
+  te: number;
+  runs: number;
+  quantity: number;
+  location_id: number;
+  character: string | null;
+};
 /** Una colonia para el panel del mapa (status resumido al clicar un sistema en la capa de PI). */
 export type PiColony = {
   character: string;

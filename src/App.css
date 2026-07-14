@@ -5701,6 +5701,32 @@ h4 {
   filter: brightness(1.15);
 }
 
+/* --- F1a: biblioteca de blueprints --- */
+.bp-lib {
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #333);
+}
+.bp-lib h4 {
+  margin: 0 0 0.5rem;
+}
+/* Subpestañas: mismo patrón que .tabs pero un punto más discretas. */
+.bp-subtabs {
+  margin-top: 0.35rem;
+  opacity: 0.92;
+}
+.bp-subtabs .tab {
+  font-size: 0.82em;
+  padding: 0.2rem 0.5rem;
+}
+.bp-bpo {
+  color: #7fb0ff;
+  font-weight: 600;
+}
+.bp-bpc {
+  color: var(--fg-muted, #888);
+}
+
 /* Panel de PI del mapa (colonias del sistema seleccionado) */
 .pi-sys-colony {
   display: flex;

@@ -58,6 +58,73 @@ pub async fn fetch_jobs(
     }
 }
 
+/* ---------- Blueprints (F1a: los ME/TE REALES, no estimados) ---------- */
+
+/// Un blueprint del personaje (`/characters/{id}/blueprints/`, scope `read_blueprints` de R4).
+/// Convenciones de ESI que NO son obvias:
+/// - `quantity`: **-1 = BPO** (original), **-2 = BPC** (copia); >0 = pila de BPCs apiladas.
+/// - `runs`: **-1 = BPO** (infinitas); en un BPC son las carreras que le quedan.
+/// Sin este endpoint el planner tendría que ADIVINAR el ME y mentiría en todo el árbol.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlueprintRaw {
+    pub item_id: i64,
+    #[serde(default)]
+    pub type_id: i64,
+    #[serde(default)]
+    pub location_id: i64,
+    #[serde(default)]
+    pub location_flag: Option<String>,
+    #[serde(default)]
+    pub quantity: i64,
+    #[serde(default)]
+    pub time_efficiency: i64,
+    #[serde(default)]
+    pub material_efficiency: i64,
+    #[serde(default)]
+    pub runs: i64,
+}
+
+/// Página de ESI para blueprints (máximo del endpoint).
+const BP_PAGE: usize = 1000;
+
+/// Todos los blueprints del personaje, RECORRIENDO PÁGINAS.
+/// ⚠️ ESI pagina este endpoint de 1.000 en 1.000 y `get_cached` no mira `x-pages`: sin este bucle,
+/// un industrial con 2.000+ planos veía solo los primeros 1.000 y Koru le mentía en silencio
+/// (cazado en vivo: la biblioteca decía 1.022 y el juego 2.305). Cada página tiene su propia
+/// entrada de caché/ETag, así que los refrescos siguen siendo baratos.
+pub async fn fetch_blueprints(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> AppResult<Vec<BlueprintRaw>> {
+    let mut out: Vec<BlueprintRaw> = Vec::new();
+    for page in 1..=30u32 {
+        let path = format!("/characters/{character_id}/blueprints/?page={page}");
+        let batch = match esi
+            .get_cached::<Vec<BlueprintRaw>>(db, character_id, &path, Some(token))
+            .await
+        {
+            Ok(v) => v,
+            Err(AppError::NotFound) => break,
+            // Si falla la PRIMERA página es un error real (sin scope, red…); en las siguientes,
+            // nos quedamos con lo que ya tenemos en vez de perderlo todo.
+            Err(e) => {
+                if page == 1 {
+                    return Err(e);
+                }
+                break;
+            }
+        };
+        let n = batch.len();
+        out.extend(batch);
+        if n < BP_PAGE {
+            break; // última página (incluye la vacía de después del final)
+        }
+    }
+    Ok(out)
+}
+
 /* ---------- Mining ledger ---------- */
 
 #[derive(Debug, Clone, Deserialize)]

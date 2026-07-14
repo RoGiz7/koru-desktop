@@ -286,6 +286,17 @@ const EN: Record<string, string> = {
   "Colonias de PI aquí": "PI colonies here",
   "sin extractor": "no extractor",
   "Ver en Planetología": "View in Planetary",
+  // --- F1a: biblioteca de blueprints (Industria) ---
+  "Tu biblioteca de blueprints": "Your blueprint library",
+  "Cargando biblioteca de blueprints…": "Loading blueprint library…",
+  "Sin acceso a tus blueprints: concede el grupo «Industria» en «Conceder acceso».":
+    "No access to your blueprints: grant the “Industry” group in “Grant access”.",
+  "No tienes blueprints.": "You have no blueprints.",
+  Blueprints: "Blueprints",
+  Blueprint: "Blueprint",
+  "Buscar blueprint…": "Search blueprint…",
+  "Mostrando los primeros": "Showing the first",
+  "afina con las pestañas o el buscador.": "narrow it down with the tabs or the search box.",
   "Cadenas P0→P4": "P0→P4 chains",
   "Lo que produces (verde), lo que podrías hacer con tus insumos (ámbar) y lo que te falta (gris).":
     "What you produce (green), what you could make from your inputs (amber), and what you're missing (gray).",
