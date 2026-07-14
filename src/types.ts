@@ -337,6 +337,14 @@ export type Blueprint = {
   location_id: number;
   character: string | null;
 };
+/** Estructura de jugador conocida (sale de tus assets/jobs y se resuelve en ESI). `type_id` es la
+ *  llave para saber sus bonos de industria en el SDE: un Sotiyo no boinifica como un Raitaru. */
+export type Structure = {
+  id: number;
+  name: string | null;
+  system_id: number;
+  type_id: number | null;
+};
 /** Una colonia para el panel del mapa (status resumido al clicar un sistema en la capa de PI). */
 export type PiColony = {
   character: string;

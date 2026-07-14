@@ -1,6 +1,6 @@
 # Koru Desktop — Comunidad, estado del proyecto y visión
 
-**Fecha:** 2026-06-23 · Autor: notas de investigación para Zigor / Rekium
+**Fecha:** 2026-06-23 · Autor: notas de investigación para RoGi7 / Rekium
 
 > Objetivo del documento: mirar qué herramientas de terceros gustan y funcionan en EVE, situar
 > dónde está Koru Desktop, y evaluar dos ideas potentes: **el mapa de New Eden como visualizador**
@@ -250,7 +250,7 @@ Región / constelación / sistema / landmarks → SDE. Mostrar pocas (como el ju
 
 ## 8. Arquitectura objetivo: app mapa-céntrica (decisión)
 
-Decisión de producto (Zigor, jun 2026): **el mapa de New Eden es el centro de la app y todo orbita
+Decisión de producto (RoGi7, jun 2026): **el mapa de New Eden es el centro de la app y todo orbita
 a su alrededor.** Es la seña de identidad — nadie hace stats personales sobre el mapa.
 
 - **Lienzo principal = mapa** a (casi) pantalla completa, como el F10 del juego.

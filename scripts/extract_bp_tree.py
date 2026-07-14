@@ -3,7 +3,7 @@
 # PRODUCTO (con nombres ES/EN del propio SDE). Es la jerarquía que usa el cliente de EVE en su
 # ventana de planos (columna "Grupo": el Bantam Blueprint sale como "Frigate").
 #
-# POR QUÉ NO EL MARKET GROUP (cazado por Zigor 2026-07-14):
+# POR QUÉ NO EL MARKET GROUP (cazado por RoGi7 2026-07-14):
 #   El árbol de MERCADO de planos de EVE es una antigualla: mete los supercarriers dentro de
 #   "Carriers" (Nyx Blueprint → Blueprints & Reactions > Ships > Carriers > Gallente, verificado
 #   en EVE Ref). Nuestra jerarquía era idéntica a la de EVE... pero a la EQUIVOCADA. Por grupo de

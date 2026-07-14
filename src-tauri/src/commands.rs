@@ -2,8 +2,8 @@
 
 use crate::config;
 use crate::db::{
-    CharacterRow, Db, FinancialSummary, NetworthPoint, PvpActivity, PvpStats, PvpTrendPoint,
-    RattingDetail, WalletStats, WalletTrendPoint,
+    CharacterRow, Db, FacilityRow, FinancialSummary, NetworthPoint, PvpActivity, PvpStats,
+    PvpTrendPoint, RattingDetail, WalletStats, WalletTrendPoint,
 };
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
@@ -550,6 +550,120 @@ pub fn get_type_prices(
         .into_iter()
         .filter_map(|id| prices.get(&id).map(|p| (id, *p)))
         .collect())
+}
+
+/// F1c — Una estructura tuya, para su ficha de instalación.
+#[derive(Debug, Clone, Serialize)]
+pub struct StructureView {
+    pub id: i64,
+    pub name: Option<String>,
+    pub system_id: i64,
+    /// Tipo (Sotiyo, Azbel…): con él salen sus bonos de industria del SDE, sin preguntar nada.
+    pub type_id: Option<i64>,
+}
+
+/// Estructura tal y como la sirve `/universe/structures/{id}/` (nombre + sistema + tipo).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct StructureInfo {
+    #[serde(default)]
+    solar_system_id: i64,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    type_id: Option<i64>,
+}
+
+/// F1c — Tus estructuras conocidas (las que la resolución de Assets ya cacheó en `location_system`).
+/// El nombre y el TIPO se piden a `/universe/structures/{id}/` con cualquier token que tenga acceso;
+/// va cacheado por Expires, así que repetir es barato. Las que nadie puede ver quedan fuera.
+#[tauri::command]
+pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<StructureView>> {
+    let known = state.db.structures_known()?;
+    if known.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tokens = structure_tokens(&state).await;
+    let mut out = Vec::new();
+    for (id, system_id) in known {
+        let path = format!("/universe/structures/{id}/");
+        let mut view = StructureView {
+            id,
+            name: None,
+            system_id,
+            type_id: None,
+        };
+        for tok in &tokens {
+            if let Ok(info) = state
+                .esi
+                .get_cached::<StructureInfo>(&state.db, 0, &path, Some(tok.as_str()))
+                .await
+            {
+                view.name = info.name;
+                view.type_id = info.type_id;
+                if info.solar_system_id != 0 {
+                    view.system_id = info.solar_system_id;
+                }
+                break;
+            }
+        }
+        out.push(view);
+    }
+    Ok(out)
+}
+
+// ---- F1c: fichas de instalación ----
+//
+// El registro de estructuras del fabricante. Nace de una idea de RoGi7: en vez de que Koru adivine
+// qué tiene instalado cada estructura (no puede: ESI solo se lo cuenta a un Director, e in-game no
+// se ve sin roles), lo declara quien lo sabe. Aquí solo movemos datos: los BONOS se derivan del SDE
+// en el frontend a partir de `type_id` y `rigs`, nunca se guardan.
+
+#[tauri::command]
+pub fn facility_list(state: State<'_, AppState>) -> AppResult<Vec<FacilityRow>> {
+    state.db.facility_list()
+}
+
+#[tauri::command]
+pub fn facility_upsert(state: State<'_, AppState>, facility: FacilityRow) -> AppResult<i64> {
+    state.db.facility_upsert(&facility)
+}
+
+#[tauri::command]
+pub fn facility_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    state.db.facility_delete(id)
+}
+
+/// Siembra el registro con las estructuras que ESI ya conoce, para no empezar con la lista vacía.
+/// Solo rellena lo que ESI SÍ sabe (id, nombre, sistema, tipo) y deja lo demás en blanco: los rigs
+/// y los servicios los pone el usuario en el asistente. `eligible = false` a propósito — una ficha
+/// sin declarar no debe colarse en el desplegable del BOM como si supiéramos algo de ella.
+/// Devuelve cuántas ha añadido (las que ya tenían ficha no se tocan: no pisamos tu trabajo).
+#[tauri::command]
+pub async fn facility_seed_from_esi(state: State<'_, AppState>) -> AppResult<usize> {
+    let known: std::collections::HashSet<i64> =
+        state.db.facility_ids_known()?.into_iter().collect();
+    let found = get_structures(state.clone()).await?;
+    let mut n = 0;
+    for s in found {
+        if known.contains(&s.id) {
+            continue;
+        }
+        state.db.facility_upsert(&FacilityRow {
+            id: 0,
+            structure_id: Some(s.id),
+            name: s.name.clone().unwrap_or_else(|| format!("#{}", s.id)),
+            system_id: s.system_id,
+            type_id: s.type_id,
+            has_mfg: false,
+            rigs: Vec::new(),
+            tax: 0.0,
+            eligible: false,
+            source: "esi".into(),
+            notes: None,
+        })?;
+        n += 1;
+    }
+    Ok(n)
 }
 
 /// F1b — Índices de coste de industria de UN sistema (actividad → índice). Público, sin scope.
@@ -6891,7 +7005,7 @@ pub struct PiColony {
     pub factories: i64,
 }
 
-/// Salud de PI por sistema para el overlay del mapa (idea de Zigor): peor extractor + detalle por
+/// Salud de PI por sistema para el overlay del mapa (idea de RoGi7): peor extractor + detalle por
 /// colonia. Reusa /planets/ + /planets/{id}/ (cacheados por ETag).
 #[derive(Debug, Clone, Serialize)]
 pub struct PiSystem {

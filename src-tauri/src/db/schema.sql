@@ -485,3 +485,36 @@ CREATE TABLE IF NOT EXISTS gamelog_rat_alias (
     es TEXT PRIMARY KEY,
     en TEXT NOT NULL
 );
+
+-- F1c — Fichas de instalación. El registro de estructuras del fabricante.
+--
+-- POR QUÉ EXISTE: ESI no dice qué servicios ni qué rigs tiene una estructura (solo se lo cuenta a
+-- un Director de la corp dueña vía /corporations/{id}/structures/), e IN-GAME tampoco se ven sin
+-- roles. Así que el dato lo declara el usuario. Va a SQLite y no a localStorage a propósito: es
+-- configuración cara de reunir y tiene que sobrevivir a restaurar una copia.
+--
+-- QUÉ GUARDAMOS Y QUÉ NO: aquí solo va lo que la máquina NO puede deducir. Los porcentajes NO se
+-- guardan nunca — se derivan del SDE a partir de `type_id` (los 3 bonos de la estructura) y de
+-- `rigs` (bono base × multiplicador de la seguridad del sistema). Pedir % a mano fue la trampa que
+-- ya nos mordió: in-game hay tres bonos con el mismo nombre y el % del rig se muestra redondeado.
+--
+-- `structure_id` = el ID de ESI si la conocemos; NULL si es una ficha a mano (la de un aliado, o
+-- una que aún no existe). No intentamos casar fichas con estructuras por sistema+tipo: no es único
+-- (hay 8 Raitarus en un mismo sistema), y adivinar sería mentir.
+CREATE TABLE IF NOT EXISTS facility (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    structure_id INTEGER,          -- ID de ESI, o NULL si es manual
+    name         TEXT NOT NULL,
+    system_id    INTEGER NOT NULL, -- de aquí salen el índice de coste (ESI) y la banda de seguridad
+    type_id      INTEGER,          -- Sotiyo, Raitaru…: de aquí salen sus 3 bonos del SDE
+    has_mfg      INTEGER NOT NULL DEFAULT 1, -- ¿planta de fabricación instalada? lo sabe el usuario
+    rigs         TEXT NOT NULL DEFAULT '[]', -- JSON [typeID]: se resuelven contra el SDE al calcular
+    tax          REAL NOT NULL DEFAULT 0,    -- impuesto del centro: lo pone el dueño, nadie más lo sabe
+    eligible     INTEGER NOT NULL DEFAULT 1, -- ¿sale en el desplegable del BOM?
+    -- 'esi' descubierta | 'manual' escrita a mano. Sirve para decir de dónde sale cada dato.
+    source       TEXT NOT NULL DEFAULT 'manual',
+    notes        TEXT,
+    updated_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS facility_structure ON facility(structure_id)
+    WHERE structure_id IS NOT NULL;

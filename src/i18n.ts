@@ -300,7 +300,6 @@ const EN: Record<string, string> = {
   // --- F1b: coste del trabajo ---
   sec: "sec",
   índice: "index",
-  "Estructura: coste": "Structure: cost",
   "Impuesto centro": "Facility tax",
   "Valor estimado del objeto (VEO)": "Estimated item value (EIV)",
   "Índice de coste en sistema": "System cost index",
@@ -308,17 +307,121 @@ const EN: Record<string, string> = {
   "Impuesto de centro": "Facility tax",
   "Recargo de CCS": "SCC surcharge",
   "Coste total del trabajo": "Total job cost",
-  "sistema no encontrado": "system not found",
-  "elige sistema para el coste": "pick a system for the cost",
-  "Sin índice de coste: elige un sistema válido para calcular el coste del trabajo.":
-    "No cost index: pick a valid system to compute the job cost.",
+  "Sin índice de coste: elige una estructura para calcular el coste del trabajo.":
+    "No cost index: pick a structure to compute the job cost.",
   "material(es) sin adjusted_price: el VEO se queda corto. Sincroniza precios.":
     "material(s) without adjusted_price: the EIV falls short. Sync prices.",
-  "El sistema de tu estructura. De él salen el índice de coste (ESI) y el multiplicador de seguridad del rig: no hace falta que los pongas tú.":
-    "Your structure's system. It gives the cost index (ESI) and the rig's security multiplier: you don't have to enter them.",
-  "Bonificación de COSTE DEL TRABAJO de la estructura (va sobre el bruto, no sobre el VEO)":
-    "The structure's JOB COST bonus (applies to the gross, not to the EIV)",
-  "Impuesto del centro (sobre el VEO)": "Facility tax (on the EIV)",
+  // --- F1c: registro de instalaciones + asistente ---
+  // OJO: Origen/Tipo/Sistema/Cancelar YA existen más abajo — no repetirlas (TS1117 rompe el build).
+  Nombre: "Name",
+  Editar: "Edit",
+  Rigs: "Rigs",
+  Impuesto: "Tax",
+  impuesto: "tax",
+  Usar: "Use",
+  Fabrica: "Builds",
+  material: "material",
+  coste: "cost",
+  tiempo: "time",
+  en: "in",
+  falta: "missing",
+  estimación: "estimate",
+  "a mano": "manual",
+  "no puede": "can't",
+  "sin declarar": "not declared",
+  "ficha completa": "complete",
+  "Mis instalaciones": "My facilities",
+  "Nueva ficha": "New facility",
+  "Editar ficha": "Edit facility",
+  "Nueva ficha de instalación": "New facility record",
+  "Guardar ficha": "Save facility",
+  "Traer de ESI": "Fetch from ESI",
+  "Buscando…": "Fetching…",
+  "escribe 2 letras…": "type 2 letters…",
+  "— no lo sé —": "— I don't know —",
+  "p. ej. Sotiyo de C-J6MT (naves T2)": "e.g. Sotiyo in C-J6MT (T2 ships)",
+  "para ti: el que te ayude a reconocerla": "for you: whatever helps you recognise it",
+  "bonos del SDE": "SDE bonuses",
+  "tiene planta de fabricación instalada": "has a manufacturing plant installed",
+  "has llenado los": "you've filled the",
+  "slots de esta estructura": "slots of this structure",
+  "hacen falta el nombre y el sistema": "name and system are required",
+  "¿Borrar esta ficha?": "Delete this facility?",
+  "sus bonos base se multiplican por": "its base bonuses are multiplied by",
+  "elige el sistema para saber cuánto rinden": "pick the system to see how much they give",
+  "de aquí salen el índice de coste (ESI, en vivo) y el multiplicador de los rigs":
+    "this gives the cost index (live from ESI) and the rigs' multiplier",
+  "obligatorio: sin sistema no hay índice de coste ni banda de seguridad":
+    "required: no system means no cost index and no security band",
+  "EVE no enseña los rigs ni los servicios de una estructura si no tienes roles, y ESI tampoco. Así que lo pones tú: Koru saca los números del SDE a partir de lo que declares.":
+    "EVE won't show a structure's rigs or services unless you have roles, and neither does ESI. So you declare them: Koru gets the numbers from the SDE out of what you tell it.",
+  "Aún no tienes fichas. Crea una a mano, o trae de ESI las que ya conocemos y complétalas.":
+    "No facilities yet. Create one by hand, or fetch the ones we already know from ESI and fill them in.",
+  "Solo las marcadas salen en el desplegable del árbol BOM.":
+    "Only the ticked ones show up in the BOM tree's dropdown.",
+  "¿Tiene la planta de fabricación instalada? Sin ella no se puede fabricar ahí.":
+    "Is the manufacturing plant installed? Without it you can't build there.",
+  "Trae de ESI las estructuras que ya conocemos por tus assets, con su nombre, sistema y tipo. Los rigs y los servicios los tendrás que declarar tú: eso ESI no lo da.":
+    "Fetches the structures we already know from your assets, with their name, system and type. Rigs and services are up to you: ESI doesn't give those.",
+  "No hay estructuras nuevas que traer: ya están todas en tu registro.":
+    "No new structures to fetch: they're all in your registry already.",
+  "No se pudo consultar ESI. ¿Has concedido el permiso «read_structures»?":
+    "Couldn't query ESI. Have you granted the “read_structures” permission?",
+  "Este tipo de estructura no admite la planta de fabricación: lo dice el propio módulo en el SDE (solo encaja en Citadel, Engineering Complex y Refinery).":
+    "This structure type can't take the manufacturing plant: the module itself says so in the SDE (it only fits Citadels, Engineering Complexes and Refineries).",
+  "este tipo NO admite la planta: lo dice el propio módulo en el SDE":
+    "this type can NOT take the plant: the module itself says so in the SDE",
+  "si no la tiene, no podrás fabricar ahí y no saldrá en el desplegable":
+    "without it you can't build there, and it won't show in the dropdown",
+  "Rellena lo que sepas. Lo que dejes en blanco no se inventa: se calcula como si no existiera, así que la cuenta se queda corta y Koru te lo dice. Cuanto más completa, más se acerca — con la ficha entera cuadra al ítem con el juego.":
+    "Fill in what you know. What you leave blank isn't made up: it's computed as if it didn't exist, so the figure falls short and Koru says so. The more complete, the closer — with the whole record it matches the game to the item.",
+  "si lo dejas en blanco calculamos SIN los bonos de estructura: te quedarás corto":
+    "leave it blank and we compute WITHOUT the structure bonuses: you'll fall short",
+  "este tipo no tiene bonos de industria (una Citadel normal, p. ej.): se calcula sin ellos":
+    "this type has no industry bonuses (a plain Citadel, say): we compute without them",
+  "¿no los sabes? Déjalo vacío: calcularemos sin ellos y te lo diremos. Mejor quedarse corto que inventar un bono.":
+    "don't know them? Leave it empty: we'll compute without them and tell you. Better to fall short than invent a bonus.",
+  "el que cobra el dueño de la estructura. Sale en el desglose de coste del job, in-game. Nadie más lo sabe: ni ESI ni el SDE.":
+    "the one the structure's owner charges. It shows in the job's cost breakdown in-game. Nobody else knows it: not ESI, not the SDE.",
+  "Ojo: esto es una foto de lo que TÚ sabes hoy. Si la estación cambia sus rigs o su impuesto, Koru no se entera — vuelve aquí y edítala.":
+    "Careful: this is a snapshot of what YOU know today. If the station changes its rigs or its tax, Koru won't find out — come back and edit it.",
+  "Ficha completa: tipo, rigs e impuesto declarados. Con estos datos la cuenta cuadra al ítem con el juego — lo verificamos contra un job real. El único margen que queda es que la estación haya cambiado desde que la rellenaste: eso ESI no lo dice y Koru no puede saberlo.":
+    "Complete record: type, rigs and tax declared. With this, the figure matches the game to the item — we verified it against a real job. The only margin left is the station having changed since you filled it in: ESI doesn't say, and Koru can't know.",
+  "Estimación: te falta declarar": "Estimate: you still have to declare",
+  "Lo que falta se calcula como si no existiera, así que la cuenta se queda CORTA, nunca larga.":
+    "What's missing is computed as if it didn't exist, so the figure falls SHORT, never long.",
+  "rig(s) con alcance sin mapear: no los aplicamos.":
+    "rig(s) with an unmapped scope: we don't apply them.",
+  "el tipo de estructura (sus 3 bonos)": "the structure type (its 3 bonuses)",
+  "los rigs": "the rigs",
+  "el impuesto del centro": "the facility tax",
+  "— Elige tu instalación —": "— Pick your facility —",
+  "elige una instalación para el coste y los bonos": "pick a facility for the cost and the bonuses",
+  "aún no tienes fichas elegibles: créala arriba, en «Mis instalaciones»":
+    "no eligible facilities yet: create one above, under “My facilities”",
+  "Tus fichas de instalación marcadas como elegibles. De la ficha salen el sistema (→ índice de coste y banda de seguridad), el tipo (→ los 3 bonos del SDE) y los rigs. Se editan en «Mis instalaciones», arriba.":
+    "Your facility records marked as eligible. The record gives the system (→ cost index and security band), the type (→ the 3 SDE bonuses) and the rigs. Edit them under “My facilities”, above.",
+  Instalación: "Facility",
+  rigs: "rigs",
+  "— Elige tu estructura —": "— Pick your structure —",
+  "+ añadir rig…": "+ add rig…",
+  "ver rigs de todos los tamaños": "show rigs of every size",
+  "no fabrican": "can't manufacture",
+  "La Standup Manufacturing Plant I solo encaja en Citadel, Engineering Complex y Refinery: lo dice el propio módulo en el SDE. Un Ansiblex, un Metenox o un cyno no fabrican, así que no te los ofrecemos. Ojo: que una estructura salga aquí NO significa que tenga la planta instalada — eso ESI solo se lo cuenta a un Director de la corp dueña.":
+    "The Standup Manufacturing Plant I only fits Citadels, Engineering Complexes and Refineries: the module itself says so in the SDE. An Ansiblex, a Metenox or a cyno can't manufacture, so we don't offer them. Careful: a structure showing up here does NOT mean the plant is installed — ESI only tells that to a Director of the owning corp.",
+  "no conocemos ninguna estructura tuya: sincroniza tus assets y concede «read_structures»":
+    "we don't know any structure of yours: sync your assets and grant “read_structures”",
+  "elige una estructura para el coste y los bonos": "pick a structure for the cost and the bonuses",
+  "Tu estructura. De ella salen su sistema (→ índice de coste y multiplicador de los rigs) y sus bonos de industria, todo del dato: no hay que ponerlos a mano.":
+    "Your structure. It gives its system (→ cost index and rig multiplier) and its industry bonuses, all from the data: no need to type them in.",
+  "Impuesto del centro: lo pone el dueño de la estructura, así que ni ESI ni el SDE lo saben. Es lo ÚNICO que hay que escribir.":
+    "The facility tax: it's set by the structure's owner, so neither ESI nor the SDE know it. It's the ONLY thing you have to type.",
+  "Rigs de esta estructura (ESI no los expone: elígelos una vez). Koru saca su bono, el multiplicador de seguridad y a qué aplica.":
+    "This structure's rigs (ESI doesn't expose them: pick them once). Koru works out their bonus, the security multiplier and what they apply to.",
+  "Aplica a este producto": "Applies to this product",
+  "No aplica: es de otra cosa": "Doesn't apply: it's for something else",
+  "Alcance aún no mapeado: NO se aplica (preferimos quedarnos cortos a inventar un bono)":
+    "Scope not mapped yet: NOT applied (we'd rather fall short than invent a bonus)",
   // --- F1a: árbol BOM (qué hace falta para fabricar) ---
   Material: "Material",
   Necesitas: "You need",
@@ -330,19 +433,10 @@ const EN: Record<string, string> = {
   Highsec: "Highsec",
   Lowsec: "Lowsec",
   "Nullsec / WH": "Nullsec / WH",
-  "Rig ME base": "Rig ME base",
-  "rig efectivo": "effective rig",
   "Ver qué hace falta para fabricarlo": "See what it takes to build it",
   "Desplegar sus materiales": "Expand its materials",
   "Este plano no fabrica nada (o el SDE no lo tiene).":
     "This blueprint doesn't build anything (or the SDE doesn't have it).",
-  "Estructura: materiales": "Structure: materials",
-  "El % de «MODIFICADORES DEL CONSUMO DE MATERIALES» del tooltip de tu estructura. NO el de duración del trabajo ni el de coste del trabajo: tu estructura tiene tres bonos distintos con el mismo nombre.":
-    "The % under “MATERIAL CONSUMPTION MODIFIERS” in your structure's tooltip. NOT the job duration one nor the job cost one: your structure has three different bonuses sharing the same name.",
-  "Valor BASE del rig de material (T1 ≈ 2,0 · T2 ≈ 2,4). NO el % que muestra EVE: ese ya viene multiplicado por la seguridad y redondeado.":
-    "The material rig's BASE value (T1 ≈ 2.0 · T2 ≈ 2.4). NOT the % EVE shows: that one already includes the security multiplier and is rounded.",
-  "Ojo: tu estructura tiene TRES bonos con el mismo nombre (duración, consumo de materiales y coste del trabajo). Aquí solo cuenta el de CONSUMO DE MATERIALES. Y el rig se pide en su valor BASE (T1 ≈ 2,0 · T2 ≈ 2,4) porque el % que muestra EVE ya viene multiplicado por la seguridad y redondeado — con el de pantalla el árbol miente.":
-    "Careful: your structure has THREE bonuses sharing the same name (duration, material consumption and job cost). Only the MATERIAL CONSUMPTION one counts here. And the rig is asked for at its BASE value (T1 ≈ 2.0 · T2 ≈ 2.4) because the % EVE shows already includes the security multiplier and is rounded — with the on-screen figure the tree lies.",
   "«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.":
     "“You have” adds up your assets (the active character's, or everyone's in Global). An expanded material uses YOUR blueprint's ME; if you don't own it, it's computed with ME 0 and flagged “estimated” — never disguised as real.",
   // --- F1a: biblioteca de blueprints (Industria) ---

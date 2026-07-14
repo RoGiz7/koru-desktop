@@ -32,6 +32,18 @@ RIG_ATTR = {2594: "mat", 2593: "time", 2595: "cost"}
 SEC_ATTR = {2355: "hi", 2356: "low", 2357: "null"}
 SLOTS, SIZE = 1137, 1547
 
+# ¿Dónde se puede fabricar? No lo suponemos: lo dice el propio módulo de servicio. El
+# "Standup Manufacturing Plant I" lleva en el SDE sus reglas de encaje:
+#   canFitShipGroup01 = 1657 (Citadel) · 02 = 1404 (Engineering Complex) · 03 = 1406 (Refinery)
+# Así, un Ansiblex / Metenox / Pharolux / Tenebrex queda descartado POR EL DATO: la planta no
+# cabe ahí, no es que "creamos" que no fabrica. Ojo: que el módulo QUEPA no significa que esté
+# instalado — eso ESI no lo dice salvo en /corporations/{id}/structures/ (Director).
+MFG_PLANT = 35878
+# canFitShipGroup01..20 (los 20 que existen: no cortamos por los 4 primeros, no vaya a ser que
+# algún día añadan un grupo y nos dejemos una estructura fuera en silencio).
+CAN_FIT = [1298, 1299, 1300, 1301, 1872, 1879, 1880, 1881, 2065, 2396] + list(range(2476, 2486))
+STRUCT_CAT = 65  # categoría Structure
+
 
 def load(z, name):
     with z.open(name) as fh:
@@ -55,10 +67,12 @@ def main() -> int:
 
     with zipfile.ZipFile(zpath) as z:
         types = {d["_key"]: d for d in load(z, "types.jsonl")}
+        groups = {d["_key"]: d for d in load(z, "groups.jsonl")}
         # OJO: en dogmaEffects.jsonl el campo es `name` (NO `effectName`). Con `effectName` salía
         # vacío y todos los rigs quedaban sin `scope`.
         effects = {d["_key"]: (d.get("name") or "") for d in load(z, "dogmaEffects.jsonl")}
-        structures, rigs = {}, {}
+        structures, rigs, kinds = {}, {}, {}
+        mfg_groups: list[int] = []
         for d in load(z, "typeDogma.jsonl"):
             tid = d["_key"]
             t = types.get(tid)
@@ -66,6 +80,15 @@ def main() -> int:
                 continue
             attrs = {a["attributeID"]: a["value"] for a in (d.get("dogmaAttributes") or [])}
             eff = [effects.get(e.get("effectID"), "") for e in (d.get("dogmaEffects") or [])]
+
+            # --- Dónde entra la planta de fabricación: lo dice ella misma ---
+            if tid == MFG_PLANT:
+                mfg_groups = sorted({int(attrs[k]) for k in CAN_FIT if k in attrs})
+
+            # --- Toda estructura publicada: su grupo, para poder descartar las que no fabrican ---
+            g = groups.get(t.get("groupID"))
+            if g and g.get("categoryID") == STRUCT_CAT and t.get("published"):
+                kinds[str(tid)] = {"n": nm(t), "g": t["groupID"], "gn": nm(g)["en"]}
 
             # --- Estructura Upwell con bonos de industria ---
             if any(k in attrs for k in STR_ATTR):
@@ -101,13 +124,23 @@ def main() -> int:
             "sistema. `scope` sale del nombre del efecto (p.ej. AllShipManufacture).",
             "structures": len(structures),
             "rigs": len(rigs),
+            "note2": "`kinds` = toda estructura publicada -> su grupo. `mfg_groups` = los grupos "
+            "donde ENTRA la Standup Manufacturing Plant I (canFitShipGroupNN del propio modulo). "
+            "Fuera de esos grupos NO se puede fabricar, y eso es un hecho del SDE. Dentro de "
+            "ellos, que quepa no implica que este instalada: eso ESI solo lo dice en "
+            "/corporations/{id}/structures/ (scope read_structures + rol Director).",
         },
+        "mfg_groups": mfg_groups,
+        "kinds": kinds,
         "structures": structures,
         "rigs": rigs,
     }
+    if not mfg_groups:
+        print("AVISO: no se pudo leer canFitShipGroup de la planta; no filtramos a ciegas.", file=sys.stderr)
     dest = public / "industry_rigs.json"
     dest.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"OK -> {dest}: {len(structures)} estructuras · {len(rigs)} rigs")
+    print(f"OK -> {dest}: {len(structures)} estructuras · {len(rigs)} rigs · "
+          f"{len(kinds)} tipos · fabrica en grupos {mfg_groups}")
     return 0
 
 

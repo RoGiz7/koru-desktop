@@ -101,6 +101,10 @@ struct StructureGeo {
     solar_system_id: i64,
     #[serde(default)]
     name: Option<String>,
+    /// Tipo de la estructura (Sotiyo, Azbel, Raitaru…). ESI lo devuelve y hasta F1c se tiraba:
+    /// con él sacamos del SDE sus bonos de industria sin preguntarle nada al usuario.
+    #[serde(default)]
+    type_id: Option<i64>,
 }
 
 /// typeIDs "vigilados" cuyas cantidades expone `summary` sin coste extra (ya están en `by_type`).

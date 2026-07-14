@@ -1,6 +1,6 @@
 # Koru Desktop — Spec Técnico v1
 
-**Estado:** borrador inicial · **Fecha:** 2026-06-22 · **Owner:** Zigor / equipo Rekium
+**Estado:** borrador inicial · **Fecha:** 2026-06-22 · **Owner:** RoGi7 / equipo Rekium
 
 ## 1. Objetivo
 

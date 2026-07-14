@@ -2507,6 +2507,35 @@ pub struct JournalImportRow {
     pub reason: Option<String>,
 }
 
+/// Ficha de instalación (F1c). Viaja tal cual al frontend: es exactamente lo que el usuario declara.
+/// OJO: aquí NO hay porcentajes. Los bonos se derivan del SDE con `type_id` y `rigs` en el momento
+/// de calcular; guardarlos congelados sería mentir en cuanto el SDE cambie.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FacilityRow {
+    /// 0 = alta nueva.
+    #[serde(default)]
+    pub id: i64,
+    /// ID de ESI, o None si es una ficha a mano (la de un aliado, o una que aún no existe).
+    #[serde(default)]
+    pub structure_id: Option<i64>,
+    pub name: String,
+    pub system_id: i64,
+    #[serde(default)]
+    pub type_id: Option<i64>,
+    #[serde(default)]
+    pub has_mfg: bool,
+    #[serde(default)]
+    pub rigs: Vec<i64>,
+    #[serde(default)]
+    pub tax: f64,
+    #[serde(default)]
+    pub eligible: bool,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
 /// Una fila del histórico de precios de mercado (price_history) para la gráfica temporal de R2.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PriceHistoryRow {
@@ -2622,6 +2651,104 @@ impl Db {
     /// Borra las resoluciones de ubicación fallidas (system_id = 0). Se llama al arrancar para
     /// que las estructuras de jugador que no se pudieron resolver antes (p. ej. por faltar el scope
     /// `esi-universe.read_structures.v1`) se reintenten. Devuelve cuántas se limpiaron.
+    /// F1c — Estructuras de jugador ya resueltas: (location_id, system_id).
+    /// Las Upwell tienen `location_id >= 1e12`; `system_id = 0` = nadie tiene acceso (caché negativa),
+    /// así que se excluyen. Sale de lo que la resolución de Assets ya cacheó: no gasta ni un request.
+    pub fn structures_known(&self) -> AppResult<Vec<(i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT location_id, system_id FROM location_system
+             WHERE location_id >= 1000000000000 AND system_id > 0
+             ORDER BY location_id",
+        )?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    // ---- facility: fichas de instalación (F1c) ----
+    //
+    // Solo persistimos lo que la máquina no puede deducir (tipo, rigs, servicios, impuesto). Los
+    // porcentajes NO se guardan: se derivan del SDE al calcular. Ver el comentario de schema.sql.
+
+    pub fn facility_list(&self) -> AppResult<Vec<FacilityRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, structure_id, name, system_id, type_id, has_mfg, rigs, tax, eligible,
+                    source, notes
+             FROM facility ORDER BY eligible DESC, name",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(FacilityRow {
+                    id: r.get(0)?,
+                    structure_id: r.get(1)?,
+                    name: r.get(2)?,
+                    system_id: r.get(3)?,
+                    type_id: r.get(4)?,
+                    has_mfg: r.get::<_, i64>(5)? != 0,
+                    rigs: serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default(),
+                    tax: r.get(7)?,
+                    eligible: r.get::<_, i64>(8)? != 0,
+                    source: r.get(9)?,
+                    notes: r.get(10)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Alta o edición. `id = None` → alta. Devuelve el id resultante.
+    pub fn facility_upsert(&self, f: &FacilityRow) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let rigs = serde_json::to_string(&f.rigs).unwrap_or_else(|_| "[]".into());
+        let now = chrono::Utc::now().to_rfc3339();
+        if f.id > 0 {
+            conn.execute(
+                "UPDATE facility SET structure_id=?2, name=?3, system_id=?4, type_id=?5,
+                        has_mfg=?6, rigs=?7, tax=?8, eligible=?9, source=?10, notes=?11,
+                        updated_at=?12
+                 WHERE id=?1",
+                rusqlite::params![
+                    f.id, f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs,
+                    f.tax, f.eligible as i64, f.source, f.notes, now
+                ],
+            )?;
+            return Ok(f.id);
+        }
+        conn.execute(
+            "INSERT INTO facility (structure_id, name, system_id, type_id, has_mfg, rigs, tax,
+                                   eligible, source, notes, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+             ON CONFLICT(structure_id) DO UPDATE SET
+                name=excluded.name, system_id=excluded.system_id, type_id=excluded.type_id,
+                updated_at=excluded.updated_at",
+            rusqlite::params![
+                f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs, f.tax,
+                f.eligible as i64, f.source, f.notes, now
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn facility_delete(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM facility WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }
+
+    /// ¿Ya hay ficha para esta estructura de ESI? Para no duplicar al sembrar el registro.
+    pub fn facility_ids_known(&self) -> AppResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT structure_id FROM facility WHERE structure_id IS NOT NULL")?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     pub fn location_system_clear_negative(&self) -> usize {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM location_system WHERE system_id = 0", [])

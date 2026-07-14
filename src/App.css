@@ -5776,6 +5776,179 @@ h4 {
 .bom-sep {
   color: var(--fg-muted, #888);
 }
+/* F1c: registro de instalaciones + asistente. Lo que ESI no sabe y el fabricante sí. */
+.fac-block {
+  margin: 1rem 0;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-2, #232323);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 8px;
+}
+.fac-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.fac-head .muted {
+  flex: 1;
+  min-width: 14rem;
+}
+.fac-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.fac-table th,
+.fac-table td {
+  text-align: left;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid var(--border-2, #3a3a3a);
+}
+/* Ficha no elegible: sigue visible (es tuya) pero apagada — no cuenta para el árbol. */
+.fac-off {
+  opacity: 0.5;
+}
+.fac-wiz {
+  margin-top: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg, #1c1c1c);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 8px;
+}
+.fac-wiz-head,
+.fac-wiz-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.fac-wiz-head strong {
+  flex: 1;
+}
+.fac-wiz-foot {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-2, #3a3a3a);
+}
+.fac-wiz-foot .muted {
+  flex: 1;
+}
+/* Cada paso: etiqueta · control · y SIEMPRE una nota que dice de dónde sale el número. */
+.fac-f {
+  display: grid;
+  grid-template-columns: 7rem minmax(12rem, 1fr) 2fr;
+  align-items: start;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+}
+.fac-f > span:first-child {
+  font-weight: 600;
+}
+.fac-f em {
+  font-style: normal;
+  font-size: 0.85em;
+  line-height: 1.35;
+}
+.fac-f input[type="text"],
+.fac-f input:not([type]),
+.fac-f input[type="number"],
+.fac-f select {
+  width: 100%;
+  background: var(--bg-control, #2f2f2f);
+  color: var(--fg, #e8e8e8);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 5px;
+  padding: 0.15rem 0.35rem;
+}
+.fac-f input[type="checkbox"] {
+  width: auto;
+}
+.fac-cands,
+.fac-rigs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+}
+.fac-rigs {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.fac-rig {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.3rem;
+  background: var(--bg-control, #2f2f2f);
+  border-radius: 4px;
+}
+/* Confianza de la ficha: verde = cuadra al ítem · ámbar = falta declarar algo y la cuenta se
+   queda corta. Nunca un "esto es aproximado" genérico: la fórmula está verificada. */
+.bom-conf {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  cursor: help;
+  font-size: 0.9em;
+}
+.bom-conf.ok {
+  color: var(--pos, #4caf50);
+  border: 1px solid var(--pos, #4caf50);
+}
+.bom-conf.warn {
+  color: var(--warn, #e0a24a);
+  border: 1px solid var(--warn, #e0a24a);
+}
+
+/* F1c: ficha de la estructura. Los rigs son lo único que ESI no expone y hay que elegir a mano. */
+.bom-rigs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.4rem 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-2, #232323);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 6px;
+}
+.bom-rigs select {
+  align-self: flex-start;
+  max-width: 22rem;
+  background: var(--bg-control, #2f2f2f);
+  color: var(--fg, #e8e8e8);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 5px;
+  padding: 0.15rem 0.3rem;
+}
+.bom-rig-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--fg-muted, #888);
+  cursor: pointer;
+}
+.bom-rig-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.bom-rig-row > span:nth-child(2) {
+  flex: 1;
+}
+.bom-rig-state {
+  width: 1rem;
+  text-align: center;
+  cursor: help;
+}
+/* Verde = cuenta en el cálculo · gris = no aplica a este producto · ámbar = no lo afirmamos. */
+.bom-rig-state.on {
+  color: var(--pos, #4caf50);
+}
+.bom-rig-state.off {
+  color: var(--fg-muted, #888);
+}
+.bom-rig-state.unmapped {
+  color: var(--warn, #e0a24a);
+}
 .bom-table td {
   font-variant-numeric: tabular-nums;
 }
