@@ -55,7 +55,9 @@ def main() -> int:
 
     with zipfile.ZipFile(zpath) as z:
         types = {d["_key"]: d for d in load(z, "types.jsonl")}
-        effects = {d["_key"]: (d.get("effectName") or "") for d in load(z, "dogmaEffects.jsonl")}
+        # OJO: en dogmaEffects.jsonl el campo es `name` (NO `effectName`). Con `effectName` salía
+        # vacío y todos los rigs quedaban sin `scope`.
+        effects = {d["_key"]: (d.get("name") or "") for d in load(z, "dogmaEffects.jsonl")}
         structures, rigs = {}, {}
         for d in load(z, "typeDogma.jsonl"):
             tid = d["_key"]
