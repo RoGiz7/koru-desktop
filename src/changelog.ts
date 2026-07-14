@@ -6,6 +6,28 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.27.0",
+    date: "2026-07-14",
+    es: [
+      "🪐 Planetología de verdad: de una tabla plana a tus colonias vivas — la salud de cada extractor con su cuenta atrás, la producción por hora REAL de cada pin y la capacidad/día valorada. Las colonias enfermas suben arriba solas.",
+      "⏰ La alarma que faltaba: avisos de extractor configurables a tu gusto (por defecto 8h y 1h, más el aviso de parada), con doble o triple toque. Con su banner ámbar propio que te lleva a Planetología. Se acabó el «se me paró y no me enteré».",
+      "🗺️ Tus colonias en el mapa: capa nueva «Tu PI», donde cada sistema se pinta con la salud de su peor extractor. Clic en el sistema y ves el estado de cada colonia, planeta a planeta.",
+      "🔗 Las cadenas P0→P4, de un vistazo: los 68 esquemas coloreados por lo que ya produces (verde), lo que podrías hacer con tus insumos (ámbar) y lo que te falta (gris). Clic en cualquiera y salta al planificador.",
+      "🎯 Planificador inverso: elige qué quieres fabricar y Koru te dice qué materias primas hacen falta, de qué tipos de planeta salen y qué te falta según TUS colonias. La tabla P0→planetas está verificada contra EVE University, no escrita de memoria.",
+      "📈 Memoria de precios: Koru empieza a guardar el histórico de mercado de tu watchlist y lo acumula más allá de lo que ESI recuerda. En cada ítem verás cuánto se aleja su precio actual de su media — el dato desnudo, sin recomendarte nada.",
+      "🐛 Dos venenos fuera: los extractores no llegaban a pintarse (una etiqueta que renombraba el campo en el viaje de vuelta), y el registro de avisos ya enviados se vaciaba solo por trocear mal una fecha.",
+    ],
+    en: [
+      "🪐 Planetary Industry, for real: from a flat table to your colonies alive — each extractor's health with its countdown, every pin's REAL hourly output, and daily capacity valued at market price. Sick colonies float to the top on their own.",
+      "⏰ The alarm that was missing: extractor alerts you configure yourself (8h and 1h by default, plus the stopped warning), with a double or triple tap. It has its own amber banner that takes you to Planetary. No more “it stopped and I never noticed”.",
+      "🗺️ Your colonies on the map: a new “Your PI” layer where each system is painted with the health of its worst extractor. Click a system to see every colony's status, planet by planet.",
+      "🔗 The P0→P4 chains at a glance: all 68 schematics coloured by what you already produce (green), what you could make from your inputs (amber), and what you're missing (grey). Click any of them and it loads into the planner.",
+      "🎯 Reverse planner: pick what you want to build and Koru tells you which raw materials it needs, which planet types yield them, and what YOUR colonies are missing. The P0→planet table is verified against EVE University, not written from memory.",
+      "📈 Price memory: Koru starts keeping your watchlist's market history and accumulates it beyond what ESI remembers. On each item you'll see how far its current price sits from its own average — the bare fact, no advice.",
+      "🐛 Two poisons gone: extractors never made it to the screen (a tag renaming the field on the way back), and the record of already-sent alerts emptied itself by slicing a date wrong.",
+    ],
+  },
+  {
     version: "0.26.0",
     date: "2026-07-11",
     es: [

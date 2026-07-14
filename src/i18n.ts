@@ -271,7 +271,7 @@ const EN: Record<string, string> = {
   "P0 necesario": "P0 needed",
   "por ciclo": "per cycle",
   "Tipos de planeta": "Planet types",
-  Tú: "You",
+  // "Tú" ya existe más abajo con la misma traducción ("You"): no duplicar la clave.
   "✓ ya lo extraes · ◐ tienes el planeta pero no ese extractor · ✗ te falta el tipo de planeta":
     "✓ you already extract it · ◐ you have the planet but not that extractor · ✗ you're missing the planet type",
   "Cantidades por un ciclo del objetivo (ratios teóricos del árbol, no de tu producción real).":
