@@ -74,7 +74,9 @@
   20.307/3.808/1.587/318) cruzado con tus assets.
 
 ### Pendiente REAL (orden recomendado)
-0. **PILAR INDUSTRIAL — F1b (el dinero)**: es lo siguiente. Ver el bloque del pilar abajo.
+0. **PILAR INDUSTRIAL**: F1b y F1c HECHOS (sin release: falta probar el asistente en vivo contra el
+   fixture del Bantam → 20307/3808/1587/318). Siguiente: **F1d** (build-vs-buy por nodo + «qué hay
+   que transportar») o **F2** (invención). Ver el bloque del pilar abajo.
 1. **Menores**: partir App() en `useAppData()`, deriva del QA.sql (medallas nuevas sin cubrir).
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
@@ -118,10 +120,28 @@ mapa y rutas para hacerlo. Dependía a propósito de todo lo construido.
   → 20.307/3.808/1.587/318 exactos · tiempo → 18:53 al segundo · coste → 40.536 ISK al ISK.
   ⚠️ **Los rigs escalan con la seguridad** (null/WH ×2.1 · low ×1.9 · high ×1.0) y **EVE muestra el
   efectivo REDONDEADO** (−5,0 % cuando es −5,04 %): pedir SIEMPRE el valor BASE del rig.
-  **F1b — SIGUIENTE (el dinero)**: `VEO = Σ(qty_BASE × adjusted_price)` (ya en BD) × índice del
-  sistema (`/industry/systems/`, **público y aún sin usar: es lo único que falta**) − bonif. de
-  estructura sobre el BRUTO + impuesto de centro + recargo de CCS (4 %), todo sobre el VEO.
-  **F1c**: build-vs-buy POR NODO + config de instalaciones persistida (hoy en localStorage).
+  **F1b HECHO (el dinero)**: `VEO = Σ(qty_BASE × adjusted_price)` × índice del sistema
+  (`/industry/systems/`, público) → bonif. de estructura sobre el BRUTO + impuesto de centro +
+  recargo de CCS (4 %), estos dos sobre el VEO. Desglose calcado al tooltip del juego.
+  **F1c HECHO — «Mis instalaciones»** (idea de RoGiz7, 2026-07-14): el registro del fabricante,
+  tabla `facility` en SQLite (entra en las copias) + asistente de 6 pasos.
+  **Por qué el usuario lo declara y Koru no lo deduce**: los rigs y los servicios de una estructura
+  NO se ven in-game sin roles, y ESI solo se los cuenta a un Director de la corp dueña
+  (`/corporations/{id}/structures/`). No hay nada que deducir. Por eso las alianzas publican hojas
+  de cálculo con las mejoras de sus estaciones — y por eso se hizo **asistente y no importador**:
+  importar la hoja de una alianza concreta habría servido a esa alianza y a nadie más.
+  Reglas que sostienen la ficha: **nunca se piden porcentajes** (se pide QUÉ es y QUÉ lleva; los
+  números los pone el SDE) · **lo que falta se queda CORTO, nunca largo** (un rig con alcance sin
+  mapear no se aplica, y se dice) · **la confianza se dice en voz alta** (ficha completa → «cuadra
+  al ítem»; a medias → «estimación, falta X»), en vez de un «esto es aproximado» genérico que
+  rebajaría una fórmula ya verificada al ISK.
+  Se descarta POR EL DATO lo que no puede fabricar: la `Standup Manufacturing Plant I` (35878) lleva
+  en el SDE sus `canFitShipGroup` → Citadel (1657), Engineering Complex (1404), Refinery (1406);
+  Ansiblex/Metenox/Pharolux/Tenebrex quedan fuera como hecho. Que quepa ≠ que esté instalada.
+  **F1d — SIGUIENTE**: build-vs-buy POR NODO, y la idea de RoGiz7 → **«¿este material ya está EN la
+  instalación elegida?»**, para decir exactamente qué hay que transportar. Ojo: `get_assets_detail`
+  hoy tira el `location_id`, y los assets de EVE son un **árbol** (el material puede estar en un
+  contenedor dentro de la estructura); una ficha manual no tiene `structure_id` → «no lo sé», no 0.
 - **F2 — Invención**: esperanza por decryptor con skills reales, coste POR ÉXITO, propiedades
   del BPC resultante, encadenado al coste de F1. Ya tenemos los 1.117 BPs con sus probabilidades.
 - **F3 — Jobs con economía**: cada job con coste/valor esperado/beneficio; al entregar, cruce
