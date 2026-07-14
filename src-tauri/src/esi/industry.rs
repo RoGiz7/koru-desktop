@@ -58,6 +58,44 @@ pub async fn fetch_jobs(
     }
 }
 
+/* ---------- Índices de coste de industria (F1b: el dinero) ---------- */
+
+/// Un índice de coste por actividad ("manufacturing", "invention", "reaction"…).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CostIndex {
+    #[serde(default)]
+    pub activity: String,
+    #[serde(default)]
+    pub cost_index: f64,
+}
+
+/// Índices de coste de un sistema (`/industry/systems/`, **público, sin scope**).
+/// Es la pieza que faltaba para F1b: el coste BRUTO de un job = VEO × índice del sistema.
+/// Verificado contra el juego (fixture): C-J6MT manufacturing ≈ 9,98 % → 279.893 × 0,0998 = 27.938.
+#[derive(Debug, Clone, Deserialize)]
+pub struct IndustrySystemRaw {
+    #[serde(default)]
+    pub solar_system_id: i64,
+    #[serde(default)]
+    pub cost_indices: Vec<CostIndex>,
+}
+
+/// Todos los sistemas con sus índices. Sin token; ESI lo cachea ~1h y `get_cached` respeta el ETag,
+/// así que refrescar es casi gratis (los 304 no cuestan).
+pub async fn fetch_industry_indices(
+    esi: &EsiClient,
+    db: &Db,
+) -> AppResult<Vec<IndustrySystemRaw>> {
+    match esi
+        .get_cached::<Vec<IndustrySystemRaw>>(db, 0, "/industry/systems/", None)
+        .await
+    {
+        Ok(v) => Ok(v),
+        Err(AppError::NotFound) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
 /* ---------- Blueprints (F1a: los ME/TE REALES, no estimados) ---------- */
 
 /// Un blueprint del personaje (`/characters/{id}/blueprints/`, scope `read_blueprints` de R4).

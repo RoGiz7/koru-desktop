@@ -5779,6 +5779,27 @@ h4 {
 .bom-table td {
   font-variant-numeric: tabular-nums;
 }
+/* F1b: desglose del coste del trabajo, calcado al tooltip del juego. */
+.bom-cost {
+  margin: 0.5rem 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  background: var(--bg-surface-2, #262626);
+  max-width: 28rem;
+}
+.bom-cost-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.08rem 0;
+}
+.bom-cost-total {
+  border-top: 1px solid var(--border-2, #3a3a3a);
+  margin-top: 0.2rem;
+  padding-top: 0.25rem;
+}
 .bom-exp {
   background: none;
   border: none;

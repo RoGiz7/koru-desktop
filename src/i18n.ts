@@ -297,6 +297,28 @@ const EN: Record<string, string> = {
   "El vigilante está leyendo de verdad": "The watcher really is reading",
   "No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?":
     "There's no log for that channel in the folder. Right channel? Have you joined it this session?",
+  // --- F1b: coste del trabajo ---
+  sec: "sec",
+  índice: "index",
+  "Estructura: coste": "Structure: cost",
+  "Impuesto centro": "Facility tax",
+  "Valor estimado del objeto (VEO)": "Estimated item value (EIV)",
+  "Índice de coste en sistema": "System cost index",
+  "Bonificación de estructura": "Structure bonus",
+  "Impuesto de centro": "Facility tax",
+  "Recargo de CCS": "SCC surcharge",
+  "Coste total del trabajo": "Total job cost",
+  "sistema no encontrado": "system not found",
+  "elige sistema para el coste": "pick a system for the cost",
+  "Sin índice de coste: elige un sistema válido para calcular el coste del trabajo.":
+    "No cost index: pick a valid system to compute the job cost.",
+  "material(es) sin adjusted_price: el VEO se queda corto. Sincroniza precios.":
+    "material(s) without adjusted_price: the EIV falls short. Sync prices.",
+  "El sistema de tu estructura. De él salen el índice de coste (ESI) y el multiplicador de seguridad del rig: no hace falta que los pongas tú.":
+    "Your structure's system. It gives the cost index (ESI) and the rig's security multiplier: you don't have to enter them.",
+  "Bonificación de COSTE DEL TRABAJO de la estructura (va sobre el bruto, no sobre el VEO)":
+    "The structure's JOB COST bonus (applies to the gross, not to the EIV)",
+  "Impuesto del centro (sobre el VEO)": "Facility tax (on the EIV)",
   // --- F1a: árbol BOM (qué hace falta para fabricar) ---
   Material: "Material",
   Necesitas: "You need",

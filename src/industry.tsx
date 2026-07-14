@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
-import { fmtSp, bpIcon, typeIcon } from "./format";
+import { fmtSp, fmtIsk, bpIcon, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import type { JobView, Blueprint } from "./types";
 
@@ -26,11 +26,29 @@ type BpIndustry = Record<string, { m?: BpAct; i?: BpAct; r?: BpAct; c?: number; 
 type MType = { i: number; n: string; g: number };
 
 /** Config de la instalación. ESI NO expone rigs ni bonos de estructura → se pone a mano (como
- *  Ravworks). Vive en localStorage: el cálculo es 100% del frontend, no necesita backend. */
-type InstallCfg = { structMat: number; rigMe: number; secMult: number };
+ *  Ravworks). Vive en localStorage: el cálculo es 100% del frontend, no necesita backend.
+ *  El SISTEMA no es un bono: de él salen el índice de coste (ESI) y el multiplicador de seguridad
+ *  del rig, así que se elige una vez y Koru deduce los dos. */
+type InstallCfg = {
+  system: string; // nombre del sistema (p. ej. "C-J6MT")
+  structMat: number; // bonif. de CONSUMO DE MATERIALES de la estructura (%)
+  rigMe: number; // valor BASE del rig ME (%), NO el efectivo que muestra EVE
+  structCost: number; // bonif. de COSTE DEL TRABAJO de la estructura (%)
+  facilityTax: number; // impuesto del centro (%)
+};
 const CFG_KEY = "koru_bom_cfg";
-/** Neutral por defecto (sin bonos, highsec): preferimos que el usuario lo configure a inventárselo. */
-const CFG_DEF: InstallCfg = { structMat: 0, rigMe: 0, secMult: 1 };
+/** Neutral por defecto: preferimos que el usuario lo configure a inventárselo. */
+const CFG_DEF: InstallCfg = { system: "", structMat: 0, rigMe: 0, structCost: 0, facilityTax: 0 };
+/** Recargo de la CCS: 4 % del VEO, global del juego y NO configurable (verificado: 11.196 de 279.893). */
+const CCS_SURCHARGE = 0.04;
+
+/** Multiplicador de los rigs según la seguridad del sistema (verificado por partida doble con el
+ *  fixture: rig ME 2,4 × 2,1 = 5,04 % y rig TE 24 × 2,1 = 50,4 %). EVE clasifica por la seguridad
+ *  REDONDEADA a un decimal: C-J6MT vale −0,29 pero se muestra (y cuenta) como −0,3 → nullsec. */
+function secMultOf(sec: number): number {
+  const disp = Math.round(sec * 10) / 10;
+  return disp >= 0.5 ? 1 : disp >= 0.1 ? 1.9 : 2.1;
+}
 
 function loadCfg(): InstallCfg {
   try {
@@ -44,8 +62,8 @@ function loadCfg(): InstallCfg {
  *  (1−ME) × (1−bonif_estructura) × (1−rig_base×multiplicador_de_seguridad).
  *  ⚠️ El rig se calcula desde su valor BASE: EVE muestra el efectivo REDONDEADO (−5,0 % cuando en
  *  realidad es −5,04 %) y con el de pantalla el árbol miente (20.315 en vez de 20.307). */
-function matFactor(me: number, cfg: InstallCfg): number {
-  const rig = (cfg.rigMe * cfg.secMult) / 100;
+function matFactor(me: number, cfg: InstallCfg, secMult: number): number {
+  const rig = (cfg.rigMe * secMult) / 100;
   return (1 - me / 100) * (1 - cfg.structMat / 100) * (1 - rig);
 }
 
@@ -195,6 +213,10 @@ function BomPanel({
   const [runs, setRuns] = useState(1);
   const [cfg, setCfg] = useState<InstallCfg>(loadCfg);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  // F1b: sistemas (para índice + seguridad), índice de coste y adjusted_price (el VEO usa ESTE).
+  const [sys, setSys] = useState<{ id: number; n: string; s: number }[] | null>(null);
+  const [idx, setIdx] = useState<Record<string, number> | null>(null);
+  const [adj, setAdj] = useState<Map<number, number>>(new Map());
 
   useEffect(() => {
     fetch("/bp_industry.json").then((r) => r.json()).then(setInd).catch(() => setInd({}));
@@ -202,7 +224,30 @@ function BomPanel({
       .then((r) => r.json())
       .then((m: MType[]) => setNames(new Map(m.map((t) => [t.i, t.n]))))
       .catch(() => setNames(new Map()));
+    fetch("/neweden.json")
+      .then((r) => r.json())
+      .then((d: { systems: { id: number; n: string; s: number }[] }) => setSys(d.systems))
+      .catch(() => setSys([]));
   }, []);
+
+  // Sistema elegido → seguridad (multiplicador del rig) e índice de coste (ESI, público).
+  const sysHit = useMemo(
+    () =>
+      cfg.system.trim()
+        ? (sys ?? []).find((x) => x.n.toLowerCase() === cfg.system.trim().toLowerCase()) ?? null
+        : null,
+    [sys, cfg.system],
+  );
+  const secMult = sysHit ? secMultOf(sysHit.s) : 1;
+  useEffect(() => {
+    if (!sysHit) {
+      setIdx(null);
+      return;
+    }
+    invoke<Record<string, number>>("get_industry_index", { systemId: sysHit.id })
+      .then(setIdx)
+      .catch(() => setIdx(null));
+  }, [sysHit?.id]);
 
   // Stock real: lo que ya tienes, para el "te falta". Multi-personaje si el sujeto es Global.
   useEffect(() => {
@@ -262,7 +307,7 @@ function BomPanel({
       const act = ind[bpId]?.m;
       if (!act) return;
       const me = meOf.get(Number(bpId));
-      const f = matFactor(me ?? 0, cfg);
+      const f = matFactor(me ?? 0, cfg, secMult);
       for (const [tid, base] of act.in) {
         const qty = matQty(base, n, f);
         const sb = bpByProduct.get(tid) ?? null;
@@ -276,13 +321,41 @@ function BomPanel({
     };
     walk(String(bp.type_id), runs, 0);
     return out;
-  }, [ind, bp, runs, cfg, open, meOf, bpByProduct]);
+  }, [ind, bp, runs, cfg, secMult, open, meOf, bpByProduct]);
 
   const act = ind?.[String(bp.type_id)]?.m;
+
+  // --- F1b: coste del trabajo, con la fórmula VERIFICADA al ISK contra el juego ---
+  // El VEO usa las cantidades BASE del blueprint (NO las de tras-ME) y el `adjusted_price`.
+  useEffect(() => {
+    const ids = (act?.in ?? []).map(([tid]) => tid);
+    if (ids.length === 0) return;
+    invoke<Record<number, number>>("get_type_adjusted_prices", { ids })
+      .then((r) => setAdj(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
+      .catch(() => setAdj(new Map()));
+  }, [act]);
+
+  const cost = useMemo(() => {
+    if (!act) return null;
+    let veo = 0;
+    let faltan = 0;
+    for (const [tid, base] of act.in) {
+      const p = adj.get(tid);
+      if (p == null) faltan++;
+      veo += base * runs * (p ?? 0);
+    }
+    const index = idx?.manufacturing ?? null;
+    if (index == null) return { veo, faltan, index: null as number | null };
+    const bruto = veo * index;
+    const brutoTotal = bruto * (1 - cfg.structCost / 100);
+    const tax = veo * (cfg.facilityTax / 100);
+    const ccs = veo * CCS_SURCHARGE;
+    return { veo, faltan, index, bruto, brutoTotal, tax, ccs, total: brutoTotal + tax + ccs };
+  }, [act, adj, runs, idx, cfg.structCost, cfg.facilityTax]);
   const product = act?.out?.[0]?.[0];
   const perRun = act?.out?.[0]?.[1] ?? 1;
   const maxRuns = bp.quantity === -1 ? 1_000_000 : Math.max(1, bp.runs);
-  const rigEff = (cfg.rigMe * cfg.secMult).toFixed(2);
+  const rigEff = (cfg.rigMe * secMult).toFixed(2);
 
   if (!ind) return <p className="muted small">{tr("Cargando…")}</p>;
   if (!act)
@@ -344,24 +417,103 @@ function BomPanel({
           />{" "}
           %
         </label>
-        <label>
-          {tr("Seguridad")}{" "}
-          <select
-            value={cfg.secMult}
-            onChange={(e) => saveCfg({ ...cfg, secMult: Number(e.target.value) })}
-          >
-            <option value={1}>{tr("Highsec")} ×1</option>
-            <option value={1.9}>{tr("Lowsec")} ×1.9</option>
-            <option value={2.1}>{tr("Nullsec / WH")} ×2.1</option>
-          </select>
+        <label title={tr("El sistema de tu estructura. De él salen el índice de coste (ESI) y el multiplicador de seguridad del rig: no hace falta que los pongas tú.")}>
+          {tr("Sistema")}{" "}
+          <input
+            style={{ width: "6.5rem" }}
+            value={cfg.system}
+            onChange={(e) => saveCfg({ ...cfg, system: e.target.value })}
+            placeholder="C-J6MT"
+          />
+        </label>
+        <label title={tr("Bonificación de COSTE DEL TRABAJO de la estructura (va sobre el bruto, no sobre el VEO)")}>
+          {tr("Estructura: coste")}{" "}
+          <input
+            type="number"
+            step="0.1"
+            value={cfg.structCost}
+            onChange={(e) => saveCfg({ ...cfg, structCost: Number(e.target.value) || 0 })}
+          />{" "}
+          %
+        </label>
+        <label title={tr("Impuesto del centro (sobre el VEO)")}>
+          {tr("Impuesto centro")}{" "}
+          <input
+            type="number"
+            step="0.1"
+            value={cfg.facilityTax}
+            onChange={(e) => saveCfg({ ...cfg, facilityTax: Number(e.target.value) || 0 })}
+          />{" "}
+          %
         </label>
         <span className="muted">
-          → {tr("rig efectivo")} {rigEff}%
+          {sysHit
+            ? `${tr("sec")} ${sysHit.s.toFixed(1)} → ${tr("rig efectivo")} ${rigEff}%${
+                idx?.manufacturing != null
+                  ? ` · ${tr("índice")} ${(idx.manufacturing * 100).toFixed(2)}%`
+                  : ""
+              }`
+            : cfg.system.trim()
+              ? tr("sistema no encontrado")
+              : tr("elige sistema para el coste")}
         </span>
       </div>
       <p className="muted small">
         {tr("Ojo: tu estructura tiene TRES bonos con el mismo nombre (duración, consumo de materiales y coste del trabajo). Aquí solo cuenta el de CONSUMO DE MATERIALES. Y el rig se pide en su valor BASE (T1 ≈ 2,0 · T2 ≈ 2,4) porque el % que muestra EVE ya viene multiplicado por la seguridad y redondeado — con el de pantalla el árbol miente.")}
       </p>
+
+      {/* F1b — Coste del trabajo. Fórmula verificada al ISK contra el juego (fixture Bantam:
+          279.893 × 0,0998 = 27.938 → −5% = 26.541 · +1% VEO = 2.799 · +4% VEO = 11.196 → 40.536).
+          Ojo al orden: la bonificación de estructura va sobre el BRUTO; los impuestos, sobre el VEO. */}
+      {cost && (
+        <div className="bom-cost small">
+          <div className="bom-cost-row">
+            <span>{tr("Valor estimado del objeto (VEO)")}</span>
+            <strong>{fmtIsk(cost.veo)}</strong>
+          </div>
+          {cost.index == null ? (
+            <div className="muted">
+              {tr("Sin índice de coste: elige un sistema válido para calcular el coste del trabajo.")}
+            </div>
+          ) : (
+            <>
+              <div className="bom-cost-row muted">
+                <span>
+                  {tr("Índice de coste en sistema")} ({(cost.index * 100).toFixed(2)}%)
+                </span>
+                <span>{fmtIsk(cost.bruto!)}</span>
+              </div>
+              {cfg.structCost > 0 && (
+                <div className="bom-cost-row muted">
+                  <span>
+                    {tr("Bonificación de estructura")} (−{cfg.structCost}%)
+                  </span>
+                  <span>−{fmtIsk(cost.bruto! - cost.brutoTotal!)}</span>
+                </div>
+              )}
+              <div className="bom-cost-row muted">
+                <span>
+                  {tr("Impuesto de centro")} ({cfg.facilityTax}% VEO)
+                </span>
+                <span>+{fmtIsk(cost.tax!)}</span>
+              </div>
+              <div className="bom-cost-row muted">
+                <span>{tr("Recargo de CCS")} (4% VEO)</span>
+                <span>+{fmtIsk(cost.ccs!)}</span>
+              </div>
+              <div className="bom-cost-row bom-cost-total">
+                <span>{tr("Coste total del trabajo")}</span>
+                <strong>{fmtIsk(cost.total!)}</strong>
+              </div>
+            </>
+          )}
+          {cost.faltan > 0 && (
+            <div className="muted">
+              ⚠ {cost.faltan} {tr("material(es) sin adjusted_price: el VEO se queda corto. Sincroniza precios.")}
+            </div>
+          )}
+        </div>
+      )}
 
       <table className="km-table bom-table">
         <thead>

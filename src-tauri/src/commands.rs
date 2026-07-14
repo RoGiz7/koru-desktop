@@ -552,6 +552,42 @@ pub fn get_type_prices(
         .collect())
 }
 
+/// F1b — Índices de coste de industria de UN sistema (actividad → índice). Público, sin scope.
+/// El coste BRUTO de un job es `VEO × índice(actividad)`. Verificado contra el juego:
+/// C-J6MT manufacturing ≈ 0,0998 → 279.893 × 0,0998 = 27.938 ISK.
+#[tauri::command]
+pub async fn get_industry_index(
+    system_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<String, f64>> {
+    let all = industry::fetch_industry_indices(&state.esi, &state.db).await?;
+    Ok(all
+        .into_iter()
+        .find(|s| s.solar_system_id == system_id)
+        .map(|s| {
+            s.cost_indices
+                .into_iter()
+                .map(|c| (c.activity, c.cost_index))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// F1b — `adjusted_price` por typeID. **El VEO se calcula con ESTE precio, no con el medio de
+/// mercado**: cuadrarlos fue lo que destapó que el "Est. Unit price" de la lista de materiales del
+/// juego NO es el adjusted (Σ(base × ese precio) = 354.892 ≠ VEO 279.893). Sin red: sale de la BD.
+#[tauri::command]
+pub fn get_type_adjusted_prices(
+    ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<i64, f64>> {
+    let prices = state.db.adjusted_prices_map().unwrap_or_default();
+    Ok(ids
+        .into_iter()
+        .filter_map(|id| prices.get(&id).map(|p| (id, *p)))
+        .collect())
+}
+
 /// R2 (memoria de precios): histórico diario de un tipo (por defecto en The Forge / Jita).
 /// Trae la serie fresca de ESI (~400 días, cacheada por ETag), la PERSISTE en price_history
 /// (para acumular más allá de la ventana de ESI) y devuelve lo almacenado (unión de todo lo visto).

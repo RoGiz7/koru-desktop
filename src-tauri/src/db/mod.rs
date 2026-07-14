@@ -3218,6 +3218,20 @@ impl Db {
         Ok(map)
     }
 
+    /// Mapa type_id -> `adjusted_price`. **NO es el precio medio**: es el que EVE usa para el VEO
+    /// (Valor Estimado del Objeto) de un job, y por tanto para su coste. Ya lo guardaba
+    /// `upsert_prices` desde siempre; hasta F1b nadie lo leía.
+    pub fn adjusted_prices_map(&self) -> AppResult<std::collections::HashMap<i64, f64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT type_id, adjusted_price FROM market_prices WHERE adjusted_price IS NOT NULL",
+        )?;
+        let map = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))?
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+        Ok(map)
+    }
+
     /// Nº de precios almacenados (para indicadores en la UI).
     pub fn prices_count(&self) -> AppResult<i64> {
         let conn = self.conn.lock().unwrap();
