@@ -1839,6 +1839,38 @@ export function MapView(props: {
                 ⚙
               </button>
             </div>
+            {/* La VERDAD del vigilante, en su propia línea: la dice el hilo de Rust, no el
+                interruptor de arriba. Sin esto, un intel MUERTO y uno en CALMA se ven igual —
+                nos costó dos sesiones de diagnóstico. (Va fuera de .intel-head a propósito:
+                dentro apretaba el flex y partía el título en tres líneas.) */}
+            {intel.live &&
+              intel.status &&
+              (() => {
+                const s = intel.status;
+                const stale = Date.now() - s.last_tick_ms > 15000;
+                const [cls, txt, tip] = stale
+                  ? ["bad", `⚠ ${tr("vigilante sin responder")}`, tr("El hilo del intel no responde")]
+                  : s.last_error
+                    ? ["bad", `⚠ ${tr("error leyendo logs")}`, s.last_error]
+                    : !s.collecting
+                      ? ["bad", `⚠ ${tr("parado")}: ${s.idle_reason ?? "?"}`, s.idle_reason ?? ""]
+                      : s.files === 0
+                        ? [
+                            "warn",
+                            `⚠ ${tr("sin logs de ese canal")}`,
+                            tr("No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?"),
+                          ]
+                        : [
+                            "ok",
+                            `${tr("leyendo")} ${s.files} ${tr("log(s)")} · ${s.lines} ${tr("líneas")}`,
+                            tr("El vigilante está leyendo de verdad"),
+                          ];
+                return (
+                  <div className={`intel-health-row ${cls}`} title={tip}>
+                    {txt}
+                  </div>
+                );
+              })()}
             {cfgOpen && (
               <div className="intel-cfg">
                 <label className="intel-folder" title={intel.folder}>

@@ -115,6 +115,7 @@ pub fn run() {
             commands::get_gamelog_pvp_series,
             commands::get_gamelog_dps,
             commands::get_planet_detail,
+            commands::get_intel_status,
             commands::get_blueprints,
             commands::get_blueprints_global,
             commands::get_pi_map,

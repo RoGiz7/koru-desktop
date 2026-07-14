@@ -6,6 +6,22 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.27.1",
+    date: "2026-07-14",
+    es: [
+      "🚨 El intel ya no puede fallar en silencio. Hasta ahora, un intel MUERTO y un intel EN CALMA se veían exactamente igual: «Activo» en verde y cero sistemas. Ahora el panel dice lo que el vigilante está haciendo DE VERDAD: «leyendo 1 log · 27 líneas» en verde, o en rojo/ámbar por qué no lee — sin logs de ese canal, parado, o el error exacto.",
+      "🔇 Los errores de lectura dejan de tragarse: antes cualquier fallo se convertía en «0 líneas» sin decir ni pío. Esa mudez es la que nos tuvo dos diagnósticos persiguiendo fantasmas.",
+      "🐛 La recencia ya no descarta ficheros: filtra MENSAJES, que es lo suyo. Antes podía tirar el log VIVO en sesiones largas y dejarte sordo hasta relogear.",
+      "📘 De regalo, tu biblioteca de blueprints en Industria: tus BPO/BPC con los ME/TE REALES, por categoría y grupo (Fragata, Crucero, Superportanaves…), con buscador. Y al clicar uno, el árbol de materiales con las cantidades exactas que pide EVE — con tu ME y los bonos de tu estructura — cruzado con lo que ya tienes en los hangares.",
+    ],
+    en: [
+      "🚨 Intel can no longer fail in silence. Until now a DEAD intel and a QUIET intel looked identical: green “Active” and zero systems. The panel now shows what the watcher is REALLY doing: “reading 1 log · 27 lines” in green, or in red/amber why it isn't — no logs for that channel, stopped, or the exact error.",
+      "🔇 Read errors are no longer swallowed: any failure used to silently become “0 lines”. That muteness is what had two diagnoses chasing ghosts.",
+      "🐛 Recency no longer discards files: it filters MESSAGES, which is its job. It could drop the LIVE log in long sessions and leave you deaf until you relogged.",
+      "📘 As a bonus, your blueprint library in Industry: your BPOs/BPCs with their REAL ME/TE, by category and group (Frigate, Cruiser, Supercarrier…), with a search box. Click one and get the material tree with the exact amounts EVE asks for — with your ME and your structure's bonuses — cross-checked against what's already in your hangars.",
+    ],
+  },
+  {
     version: "0.27.0",
     date: "2026-07-14",
     es: [

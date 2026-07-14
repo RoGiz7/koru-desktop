@@ -4918,6 +4918,17 @@ fn collect_intel_lines(
     channels: &[String],
     since_minutes: i64,
 ) -> AppResult<Vec<IntelLine>> {
+    collect_intel_ext(folder, channels, since_minutes).map(|(l, _)| l)
+}
+
+/// Igual que `collect_intel_lines` pero además dice cuántos logs vivos siguió. El vigilante lo
+/// publica en su estado: "0 ficheros" NO es lo mismo que "0 líneas" (uno es que no encontramos el
+/// log del canal; el otro es que no hay hostiles). Confundirlos nos costó dos diagnósticos falsos.
+fn collect_intel_ext(
+    folder: &str,
+    channels: &[String],
+    since_minutes: i64,
+) -> AppResult<(Vec<IntelLine>, usize)> {
     let cutoff = chrono::Utc::now() - chrono::Duration::minutes(since_minutes.max(1));
     let cutoff_ms = cutoff.timestamp_millis();
     let rd = std::fs::read_dir(folder)
@@ -4951,21 +4962,23 @@ fn collect_intel_lines(
             Err(_) => continue,
         };
         let modt = md.modified().ok();
-        // Poda de ficheros viejos por lo MÁS RECIENTE entre el mtime visible y la fecha de sesión
-        // del NOMBRE. Solo con el mtime, Windows nos mentía: se congela mientras EVE escribe (ver
-        // `intel_fname_session`) y el log VIVO acababa podado a los `recencia+10` min de sesión.
+        // Fecha "efectiva" del fichero = lo más reciente entre el mtime visible y la fecha de
+        // sesión del NOMBRE. Solo sirve para ELEGIR el log vivo del canal, NO para descartar.
         let mdt: Option<chrono::DateTime<chrono::Utc>> = modt.map(Into::into);
         let fdt = intel_fname_session(&name);
         let eff = match (mdt, fdt) {
             (Some(a), Some(b)) => Some(a.max(b)),
             (a, b) => a.or(b),
         };
-        if let Some(d) = eff {
-            if d < skip_before {
-                continue;
-            }
-        }
-        // Fichero vivo del canal = el de sesión más reciente. También aquí manda el efectivo:
+        // ⚠️ NO se poda por fecha. Aquí vivía el bug del "intel mudo" (dos intentos ya):
+        // en una sesión larga las DOS señales son viejas —el mtime se congela mientras EVE tiene el
+        // log abierto (mal de Windows, ver `intel_fname_session`) y la fecha del nombre es la de
+        // INICIO de sesión—, así que el log VIVO se descartaba a los `recencia+10` minutos y el
+        // intel enmudecía hasta relogear. El respaldo por nombre (2026-07-10) solo tapaba los
+        // primeros minutos. La poda además SOBRABA: la recencia es un filtro de MENSAJES (lo hace
+        // la 2ª pasada con `cutoff_ms`), no de ficheros; y como abajo nos quedamos solo con el
+        // fichero más nuevo de cada canal, no podar no abre ni un fichero de más.
+        // Fichero vivo del canal = el de sesión más reciente. Manda el efectivo:
         // con los mtime congelados en el arranque de cada sesión, el nombre ordena mejor.
         let eff_ns = eff
             .map(|d| d.timestamp_millis().max(0) as u128 * 1_000_000)
@@ -4975,6 +4988,8 @@ fn collect_intel_lines(
             *entry = (eff_ns, md.len(), e.path());
         }
     }
+
+    let files = live.len();
 
     // 2ª pasada: leer SOLO la cola nueva del log vivo de cada canal (ver `intel_tail`).
     for (ch, (_mtime_ns, _len, path)) in live {
@@ -4990,7 +5005,7 @@ fn collect_intel_lines(
         }
     }
     out.sort_by_key(|l| l.ts_ms);
-    Ok(out)
+    Ok((out, files))
 }
 
 // ---- Vigilancia de intel en segundo plano (hilo nativo, sin throttle del SO) ----
@@ -5015,12 +5030,45 @@ pub struct IntelGraph {
     pub adj: std::collections::HashMap<i64, Vec<i64>>,
 }
 
+/// Lo que el vigilante está haciendo DE VERDAD. Nace de un fallo de diseño que nos costó dos
+/// sesiones a ciegas (2026-07-10 y 2026-07-14): el badge "Activo" salía del interruptor del
+/// frontend, no del hilo, y los errores de lectura se tragaban con `unwrap_or_default()`. Con eso,
+/// un intel MUERTO y un intel EN CALMA se veían exactamente igual ("Activo · 0 sistemas") y
+/// diagnosticamos dos veces con teorías falsas. Si el intel se cae, tiene que GRITAR.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct IntelStatus {
+    /// El hilo está recolectando de verdad (hay cfg, con carpeta y canales).
+    pub collecting: bool,
+    /// Por qué NO recolecta, si es el caso (sin config, sin canales…).
+    pub idle_reason: Option<String>,
+    /// Último error REAL de lectura. Antes moría en un `unwrap_or_default()` sin que nadie lo viera.
+    pub last_error: Option<String>,
+    /// Líneas dentro de la recencia en la última pasada.
+    pub lines: i64,
+    /// Ficheros de log seguidos (uno por canal vivo). 0 = no encontramos ningún log del canal.
+    pub files: i64,
+    /// Última pasada (ms epoch). Si esto no avanza, el hilo está muerto.
+    pub last_tick_ms: i64,
+}
+
 #[derive(Default)]
 pub struct IntelWatch {
     pub cfg: std::sync::Mutex<Option<IntelWatchCfg>>,
     pub graph: std::sync::Mutex<IntelGraph>,
     pub alerted: std::sync::Mutex<HashSet<String>>,
     pub started: std::sync::atomic::AtomicBool,
+    pub status: std::sync::Mutex<IntelStatus>,
+}
+
+/// Estado real del vigilante de intel, para que la UI no pueda mentir diciendo "Activo".
+#[tauri::command]
+pub fn get_intel_status(state: State<'_, AppState>) -> AppResult<IntelStatus> {
+    Ok(state
+        .intel
+        .status
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default())
 }
 
 #[derive(Clone, Serialize)]
@@ -5132,20 +5180,65 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
         let mut last_sig: u64 = 0;
         let mut last_cfg_sig: u64 = 0;
         loop {
+            // Publicar el estado REAL en cada vuelta: si el hilo está ocioso o petando, la UI tiene
+            // que poder decirlo. Antes esto era invisible y el badge mentía con un "Activo" verde.
+            let set_status = |s: IntelStatus| {
+                if let Ok(mut st) = watch.status.lock() {
+                    *st = s;
+                }
+            };
+            let now_ms = chrono::Utc::now().timestamp_millis();
+
             let cfg = watch.cfg.lock().ok().and_then(|c| c.clone());
             let cfg = match cfg {
                 Some(c) => c,
                 None => {
+                    set_status(IntelStatus {
+                        collecting: false,
+                        idle_reason: Some("vigilante detenido (sin configuración)".into()),
+                        last_tick_ms: now_ms,
+                        ..Default::default()
+                    });
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                     continue;
                 }
             };
             if cfg.channels.is_empty() || cfg.folder.is_empty() {
+                set_status(IntelStatus {
+                    collecting: false,
+                    idle_reason: Some("sin canales o sin carpeta de logs".into()),
+                    last_tick_ms: now_ms,
+                    ..Default::default()
+                });
                 std::thread::sleep(std::time::Duration::from_millis(1500));
                 continue;
             }
-            let lines =
-                collect_intel_lines(&cfg.folder, &cfg.channels, cfg.recency_min).unwrap_or_default();
+            // NADA de `unwrap_or_default()`: un error de lectura tiene que verse, no convertirse
+            // en "0 líneas" con cara de calma. Aquí murieron dos diagnósticos.
+            let (lines, files) = match collect_intel_ext(&cfg.folder, &cfg.channels, cfg.recency_min)
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    let msg = e.to_string();
+                    eprintln!("intel: fallo leyendo logs: {msg}");
+                    set_status(IntelStatus {
+                        collecting: true,
+                        last_error: Some(msg),
+                        last_tick_ms: now_ms,
+                        ..Default::default()
+                    });
+                    std::thread::sleep(std::time::Duration::from_millis(3000));
+                    continue;
+                }
+            };
+            set_status(IntelStatus {
+                collecting: true,
+                idle_reason: None,
+                last_error: None,
+                lines: lines.len() as i64,
+                files: files as i64,
+                last_tick_ms: now_ms,
+            });
 
             // Firma barata de las líneas y de la config relevante para alertas.
             let mut h = std::collections::hash_map::DefaultHasher::new();

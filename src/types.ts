@@ -314,6 +314,17 @@ export type NewEden = {
 export type SystemKills = { system_id: number; ship_kills: number; pod_kills: number; npc_kills: number };
 export type SystemJumps = { system_id: number; ship_jumps: number };
 export type AssetSystem = { system_id: number; count: number };
+/** Estado REAL del vigilante de intel (get_intel_status). El badge NO puede salir del interruptor
+ *  del frontend: un intel muerto y uno en calma se veían igual ("Activo · 0 sistemas") y eso nos
+ *  costó dos diagnósticos falsos. Si el intel se cae, tiene que gritar. */
+export type IntelStatus = {
+  collecting: boolean;
+  idle_reason: string | null;
+  last_error: string | null;
+  lines: number;
+  files: number;
+  last_tick_ms: number;
+};
 /** Un blueprint tuyo con sus ME/TE REALES (F1a, scope read_blueprints).
  *  `quantity`: -1 = BPO · -2 = BPC · >0 = pila de BPCs. `runs`: -1 = BPO (infinitas). */
 export type Blueprint = {
@@ -881,7 +892,10 @@ export type IntelConfig = {
   onlyRange: boolean;
   soundChoice: string;
   soundFile: string;
+  /** El INTERRUPTOR del usuario. NO es prueba de que el vigilante esté leyendo: para eso, `status`. */
   live: boolean;
+  /** Lo que el hilo de Rust dice que está haciendo de verdad. */
+  status?: IntelStatus | null;
   onToggleLive?: () => void;
   onIntelAlert?: (text: string) => void;
   onClearAlert?: () => void;

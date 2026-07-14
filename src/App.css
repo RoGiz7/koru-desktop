@@ -5701,6 +5701,28 @@ h4 {
   filter: brightness(1.15);
 }
 
+/* Salud REAL del vigilante de intel: línea propia bajo la cabecera (dentro la apretaba).
+   Verde SOLO si el hilo de Rust está leyendo de verdad; el badge "Activo" es el interruptor. */
+.intel-health-row {
+  font-size: 0.75em;
+  padding: 0.2rem 0.7rem 0.35rem;
+  border-bottom: 1px solid #2a3340;
+  line-height: 1.3;
+}
+.intel-health-row.ok {
+  color: #3fb950;
+}
+.intel-health-row.warn {
+  color: #d29922;
+  font-weight: 600;
+  background: rgba(210, 153, 34, 0.08);
+}
+.intel-health-row.bad {
+  color: #e5534b;
+  font-weight: 700;
+  background: rgba(229, 83, 75, 0.1);
+}
+
 /* --- F1a: árbol BOM --- */
 .bp-row {
   cursor: pointer;

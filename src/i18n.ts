@@ -286,6 +286,17 @@ const EN: Record<string, string> = {
   "Colonias de PI aquí": "PI colonies here",
   "sin extractor": "no extractor",
   "Ver en Planetología": "View in Planetary",
+  // --- Salud del vigilante de intel (que el badge no pueda mentir) ---
+  leyendo: "reading",
+  líneas: "lines",
+  "log(s)": "log(s)",
+  "error leyendo logs": "error reading logs",
+  "vigilante sin responder": "watcher not responding",
+  "sin logs de ese canal": "no logs for that channel",
+  "El hilo del intel no responde": "The intel thread is not responding",
+  "El vigilante está leyendo de verdad": "The watcher really is reading",
+  "No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?":
+    "There's no log for that channel in the folder. Right channel? Have you joined it this session?",
   // --- F1a: árbol BOM (qué hace falta para fabricar) ---
   Material: "Material",
   Necesitas: "You need",

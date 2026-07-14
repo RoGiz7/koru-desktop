@@ -65,6 +65,7 @@ import type {
   Battle,
   Rivals,
   AssetSystem,
+  IntelStatus,
   PiSystem,
   SovSystem,
   FwSystem,
@@ -578,6 +579,17 @@ function App() {
     return () => {
       un.then((f) => f());
     };
+  }, []);
+  // Estado REAL del vigilante (lo publica el hilo de Rust en cada vuelta). El panel lo enseña para
+  // que un intel muerto NO se vea igual que un intel en calma: ese fue el fallo de fondo.
+  const [intelStatus, setIntelStatus] = useState<IntelStatus | null>(null);
+  useEffect(() => {
+    const tick = () => {
+      invoke<IntelStatus>("get_intel_status").then(setIntelStatus).catch(() => {});
+    };
+    tick();
+    const t = window.setInterval(tick, 3000);
+    return () => window.clearInterval(t);
   }, []);
   // Planetología: alarma de extractores (auto_sync ya lanzó la notificación nativa; aquí el toast).
   useEffect(() => {
@@ -1797,6 +1809,7 @@ function App() {
             soundChoice: intelSoundChoice,
             soundFile: intelSoundFile,
             live: intelLive,
+            status: intelStatus,
             onToggleLive: () => toggleIntelLive(),
             onIntelAlert: showGlobalAlert,
             onClearAlert: () => setGlobalAlert(null),
