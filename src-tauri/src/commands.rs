@@ -618,6 +618,7 @@ fn scopes_for_feature(feature: &str) -> Vec<String> {
         "wallet" => config::scopes::WALLET,
         "skills" => config::scopes::SKILLS,
         "assets" => config::scopes::ASSETS,
+        "industria" => config::scopes::INDUSTRIA,
         "location" => config::scopes::LOCATION,
         "core" => {
             return config::scopes::core_v1()

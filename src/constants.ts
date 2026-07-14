@@ -157,6 +157,8 @@ export const FEATURES = [
   { key: "wallet", label: "Wallet" },
   { key: "skills", label: "Skills" },
   { key: "assets", label: "Assets / industria" },
+  // R4: blueprints (ME/TE reales) + contratos. Grupo propio para concederlo suelto.
+  { key: "industria", label: "Industria (blueprints y contratos)" },
   { key: "location", label: "Ubicación (sistema actual)" },
   { key: "identity", label: "Solo identidad (0 scopes)" },
 ];
@@ -180,6 +182,8 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Comercio", scope: "esi-markets.read_character_orders.v1" },
   { label: "Planetología", scope: "esi-planets.manage_planets.v1" },
   { label: "Industria", scope: "esi-industry.read_character_jobs.v1" },
+  { label: "Blueprints (ME/TE reales)", scope: "esi-characters.read_blueprints.v1" },
+  { label: "Contratos", scope: "esi-contracts.read_character_contracts.v1" },
   { label: "Ubicación", scope: "esi-location.read_location.v1" },
   { label: "Estructuras (assets en citadels)", scope: "esi-universe.read_structures.v1" },
   { label: "Fatiga de salto", scope: "esi-characters.read_fatigue.v1" },

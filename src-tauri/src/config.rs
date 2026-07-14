@@ -84,6 +84,15 @@ pub mod scopes {
         "esi-planets.manage_planets.v1", // Planetología (PI)
     ];
 
+    /// R4 del Pilar Industrial: lo que la fabricación necesita saber y hoy tendría que adivinar.
+    /// - read_blueprints: tus BPO/BPC con ME/TE REALES (sin esto, el planner estima y miente).
+    /// - read_character_contracts: contratos del personaje (courier/item exchange) para F5 y P&L.
+    /// Van en su propio grupo para poder concederlos sueltos ("Industria") sin relogin del set entero.
+    pub const INDUSTRIA: &[&str] = &[
+        "esi-characters.read_blueprints.v1",
+        "esi-contracts.read_character_contracts.v1",
+    ];
+
     /// Estado en vivo (opcional, baja sensibilidad).
     pub const LOCATION: &[&str] = &[
         "esi-location.read_location.v1",
@@ -117,6 +126,7 @@ pub mod scopes {
         v.extend_from_slice(WALLET);
         v.extend_from_slice(SKILLS);
         v.extend_from_slice(ASSETS);
+        v.extend_from_slice(INDUSTRIA);
         v.extend_from_slice(LOCATION);
         v.extend_from_slice(BITACORA);
         v
