@@ -1,11 +1,11 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-07-11 (v0.26.0) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-14 (v0.27.1) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.26.0 · 2026-07-11)
+## 📌 Estado actual (v0.27.1 · 2026-07-14)
 
 ### Hecho desde v0.16.1 (resumen por versión)
 - **v0.17–v0.18.4 — BITÁCORA completa**: motor de logros retroactivos + retos adaptativos
@@ -33,8 +33,8 @@
   app-data (cero redistribución — decisión EULA; las hojas resultaron DDS SIN comprimir → decode
   a mano, solo crate `png`), canvas con la receta calibrada (tinte multiplicativo, capa 0 encima,
   bbox, cinta+medallón), fallback al marco genérico, medallas repetidas agrupadas ×N con fecha y
-  motivo por entrega, aviso "EVE Online © CCP hf." en Ajustes. Validado en vivo con las 4 del
-  usuario.
+  motivo por entrega, aviso "EVE Online © Fenris Creations (FC)" en Ajustes. Validado en vivo con
+  las 4 del usuario.
 
 - **v0.24.1 — «Filón»**: umbrales recalibrados con datos reales (100k/1M/10M; el resto de las 8
   medallas de la 0.23.0 quedaron clavadas: verificadas 7/8 en plata con el oro a la vista).
@@ -53,7 +53,28 @@
   en Rateo, Daño/Fallos PvE-puros (resta exacta de gamelog_pvp por día+arma), título oficial en
   la Bitácora, fósiles «#-1» borrados del mining_ledger. Sin reescaneo.
 
+- **v0.27.0 — «Colonias»** (Pilar Industrial: R1+R3+R2a): Planetología deja de ser una tabla plana.
+  Dashboard multi-personaje (caducidad, producción/h REAL del pin, capacidad/día valorada) ·
+  **alarma de extractores configurable** (umbrales a gusto, por defecto 8h y 1h + parada; banner
+  ámbar propio que lleva a Planetología; texto que distingue colonias del mismo sistema por tipo de
+  planeta) · **capa «🪐 Tu PI» en el mapa** (sistema coloreado por su peor extractor) + panel por
+  colonia al clicar · **explorador de cadenas P0→P4** y **planificador inverso** con la tabla
+  P0→planetas **verificada contra EVE University** (`pi_p0_planets.json`; la comunidad agregada
+  daba 12/15) · **memoria de precios (R2a)**: `price_history`, `get_market_history`, el watchlist
+  acumula histórico al mirarlo, y «actual ±X% vs su media». Fixes: el rename bidireccional de serde
+  que impedía pintar los extractores, y la poda del dedup que se vaciaba sola.
+- **v0.27.1 — «Que se oiga»** (R4 + F1a + intel): **el intel ya no puede fallar en silencio** —
+  `IntelStatus` publicado por el hilo y franja honesta en la UI («leyendo N log(s) · M líneas» en
+  verde; ámbar/rojo con el motivo exacto); fuera el `unwrap_or_default()` que convertía cualquier
+  error en «0 líneas» mudas; la recencia deja de podar FICHEROS (filtra mensajes). ⚠️ La causa raíz
+  del arranque mudo NO está identificada: lo que se arregló es que sea VISIBLE. **R4**: scopes
+  `read_blueprints` + `read_contracts` (grupo Industria, dentro de `core_v1()`). **F1a**: biblioteca
+  de blueprints con **ME/TE reales** (pestañas por categoría/grupo del producto + buscador) y
+  **árbol BOM** con las cantidades EXACTAS del juego (fórmula verificada contra un job real:
+  20.307/3.808/1.587/318) cruzado con tus assets.
+
 ### Pendiente REAL (orden recomendado)
+0. **PILAR INDUSTRIAL — F1b (el dinero)**: es lo siguiente. Ver el bloque del pilar abajo.
 1. **Menores**: partir App() en `useAppData()`, deriva del QA.sql (medallas nuevas sin cubrir).
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
@@ -69,34 +90,46 @@ Ventaja estructural: lo que Ravworks/IPH piden pegado a mano (stock, skills, job
 Koru lo sabe EN VIVO y multi-personaje; y el transporte como coste (que nadie integra) tenemos
 mapa y rutas para hacerlo. Dependía a propósito de todo lo construido.
 
-**REFUERZOS previos (el pilar no arranca sin ellos):**
-- **R1 — Planetología de verdad** (el módulo más débil de la app: 43 líneas, tabla plana):
-  detalle por planeta con `/planets/{planet_id}/` (el scope manage_planets YA lo autoriza):
-  pins, extractores con **caducidad + alarma nativa** (patrón intel/bitácora), cadenas P0→P4
-  desde planetSchematics del SDE, valor/día por colonia a precios de mercado. Multi-personaje.
-- **R2 — Comercio: memoria de precios** ⚠️ CUANTO ANTES (la historia solo existe desde que se
-  empieza a guardar): recolector de snapshots diarios de precios (patrón paper_snapshots) +
-  backfill con `/markets/{region}/history/` (400 días) + `adjusted_price` al prices_map
-  (imprescindible para el coste de instalación de jobs). Gráfica temporal por ítem en Comercio.
-- **R3 — Pipeline SDE → public/**: script de extracción (estilo neweden/ores) de
-  blueprints.jsonl (3,5 MB) y planetSchematics a JSONs compactos: typeID → materiales/producto/
-  tiempos/skills por actividad (manufacturing/invention/copying) + esquemas PI. Offline puro.
-- **R4 — Scopes nuevos**: `esi-characters.read_blueprints.v1` (ME/TE reales de tus BPO/BPC) +
-  `esi-contracts.read_character_contracts.v1`, como grupo de login "Industria" (patrón
-  Conceder acceso). Un relogin por usuario, una vez.
+**REFUERZOS previos — LOS CUATRO HECHOS (publicados en 0.27.0 y 0.27.1):**
+- ✅ **R1 — Planetología de verdad** (era el módulo más débil: 43 líneas de tabla plana). Dashboard
+  multi-personaje, alarma de extractores configurable, cadenas P0→P4, planificador inverso, capa en
+  el mapa y panel por colonia. Spec: `../documentacion/SPEC_PLANETOLOGIA.md`.
+  Flecos: nombres de los 15 P0 en EN (cosmético) · skyhooks (endpoints de corp con rol;
+  `/skyhooks/raidable` público como idea de intel; experimento de assets pendiente).
+- ⏳ **R2 — Memoria de precios**: **R2a hecho** (`price_history`, `get_market_history`, el watchlist
+  acumula histórico al mirarlo, «actual ±X% vs su media»; `adjusted_price` y `region_history` ya
+  existían). **Pendiente R2b** (gráfica 400d con presets + banda alto/bajo + volumen) y **R2c**
+  (cruce con tu journal). Spec: `../documentacion/SPEC_R2_PRECIOS.md`.
+- ✅ **R3 — Pipeline SDE → public/**: `scripts/extract_industry_sde.py` → `bp_industry.json`
+  (5.081 BPs) + `pi_schematics.json` (68 esquemas). Más `scripts/build_bp_tree.py` →
+  `bp_tree.json` (categoría/grupo de inventario del producto de cada plano) y
+  `scripts/build_pi_p0_planets.py` → `pi_p0_planets.json`.
+- ✅ **R4 — Scopes nuevos**: `read_blueprints` + `read_contracts` en el grupo `INDUSTRIA`
+  (`config::scopes`), incluido en `core_v1()`. Concedido en vivo. ⚠️ `upsert_character` REEMPLAZA
+  los scopes (y el token SSO también): un login granular deja al personaje solo con esos → el
+  camino bueno es «Set completo».
 
-**FASES del pilar (tras los refuerzos; spec fina por fase antes de codificar):**
-- **F1 — Fabricación**: árbol BOM (SDE) + coste real (materiales a precio de hub + índice de
-  sistema de `/industry/systems/` + tax de instalación) + build-vs-buy POR NODO + "qué me falta"
-  contra Assets en vivo + config de instalaciones persistida (estilo Ravworks).
+**FASES del pilar** (spec fina por fase antes de codificar — `../documentacion/SPEC_F1_FABRICACION.md`):
+- ⏳ **F1 — Fabricación (la joya)**. **F1a HECHO**: biblioteca de blueprints con ME/TE REALES
+  (pestañas por categoría/grupo del producto + buscador) + **árbol BOM** con las cantidades exactas
+  del juego + cruce con Assets («necesitas / tienes / te falta»).
+  **Fórmulas VERIFICADAS contra un job real** (fixture Bantam ME10 en Sotiyo nullsec):
+  materiales = `ceil(base × runs × (1−ME) × (1−bonif_estructura) × (1−rig_base × mult_seguridad))`
+  → 20.307/3.808/1.587/318 exactos · tiempo → 18:53 al segundo · coste → 40.536 ISK al ISK.
+  ⚠️ **Los rigs escalan con la seguridad** (null/WH ×2.1 · low ×1.9 · high ×1.0) y **EVE muestra el
+  efectivo REDONDEADO** (−5,0 % cuando es −5,04 %): pedir SIEMPRE el valor BASE del rig.
+  **F1b — SIGUIENTE (el dinero)**: `VEO = Σ(qty_BASE × adjusted_price)` (ya en BD) × índice del
+  sistema (`/industry/systems/`, **público y aún sin usar: es lo único que falta**) − bonif. de
+  estructura sobre el BRUTO + impuesto de centro + recargo de CCS (4 %), todo sobre el VEO.
+  **F1c**: build-vs-buy POR NODO + config de instalaciones persistida (hoy en localStorage).
 - **F2 — Invención**: esperanza por decryptor con skills reales, coste POR ÉXITO, propiedades
-  del BPC resultante, encadenado al coste de F1.
+  del BPC resultante, encadenado al coste de F1. Ya tenemos los 1.117 BPs con sus probabilidades.
 - **F3 — Jobs con economía**: cada job con coste/valor esperado/beneficio; al entregar, cruce
   con wallet → beneficio REAL por línea de producción (EVE Tycoon, pero automático).
 - **F4 — Transporte**: coste de mover BOM/producto (ISK/salto configurable estilo Red Frog +
   m³ + colateral) integrado en build-vs-buy. El hueco que nadie cubre.
 - **F5 — Contratos**: leer contratos del personaje, valorarlos (mini-Janice interno con
-  nuestros precios) y unirlos al P&L.
+  nuestros precios) y unirlos al P&L. **El scope ya está concedido (R4)**: arranca sin relogin.
 
 ---
 
