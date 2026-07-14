@@ -15,6 +15,11 @@ dist-ssr
 # Rust / Tauri build (artefactos pesados, no van al repo)
 src-tauri/target/
 
+# Python: los scripts de `scripts/` se ejecutan a mano y dejan bytecode compilado. Es basura de
+# build (y depende de la versión del intérprete): se coló un .pyc en el commit cca446f.
+__pycache__/
+*.py[cod]
+
 # Base de datos local y datos del usuario (no van al repo)
 *.sqlite
 *.sqlite3

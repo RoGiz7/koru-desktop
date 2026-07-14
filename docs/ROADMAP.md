@@ -460,7 +460,7 @@ compuesta). Cero servidor nuestro.
 - **Incursions** — overlay público trivial (1 endpoint).
 - **Header de personaje rico** — implantes / jump clones / bio (Clones 2 + Character 14).
 
-### ★ Reestructuración de navegación (propuesta RoGi7, 2026-06-25)
+### ★ Reestructuración de navegación (propuesta RoGiz7, 2026-06-25)
 
 Pasar de las pestañas planas actuales (PvP·Rivales·Batallas·Patrimonio·Wallet·Skills·Assets·Industria)
 a **grupos con subsecciones**. El **Mapa** sigue siendo el centro. Estructura objetivo:

@@ -10,7 +10,7 @@ import type { JobView, Blueprint } from "./types";
 /** public/bp_tree.json — categoría y grupo de INVENTARIO del PRODUCTO de cada blueprint, con
  *  nombres ES/EN del SDE. Es la jerarquía que usa el cliente de EVE en su ventana de planos.
  *  (El árbol de MERCADO de planos NO vale: mete los supercarriers dentro de "Carriers" — la Nyx
- *  salía como portanave. Cazado por RoGi7 y verificado en EVE Ref.) */
+ *  salía como portanave. Cazado por RoGiz7 y verificado en EVE Ref.) */
 type BpTree = {
   bp: Record<string, [number, number]>; // blueprintTypeID → [categoríaID, grupoID]
   cat: Record<string, { es: string; en: string }>;
@@ -52,7 +52,7 @@ type IndustryRigs = {
   >;
 };
 
-/** Ficha de instalación (tabla `facility`). Es el registro del fabricante: idea de RoGi7, y nace de
+/** Ficha de instalación (tabla `facility`). Es el registro del fabricante: idea de RoGiz7, y nace de
  *  un hecho concreto — los rigs y los servicios de una estructura NO se ven in-game si no eres
  *  Director, y ESI tampoco los da. Así que no hay nada que deducir: lo declara quien lo sabe.
  *  Aquí NO se guardan porcentajes; los bonos se derivan del SDE con `type_id` y `rigs` al calcular. */
@@ -682,7 +682,7 @@ function BomPanel({
 /** F1a — Tu biblioteca de blueprints con los ME/TE REALES (scope read_blueprints, R4).
  *  Con 2.000+ planos una tabla plana no vale: se navega como Assets, por pestañas de categoría
  *  (nivel 1 del árbol de mercado: Naves, Munición…) + subpestañas (Fragatas, Cruceros…) + buscador.
- *  Los nombres de grupo salen del SDE y YA vienen bilingües (`n` EN / `ne` ES). Idea de RoGi7. */
+ *  Los nombres de grupo salen del SDE y YA vienen bilingües (`n` EN / `ne` ES). Idea de RoGiz7. */
 function BlueprintLibrary({
   subject,
   global,
@@ -902,7 +902,7 @@ function BlueprintLibrary({
 
 /* ============================ F1c — Mis instalaciones ============================
  *
- * El registro de estructuras del fabricante. Idea de RoGi7, y corrige el rumbo anterior: intentar
+ * El registro de estructuras del fabricante. Idea de RoGiz7, y corrige el rumbo anterior: intentar
  * DEDUCIR qué tiene cada estructura es imposible — los rigs y los servicios no los da ESI (solo a
  * un Director vía /corporations/{id}/structures/) ni se ven in-game sin roles.
  * Por eso las alianzas publican hojas de cálculo con las mejoras de sus estaciones.

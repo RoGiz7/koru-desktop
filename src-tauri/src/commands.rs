@@ -613,7 +613,7 @@ pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<Structu
 
 // ---- F1c: fichas de instalación ----
 //
-// El registro de estructuras del fabricante. Nace de una idea de RoGi7: en vez de que Koru adivine
+// El registro de estructuras del fabricante. Nace de una idea de RoGiz7: en vez de que Koru adivine
 // qué tiene instalado cada estructura (no puede: ESI solo se lo cuenta a un Director, e in-game no
 // se ve sin roles), lo declara quien lo sabe. Aquí solo movemos datos: los BONOS se derivan del SDE
 // en el frontend a partir de `type_id` y `rigs`, nunca se guardan.
@@ -7005,7 +7005,7 @@ pub struct PiColony {
     pub factories: i64,
 }
 
-/// Salud de PI por sistema para el overlay del mapa (idea de RoGi7): peor extractor + detalle por
+/// Salud de PI por sistema para el overlay del mapa (idea de RoGiz7): peor extractor + detalle por
 /// colonia. Reusa /planets/ + /planets/{id}/ (cacheados por ETag).
 #[derive(Debug, Clone, Serialize)]
 pub struct PiSystem {
