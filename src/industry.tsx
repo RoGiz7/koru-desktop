@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
-import { fmtSp, bpIcon } from "./format";
+import { fmtSp, bpIcon, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import type { JobView, Blueprint } from "./types";
 
@@ -16,6 +16,43 @@ type BpTree = {
   cat: Record<string, { es: string; en: string }>;
   grp: Record<string, { es: string; en: string }>;
 };
+
+/* ---------- F1a: árbol BOM ---------- */
+
+/** public/bp_industry.json (R3): actividad → tiempo, insumos [[tid,qty]], producto, skills. */
+type BpAct = { t: number; in: [number, number][]; out: number[][] };
+type BpIndustry = Record<string, { m?: BpAct; i?: BpAct; r?: BpAct; c?: number; max?: number }>;
+/** Catálogo de nombres (public/market_types.json). Los ítems se muestran en INGLÉS a propósito. */
+type MType = { i: number; n: string; g: number };
+
+/** Config de la instalación. ESI NO expone rigs ni bonos de estructura → se pone a mano (como
+ *  Ravworks). Vive en localStorage: el cálculo es 100% del frontend, no necesita backend. */
+type InstallCfg = { structMat: number; rigMe: number; secMult: number };
+const CFG_KEY = "koru_bom_cfg";
+/** Neutral por defecto (sin bonos, highsec): preferimos que el usuario lo configure a inventárselo. */
+const CFG_DEF: InstallCfg = { structMat: 0, rigMe: 0, secMult: 1 };
+
+function loadCfg(): InstallCfg {
+  try {
+    return { ...CFG_DEF, ...JSON.parse(localStorage.getItem(CFG_KEY) ?? "{}") };
+  } catch {
+    return { ...CFG_DEF };
+  }
+}
+
+/** Factor de material VERIFICADO contra el juego (fixture Bantam ME10 en Sotiyo nullsec):
+ *  (1−ME) × (1−bonif_estructura) × (1−rig_base×multiplicador_de_seguridad).
+ *  ⚠️ El rig se calcula desde su valor BASE: EVE muestra el efectivo REDONDEADO (−5,0 % cuando en
+ *  realidad es −5,04 %) y con el de pantalla el árbol miente (20.315 en vez de 20.307). */
+function matFactor(me: number, cfg: InstallCfg): number {
+  const rig = (cfg.rigMe * cfg.secMult) / 100;
+  return (1 - me / 100) * (1 - cfg.structMat / 100) * (1 - rig);
+}
+
+/** Cantidad real que pide EVE. `ceil`, con el mínimo de 1 por carrera. */
+function matQty(base: number, runs: number, factor: number): number {
+  return Math.max(runs, Math.ceil(base * runs * factor));
+}
 
 function fmtRemain(end: string | null): { text: string; ready: boolean } {
   if (!end) return { text: "-", ready: false };
@@ -138,6 +175,251 @@ function JobsBlock({
   );
 }
 
+/** F1a — Árbol BOM: qué hace falta para fabricar ESTE plano, con TU ME y los bonos de TU
+ *  instalación. Fórmula verificada contra el juego (ver SPEC_F1_FABRICACION.md). Sin ISK todavía:
+ *  primero que el árbol sea CIERTO; el dinero llega en F1b. */
+function BomPanel({
+  bp,
+  owned,
+  subject,
+  onClose,
+}: {
+  bp: Blueprint;
+  owned: Blueprint[];
+  subject: number | "global";
+  onClose: () => void;
+}) {
+  const [ind, setInd] = useState<BpIndustry | null>(null);
+  const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [stock, setStock] = useState<Map<number, number> | null>(null);
+  const [runs, setRuns] = useState(1);
+  const [cfg, setCfg] = useState<InstallCfg>(loadCfg);
+  const [open, setOpen] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    fetch("/bp_industry.json").then((r) => r.json()).then(setInd).catch(() => setInd({}));
+    fetch("/market_types.json")
+      .then((r) => r.json())
+      .then((m: MType[]) => setNames(new Map(m.map((t) => [t.i, t.n]))))
+      .catch(() => setNames(new Map()));
+  }, []);
+
+  // Stock real: lo que ya tienes, para el "te falta". Multi-personaje si el sujeto es Global.
+  useEffect(() => {
+    const p =
+      subject === "global"
+        ? invoke<{ type_id: number; quantity: number }[]>("get_assets_detail_global")
+        : invoke<{ type_id: number; quantity: number }[]>("get_assets_detail", {
+            characterId: subject,
+          });
+    p.then((list) => {
+      const m = new Map<number, number>();
+      for (const r of list) m.set(r.type_id, (m.get(r.type_id) ?? 0) + r.quantity);
+      setStock(m);
+    }).catch(() => setStock(new Map()));
+  }, [subject]);
+
+  const saveCfg = (c: InstallCfg) => {
+    setCfg(c);
+    localStorage.setItem(CFG_KEY, JSON.stringify(c));
+  };
+
+  // producto → blueprint que lo fabrica (para saber qué material es a su vez fabricable)
+  const bpByProduct = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const [bid, v] of Object.entries(ind ?? {})) {
+      const out = v.m?.out?.[0]?.[0];
+      if (out != null) m.set(out, bid);
+    }
+    return m;
+  }, [ind]);
+
+  // Tu MEJOR ME por blueprint (si tienes varias copias del mismo plano).
+  const meOf = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const b of owned) {
+      const cur = m.get(b.type_id);
+      if (cur == null || b.me > cur) m.set(b.type_id, b.me);
+    }
+    return m;
+  }, [owned]);
+
+  const nameOf = (tid: number) => names.get(tid) ?? `#${tid}`;
+
+  type Row = {
+    tid: number;
+    qty: number;
+    depth: number;
+    subBp: string | null;
+    /** ME usado para calcular los hijos de este nodo (null = no tienes el plano → estimado a 0). */
+    childMe: number | null;
+  };
+
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    if (!ind) return out;
+    const walk = (bpId: string, n: number, depth: number) => {
+      const act = ind[bpId]?.m;
+      if (!act) return;
+      const me = meOf.get(Number(bpId));
+      const f = matFactor(me ?? 0, cfg);
+      for (const [tid, base] of act.in) {
+        const qty = matQty(base, n, f);
+        const sb = bpByProduct.get(tid) ?? null;
+        const childMe = sb ? (meOf.get(Number(sb)) ?? null) : null;
+        out.push({ tid, qty, depth, subBp: sb, childMe });
+        if (sb && open.has(tid)) {
+          const outQty = ind[sb]?.m?.out?.[0]?.[1] ?? 1;
+          walk(sb, Math.ceil(qty / outQty), depth + 1);
+        }
+      }
+    };
+    walk(String(bp.type_id), runs, 0);
+    return out;
+  }, [ind, bp, runs, cfg, open, meOf, bpByProduct]);
+
+  const act = ind?.[String(bp.type_id)]?.m;
+  const product = act?.out?.[0]?.[0];
+  const perRun = act?.out?.[0]?.[1] ?? 1;
+  const maxRuns = bp.quantity === -1 ? 1_000_000 : Math.max(1, bp.runs);
+  const rigEff = (cfg.rigMe * cfg.secMult).toFixed(2);
+
+  if (!ind) return <p className="muted small">{tr("Cargando…")}</p>;
+  if (!act)
+    return (
+      <div className="bom-panel">
+        <div className="bom-head">
+          <strong>{bp.name ?? `#${bp.type_id}`}</strong>
+          <button className="sys-close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <p className="muted small">{tr("Este plano no fabrica nada (o el SDE no lo tiene).")}</p>
+      </div>
+    );
+
+  return (
+    <div className="bom-panel">
+      <div className="bom-head">
+        <img src={bpIcon(bp.type_id, bp.quantity === -1, 32)} alt="" width={20} height={20} />
+        <strong>{bp.name ?? `#${bp.type_id}`}</strong>
+        <span className="muted small">
+          ME {bp.me}% · TE {bp.te}% · {tr("produce")} {fmtSp(perRun * runs)}{" "}
+          {product != null ? nameOf(product) : ""}
+        </span>
+        <button className="sys-close" onClick={onClose}>
+          ✕
+        </button>
+      </div>
+
+      <div className="bom-cfg small">
+        <label>
+          {tr("Carreras")}{" "}
+          <input
+            type="number"
+            min={1}
+            max={maxRuns}
+            value={runs}
+            onChange={(e) => setRuns(Math.max(1, Math.min(maxRuns, Number(e.target.value) || 1)))}
+          />
+        </label>
+        <span className="bom-sep">·</span>
+        <label title={tr("El % de «MODIFICADORES DEL CONSUMO DE MATERIALES» del tooltip de tu estructura. NO el de duración del trabajo ni el de coste del trabajo: tu estructura tiene tres bonos distintos con el mismo nombre.")}>
+          {tr("Estructura: materiales")}{" "}
+          <input
+            type="number"
+            step="0.1"
+            value={cfg.structMat}
+            onChange={(e) => saveCfg({ ...cfg, structMat: Number(e.target.value) || 0 })}
+          />{" "}
+          %
+        </label>
+        <label title={tr("Valor BASE del rig de material (T1 ≈ 2,0 · T2 ≈ 2,4). NO el % que muestra EVE: ese ya viene multiplicado por la seguridad y redondeado.")}>
+          {tr("Rig ME base")}{" "}
+          <input
+            type="number"
+            step="0.1"
+            value={cfg.rigMe}
+            onChange={(e) => saveCfg({ ...cfg, rigMe: Number(e.target.value) || 0 })}
+          />{" "}
+          %
+        </label>
+        <label>
+          {tr("Seguridad")}{" "}
+          <select
+            value={cfg.secMult}
+            onChange={(e) => saveCfg({ ...cfg, secMult: Number(e.target.value) })}
+          >
+            <option value={1}>{tr("Highsec")} ×1</option>
+            <option value={1.9}>{tr("Lowsec")} ×1.9</option>
+            <option value={2.1}>{tr("Nullsec / WH")} ×2.1</option>
+          </select>
+        </label>
+        <span className="muted">
+          → {tr("rig efectivo")} {rigEff}%
+        </span>
+      </div>
+      <p className="muted small">
+        {tr("Ojo: tu estructura tiene TRES bonos con el mismo nombre (duración, consumo de materiales y coste del trabajo). Aquí solo cuenta el de CONSUMO DE MATERIALES. Y el rig se pide en su valor BASE (T1 ≈ 2,0 · T2 ≈ 2,4) porque el % que muestra EVE ya viene multiplicado por la seguridad y redondeado — con el de pantalla el árbol miente.")}
+      </p>
+
+      <table className="km-table bom-table">
+        <thead>
+          <tr>
+            <th>{tr("Material")}</th>
+            <th>{tr("Necesitas")}</th>
+            <th>{tr("Tienes")}</th>
+            <th>{tr("Te falta")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const have = stock?.get(r.tid) ?? 0;
+            const miss = Math.max(0, r.qty - have);
+            const isOpen = open.has(r.tid);
+            return (
+              <tr key={`${r.tid}-${r.depth}-${i}`} className={miss === 0 ? "bom-ok" : ""}>
+                <td style={{ paddingLeft: `${0.4 + r.depth * 1.1}rem` }}>
+                  {r.subBp ? (
+                    <button
+                      className="bom-exp"
+                      onClick={() => {
+                        const s = new Set(open);
+                        isOpen ? s.delete(r.tid) : s.add(r.tid);
+                        setOpen(s);
+                      }}
+                      title={tr("Desplegar sus materiales")}
+                    >
+                      {isOpen ? "▾" : "▸"}
+                    </button>
+                  ) : (
+                    <span className="bom-exp bom-leaf">·</span>
+                  )}
+                  <img src={typeIcon(r.tid, 32)} alt="" width={16} height={16} /> {nameOf(r.tid)}
+                  {r.subBp && isOpen && (
+                    <span className="muted small">
+                      {" "}
+                      — ME {r.childMe ?? 0}%{r.childMe == null ? ` (${tr("estimado")})` : ""}
+                    </span>
+                  )}
+                </td>
+                <td>{fmtSp(r.qty)}</td>
+                <td className="muted">{stock == null ? "…" : fmtSp(have)}</td>
+                <td className={miss > 0 ? "bom-miss" : "bom-ok-txt"}>
+                  {stock == null ? "…" : miss > 0 ? fmtSp(miss) : "✓"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="muted small">
+        {tr("«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.")}
+      </p>
+    </div>
+  );
+}
+
 /** F1a — Tu biblioteca de blueprints con los ME/TE REALES (scope read_blueprints, R4).
  *  Con 2.000+ planos una tabla plana no vale: se navega como Assets, por pestañas de categoría
  *  (nivel 1 del árbol de mercado: Naves, Munición…) + subpestañas (Fragatas, Cruceros…) + buscador.
@@ -150,6 +432,7 @@ function BlueprintLibrary({ subject, global }: { subject: number | "global"; glo
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<number | "">("");
   const [sub, setSub] = useState<number | "">("");
+  const [bom, setBom] = useState<Blueprint | null>(null); // plano abierto en el árbol BOM
 
   useEffect(() => {
     fetch("/bp_tree.json").then((r) => r.json()).then(setTree).catch(() => setTree(null));
@@ -239,6 +522,7 @@ function BlueprintLibrary({ subject, global }: { subject: number | "global"; glo
   return (
     <div className="bp-lib">
       <h4>📘 {tr("Tu biblioteca de blueprints")}</h4>
+      {bom && <BomPanel bp={bom} owned={bps} subject={subject} onClose={() => setBom(null)} />}
       <div className="kpis">
         <Kpi label={tr("Blueprints")} value={fmtSp(bps.length)} />
         <Kpi label="BPO" value={fmtSp(bpo)} />
@@ -311,7 +595,12 @@ function BlueprintLibrary({ subject, global }: { subject: number | "global"; glo
             const b = r.bp;
             const isBpo = b.quantity === -1;
             return (
-              <tr key={`${b.type_id}-${i}`}>
+              <tr
+                key={`${b.type_id}-${i}`}
+                className="bp-row"
+                onClick={() => setBom(b)}
+                title={tr("Ver qué hace falta para fabricarlo")}
+              >
                 {global && <td>{b.character ?? "-"}</td>}
                 <td>
                   <img src={bpIcon(b.type_id, isBpo, 32)} alt="" width={18} height={18} />{" "}

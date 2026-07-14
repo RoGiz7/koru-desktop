@@ -5701,6 +5701,82 @@ h4 {
   filter: brightness(1.15);
 }
 
+/* --- F1a: árbol BOM --- */
+.bp-row {
+  cursor: pointer;
+}
+.bp-row:hover {
+  background: var(--bg-surface-2, #262626);
+}
+.bom-panel {
+  border: 1px solid var(--accent-border, #4f9cff);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  margin: 0.6rem 0 1rem;
+  background: var(--bg-surface, #242424);
+}
+.bom-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.bom-head .sys-close {
+  margin-left: auto;
+}
+.bom-cfg {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.bom-cfg label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.bom-cfg input {
+  width: 4.5rem;
+  background: var(--bg-control, #2f2f2f);
+  color: var(--fg, #e8e8e8);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 5px;
+  padding: 0.15rem 0.35rem;
+}
+.bom-cfg select {
+  background: var(--bg-control, #2f2f2f);
+  color: var(--fg, #e8e8e8);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 5px;
+  padding: 0.15rem 0.3rem;
+}
+.bom-sep {
+  color: var(--fg-muted, #888);
+}
+.bom-table td {
+  font-variant-numeric: tabular-nums;
+}
+.bom-exp {
+  background: none;
+  border: none;
+  color: var(--accent-text, #7fb0ff);
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: 0.9em;
+}
+.bom-leaf {
+  color: var(--fg-muted, #888);
+  cursor: default;
+}
+.bom-miss {
+  color: #e5534b;
+  font-weight: 600;
+}
+.bom-ok-txt {
+  color: #3fb950;
+}
+
 /* --- F1a: biblioteca de blueprints --- */
 .bp-lib {
   margin-top: 1.4rem;

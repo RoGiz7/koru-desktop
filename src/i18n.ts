@@ -286,6 +286,32 @@ const EN: Record<string, string> = {
   "Colonias de PI aquí": "PI colonies here",
   "sin extractor": "no extractor",
   "Ver en Planetología": "View in Planetary",
+  // --- F1a: árbol BOM (qué hace falta para fabricar) ---
+  Material: "Material",
+  Necesitas: "You need",
+  Tienes: "You have",
+  "Te falta": "Missing",
+  Carreras: "Runs",
+  produce: "produces",
+  estimado: "estimated",
+  Highsec: "Highsec",
+  Lowsec: "Lowsec",
+  "Nullsec / WH": "Nullsec / WH",
+  "Rig ME base": "Rig ME base",
+  "rig efectivo": "effective rig",
+  "Ver qué hace falta para fabricarlo": "See what it takes to build it",
+  "Desplegar sus materiales": "Expand its materials",
+  "Este plano no fabrica nada (o el SDE no lo tiene).":
+    "This blueprint doesn't build anything (or the SDE doesn't have it).",
+  "Estructura: materiales": "Structure: materials",
+  "El % de «MODIFICADORES DEL CONSUMO DE MATERIALES» del tooltip de tu estructura. NO el de duración del trabajo ni el de coste del trabajo: tu estructura tiene tres bonos distintos con el mismo nombre.":
+    "The % under “MATERIAL CONSUMPTION MODIFIERS” in your structure's tooltip. NOT the job duration one nor the job cost one: your structure has three different bonuses sharing the same name.",
+  "Valor BASE del rig de material (T1 ≈ 2,0 · T2 ≈ 2,4). NO el % que muestra EVE: ese ya viene multiplicado por la seguridad y redondeado.":
+    "The material rig's BASE value (T1 ≈ 2.0 · T2 ≈ 2.4). NOT the % EVE shows: that one already includes the security multiplier and is rounded.",
+  "Ojo: tu estructura tiene TRES bonos con el mismo nombre (duración, consumo de materiales y coste del trabajo). Aquí solo cuenta el de CONSUMO DE MATERIALES. Y el rig se pide en su valor BASE (T1 ≈ 2,0 · T2 ≈ 2,4) porque el % que muestra EVE ya viene multiplicado por la seguridad y redondeado — con el de pantalla el árbol miente.":
+    "Careful: your structure has THREE bonuses sharing the same name (duration, material consumption and job cost). Only the MATERIAL CONSUMPTION one counts here. And the rig is asked for at its BASE value (T1 ≈ 2.0 · T2 ≈ 2.4) because the % EVE shows already includes the security multiplier and is rounded — with the on-screen figure the tree lies.",
+  "«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.":
+    "“You have” adds up your assets (the active character's, or everyone's in Global). An expanded material uses YOUR blueprint's ME; if you don't own it, it's computed with ME 0 and flagged “estimated” — never disguised as real.",
   // --- F1a: biblioteca de blueprints (Industria) ---
   "Tu biblioteca de blueprints": "Your blueprint library",
   "Cargando biblioteca de blueprints…": "Loading blueprint library…",
