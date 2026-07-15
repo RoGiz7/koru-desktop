@@ -6,6 +6,24 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.28.0",
+    date: "2026-07-15",
+    es: [
+      "🏭 Mis instalaciones: el registro de tus estructuras. EVE no te enseña los rigs ni los servicios de una estación si no tienes roles, y ESI tampoco los da — por eso las alianzas se pasan hojas de cálculo. Así que lo declaras tú una vez: eliges la estructura y sus rigs, y Koru saca los números del SDE. Nunca te pide un porcentaje: el % que enseña EVE viene redondeado y miente (−5,0 % cuando es −5,04 %).",
+      "💰 El coste real del trabajo, al ISK: VEO, índice del sistema en vivo, la bonificación de tu estructura, el impuesto del centro y el recargo de la CCS, línea por línea. Cuadra con el tooltip del juego: 40,6K contra los 40.536 de un job real.",
+      "✅ Cada cuenta dice hasta dónde llega: ficha completa en verde («cuadra al ítem»), y en ámbar exactamente qué le falta. Lo que no sabemos se calcula como si no existiera, así que la cuenta se queda CORTA, nunca larga. Un rig cuyo alcance no sepamos situar no se aplica, y se dice.",
+      "🖤 Se acabó la pantalla negra: cualquier error de pintado ya no te deja la ventana muerta y muda — sale el error, su traza y un botón para copiarla.",
+      "🐛 Y el que la causaba: tocar el filtro de fechas en Minería mataba la app si tenías años de histórico. Iba perfecto en desarrollo y solo petaba en la versión publicada, así que solo lo sufríais vosotros.",
+    ],
+    en: [
+      "🏭 My facilities: the register of your structures. EVE won't show you a station's rigs or services without roles, and ESI doesn't give them either — that's why alliances pass spreadsheets around. So you declare it once: pick the structure and its rigs, and Koru pulls the numbers from the SDE. It never asks you for a percentage: the % EVE displays is rounded and lies (−5.0% when it's really −5.04%).",
+      "💰 The real job cost, to the ISK: EIV, live system index, your structure's bonus, the facility tax and the CCS surcharge, line by line. It matches the game's tooltip: 40.6K against the 40,536 of a real job.",
+      "✅ Every figure says how far it reaches: a complete facility in green (“matches to the item”), and in amber exactly what's missing. What we don't know is computed as if it didn't exist, so the figure falls SHORT, never long. A rig whose scope we can't place isn't applied — and we say so.",
+      "🖤 No more black screen: a render error no longer leaves the window dead and mute — you get the error, its stack trace and a button to copy it.",
+      "🐛 And the bug behind it: touching the date filter in Mining killed the app if you had years of history. It ran perfectly in development and only broke in the published build, so only you ever suffered it.",
+    ],
+  },
+  {
     version: "0.27.1",
     date: "2026-07-14",
     es: [
