@@ -5776,6 +5776,45 @@ h4 {
 .bom-sep {
   color: var(--fg-muted, #888);
 }
+/* Pantalla de error de la UI. Estilos deliberadamente autónomos (colores literales, sin variables):
+   si lo que ha reventado es el tema o la hoja principal, esta pantalla tiene que verse igual. */
+.err-boundary {
+  max-width: 60rem;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  color: #e8e8e8;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+.err-boundary h1 {
+  color: #e0a24a;
+  margin-top: 0;
+}
+.err-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.err-actions button {
+  padding: 0.4rem 0.8rem;
+  background: #2f2f2f;
+  color: #e8e8e8;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.err-dump {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.8rem;
+  background: #151515;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* F1c: registro de instalaciones + asistente. Lo que ESI no sabe y el fabricante sí. */
 .fac-block {
   margin: 1rem 0;

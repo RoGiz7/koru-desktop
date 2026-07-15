@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, MONTH_NAMES } from "./format";
 import type { PvpActivity } from "./types";
+import { maxOf } from "./charts";
 
 function KLColumns({
   items,
@@ -14,7 +15,8 @@ function KLColumns({
   labelEvery?: number;
 }) {
   if (items.length === 0) return <p className="muted small">{tr("Sin actividad.")}</p>;
-  const max = Math.max(...items.map((i) => i.kills + i.losses), 1);
+  // spread NO: ver maxOf en charts.tsx (revienta la pila con arrays grandes → pantalla negra).
+  const max = maxOf(items.map((i) => i.kills + i.losses), 1);
   return (
     <div className="klcols">
       {items.map((it, i) => (

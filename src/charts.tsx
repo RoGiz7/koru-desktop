@@ -3,6 +3,29 @@ import { fmtSp, fmtIsk, typeIcon, typeRender, daysAgo } from "./format";
 import { tr } from "./i18n";
 import type { NameCount } from "./types";
 
+/** Máximo y mínimo de un array, SIN spread.
+ *
+ *  `Math.max(...arr)` mete un argumento por elemento en la pila de llamadas. Con un array grande
+ *  lanza `RangeError: Maximum call stack size exceeded`, que en React desmonta el árbol entero y
+ *  deja la ventana EN NEGRO. Y el límite no es fijo: depende de la pila disponible, así que colaba
+ *  en dev y reventaba en la build de producción — un bug que solo veían los usuarios.
+ *
+ *  Historia real (2026-07-15): al teclear en el filtro de fechas de Minería hay un instante con el
+ *  año a medias («0016»), el rango pasa a ser «del año 16 a hoy» y se generan cientos de miles de
+ *  puntos diarios. Un bucle no tiene tope; el spread sí. **No volver a usar spread aquí.**
+ *
+ *  `seed` es el valor de partida (p. ej. 1 para que el eje nunca sea plano en 0). */
+export function maxOf(arr: number[], seed: number): number {
+  let m = seed;
+  for (const v of arr) if (v > m) m = v;
+  return m;
+}
+export function minOf(arr: number[], seed: number): number {
+  let m = seed;
+  for (const v of arr) if (v < m) m = v;
+  return m;
+}
+
 // Icono de un tipo de EVE; cae a blueprint si la imagen normal falla.
 export function TypeIcon({
   typeId,
@@ -121,7 +144,7 @@ export function Bars({
   fmt?: (n: number) => string;
 }) {
   if (items.length === 0) return <p className="muted small">Sin datos.</p>;
-  const max = Math.max(...items.map((i) => i.value), 1);
+  const max = maxOf(items.map((i) => i.value), 1); // spread NO: ver el comentario de maxOf
   const total = items.reduce((s, i) => s + i.value, 0);
   return (
     <div className="bars">
@@ -240,11 +263,17 @@ export function MultiLineProgress({
   const flat = vis.flatMap((s) => s.values);
   // El eje se estira a números redondos: si no, las divisiones son cuartos del máximo crudo y las
   // etiquetas salen con decimales (`438.300,75`) y demasiado largas para el margen.
-  const { lo: dMin, hi: dMax, ticks } = niceScale(Math.min(0, ...flat), Math.max(1, ...flat));
+  // OJO: NO usar `Math.max(...flat)`. El spread mete un argumento por elemento y con un array grande
+  // revienta la pila (`RangeError: Maximum call stack size exceeded`) y deja la app EN NEGRO. Pasó
+  // de verdad: al teclear en el filtro de fechas hay un instante con el año a medias («0016»), el
+  // rango se vuelve «del año 16 a hoy» y salen cientos de miles de puntos. El límite depende de la
+  // pila disponible, así que en dev colaba y en release petaba. Recorrer el array no tiene tope.
+  const { lo: dMin, hi: dMax, ticks } = niceScale(minOf(flat, 0), maxOf(flat, 1));
   const span = dMax - dMin || 1;
   // El margen izquierdo se ajusta a la etiqueta más larga. Fijarlo recortaba `246.556.019.418` por la
   // izquierda en las gráficas de ISK, que es donde más dígitos hay.
   const yLabels = ticks.map(fmt);
+  // Aquí el spread SÍ es seguro: `yLabels` son las divisiones del eje (~5), no los datos.
   const PADL = Math.min(140, 20 + Math.max(...yLabels.map((s) => s.length)) * 6.6);
   const plotW = W - PADL - PADR;
   const plotH = H - PADTOP - PADBOT;

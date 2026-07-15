@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, secColor, ownerColor, heatColor, typeIcon } from "./format";
-import { OverlayIcon } from "./charts";
+import { OverlayIcon, maxOf } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
 import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera } from "./mapOverlays";
 import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
@@ -871,7 +871,8 @@ export function MapView(props: {
   if (!ne || !geo) return <p className="muted">{tr("Cargando mapa…")}</p>;
 
   const pvp = data ?? [];
-  const maxAct = Math.max(...pvp.map((d) => d.kills + d.losses), 1);
+  // spread NO: New Eden tiene ~5.000 sistemas y esto crece. Ver maxOf en charts.tsx.
+  const maxAct = maxOf(pvp.map((d) => d.kills + d.losses), 1);
   const totalKills = pvp.reduce((s, d) => s + d.kills, 0);
   const totalLosses = pvp.reduce((s, d) => s + d.losses, 0);
   const labeled = new Set(
@@ -900,7 +901,7 @@ export function MapView(props: {
           )
         : null
       : null;
-  const liveMax = liveMap ? Math.max(...liveMap.values(), 1) : 1;
+  const liveMax = liveMap ? maxOf([...liveMap.values()], 1) : 1; // spread NO: ver maxOf
   const liveColor = overlay === "assets" ? "#5fd0c0" : overlay === "mineria" ? "#d8b24a" : null;
 
   const legend =

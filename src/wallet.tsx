@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { tr } from "./i18n";
 import { fmtIsk, weekKey, daysAgo } from "./format";
-import { Kpi, MultiLineProgress, Donut, Th, DONUT_COLORS, RangePresets } from "./charts";
+import { Kpi, MultiLineProgress, Donut, Th, DONUT_COLORS, RangePresets, maxOf } from "./charts";
 import type { NetworthView, NetworthPoint, WalletView, WalletSeries, WalletCatDay, WalletCharDay } from "./types";
 
 export function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
@@ -73,7 +73,8 @@ function NetworthChart(props: { series: NetworthPoint[] }) {
   const padT = 14;
   const padB = 22;
   const n = series.length;
-  const maxV = Math.max(1, ...series.map((p) => p.total));
+  // spread NO: con una serie larga revienta la pila y la app se va a negro. Ver maxOf en charts.tsx.
+  const maxV = maxOf(series.map((p) => p.total), 1);
   const x = (i: number) => padL + (i / (n - 1)) * (W - padL - padR);
   const y = (v: number) => padT + (1 - v / maxV) * (H - padT - padB);
   const line = (key: "total" | "liquid" | "asset_value") =>
