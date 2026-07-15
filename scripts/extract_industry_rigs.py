@@ -102,18 +102,28 @@ def main() -> int:
             # --- Rig de ingeniería ---
             if any(k in attrs for k in RIG_ATTR):
                 # Alcance: del nombre del EFECTO (dato del SDE), no del nombre visible.
-                scope = None
-                for e in eff:
-                    m = re.match(r"^rig(.+?)(MaterialBonus|TimeBonus|CostBonus)$", e)
-                    if m:
-                        scope = m.group(1)
-                        break
+                #
+                # ⚠️ UN RIG PUEDE TENER VARIOS ALCANCES, y hay que quedarse con TODOS. Antes esto
+                # cortaba en el primero (`break`) y guardaba un solo string: el 43705 «Structure and
+                # Component» tiene CUATRO (AdvComponent, BasCapComp, Structure, AdvCapComponent) y se
+                # quedaba solo con AdvComponent → el rig no se aplicaba al fabricar una estructura.
+                # 11 de los 113 rigs con bono de material estaban truncados así.
+                #
+                # Solo miramos los efectos `*MaterialBonus`: son los que deciden el BOM, y el valor
+                # del bono (`mat`) es UNO por rig, común a todos sus alcances.
+                scopes = sorted(
+                    {
+                        m.group(1)
+                        for e in eff
+                        if (m := re.match(r"^rig(.+?)MaterialBonus$", e))
+                    }
+                )
                 rigs[str(tid)] = {
                     "n": nm(t),
                     **{v: attrs.get(k, 0.0) for k, v in RIG_ATTR.items()},
                     "sec": {v: attrs.get(k) for k, v in SEC_ATTR.items() if k in attrs},
                     "size": int(attrs.get(SIZE, 0)),
-                    "scope": scope,
+                    "scopes": scopes,
                 }
 
     out = {
@@ -121,7 +131,11 @@ def main() -> int:
             "source": f"SDE {zpath.name} · types/typeDogma/dogmaEffects.jsonl",
             "note": "Bonos de industria de estructuras Upwell y sus rigs. Estructura: factores "
             "(0.99 = -1%). Rig: % BASE negativo, a multiplicar por sec[hi|low|null] segun el "
-            "sistema. `scope` sale del nombre del efecto (p.ej. AllShipManufacture).",
+            "sistema. `scopes` = TODOS los alcances del rig, del nombre de sus efectos "
+            "`rig*MaterialBonus` (p.ej. AllShipManufacture). Un rig puede tener varios: el 43705 "
+            "tiene 4. Que significa cada alcance lo dice CCP en la descripcion de un rig que solo "
+            "tenga ese: AllShipManufacture = 'any ship', BasCapCompManufacture = 'capital ship "
+            "construction components'...",
             "structures": len(structures),
             "rigs": len(rigs),
             "note2": "`kinds` = toda estructura publicada -> su grupo. `mfg_groups` = los grupos "

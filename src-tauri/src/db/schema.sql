@@ -509,7 +509,10 @@ CREATE TABLE IF NOT EXISTS facility (
     type_id      INTEGER,          -- Sotiyo, Raitaru…: de aquí salen sus 3 bonos del SDE
     has_mfg      INTEGER NOT NULL DEFAULT 1, -- ¿planta de fabricación instalada? lo sabe el usuario
     rigs         TEXT NOT NULL DEFAULT '[]', -- JSON [typeID]: se resuelven contra el SDE al calcular
-    tax          REAL NOT NULL DEFAULT 0,    -- impuesto del centro: lo pone el dueño, nadie más lo sabe
+    -- Impuesto del centro: lo pone el dueño, nadie más lo sabe. ANULABLE a propósito:
+    -- NULL = no lo has declarado · 0 = declaraste que no cobra nada. Son cosas distintas y la ficha
+    -- solo está completa en el segundo caso. Muchas estructuras de alianza cobran 0 de verdad.
+    tax          REAL,
     eligible     INTEGER NOT NULL DEFAULT 1, -- ¿sale en el desplegable del BOM?
     -- 'esi' descubierta | 'manual' escrita a mano. Sirve para decir de dónde sale cada dato.
     source       TEXT NOT NULL DEFAULT 'manual',

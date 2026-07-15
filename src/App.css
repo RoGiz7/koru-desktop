@@ -5830,9 +5830,31 @@ h4 {
   flex-wrap: wrap;
   margin-bottom: 0.5rem;
 }
-.fac-head .muted {
+/* Solo el «por qué existe esto» empuja: el contador va pegado al título, que es de quien habla. */
+.fac-head .fac-why {
   flex: 1;
   min-width: 14rem;
+}
+/* Triángulo de plegado: control, no adorno — sin caja, del tamaño del texto. */
+.fac-fold {
+  background: none;
+  border: 0;
+  padding: 0 0.15rem;
+  color: var(--fg, #e8e8e8);
+  cursor: pointer;
+  font-size: 0.9em;
+  line-height: 1;
+}
+.fac-fold:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.fac-count {
+  white-space: nowrap;
+}
+/* «ninguna en uso» con 27 fichas traídas es lo más importante de la cabecera: el BOM no las usa. */
+.fac-count .fac-none {
+  color: var(--warn, #d29922);
 }
 .fac-table {
   width: 100%;
@@ -5886,6 +5908,59 @@ h4 {
 .fac-f em {
   font-style: normal;
   font-size: 0.85em;
+  line-height: 1.35;
+}
+
+/* El desglose del juego, imitado. El impuesto es el ÚNICO número de la ficha que no sale de ningún
+   sitio salvo de sus ojos, y el tooltip donde lo lee tiene otros tres porcentajes que se le parecen.
+   Enseñar las cuatro líneas y tachar las tres malas cuesta menos que arreglar una ficha mal puesta,
+   porque una ficha mal puesta no da error: da un número creíble y falso. */
+.fac-tax-help {
+  grid-column: 2 / -1;
+  margin: 0.1rem 0 0.5rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-2, #232323);
+  border: 1px solid var(--border-2, #3a3a3a);
+  border-radius: 6px;
+  font-size: 0.85em;
+}
+.fac-tax-title {
+  margin-bottom: 0.45rem;
+  line-height: 1.35;
+}
+.fac-tax-eg {
+  width: 100%;
+  border-collapse: collapse;
+}
+.fac-tax-eg td {
+  padding: 0.22rem 0.5rem 0.22rem 0;
+  border-bottom: 1px solid var(--border-2, #3a3a3a);
+  white-space: nowrap;
+}
+.fac-tax-eg td:nth-child(2) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fac-tax-eg td:last-child {
+  width: 99%;
+  padding-left: 0.7rem;
+  white-space: normal;
+  font-size: 0.95em;
+}
+/* Las tres trampas: legibles pero apagadas — se ven, y se ve que no son. */
+.fac-tax-eg tr.no td {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.fac-tax-eg tr.no td:last-child {
+  text-decoration: none;
+}
+.fac-tax-eg tr.si td {
+  background: color-mix(in srgb, var(--ok, #3fb950) 14%, transparent);
+  border-bottom-color: var(--ok, #3fb950);
+}
+.fac-tax-foot {
+  margin-top: 0.45rem;
   line-height: 1.35;
 }
 .fac-f input[type="text"],

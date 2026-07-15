@@ -14,6 +14,13 @@ function fmtEta(secs: number): string {
   return `${Math.floor(min / 60)} h ${min % 60} min`;
 }
 
+/** Candado compartido del escaneo de gamelogs.
+ *
+ *  Hay DOS escaneos: el de este panel (a mano) y el incremental que dispara el auto-sync (App.tsx).
+ *  Los dos escriben los mismos offsets en `gamelog_parsed`; si corren a la vez se pisan. Vive en el
+ *  módulo y no en el estado de React porque son dos componentes distintos que no se hablan. */
+export const gamelogScan = { running: false };
+
 export function GamelogControl({ onScanned }: { onScanned?: () => void }) {
   const [folder, setFolder] = useState<string>(() => localStorage.getItem("koru-gamelog-folder") || "");
   const [parsed, setParsed] = useState<number | null>(null);
@@ -67,6 +74,8 @@ export function GamelogControl({ onScanned }: { onScanned?: () => void }) {
   }
 
   async function runScan() {
+    if (gamelogScan.running) return; // ya hay uno (quizá el automático del sync): no se pisan
+    gamelogScan.running = true;
     setScan({ running: true, done: 0, total: 0, bytes: 0, bytesTotal: 0, result: "" });
     setEta(null);
     samples.current = [{ t: Date.now(), bytes: 0 }];
@@ -107,6 +116,7 @@ export function GamelogControl({ onScanned }: { onScanned?: () => void }) {
         result: `${tr("Error al escanear")}: ${String(e).slice(0, 120)}`,
       });
     } finally {
+      gamelogScan.running = false;
       un();
     }
   }

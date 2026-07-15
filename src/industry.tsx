@@ -27,7 +27,8 @@ type MType = { i: number; n: string; g: number };
 
 /** public/industry_rigs.json (SDE): bonos de industria de las estructuras Upwell y de sus rigs.
  *  Estructura: FACTORES ya listos (0.99 = −1 %). Rig: % BASE negativo, a multiplicar por la
- *  seguridad. `scope` = nombre del efecto del SDE (p. ej. "AllShipManufacture"): dice a qué aplica. */
+ *  seguridad. `scopes` = los alcances del rig, del nombre de sus efectos del SDE (p. ej.
+ *  "AllShipManufacture"): dicen a qué aplica. Son VARIOS a propósito — el 43705 tiene cuatro. */
 type IndustryRigs = {
   /** Grupos donde ENTRA la Standup Manufacturing Plant I, leídos de sus propios `canFitShipGroupNN`:
    *  1657 Citadel · 1404 Engineering Complex · 1406 Refinery. Fuera de ahí no se fabrica, punto. */
@@ -47,7 +48,7 @@ type IndustryRigs = {
       cost: number;
       sec: { hi?: number; low?: number; null?: number };
       size: number;
-      scope: string | null;
+      scopes: string[];
     }
   >;
 };
@@ -64,12 +65,18 @@ type Facility = {
   type_id: number | null;
   has_mfg: boolean;
   rigs: number[];
-  tax: number;
+  /** Impuesto del centro en %. `null` = no lo has declarado · `0` = declaraste que no cobra nada.
+   *  No son lo mismo: con el 0 declarado la ficha está COMPLETA. */
+  tax: number | null;
   eligible: boolean;
   source: string; // 'esi' descubierta · 'manual' escrita a mano
   notes: string | null;
 };
 const PICK_KEY = "koru_bom_facility"; // última elegida: preferencia de UI, no dato
+const OPEN_KEY = "koru_fac_open"; // registro plegado/desplegado: preferencia de UI, no dato
+/** A partir de aquí el registro se pliega solo la primera vez. «Traer de ESI» soltó 27 estructuras
+ *  en la primera prueba real: casi todas son sitios que ESI conoce y de los que no sabes nada. */
+const FOLD_AT = 8;
 /** Recargo de la CCS: 4 % del VEO, global del juego y NO configurable (verificado: 11.196 de 279.893). */
 const CCS_SURCHARGE = 0.04;
 
@@ -94,7 +101,9 @@ function Confianza({ f, bonos }: { f: Facility; bonos: Bonos | null }) {
   const falta: string[] = [];
   if (f.type_id == null) falta.push(tr("el tipo de estructura (sus 3 bonos)"));
   if (f.rigs.length === 0) falta.push(tr("los rigs"));
-  if (f.tax === 0) falta.push(tr("el impuesto del centro"));
+  // `null`, no `0`: un 0 declarado es un dato, no un hueco. Muchas estructuras no cobran nada, y
+  // antes se quedaban en «te falta el impuesto» para siempre por no saber distinguirlo.
+  if (f.tax == null) falta.push(tr("el impuesto del centro"));
   const dudosos = (bonos?.rigs ?? []).filter((r) => r.state === "unmapped").length;
 
   if (falta.length === 0 && dudosos === 0)
@@ -376,11 +385,20 @@ function BomPanel({
       const r = ir.rigs[String(id)];
       if (!r) return { id, name: `#${id}`, mat: 0, eff: 0, state: "unmapped" as const };
       const eff = r.mat * (r.sec[band] ?? 1);
-      const cats = r.scope ? SCOPE_CAT[r.scope] : undefined;
-      const state = !cats
-        ? ("unmapped" as const) // alcance que aún no afirmamos: NO se aplica, y se dice
-        : prodCat != null && cats.includes(prodCat)
-          ? ("on" as const)
+      // Un rig tiene VARIOS alcances y basta con que UNO cubra este producto para que aplique.
+      // Los tres estados, y por qué son tres:
+      //   on       — algún alcance que sabemos situar cubre la categoría de este producto.
+      //   off      — sabemos situar TODOS sus alcances y ninguno cubre esto. Es un «no aplica»
+      //              afirmado, no una duda: no ensucia la confianza de la ficha.
+      //   unmapped — le queda algún alcance que no sabemos situar: no lo aplicamos (nos quedamos
+      //              cortos) y lo decimos, porque podría cubrir esto y no podemos descartarlo.
+      const conocidos = r.scopes.filter((s) => SCOPE_CAT[s]);
+      const cubre =
+        prodCat != null && conocidos.some((s) => SCOPE_CAT[s].includes(prodCat));
+      const state = cubre
+        ? ("on" as const)
+        : conocidos.length < r.scopes.length || r.scopes.length === 0
+          ? ("unmapped" as const)
           : ("off" as const);
       return { id, name: es ? r.n.es : r.n.en, mat: r.mat, eff, state };
     });
@@ -563,7 +581,7 @@ function BomPanel({
                   idx?.manufacturing != null
                     ? ` · ${tr("índice")} ${(idx.manufacturing * 100).toFixed(2)}%`
                     : ""
-                }${st.tax > 0 ? ` · ${tr("impuesto")} ${st.tax}%` : ""}`}
+                }${st.tax != null ? ` · ${tr("impuesto")} ${st.tax}%` : ""}`}
         </span>
         {st && <Confianza f={st} bonos={bonos} />}
       </div>
@@ -923,6 +941,10 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
   const [sys, setSys] = useState<{ id: number; n: string; s: number }[] | null>(null);
   const [edit, setEdit] = useState<Facility | null>(null);
   const [busy, setBusy] = useState(false);
+  const [abierto, setAbierto] = useState<boolean | null>(() => {
+    const v = localStorage.getItem(OPEN_KEY);
+    return v === null ? null : v === "1"; // null = sin opinión, decide el tamaño de la lista
+  });
 
   const load = () => {
     invoke<Facility[]>("facility_list")
@@ -938,16 +960,33 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
       .catch(() => setSys([]));
   }, []);
 
+  /** Cuántas fichas están DECLARADAS y entran en el BOM. Es el único número que importa de un
+   *  registro de 27: las demás son nombres que ESI conoce y de los que no sabemos nada. */
+  const enUso = facs?.filter((f) => f.eligible).length ?? 0;
+  /** Plegado. `abierto === null` = aún no ha opinado → se pliega solo si la lista es un muro.
+   *  En cuanto toca el botón manda él, y se recuerda. */
+  const visible = abierto ?? (facs?.length ?? 0) <= FOLD_AT;
+
+  // Guardar y borrar dicen si fallan. Sin esto el `invoke` reventaba, el asistente se quedaba
+  // abierto y no pasaba NADA: el usuario ve un botón que no hace nada y no tiene dónde mirar.
   const save = async (f: Facility) => {
-    await invoke("facility_upsert", { facility: f });
-    setEdit(null);
-    load();
-    onChange();
+    try {
+      await invoke("facility_upsert", { facility: f });
+      setEdit(null);
+      load();
+      onChange();
+    } catch (e) {
+      alert(`${tr("No se pudo guardar la ficha")}:\n\n${e}`);
+    }
   };
   const remove = async (id: number) => {
-    await invoke("facility_delete", { id });
-    load();
-    onChange();
+    try {
+      await invoke("facility_delete", { id });
+      load();
+      onChange();
+    } catch (e) {
+      alert(`${tr("No se pudo borrar la ficha")}:\n\n${e}`);
+    }
   };
   const toggle = async (f: Facility, k: "eligible" | "has_mfg") => save({ ...f, [k]: !f[k] });
 
@@ -961,8 +1000,12 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
       load();
       onChange();
       if (n === 0) alert(tr("No hay estructuras nuevas que traer: ya están todas en tu registro."));
-    } catch {
-      alert(tr("No se pudo consultar ESI. ¿Has concedido el permiso «read_structures»?"));
+    } catch (e) {
+      // El error se enseña TAL CUAL. Antes aquí había un `catch` pelado que endosaba «¿has
+      // concedido read_structures?» a cualquier fallo: nos mandó a mirar los scopes cuando lo que
+      // fallaba era un ON CONFLICT contra un índice parcial. Adivinar la causa en un mensaje de
+      // error no ahorra un diagnóstico: lo desvía.
+      alert(`${tr("No se pudo traer de ESI")}:\n\n${e}`);
     } finally {
       setBusy(false);
     }
@@ -976,7 +1019,7 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
     type_id: null,
     has_mfg: true,
     rigs: [],
-    tax: 0,
+    tax: null, // sin declarar, que es la verdad de una ficha recién creada
     eligible: true,
     source: "manual",
     notes: null,
@@ -987,8 +1030,34 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
   return (
     <div className="fac-block">
       <div className="fac-head">
+        {/* Replegable: «Traer de ESI» puede soltar decenas de estructuras de golpe (27 en la primera
+         *  prueba real) y el registro sepultaba a la biblioteca de blueprints que va debajo. La
+         *  cabecera sigue diciendo lo que importa aunque esté plegado: cuántas hay y cuántas usas. */}
+        <button
+          className="fac-fold"
+          onClick={() => {
+            const v = !visible;
+            setAbierto(v);
+            localStorage.setItem(OPEN_KEY, v ? "1" : "0");
+          }}
+          aria-expanded={visible}
+          disabled={!facs?.length}
+          title={visible ? tr("Plegar la lista") : tr("Desplegar la lista")}
+        >
+          {facs?.length ? (visible ? "▾" : "▸") : "·"}
+        </button>
         <strong>{tr("Mis instalaciones")}</strong>
-        <span className="muted small">
+        {facs?.length ? (
+          <span className="fac-count muted small">
+            {facs.length} {facs.length === 1 ? tr("ficha") : tr("fichas")} ·{" "}
+            {enUso === 0 ? (
+              <span className="fac-none">{tr("ninguna en uso")}</span>
+            ) : (
+              `${enUso} ${tr("en uso")}`
+            )}
+          </span>
+        ) : null}
+        <span className="muted small fac-why">
           {tr("EVE no enseña los rigs ni los servicios de una estructura si no tienes roles, y ESI tampoco. Así que lo pones tú: Koru saca los números del SDE a partir de lo que declares.")}
         </span>
         <button onClick={() => setEdit(nuevo())}>+ {tr("Nueva ficha")}</button>
@@ -1002,6 +1071,14 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
       ) : facs.length === 0 ? (
         <p className="muted small">
           {tr("Aún no tienes fichas. Crea una a mano, o trae de ESI las que ya conocemos y complétalas.")}
+        </p>
+      ) : !visible ? (
+        // Plegado no es esconder: si trajiste 27 de ESI y no has declarado ninguna, el BOM no las
+        // usa y hay que decirlo aquí, que es donde se arregla.
+        <p className="muted small">
+          {enUso === 0
+            ? tr("Están plegadas y ninguna está declarada todavía: el árbol BOM no usará ninguna hasta que completes al menos una.")
+            : tr("Están plegadas. Despliega para editarlas.")}
         </p>
       ) : (
         <table className="fac-table small">
@@ -1054,7 +1131,8 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
                     )}
                   </td>
                   <td>{f.rigs.length || <span className="muted">—</span>}</td>
-                  <td>{f.tax ? `${f.tax}%` : <span className="muted">—</span>}</td>
+                  {/* `== null`, no falsy: un 0 declarado se enseña como «0 %», que es un dato. */}
+                  <td>{f.tax == null ? <span className="muted">—</span> : `${f.tax}%`}</td>
                   <td className="muted">{f.source === "esi" ? "ESI" : tr("a mano")}</td>
                   <td>
                     <button className="bom-exp" onClick={() => setEdit(f)}>
@@ -1250,7 +1328,7 @@ function FacilityWizard({
           >
             <option value="">{tr("+ añadir rig…")}</option>
             {Object.entries(ir.rigs)
-              .filter(([, r]) => r.scope && r.mat !== 0)
+              .filter(([, r]) => r.scopes.length > 0 && r.mat !== 0)
               // Tamaño: rig y estructura comparten el atributo `rigSize` del SDE — el MISMO que usan
               // los rigs de nave, donde la regla es coincidencia EXACTA, y el devblog lo respalda
               // (al pasar de Raitaru a Sotiyo se cambian los rigs M por XL). Pero ninguna fuente
@@ -1285,18 +1363,66 @@ function FacilityWizard({
       <label className="fac-f">
         <span>6 · {tr("Impuesto")}</span>
         <span>
+          {/* Vacío = null («no lo sé»), no 0. `Number("") || 0` daba 0 y se tragaba la diferencia. */}
           <input
             type="number"
             step="0.1"
-            value={d.tax}
-            onChange={(e) => set({ tax: Number(e.target.value) || 0 })}
+            min="0"
+            placeholder={tr("sin declarar")}
+            value={d.tax ?? ""}
+            onChange={(e) =>
+              set({ tax: e.target.value.trim() === "" ? null : Number(e.target.value) })
+            }
           />{" "}
           %
         </span>
         <em className="muted">
-          {tr("el que cobra el dueño de la estructura. Sale en el desglose de coste del job, in-game. Nadie más lo sabe: ni ESI ni el SDE.")}
+          {tr("el que cobra el dueño de la estructura. Nadie más lo sabe: ni ESI ni el SDE.")}
         </em>
       </label>
+
+      {/* Dónde mirarlo, con el desglose del juego delante. NO es adorno: ese tooltip tiene CUATRO
+       *  porcentajes y tres son trampas — el índice del sistema, el bono de la estructura (el mismo
+       *  que ya nos confundió: hay tres bonos que se llaman igual) y el recargo de la CCS, que es
+       *  global y Koru ya aplica solo. Sin esto la gente teclea el 4 % y la ficha miente en silencio. */}
+      <div className="fac-tax-help">
+        <div className="fac-tax-title">
+          {tr("¿Dónde lo veo? En el juego, al abrir el plano: «Coste total del trabajo» → pasa el ratón por encima.")}
+        </div>
+        <table className="fac-tax-eg">
+          <tbody>
+            <tr className="no">
+              <td>{tr("Índice de coste en sistema")}</td>
+              <td>9,95 % VEO</td>
+              <td>{tr("no — lo saca Koru de ESI, en vivo")}</td>
+            </tr>
+            <tr className="no">
+              <td>{tr("Bonificación por función de estructura")}</td>
+              <td>−5,0 %</td>
+              <td>{tr("no — sale del SDE por el tipo de estructura")}</td>
+            </tr>
+            <tr className="si">
+              <td>
+                <strong>{tr("Impuesto de centro")}</strong>
+              </td>
+              <td>
+                <strong>+1,00 % VEO</strong>
+              </td>
+              <td>
+                <strong>{tr("👈 ESTE. Aquí escribirías 1")}</strong>
+              </td>
+            </tr>
+            <tr className="no">
+              <td>{tr("Recargo de CCS")}</td>
+              <td>+4,00 % VEO</td>
+              <td>{tr("no — es global del juego, Koru ya lo aplica")}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div className="fac-tax-foot muted">
+          {tr("Escribe solo el número, sin el %. Si tu estructura no cobra nada, deja 0 — es un dato válido, no un hueco.")}
+        </div>
+      </div>
 
       <div className="fac-wiz-foot">
         <span className="muted small">

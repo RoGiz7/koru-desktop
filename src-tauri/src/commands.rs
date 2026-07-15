@@ -656,7 +656,8 @@ pub async fn facility_seed_from_esi(state: State<'_, AppState>) -> AppResult<usi
             type_id: s.type_id,
             has_mfg: false,
             rigs: Vec::new(),
-            tax: 0.0,
+            tax: None, // ESI no sabe el impuesto: sin declarar, no un 0 que parecería un dato
+
             eligible: false,
             source: "esi".into(),
             notes: None,

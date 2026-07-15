@@ -85,6 +85,45 @@ impl Db {
              )",
             [],
         );
+        // facility.tax pasa de `NOT NULL DEFAULT 0` a ANULABLE (F1c): hay que poder distinguir
+        // «declaré que no cobra nada» de «no lo he rellenado». SQLite no sabe quitar un NOT NULL con
+        // ALTER → toca reconstruir la tabla, y por eso va guardado: solo corre si la columna sigue
+        // siendo NOT NULL, así que es idempotente y no se ejecuta en instalaciones nuevas.
+        // Los 0 que hay ahora son TODOS «sin declarar»: hasta hoy el upsert estaba roto y nadie pudo
+        // declarar un 0 a conciencia → NULLIF(tax,0). Cualquier valor no nulo se conserva tal cual.
+        let tax_not_null = conn
+            .prepare("SELECT \"notnull\" FROM pragma_table_info('facility') WHERE name = 'tax'")
+            .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
+            .map(|v| v != 0)
+            .unwrap_or(false);
+        if tax_not_null {
+            let _ = conn.execute_batch(
+                "BEGIN;
+                 CREATE TABLE facility_mig (
+                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                     structure_id INTEGER,
+                     name         TEXT NOT NULL,
+                     system_id    INTEGER NOT NULL,
+                     type_id      INTEGER,
+                     has_mfg      INTEGER NOT NULL DEFAULT 1,
+                     rigs         TEXT NOT NULL DEFAULT '[]',
+                     tax          REAL,
+                     eligible     INTEGER NOT NULL DEFAULT 1,
+                     source       TEXT NOT NULL DEFAULT 'manual',
+                     notes        TEXT,
+                     updated_at   TEXT
+                 );
+                 INSERT INTO facility_mig
+                     SELECT id, structure_id, name, system_id, type_id, has_mfg, rigs,
+                            NULLIF(tax, 0), eligible, source, notes, updated_at
+                     FROM facility;
+                 DROP TABLE facility;
+                 ALTER TABLE facility_mig RENAME TO facility;
+                 CREATE UNIQUE INDEX IF NOT EXISTS facility_structure ON facility(structure_id)
+                     WHERE structure_id IS NOT NULL;
+                 COMMIT;",
+            );
+        }
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
         // personal_projects: filtro opcional (nave/mineral/sistema) añadido en 0.18.4.
@@ -2526,8 +2565,12 @@ pub struct FacilityRow {
     pub has_mfg: bool,
     #[serde(default)]
     pub rigs: Vec<i64>,
+    /// Impuesto del centro en %. `None` = NO LO HAS DECLARADO · `Some(0.0)` = declaraste que no
+    /// cobra nada. La diferencia importa: un 0 declarado es un dato, y la ficha con él está
+    /// COMPLETA. Muchas estructuras de alianza no cobran, y antes se quedaban en «te falta el
+    /// impuesto» para siempre por no poder distinguir las dos cosas.
     #[serde(default)]
-    pub tax: f64,
+    pub tax: Option<f64>,
     #[serde(default)]
     pub eligible: bool,
     #[serde(default)]
@@ -2717,11 +2760,16 @@ impl Db {
             )?;
             return Ok(f.id);
         }
+        // ⚠️ El `WHERE structure_id IS NOT NULL` del ON CONFLICT NO es decorativo: el índice único
+        // de `facility` es PARCIAL, y SQLite exige que el conflict target repita el WHERE del
+        // índice o no casa con ninguna restricción → la sentencia falla AL PREPARARSE y ningún
+        // upsert funciona (ni sembrar de ESI ni crear a mano). Verificado en sqlite: sin el WHERE,
+        // "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
         conn.execute(
             "INSERT INTO facility (structure_id, name, system_id, type_id, has_mfg, rigs, tax,
                                    eligible, source, notes, updated_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
-             ON CONFLICT(structure_id) DO UPDATE SET
+             ON CONFLICT(structure_id) WHERE structure_id IS NOT NULL DO UPDATE SET
                 name=excluded.name, system_id=excluded.system_id, type_id=excluded.type_id,
                 updated_at=excluded.updated_at",
             rusqlite::params![

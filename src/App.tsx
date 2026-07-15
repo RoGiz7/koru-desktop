@@ -29,7 +29,7 @@ import { DiarioView } from "./diario";
 import { FreelanceView } from "./freelance";
 import { LogisView } from "./logis";
 import { ReconView } from "./recon";
-import { GamelogControl } from "./gamelogControl";
+import { GamelogControl, gamelogScan } from "./gamelogControl";
 import { MedalTexturesControl } from "./medalsControl";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
@@ -1142,10 +1142,57 @@ function App() {
       loadMap(subject);
       loadTab(subject, tab, true);
       setSyncTick((t) => t + 1); // y las peticiones internas de la vista abierta (minería, tops…)
+      void tailGamelog(); // el gamelog también late (ver abajo); en segundo plano, no bloquea el sync
     } catch (e) {
       setError(String(e));
     } finally {
       setAutoBusy(false);
+    }
+  }
+
+  /** Cola del gamelog tras cada auto-sync.
+   *
+   *  POR QUÉ: ESI se sincroniza solo cada 30 min, pero el gamelog SOLO se leía al pulsar «Escanear»
+   *  en Ajustes. Resultado: las vistas mezclaban un Total de ESI fresco con líneas de gamelog
+   *  viejas, y eso no daba error — daba un **0 creíble**. RoGiz7 lo cazó minando: 1,98M m³ de ESI
+   *  ese día y «Crítico (gamelog): 0», leído como «no tuviste críticos» cuando era «no lo he
+   *  mirado». Misma enfermedad que el intel mudo, otra vista.
+   *
+   *  Es barato porque `scan_gamelogs` ya es INCREMENTAL (parse-once + tail por offset): los ficheros
+   *  sin bytes nuevos se saltan por mtime+size, así que la pasada normal no lee los 6,6 GB.
+   *
+   *  TRES PUERTAS, y ninguna es cosmética:
+   *   1. Sin carpeta configurada → nada. No adivinamos dónde están sus logs.
+   *   2. Sin escaneo previo (`get_gamelog_status` = 0) → nada. El PRIMERO sí lee todo el histórico
+   *      (40 min) y eso lo pide él, no se lo lanzamos por sorpresa.
+   *   3. Con reparse pendiente → nada. Una migración de datos deja marcado un parse limpio que se
+   *      hace «en el próximo escaneo»: si el próximo escaneo lo dispara el sync, una release nueva
+   *      te tira 40 min de reescaneo en mitad de una partida. El incremental es automático;
+   *      **el reparse entero lo pides tú**, desde Ajustes.
+   *
+   *  La carpeta se lee de `localStorage` a propósito: es donde vive (`koru-gamelog-folder`), y por
+   *  eso esto va aquí y no en `auto_sync` — Rust no puede leerla. */
+  async function tailGamelog() {
+    if (gamelogScan.running) return; // el de Ajustes está en marcha: escriben los mismos offsets
+    const folder = localStorage.getItem("koru-gamelog-folder");
+    if (!folder) return; // puerta 1
+    gamelogScan.running = true;
+    try {
+      if (!(await invoke<number>("get_gamelog_status"))) return; // puerta 2
+      if (await invoke<boolean>("get_logi_reparse_pending")) return; // puerta 3
+      const r = await invoke<{ files_scanned: number }>("scan_gamelogs", { folder });
+      // Solo refrescamos si de verdad entraron bytes nuevos: `files_scanned` cuenta los ficheros que
+      // traían algo (los que no cambian salen por mtime+size antes de contarse).
+      if (r.files_scanned > 0) {
+        setGlTick((t) => t + 1);
+        loadTab(subject, tab, true);
+      }
+    } catch (e) {
+      // No molestamos con un modal por esto, pero tampoco se traga: un fallo mudo aquí es
+      // exactamente el bug que veníamos a matar.
+      console.warn("cola del gamelog tras el sync:", e);
+    } finally {
+      gamelogScan.running = false;
     }
   }
 

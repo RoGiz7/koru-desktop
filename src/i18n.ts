@@ -330,6 +330,16 @@ const EN: Record<string, string> = {
   "no puede": "can't",
   "sin declarar": "not declared",
   "ficha completa": "complete",
+  // Registro de instalaciones: cabecera y plegado.
+  ficha: "facility",
+  fichas: "facilities",
+  "en uso": "in use",
+  "ninguna en uso": "none in use",
+  "Plegar la lista": "Collapse the list",
+  "Desplegar la lista": "Expand the list",
+  "Están plegadas y ninguna está declarada todavía: el árbol BOM no usará ninguna hasta que completes al menos una.":
+    "They're collapsed and none is declared yet: the BOM tree won't use any until you complete at least one.",
+  "Están plegadas. Despliega para editarlas.": "They're collapsed. Expand to edit them.",
   "Mis instalaciones": "My facilities",
   "Nueva ficha": "New facility",
   "Editar ficha": "Edit facility",
@@ -365,8 +375,9 @@ const EN: Record<string, string> = {
     "Fetches the structures we already know from your assets, with their name, system and type. Rigs and services are up to you: ESI doesn't give those.",
   "No hay estructuras nuevas que traer: ya están todas en tu registro.":
     "No new structures to fetch: they're all in your registry already.",
-  "No se pudo consultar ESI. ¿Has concedido el permiso «read_structures»?":
-    "Couldn't query ESI. Have you granted the “read_structures” permission?",
+  "No se pudo traer de ESI": "Couldn't fetch from ESI",
+  "No se pudo guardar la ficha": "Couldn't save the facility",
+  "No se pudo borrar la ficha": "Couldn't delete the facility",
   "Este tipo de estructura no admite la planta de fabricación: lo dice el propio módulo en el SDE (solo encaja en Citadel, Engineering Complex y Refinery).":
     "This structure type can't take the manufacturing plant: the module itself says so in the SDE (it only fits Citadels, Engineering Complexes and Refineries).",
   "este tipo NO admite la planta: lo dice el propio módulo en el SDE":
@@ -381,8 +392,18 @@ const EN: Record<string, string> = {
     "this type has no industry bonuses (a plain Citadel, say): we compute without them",
   "¿no los sabes? Déjalo vacío: calcularemos sin ellos y te lo diremos. Mejor quedarse corto que inventar un bono.":
     "don't know them? Leave it empty: we'll compute without them and tell you. Better to fall short than invent a bonus.",
-  "el que cobra el dueño de la estructura. Sale en el desglose de coste del job, in-game. Nadie más lo sabe: ni ESI ni el SDE.":
-    "the one the structure's owner charges. It shows in the job's cost breakdown in-game. Nobody else knows it: not ESI, not the SDE.",
+  "el que cobra el dueño de la estructura. Nadie más lo sabe: ni ESI ni el SDE.":
+    "the one the structure's owner charges. Nobody else knows it: not ESI, not the SDE.",
+  // Ayuda visual del impuesto: el tooltip del juego tiene cuatro porcentajes y tres son trampas.
+  "¿Dónde lo veo? En el juego, al abrir el plano: «Coste total del trabajo» → pasa el ratón por encima.":
+    "Where do I find it? In-game, open the blueprint: “Total job cost” → hover over it.",
+  "Bonificación por función de estructura": "Structure role bonus",
+  "no — lo saca Koru de ESI, en vivo": "no — Koru pulls this from ESI, live",
+  "no — sale del SDE por el tipo de estructura": "no — this comes from the SDE, from the structure type",
+  "👈 ESTE. Aquí escribirías 1": "👈 THIS ONE. Here you'd type 1",
+  "no — es global del juego, Koru ya lo aplica": "no — it's game-wide, Koru already applies it",
+  "Escribe solo el número, sin el %. Si tu estructura no cobra nada, deja 0 — es un dato válido, no un hueco.":
+    "Type just the number, no % sign. If your structure charges nothing, leave 0 — that's a real answer, not a gap.",
   "Ojo: esto es una foto de lo que TÚ sabes hoy. Si la estación cambia sus rigs o su impuesto, Koru no se entera — vuelve aquí y edítala.":
     "Careful: this is a snapshot of what YOU know today. If the station changes its rigs or its tax, Koru won't find out — come back and edit it.",
   "Ficha completa: tipo, rigs e impuesto declarados. Con estos datos la cuenta cuadra al ítem con el juego — lo verificamos contra un job real. El único margen que queda es que la estación haya cambiado desde que la rellenaste: eso ESI no lo dice y Koru no puede saberlo.":
