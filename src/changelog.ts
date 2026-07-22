@@ -6,6 +6,28 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.30.0",
+    date: "2026-07-22",
+    es: [
+      "🔑 Antes de nada: vuelve a iniciar sesión con «Ubicación». Koru estrena su primer permiso de ESCRITURA en EVE —poner destino en tu piloto automático— y los accesos que ya tenías concedidos no lo incluyen. Es un minuto y solo hay que hacerlo una vez. Si se te olvida no pasa nada: el botón «Enviar a EVE» aparecerá deshabilitado y te dirá exactamente esto.",
+      "🚀 Koru ya pone rumbo en tu cliente. Traza la ruta aquí y mándala al juego: un destino, o la ruta entera con todas sus escalas. Se acabó copiar nombres de sistema a mano mirando dos pantallas.",
+      "🌉 Tus Ansiblex, por copia y pega. No existe ningún permiso de ESI que los liste —lo comprobamos antes de escribir una línea—, así que la red la declaras tú: pegas la tabla de puentes de tu alianza tal cual, la revisas en una hoja donde se ve qué ha entendido de cada fila, y confirmas. Nada se guarda sin que tú lo veas primero. A partir de ahí tus rutas cuentan con los puentes, y se pintan en verde curvo como en el mapa del juego.",
+      "🕳️ Y los wormholes de Thera y Turnur, en vivo. Koru consulta las firmas públicas y las usa para rutar: si cruzar un agujero te ahorra media galaxia, la ruta lo dice, en cian discontinuo. EVE no sabe rutear wormholes, así que al mandarla al juego se pone el destino final y tú das el salto.",
+      "🎯 Caza en vivo. Sigue a varios pilotos a la vez —sus avisos se pintan en morado, aparte del rojo genérico— e intercepta a uno: su rastro pasa a rojo y la ruta se re-traza sola cada vez que lo cantan en el chat. El rastro lleva flechas de dirección y la edad del último avistamiento, porque «hace 40 segundos» y «hace 20 minutos» son decisiones opuestas. Y el dato que faltaba para decidir: en cuántos saltos llegas TÚ, contando tus puentes.",
+      "🗺️ El mapa, reordenado. Navegación en detalle abajo, una tarjeta con pestañas a la derecha y el intel donde estaba. Las regiones se pliegan y se abren de una en una. Los sistemas que hayas vetado se ven en todas las capas, no solo en la lista — antes tu ruta daba un rodeo y no sabías por qué. Y cada capa lleva su leyenda: un color de un mapa de calor no significa nada sin ella.",
+      "👁️ Y que se lea. Los puntos y las líneas ya no engordan al acercar el zoom, los nombres de sistema no se pisan unos a otros, y los tres niveles de detalle (región, constelación, sistema) se encadenan atenuándose en vez de saltar de golpe.",
+    ],
+    en: [
+      "🔑 First things first: sign in again with “Location”. Koru gets its first WRITE permission in EVE — setting a destination in your autopilot — and the access you already granted doesn't include it. It takes a minute and you only do it once. If you forget, nothing breaks: the “Send to EVE” button stays disabled and tells you exactly this.",
+      "🚀 Koru can now set course in your client. Plan the route here and send it to the game: a single destination, or the whole route with every stop. No more copying system names by hand across two screens.",
+      "🌉 Your Ansiblex network, by copy and paste. There is no ESI permission that lists them — we checked before writing a single line — so you declare the network yourself: paste your alliance's bridge table as it is, review it in a sheet that shows what was understood from every row, and confirm. Nothing is saved before you've seen it. From then on your routes take the bridges into account, and they're drawn as green curves like the in-game map.",
+      "🕳️ Plus the Thera and Turnur wormholes, live. Koru reads the public signatures and routes through them: if a hole saves you half the galaxy, the route says so, in dashed cyan. EVE can't route wormholes, so when you send the route it sets the final destination and you make the jump yourself.",
+      "🎯 Live hunting. Follow several pilots at once — their reports show in purple, apart from the generic red — and intercept one: his trail turns red and the route re-plots itself every time he's called out in chat. The trail carries direction arrows and the age of the last sighting, because “40 seconds ago” and “20 minutes ago” are opposite decisions. And the number that was missing: how many jumps YOU are away, counting your bridges.",
+      "🗺️ The map, rearranged. Navigation detail below, a tabbed card on the right and intel where it was. Regions fold and open one at a time. Systems you've excluded now show on every layer, not just in the list — before, your route took a detour and you couldn't see why. And every layer has its legend: a heatmap colour means nothing without one.",
+      "👁️ And made readable. Dots and lines no longer swell as you zoom in, system names don't overlap each other, and the three levels of detail (region, constellation, system) now cross-fade into one another instead of popping.",
+    ],
+  },
+  {
     version: "0.29.0",
     date: "2026-07-15",
     es: [
