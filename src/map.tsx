@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
-import { fmtAgo, fmtIsk, fmtSp, fmtMin, secColor, ownerColor, heatColor, typeIcon } from "./format";
+import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
-import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera } from "./mapOverlays";
+import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, MapScaleLegend, scaleFor } from "./mapOverlays";
 import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
 import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
@@ -1331,6 +1331,18 @@ export function MapView(props: {
         : null
       : null;
   const liveMax = liveMap ? maxOf([...liveMap.values()], 1) : 1; // spread NO: ver maxOf
+  // Sistemas que llevan insignia numérica: los N mayores de la capa.
+  // NO vale con "que el círculo sea grande": el radio se normaliza al máximo, así que en una hora
+  // floja (máx 6 kills) TODOS los círculos salen grandes y se numerarían los 400 → nube ilegible.
+  // Un tope fijo garantiza que siempre se etiqueta lo que importa y nunca satura.
+  const LIVE_LABELS = 40;
+  const liveTop = (() => {
+    if (!liveMap) return null;
+    const vals = [...liveMap.entries()].filter(([, v]) => v > 0);
+    if (vals.length <= LIVE_LABELS) return new Set(vals.map(([sid]) => sid));
+    vals.sort((a, b) => b[1] - a[1]);
+    return new Set(vals.slice(0, LIVE_LABELS).map(([sid]) => sid));
+  })();
   const liveColor = overlay === "assets" ? "#5fd0c0" : overlay === "mineria" ? "#d8b24a" : null;
 
   const legend =
@@ -1768,22 +1780,44 @@ export function MapView(props: {
                         ? "Minado"
                         : "Assets (stacks)"
                     }: ${fmtSp(v)}`;
+                // Insignia numérica dentro del nodo, como el mapa del juego: se lee la cantidad sin
+                // tener que posar el ratón. Solo si el círculo da de sí para la cifra — con ~5.000
+                // sistemas, numerarlos todos sería una nube ilegible. `rBase` es el radio ANTES de
+                // dividir por el zoom, así el criterio no cambia al acercar o alejar.
+                const rBase = 1.5 + Math.sqrt(v / liveMax) * 16;
+                const showNum = !!liveTop?.has(sid) && rBase >= 4.5;
+                const fontBase = Math.min(rBase * 0.95, 7);
                 return (
-                  <circle
-                    key={`live-${sid}`}
-                    cx={p.px}
-                    cy={p.py}
-                    r={r}
-                    fill={fill}
-                    fillOpacity={overlay === "pi" ? 0.7 : 0.55}
-                    className="clickable-sys"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      clickSystem(sid);
-                    }}
-                  >
-                    <title>{`${s.n}\n${label}`}</title>
-                  </circle>
+                  <g key={`live-${sid}`}>
+                    <circle
+                      cx={p.px}
+                      cy={p.py}
+                      r={r}
+                      fill={fill}
+                      fillOpacity={overlay === "pi" ? 0.7 : 0.55}
+                      className="clickable-sys"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        clickSystem(sid);
+                      }}
+                    >
+                      <title>{`${s.n}\n${label}`}</title>
+                    </circle>
+                    {showNum && (
+                      <text
+                        x={p.px}
+                        y={p.py}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fontSize={fontBase / view.z}
+                        fontWeight={700}
+                        fill="#0a0d12"
+                        pointerEvents="none"
+                      >
+                        {fmtCompact(v)}
+                      </text>
+                    )}
+                  </g>
                 );
               })}
             {/* ruta planificada */}
@@ -2029,6 +2063,10 @@ export function MapView(props: {
               </div>
             );
           })()}
+
+        {/* Leyenda de la capa activa, abajo a la izquierda como en el mapa del juego. Sin esto el
+            color de un heatmap no significa nada para quien lo mira. */}
+        <MapScaleLegend scale={scaleFor(overlay, liveMax)} />
 
         <div className="map-zoom">
           <button onClick={() => zoomBy(1.3)}>+</button>
@@ -3029,8 +3067,14 @@ export function MapView(props: {
           </div>
         )}
 
-        {/* Sub-filtro de la capa activa (desplegable, estilo mapa oficial) */}
-        {SUBFILTERS[overlay] && (
+        {/* Barra inferior: sub-filtro ENCIMA de las categorías, apilados en una columna.
+            Antes cada uno se posicionaba solo (`bottom: 66px` y `bottom: 12px`) y se pisaban: la
+            barra de categorías mide más de 66px, así que le comía el borde al sub-filtro. Con la
+            columna se apilan con hueco y aguanta aunque la barra envuelva a dos filas. */}
+        <div className="map-bottombar">
+        {/* Sub-filtro de la capa activa. Se oculta mientras hay un desplegable de categoría abierto:
+            el menú se abre justo encima y lo taparía, y además ahí estás eligiendo capa, no filtrando. */}
+        {SUBFILTERS[overlay] && !openCat && (
           <div className="map-subfilter">
             {SUBFILTERS[overlay]!.map((o) => (
               <button
@@ -3128,6 +3172,7 @@ export function MapView(props: {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
 

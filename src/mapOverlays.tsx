@@ -1,10 +1,137 @@
 // Renderers puros de las capas del mapa: reciben la proyección (geo) + los datos de la capa
 // y devuelven los <circle> del SVG. Sin estado ni handlers → extraídos de map.tsx para adelgazarlo.
 // Las capas con interacción (intel, ruta, salto, hover) se quedan en map.tsx.
-import { secColor, ownerColor, standingColor } from "./format";
+import { secColor, ownerColor, standingColor, fmtSp } from "./format";
+import { tr } from "./i18n";
 import { FW_FACTIONS } from "./constants";
 import type { MapOverlay } from "./constants";
 import type { NeSystem, NewEden, SovSystem, FwSystem, Incursion, WhConn } from "./types";
+
+// ===== Leyenda de escala =====
+// El mapa del juego pone SIEMPRE una leyenda abajo a la izquierda diciendo qué significa el color o
+// el tamaño de cada capa. Koru pintaba heatmaps sin explicarlos: el color no significaba nada para
+// quien mira. Tres formas, porque las capas no son todas iguales y fingir que sí sería mentir:
+//   · "bands"  → color por tramos (heatColor tiene 3 escalones REALES, no un degradado continuo;
+//                dibujar un degradado suave daría a entender una precisión que no existe).
+//   · "size"   → el color es fijo y lo que varía es el radio (assets, minería).
+//   · "cats"   → categorías discretas con su significado (PI, soberanía…).
+export type MapScale =
+  | { kind: "bands"; label: string; bands: { color: string; upTo: number }[] }
+  | { kind: "size"; label: string; color: string; max: number }
+  | { kind: "cats"; label: string; items: { color: string; label: string }[] };
+
+export function MapScaleLegend({ scale }: { scale: MapScale | null }) {
+  if (!scale) return null;
+  return (
+    <div className="map-scale">
+      {scale.kind === "bands" && (
+        <div className="map-scale-bands">
+          {/* De mayor a menor, como el juego: el máximo arriba. */}
+          {[...scale.bands].reverse().map((b, i) => (
+            <div key={i} className="map-scale-band">
+              <span className="map-scale-sw" style={{ background: b.color }} />
+              <span className="map-scale-val">≤ {fmtSp(b.upTo)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {scale.kind === "size" && (
+        <div className="map-scale-sizes">
+          {[1, 0.45, 0.12].map((f, i) => (
+            <div key={i} className="map-scale-band">
+              <span
+                className="map-scale-dot"
+                style={{
+                  background: scale.color,
+                  width: `${6 + Math.sqrt(f) * 10}px`,
+                  height: `${6 + Math.sqrt(f) * 10}px`,
+                }}
+              />
+              <span className="map-scale-val">{fmtSp(Math.max(1, Math.round(scale.max * f)))}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {scale.kind === "cats" && (
+        <div className="map-scale-bands">
+          {scale.items.map((it, i) => (
+            <div key={i} className="map-scale-band">
+              <span className="map-scale-sw" style={{ background: it.color }} />
+              <span className="map-scale-val">{it.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="map-scale-title">{scale.label}</div>
+    </div>
+  );
+}
+
+/** Escala que corresponde a la capa activa. `max` es el valor máximo real de la capa (liveMax). */
+export function scaleFor(overlay: MapOverlay, max: number): MapScale | null {
+  switch (overlay) {
+    case "kills":
+    case "jumps":
+      // Los tres escalones REALES de heatColor(t): >0.66 · >0.33 · resto.
+      return {
+        kind: "bands",
+        label: overlay === "kills" ? tr("Kills (1 h)") : tr("Saltos (1 h)"),
+        bands: [
+          { color: "#ffd86b", upTo: Math.max(1, Math.round(max * 0.33)) },
+          { color: "#ff9f40", upTo: Math.max(2, Math.round(max * 0.66)) },
+          { color: "#ff5a3c", upTo: Math.max(3, max) },
+        ],
+      };
+    case "assets":
+      return { kind: "size", label: tr("Assets (stacks)"), color: "#5fd0c0", max };
+    case "mineria":
+      return { kind: "size", label: tr("Minado (90 días)"), color: "#d8b24a", max };
+    case "pi":
+      return {
+        kind: "cats",
+        label: tr("Salud de tus colonias"),
+        items: [
+          { color: "#3fb950", label: tr("Sano (>24 h)") },
+          { color: "#d29922", label: tr("Menos de 24 h") },
+          { color: "#f0883e", label: tr("Menos de 6 h") },
+          { color: "#e5534b", label: tr("Parado") },
+          { color: "#8a8a8a", label: tr("Sin extractor") },
+        ],
+      };
+    case "security":
+      return {
+        kind: "cats",
+        label: tr("Seguridad"),
+        items: [
+          { color: "#3fb950", label: "high (≥0.5)" },
+          { color: "#e3a13a", label: "low (0.1–0.4)" },
+          { color: "#e5534b", label: "null (≤0.0)" },
+        ],
+      };
+    case "wormholes":
+      return {
+        kind: "cats",
+        label: tr("Conexiones de wormhole"),
+        items: [
+          { color: "#3ad6e0", label: "Thera" },
+          { color: "#e0863a", label: "Turnur" },
+        ],
+      };
+    case "incursion":
+      return {
+        kind: "cats",
+        label: tr("Incursiones"),
+        items: [
+          { color: "#e5534b", label: tr("Establecida") },
+          { color: "#f0883e", label: tr("Movilizando") },
+          { color: "#d29922", label: tr("Retirándose") },
+        ],
+      };
+    default:
+      // Soberanía y FW usan un color por dueño/facción: una leyenda de 200 alianzas no ayuda.
+      return null;
+  }
+}
 
 // Proyección y grafo memorizados que construye MapView (useMemo `geo`).
 export type Geo = {

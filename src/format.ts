@@ -79,6 +79,17 @@ export function ownerColor(id: number): string {
   return `hsl(${(id * 47) % 360} 65% 55%)`;
 }
 
+/** Número CORTO para meterlo dentro de un nodo del mapa: 940 · 1,2k · 15k · 2,3M.
+ *  `fmtSp` no vale ahí — "1.234" no cabe en un círculo de 8 px. */
+export function fmtCompact(n: number): string {
+  const a = Math.abs(n);
+  if (a < 1000) return String(Math.round(n));
+  if (a < 10000) return `${(n / 1000).toFixed(1).replace(".", ",")}k`;
+  if (a < 1e6) return `${Math.round(n / 1000)}k`;
+  if (a < 1e7) return `${(n / 1e6).toFixed(1).replace(".", ",")}M`;
+  return `${Math.round(n / 1e6)}M`;
+}
+
 // Color de "calor" (t en 0..1 → amarillo → rojo) para overlays de actividad.
 export function heatColor(t: number): string {
   if (t > 0.66) return "#ff5a3c";
