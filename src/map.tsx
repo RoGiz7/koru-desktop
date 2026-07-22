@@ -14,6 +14,7 @@ import { useIntel } from "./useIntel";
 import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
 import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
+import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay } from "./constants";
 import type {
@@ -36,6 +37,21 @@ import type {
 const MAP_W = 1000;
 const MAP_H = 760;
 const MAP_PAD = 16;
+// Icono real del Ansiblex (SDE type 35841) para el badge de «vía puente», en vez del emoji 🌉.
+const ANSI_ICON = typeIcon(ANSIBLEX_TYPE_ID, 32);
+// Badge reutilizable con el icono del juego. Se usa igual en la cabecera de ruta, en la lista de
+// sistemas y en el feed de intel, para que «vía Ansiblex» se vea siempre igual.
+function AnsiBadge({ size = 12 }: { size?: number }) {
+  return (
+    <img
+      src={ANSI_ICON}
+      alt="Ansiblex"
+      width={size}
+      height={size}
+      style={{ verticalAlign: "-2px", borderRadius: 2 }}
+    />
+  );
+}
 
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.
@@ -105,6 +121,7 @@ export function MapView(props: {
   theraConns?: WhConn[] | null;
   intel?: IntelConfig;
   hereSystemId?: number | null;
+  hereCharId?: number | null;
   charLocations?: CharLoc[];
   characters?: Character[];
   onSystemAssets?: (systemName: string) => void;
@@ -136,6 +153,7 @@ export function MapView(props: {
     incursions,
     theraConns,
     hereSystemId,
+    hereCharId,
     charLocations,
     characters = [],
   } = props;
@@ -152,8 +170,23 @@ export function MapView(props: {
   const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
   const [ctxCollapsed, setCtxCollapsed] = useState(false); // panel de contexto plegado
   // Planificador de rutas: estado (modo + paradas) encapsulado en su hook.
-  const { routeActive, setRouteActive, routeMode, setRouteMode, routeStops, setRouteStops } =
-    useRoutePlanner();
+  const {
+    routeActive,
+    setRouteActive,
+    routeMode,
+    setRouteMode,
+    routeStops,
+    setRouteStops,
+    useAnsiblex,
+    setUseAnsiblex,
+  } = useRoutePlanner();
+  // Red de Ansiblex de la alianza (declarada por el piloto en Ajustes; ESI no la publica).
+  const [ansiRows, setAnsiRows] = useState<AnsiblexRow[]>([]);
+  useEffect(() => {
+    invoke<AnsiblexRow[]>("ansiblex_list")
+      .then(setAnsiRows)
+      .catch(() => setAnsiRows([]));
+  }, []);
   // Planificador de saltos de capital (jump drive): estado + skills/fatiga encapsulados en su hook.
   const {
     jumpActive,
@@ -277,6 +310,7 @@ export function MapView(props: {
     return () => el.removeEventListener("wheel", handler);
     // Depende de `ne`: el SVG no existe hasta que carga el SDE; al aparecer, re-engancha.
   }, [ne]);
+
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
     movedRef.current = false;
@@ -360,6 +394,7 @@ export function MapView(props: {
       clickTimer.current = null;
     }, 200);
   }
+
   function selectSystem(sid: number) {
     if (drag.current?.moved) return; // fue un paneo, no un click
     if (jumpActive) {
@@ -369,6 +404,14 @@ export function MapView(props: {
       return;
     }
     if (routeActive) {
+      // En interceptación la ruta la MANDA el objetivo, no las paradas: un click no debe apilar
+      // waypoints (eso dejaba una ruta enredada), sino RE-APUNTAR la interceptación al sistema
+      // clicado. El origen sigue siendo tu cazador. Esto también deja re-apuntar clicando un punto
+      // rojo de intel. La elección manual manda sobre el seguimiento hasta que apagues y vuelvas.
+      if (intercepting) {
+        setManualTarget(sid);
+        return;
+      }
       setRouteStops((prev) => {
         const i = prev.indexOf(null);
         if (i >= 0) {
@@ -474,6 +517,47 @@ export function MapView(props: {
     return { proj, idx, nameIdx, adj, jumpsPath, regionLabels, constLabels };
   }, [ne]);
 
+  // Red de Ansiblex proyectada sobre el mapa: aristas para el grafo + trazo para pintarlas.
+  // Va en su PROPIO memo y no dentro de `geo` a propósito: geo recorre los ~5.000 sistemas y las
+  // ~13.000 conexiones de New Eden, y no queremos rehacer todo eso cada vez que el piloto
+  // reimporta la red.
+  const ansi = useMemo(() => {
+    if (!geo || ansiRows.length === 0) return null;
+    const adj = new Map<number, number[]>();
+    const keys = new Set<string>();
+    let path = "";
+    let drawn = 0;
+    for (const b of ansiRows) {
+      const sa = geo.idx.get(b.a_id);
+      const sb = geo.idx.get(b.b_id);
+      if (!sa || !sb) continue; // puente a un sistema que el SDE ya no conoce → no inventamos
+      (adj.get(b.a_id) ?? adj.set(b.a_id, []).get(b.a_id)!).push(b.b_id);
+      (adj.get(b.b_id) ?? adj.set(b.b_id, []).get(b.b_id)!).push(b.a_id);
+      keys.add(edgeKey(b.a_id, b.b_id));
+      const pa = geo.proj(sa);
+      const pb = geo.proj(sb);
+      // Arco, no recta. El mapa del juego dibuja los puentes curvados y hay una razón práctica
+      // además de estética: un Ansiblex une sistemas LEJANOS, así que su recta cruza por encima de
+      // media región y se confunde con la maraña de stargates que hay debajo. La curva la despega
+      // del fondo y deja claro que es un enlace que se salta lo de en medio.
+      // El punto de control se aparta de la mitad en perpendicular, un 12% del largo. Como los
+      // pares vienen en orden canónico (a_id < b_id), todos los arcos comban igual: si el orden
+      // bailara, el mismo puente se curvaría a un lado u otro entre importaciones.
+      // Perpendicular al tramo = (-dy, dx). Escalada por BOW, la comba sale proporcional al largo:
+      // los puentes cortos apenas se curvan y los largos trazan un arco amplio.
+      const BOW = 0.12;
+      const dx = pb.px - pa.px;
+      const dy = pb.py - pa.py;
+      const cx = (pa.px + pb.px) / 2 - dy * BOW;
+      const cy = (pa.py + pb.py) / 2 + dx * BOW;
+      path +=
+        `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}` +
+        `Q${cx.toFixed(1)} ${cy.toFixed(1)} ${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`;
+      drawn++;
+    }
+    return { adj, keys, path, drawn };
+  }, [geo, ansiRows]);
+
   // Fondo de estrellas memorizado (no se reconstruye al mover el ratón / hover).
   // LOD del backdrop: en vista galaxia (muy alejado) pinta 1 de cada 3 sistemas (se solapan igual).
   const bgStride = view.z < 1.8 ? 3 : 1;
@@ -533,10 +617,37 @@ export function MapView(props: {
   }, [hereSystemId, intel?.anchors]);
 
   // --- Intel: proximidad (BFS multi-origen: distancia al más cercano de los orígenes) ---
+  //
+  // SOLO STARGATES, y es una decisión, no un olvido. Este número alimenta LA ALARMA, y la alarma
+  // mide una cosa concreta: cómo de rápido pueden llegar ELLOS hasta ti. Los Ansiblex de tu
+  // alianza no les sirven —la ACL los deja fuera, y desde sept-2026 es alianza-only—, así que
+  // meterlos aquí acortaría el camino por una vía que el hostil NO puede tomar: diría «a 3 saltos»
+  // cuando necesita 11. Falsas alarmas justo donde una falsa alarma quema la confianza en todas
+  // las demás. Y hay un agravante: los hostiles tienen SUS puentes en su espacio, que no conocemos
+  // → la amenaza real a través de puentes no es difícil de calcular, es incognoscible.
   const jumpsFrom = useMemo(
     () => (!geo || intelOrigins.length === 0 ? null : proximityBFS(geo.adj, intelOrigins)),
     [geo, intelOrigins],
   );
+
+  // --- Caza: ¿en cuánto llegas TÚ allí? (puertas + Ansiblex) ---
+  //
+  // La otra mitad de la pregunta, y la que le da sentido al cazador. Mismo grafo, dirección
+  // opuesta: para venir a por ti el hostil no puede usar tus puentes, pero para ir a por él TÚ sí.
+  // Por eso este número va APARTE del de la alarma y nunca lo sustituye: son dos cosas distintas
+  // que hasta ahora compartían cifra.
+  // El origen es dónde ESTÁS, no las anclas: sales de donde estás sentado, no de tu staging. Si no
+  // sabemos tu posición, caemos a las anclas para que el dato siga sirviendo de algo.
+  const huntFrom = useMemo(() => {
+    if (!geo || !ansi) return null;
+    const origins = hereSystemId != null ? [hereSystemId] : intelOrigins;
+    if (origins.length === 0) return null;
+    const merged = new Map(geo.adj);
+    for (const [from, tos] of ansi.adj) {
+      merged.set(from, [...(merged.get(from) ?? []), ...tos]);
+    }
+    return proximityBFS(merged, origins);
+  }, [geo, ansi, hereSystemId, intelOrigins]);
 
   // --- Intel: parsear líneas → reportes por sistema + feed cronológico ---
   // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
@@ -564,6 +675,9 @@ export function MapView(props: {
       const p = geo.proj(s);
       const op = Math.max(0.18, 1 - (now - r.ts) / recencyMs);
       const j = jumpsFrom?.get(sid);
+      // `h` = tu tiempo de llegada usando también los puentes. NO entra en `near` ni en el filtro:
+      // la alarma y el rango siguen mandando sobre `j`, que es lo que mide la amenaza.
+      const h = huntFrom?.get(sid);
       const near = j != null && j <= (intel?.alertJumps ?? 0);
       // Filtro "solo en rango": oculta lo que esté fuera del umbral de saltos.
       if (intel?.onlyRange && !near) return null;
@@ -574,6 +688,14 @@ export function MapView(props: {
           onClick={(e) => {
             e.stopPropagation();
             if (movedRef.current) return; // fue un paneo
+            // Si estás trazando una ruta o un salto, el punto rojo NO debe comerse el click: lo que
+            // quieres es marcar ESE sistema como parada, aunque tenga alerta encima. Antes el intel
+            // tapaba al sistema de debajo y no se podía elegir un destino con hostiles — justo el
+            // que más te interesa. En modo intel normal, sigue abriendo el detalle.
+            if (routeActive || jumpActive) {
+              clickSystem(sid);
+              return;
+            }
             openIntelDetail({ sysId: sid, sysName: s.n, ts: r.ts, author: r.author, message: r.message });
           }}
         >
@@ -595,13 +717,17 @@ export function MapView(props: {
           )}
           {/* zona de click ampliada (invisible) para acertar fácil el punto + tooltip */}
           <circle cx={p.px} cy={p.py} r={2.6} fill="transparent">
-            <title>{`${s.n}${j != null ? ` · ${j} ${tr("saltos")}` : ""}\n${r.author}: ${r.message}\n${tr("(clic para ver detalle)")}`}</title>
+            {/* Dos cifras y bien separadas: los saltos por PUERTA (lo que mide la amenaza) y, si
+                hay red importada y acorta, en cuánto llegas TÚ usando además tus Ansiblex. */}
+            <title>{`${s.n}${j != null ? ` · ${j} ${tr("saltos")}` : ""}${
+              h != null && j != null && h < j ? ` · ${tr("llegas en")} ${h} (Ansiblex)` : ""
+            }\n${r.author}: ${r.message}\n${tr("(clic para ver detalle)")}`}</title>
           </circle>
           <circle cx={p.px} cy={p.py} r={1.3} fill="#ff3b3b" fillOpacity={op} stroke="#0a0d12" strokeWidth={0.3} pointerEvents="none" />
         </g>
       );
     });
-  }, [geo, overlay, intelReports, jumpsFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange]);
+  }, [geo, overlay, intelReports, jumpsFrom, huntFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange, routeActive, jumpActive]);
 
   // --- Intel: marcadores de los puntos de ancla (anclas de proximidad) ---
   const intelAnchorMarkers = useMemo(() => {
@@ -662,7 +788,30 @@ export function MapView(props: {
     setIntelAlert,
   } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, intelReports, intelOrigins });
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
-  const { huntPilot, huntTrack, loadHuntTrack, clearHuntTrack } = useHuntTrack(openTrack);
+  // El nº de líneas de intel es la señal de refresco: cuando llega un canto nuevo, el rastro del
+  // perseguido se vuelve a consultar, y con él su último sistema → la interceptación se re-traza.
+  const { huntPilot, huntTrack, loadHuntTrack, clearHuntTrack } = useHuntTrack(
+    openTrack,
+    intel?.lines.length ?? 0
+  );
+  // Interceptación viva: cuando está activa, la ruta se ata al piloto que sigues. El origen es dónde
+  // está TU cazador (el personaje activo, `hereSystemId`); el destino, el último sistema donde lo
+  // cantaron. Se re-traza sola si el objetivo se mueve. Ver el efecto más abajo.
+  const [intercepting, setIntercepting] = useState(false);
+  // Re-apuntado MANUAL: si clicas un sistema durante la interceptación, la ruta va ahí (desde tu
+  // cazador) en vez de al último avistamiento. Manda sobre el seguimiento hasta que apagues o
+  // cambies de piloto. null = sin override, sigue al objetivo.
+  const [manualTarget, setManualTarget] = useState<number | null>(null);
+  // Último sistema donde se vio al perseguido = destino de la caza. El rastro viene de más viejo a
+  // más nuevo (el marcador de flecha ya apunta al final), así que el último punto es el más fresco.
+  const huntTarget = useMemo(() => {
+    if (!huntTrack || huntTrack.length === 0) return null;
+    return huntTrack[huntTrack.length - 1].system_id;
+  }, [huntTrack]);
+  // Al cambiar de piloto seguido, se olvida el re-apuntado manual (te re-enganchas al nuevo objetivo).
+  useEffect(() => {
+    setManualTarget(null);
+  }, [huntPilot]);
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -854,19 +1003,123 @@ export function MapView(props: {
     [geo, jumpOrigin, jumpRange],
   );
 
-  const routePath = useMemo(() => {
+  // Grafo sobre el que se rutea. Con el interruptor de Ansiblex apagado es el de stargates tal
+  // cual. Con él encendido se AÑADEN las aristas de los puentes — copiando solo los arrays que
+  // tocamos, para no mutar `geo.adj` (lo comparten la proximidad de intel y el BFS).
+  const routeAdj = useMemo(() => {
     if (!geo) return null;
+    if (!ansi || !useAnsiblex) return geo.adj;
+    const merged = new Map(geo.adj);
+    for (const [from, tos] of ansi.adj) {
+      merged.set(from, [...(merged.get(from) ?? []), ...tos]);
+    }
+    return merged;
+  }, [geo, ansi, useAnsiblex]);
+
+  // Interceptación: mientras esté activa, la ruta la MANDA el objetivo, no las paradas manuales.
+  // Origen = tu cazador (personaje activo). Destino = último sistema donde lo vieron. Al moverse él,
+  // `huntTarget` cambia y esto re-traza. Si perdemos su rastro o tu posición, se apaga sola: una
+  // ruta de caza a un fantasma engaña más que ayuda.
+  useEffect(() => {
+    if (!intercepting) return;
+    // El destino: lo que hayas clicado a mano, o si no, el último avistamiento del perseguido.
+    const dest = manualTarget ?? huntTarget;
+    if (hereSystemId == null || dest == null || hereSystemId === dest) return;
+    setRouteStops([hereSystemId, dest]);
+  }, [intercepting, hereSystemId, huntTarget, manualTarget, setRouteStops]);
+  // Se apaga si dejas de seguir al piloto (el chip desaparece y no tendría objetivo).
+  useEffect(() => {
+    if (intercepting && !huntPilot) setIntercepting(false);
+  }, [intercepting, huntPilot]);
+  // Cuando la interceptación se APAGA (por el botón, por el ✕ del rastro o porque perdimos al
+  // piloto), hay que borrar SU ruta: si no, la línea amarilla y la lista se quedan colgadas sobre
+  // el mapa (justo el solapamiento que se veía al quitar el seguimiento). Un solo sitio para las
+  // tres vías de apagado, con un ref para distinguir «se acaba de apagar» de «lleva rato apagada».
+  const wasIntercepting = useRef(false);
+  useEffect(() => {
+    if (wasIntercepting.current && !intercepting) {
+      setRouteStops([null]);
+      setManualTarget(null);
+    }
+    wasIntercepting.current = intercepting;
+  }, [intercepting, setRouteStops]);
+
+  const routePath = useMemo(() => {
+    if (!geo || !routeAdj) return null;
     const stops = routeStops.filter((s): s is number => s != null);
     if (stops.length < 2) return null;
     const full: number[] = [];
     for (let i = 0; i < stops.length - 1; i++) {
-      const seg = findRoute(geo.adj, geo.idx, stops[i], stops[i + 1], routeMode);
+      const seg = findRoute(routeAdj, geo.idx, stops[i], stops[i + 1], routeMode);
       if (!seg) return null;
       if (i === 0) full.push(...seg);
       else full.push(...seg.slice(1));
     }
     return full;
-  }, [geo, routeStops, routeMode]);
+  }, [geo, routeAdj, routeStops, routeMode]);
+
+  // Paradas de la ruta en orden (sin huecos). Es lo que se manda a EVE como waypoints: así se puede
+  // forzar un camino con escalas (cazar pasando por X, o un viaje planificado), no solo el destino.
+  const routeWaypoints = useMemo(
+    () => routeStops.filter((s): s is number => s != null),
+    [routeStops]
+  );
+  // ¿El personaje activo tiene el permiso de escribir waypoint? Si no, el botón lo explica en vez
+  // de fallar con un 403 opaco.
+  const canWaypoint = useMemo(() => {
+    if (hereCharId == null) return false;
+    const c = characters.find((x) => x.character_id === hereCharId);
+    return !!c?.scopes?.includes("esi-ui.write_waypoint.v1");
+  }, [hereCharId, characters]);
+  const [sendingEve, setSendingEve] = useState(false);
+  const [eveMsg, setEveMsg] = useState("");
+  // Manda TODAS las paradas como waypoints en orden. El backend limpia con la primera y encadena el
+  // resto. Con una sola parada = poner destino; con varias = fija la ruta con sus escalas en EVE.
+  async function sendToEve(waypoints: number[]) {
+    if (hereCharId == null || waypoints.length === 0) return;
+    // Si la primera parada es donde ya estás (típico en interceptación: origen = tu sistema), la
+    // quitamos: EVE rutea desde tu posición real, mandarla sería un waypoint redundante en tu propio
+    // sistema. Pero si el origen es OTRO sistema (ruta planificada desde otro punto), se respeta.
+    let wps = waypoints;
+    if (wps.length > 1 && hereSystemId != null && wps[0] === hereSystemId) {
+      wps = wps.slice(1);
+    }
+    setSendingEve(true);
+    setEveMsg("");
+    try {
+      await invoke("set_ingame_route", {
+        characterId: hereCharId,
+        destinationIds: wps,
+      });
+      const last = geo?.idx.get(wps[wps.length - 1]);
+      const n = wps.length;
+      setEveMsg(
+        n > 1
+          ? `✓ ${tr("Ruta en EVE")}: ${n} ${tr("paradas")} → ${last?.n ?? ""}`
+          : `✓ ${tr("Destino en EVE")}: ${last?.n ?? wps[0]}`
+      );
+    } catch (e) {
+      setEveMsg(String(e).slice(0, 160));
+    } finally {
+      setSendingEve(false);
+      window.setTimeout(() => setEveMsg(""), 5000);
+    }
+  }
+
+  // Índices de la ruta a los que se llegó CRUZANDO UN PUENTE (no por stargate). Sirve para marcar
+  // el tramo en la lista: un salto por Ansiblex no se prepara igual que uno por puerta.
+  // Se exige que el par NO sea además vecino por stargate, para no etiquetar de puente un tramo
+  // que también se podía hacer por puerta.
+  const ansiLegs = useMemo(() => {
+    const legs = new Set<number>();
+    if (!routePath || !ansi || !useAnsiblex || !geo) return legs;
+    for (let i = 1; i < routePath.length; i++) {
+      const u = routePath[i - 1];
+      const v = routePath[i];
+      if (ansi.keys.has(edgeKey(u, v)) && !(geo.adj.get(u) ?? []).includes(v)) legs.add(i);
+    }
+    return legs;
+  }, [routePath, ansi, useAnsiblex, geo]);
 
   if (!ne || !geo) return <p className="muted">{tr("Cargando mapa…")}</p>;
 
@@ -994,11 +1247,21 @@ export function MapView(props: {
               <option value="insecure">{tr("Menos segura")}</option>
             </select>
             <span className="muted small">
-              {routePath
-                ? `${routePath.length - 1} ${tr("saltos")}`
-                : routeStops.filter((s) => s != null).length >= 2
-                ? tr("Sin ruta por stargates")
-                : tr("Elige origen y destino")}
+              {routePath ? (
+                <>
+                  {routePath.length - 1} {tr("saltos")}
+                  {ansiLegs.size > 0 && (
+                    <>
+                      {" · "}
+                      {ansiLegs.size} <AnsiBadge />
+                    </>
+                  )}
+                </>
+              ) : routeStops.filter((s) => s != null).length >= 2 ? (
+                tr("Sin ruta por stargates")
+              ) : (
+                tr("Elige origen y destino")
+              )}
             </span>
             <button
               onClick={() => setRouteStops([null])}
@@ -1036,6 +1299,40 @@ export function MapView(props: {
           <button className="route-add" onClick={() => setRouteStops((prev) => [...prev, null])}>
             + {tr("Añadir destino")}
           </button>
+          {/* Interruptor de Ansiblex. Solo aparece si hay red importada — un interruptor que no
+              hace nada porque no hay datos solo genera dudas. */}
+          {ansi && (
+            <label className="route-ansi small">
+              <input
+                type="checkbox"
+                checked={useAnsiblex}
+                onChange={(e) => setUseAnsiblex(e.target.checked)}
+              />
+              <span>
+                {tr("Rutar por Ansiblex")}{" "}
+                <span className="muted">({ansi.drawn})</span>
+              </span>
+            </label>
+          )}
+          {/* Enviar a EVE: pone el destino en el piloto automático del JUEGO. Solo si hay ruta y un
+              personaje activo. El juego rutea con TUS preferencias (si tienes Ansiblex activado, los
+              usa). Es la única acción de escritura de Koru y solo toca el waypoint del cliente. */}
+          {routeWaypoints.length > 0 && hereCharId != null && (
+            <button
+              className="route-send-eve"
+              disabled={!canWaypoint || sendingEve}
+              title={
+                canWaypoint
+                  ? tr("Pone la ruta en el piloto automático de EVE (el juego la calcula con tus preferencias, Ansiblex incluidos si los tienes activados).")
+                  : tr("Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».")
+              }
+              onClick={() => sendToEve(routeWaypoints)}
+            >
+              {sendingEve ? "⏳" : "🚀"}{" "}
+              {routeWaypoints.length > 1 ? tr("Enviar ruta a EVE") : tr("Enviar destino a EVE")}
+            </button>
+          )}
+          {eveMsg && <div className="small muted">{eveMsg}</div>}
           <p className="muted small">
             {tr("También puedes hacer click en sistemas del mapa para añadirlos · doble-click en el mapa = zoom.")}
           </p>
@@ -1052,7 +1349,14 @@ export function MapView(props: {
                       <span className="route-sec" style={{ color: secColor(s?.s ?? 0) }}>
                         {(s?.s ?? 0).toFixed(1)}
                       </span>
-                      <span className="route-sysname">{s?.n ?? `#${sid}`}</span>
+                      <span className="route-sysname">
+                        {ansiLegs.has(i) && (
+                          <span className="route-ansi-leg" title={tr("Se llega por Ansiblex")}>
+                            <AnsiBadge />{" "}
+                          </span>
+                        )}
+                        {s?.n ?? `#${sid}`}
+                      </span>
                       <span className={`route-kills ${kills > 0 ? "hot" : ""}`} title={tr("Kills última hora")}>
                         {kills} ⚔
                       </span>
@@ -1310,6 +1614,27 @@ export function MapView(props: {
                 pintar → se oculta; reaparece al acercar el zoom. */}
             {view.z >= 1.8 && (
               <path d={geo.jumpsPath} stroke="#243040" strokeWidth={0.5} fill="none" opacity={0.6} />
+            )}
+            {/* Red de Ansiblex, en verde y curvada como en el mapa del propio juego.
+                SOLO en Navegación: fuera de ahí es ruido — tapaba la maraña de stargates y competía
+                con las capas de kills/sov/intel, que son las que se miran en el resto de modos.
+                Dos trazos superpuestos: un halo ancho y translúcido + un núcleo fino y brillante.
+                Eso es lo que hace que se lean como un hilo luminoso y no como un rotulador. */}
+            {ansi && (routeActive || jumpActive) && (
+              <g className="map-ansi" fill="none" strokeLinecap="round">
+                <path
+                  d={ansi.path}
+                  stroke="#3fb950"
+                  strokeWidth={view.z >= 1.8 ? 1.1 : 1.8}
+                  opacity={0.14}
+                />
+                <path
+                  d={ansi.path}
+                  stroke="#56d364"
+                  strokeWidth={view.z >= 1.8 ? 0.35 : 0.6}
+                  opacity={0.9}
+                />
+              </g>
             )}
             {/* backdrop de sistemas (memorizado) */}
             {backdropCircles}
@@ -2065,6 +2390,10 @@ export function MapView(props: {
                 .map((f, i) => {
                 const j = f.sysId != null ? jumpsFrom?.get(f.sysId) : undefined;
                 const near = j != null && j <= intel.alertJumps;
+                // Tu llegada por puentes. Solo se enseña si ACORTA de verdad: repetir la misma
+                // cifra al lado no informa de nada y ensucia una lista que se lee de un vistazo.
+                const h = f.sysId != null ? huntFrom?.get(f.sysId) : undefined;
+                const shortcut = h != null && j != null && h < j;
                 return (
                   <div
                     key={`${f.ts}-${i}`}
@@ -2097,6 +2426,15 @@ export function MapView(props: {
                         <span className="intel-sys">
                           {f.sysName}
                           {j != null && <em className="intel-j"> · {j} {tr("saltos")}</em>}
+                          {shortcut && (
+                            <em
+                              className="intel-hunt"
+                              title={tr("Saltos que tardas TÚ en llegar usando tus Ansiblex. La alarma sigue contando solo puertas: el hostil no puede cruzar tus puentes.")}
+                            >
+                              {" · "}
+                              <AnsiBadge /> {h}
+                            </em>
+                          )}
                         </span>
                       )}
                     </div>
@@ -2126,10 +2464,52 @@ export function MapView(props: {
                   ? tr("Sin avistamientos guardados todavía (se acumulan según aparezca en intel).")
                   : `${huntTrack.length} ${tr("avistamientos")}`}
             </span>
+            {/* Interceptar: traza y MANTIENE la ruta desde tu cazador hasta donde esté el objetivo.
+                Necesita saber dónde estás → si no hay personaje activo con posición, se explica. */}
+            {huntTarget != null && (
+              <button
+                className={`intercept-btn ${intercepting ? "on" : ""}`}
+                disabled={hereSystemId == null}
+                title={
+                  hereSystemId == null
+                    ? tr("Selecciona el personaje cazador: su sistema es el punto de partida de la ruta.")
+                    : tr("Traza y mantiene la ruta desde tu cazador hasta el último sistema donde lo vieron. Se re-traza si se mueve.")
+                }
+                onClick={() => {
+                  const next = !intercepting;
+                  setIntercepting(next);
+                  // Al apagar, el efecto de `wasIntercepting` limpia la ruta; aquí solo la encendemos.
+                  if (next) {
+                    setJumpActive(false);
+                    setUseAnsiblex(true);
+                    setRouteActive(true);
+                  }
+                }}
+              >
+                🎯 {intercepting ? tr("Interceptando ✓") : tr("Interceptar")}
+                {intercepting && routePath && routePath.length > 1 && (
+                  <span className="muted"> · {routePath.length - 1} {tr("saltos")}</span>
+                )}
+                {intercepting && manualTarget != null && manualTarget !== huntTarget && (
+                  <span className="muted"> · {tr("apuntado a mano")}</span>
+                )}
+              </button>
+            )}
+            {hereSystemId == null && huntTarget != null && (
+              <span className="muted small">
+                {tr("Selecciona el personaje cazador para trazar desde su ubicación.")}
+              </span>
+            )}
             <button
               className="sys-close"
               title={tr("Quitar rastro")}
-              onClick={clearHuntTrack}
+              onClick={() => {
+                // Quitar el rastro = salir de la caza del todo: apaga interceptación (el efecto
+                // borra la ruta) y sale del modo Ruta para no dejar el panel vacío colgando.
+                setIntercepting(false);
+                setRouteActive(false);
+                clearHuntTrack();
+              }}
             >
               ✕
             </button>

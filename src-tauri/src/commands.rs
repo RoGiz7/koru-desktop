@@ -2,8 +2,8 @@
 
 use crate::config;
 use crate::db::{
-    CharacterRow, Db, FacilityRow, FinancialSummary, NetworthPoint, PvpActivity, PvpStats,
-    PvpTrendPoint, RattingDetail, WalletStats, WalletTrendPoint,
+    AnsiblexRow, CharacterRow, Db, FacilityRow, FinancialSummary, NetworthPoint, PvpActivity,
+    PvpStats, PvpTrendPoint, RattingDetail, WalletStats, WalletTrendPoint,
 };
 use crate::db::{NameCount, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
@@ -621,6 +621,82 @@ pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<Structu
 #[tauri::command]
 pub fn facility_list(state: State<'_, AppState>) -> AppResult<Vec<FacilityRow>> {
     state.db.facility_list()
+}
+
+/// Pone un destino en el piloto automático DEL JUEGO desde Koru (planificador de rutas / caza).
+/// `destination_id` = system_id (o station/structure). `clear` = reemplazar la ruta actual.
+/// Es la ÚNICA acción de escritura de Koru y solo toca el waypoint del cliente. El juego calcula la
+/// ruta con las preferencias del jugador (si tiene Ansiblex activado, los usa igual que Koru).
+#[tauri::command]
+pub async fn set_ingame_waypoint(
+    character_id: i64,
+    destination_id: i64,
+    clear: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let valid = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+        .map_err(|_| AppError::Other("no hay sesión válida para ese personaje".into()))?;
+    state
+        .esi
+        .set_waypoint(&valid.access_token, destination_id, clear)
+        .await
+}
+
+/// Manda una RUTA COMPLETA (varias paradas en orden) al piloto automático del juego. El primer
+/// punto limpia la ruta anterior; el resto se añaden al final, respetando el orden. Así se puede
+/// forzar un camino concreto (cazar pasando por X, o un viaje con escalas) en vez de dejar que el
+/// juego elija solo el destino final. Un solo token para toda la ráfaga.
+#[tauri::command]
+pub async fn set_ingame_route(
+    character_id: i64,
+    destination_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if destination_ids.is_empty() {
+        return Ok(());
+    }
+    let valid = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+        .map_err(|_| AppError::Other("no hay sesión válida para ese personaje".into()))?;
+    for (i, dest) in destination_ids.iter().enumerate() {
+        // i == 0 → clear_other_waypoints (destino nuevo); el resto se encadenan al final.
+        state
+            .esi
+            .set_waypoint(&valid.access_token, *dest, i == 0)
+            .await?;
+    }
+    Ok(())
+}
+
+// ---- Red de Ansiblex de la alianza ----
+//
+// Aquí NO se parsea nada: el pegado lo lee el frontend (`src/ansiblex.ts`), porque el índice
+// nombre→ID de sistema vive en el SDE que carga el front (`neweden.json`) y Rust no tiene nombres
+// de sistema a mano. Rust solo persiste lo que el piloto ya ha revisado y confirmado en la tabla.
+
+#[tauri::command]
+pub fn ansiblex_list(state: State<'_, AppState>) -> AppResult<Vec<AnsiblexRow>> {
+    state.db.ansiblex_list()
+}
+
+/// Guarda la red confirmada por el piloto, sustituyendo la anterior por completo.
+/// Devuelve cuántos puentes quedaron guardados.
+#[tauri::command]
+pub fn ansiblex_replace(
+    state: State<'_, AppState>,
+    bridges: Vec<AnsiblexRow>,
+) -> AppResult<usize> {
+    state.db.ansiblex_replace(&bridges)
+}
+
+#[tauri::command]
+pub fn ansiblex_clear(state: State<'_, AppState>) -> AppResult<()> {
+    state.db.ansiblex_clear()
 }
 
 #[tauri::command]

@@ -239,19 +239,62 @@ Por niveles de viabilidad:
   tenemos) + nave elegida + consumo base por SDE (dogma attributes).
 - UI: elegir nave + personaje → calcular saltos posibles, fuel total y fatiga.
 
-**Nivel 4 — Ansiblex (jump gates) (APARCADO — decisión jun 2026).**
-- **Decisión:** no implementar de momento. El auto-descubrimiento exige un personaje **Director**
-  con scope de corp (`esi-corporations.read_structures.v1`), lo que rompe el principio de "app
-  personal y privada: cada usuario solo con sus propios tokens, sin credenciales de terceros".
-  Y la entrada manual de toda una red de golpe es poco práctica. Se queda fuera del alcance.
-- (Referencia técnica si algún día se retoma) opciones de descubrimiento:
-- Los Ansiblex permiten saltar entre sistemas conectados **sin fatiga**; fuel (ozono) lo paga la
-  estructura, fórmula: `ozono = masa_kg × distancia_LY × 0.000003 + 50`.
-- **Problema:** ESI no expone fácilmente la red de Ansiblex de tu alianza. Opciones:
-  a) **Entrada manual** de conexiones Ansiblex (origen↔destino) por el usuario/alianza.
-  b) Detectar vía `/corporations/{id}/structures` (requiere rol director) si son de tu corp.
-  c) Importar de fuentes de comunidad. → Empezar por (a), entrada manual, que es robusta.
-- Una vez cargados, los Ansiblex se añaden como **aristas extra** al grafo de rutas (sin fatiga).
+**Nivel 4 — Ansiblex (jump gates) — TOPOLOGÍA DESBLOQUEADA (jul 2026).**
+
+*Historia: aparcado en jun 2026 porque «la entrada manual de toda una red de golpe es poco
+práctica». Eso resultó ser falso: lo que era poco práctico era el formulario que imaginábamos, no
+el dato. Las alianzas ya publican la red entera en una tabla, y lo que el piloto hace con esa tabla
+es copiarla. El pegado convierte «meter 97 puentes a mano» en un Ctrl+V.*
+
+- **Confirmado (2026-07-18): ESI NO expone la red.** No hay endpoint ni scope de Ansiblex. Lo único
+  que los enseña es `/corporations/{id}/structures` (`esi-corporations.read_structures.v1`) y no
+  sirve: exige rol **Director**, solo devuelve los de TU corp, y **ni siquiera trae el destino** —
+  habría que deducirlo del nombre autogenerado («SistemaA » SistemaB»). Para un piloto de línea no
+  hay nada que sincronizar. Cerrado: no volver a investigarlo sin una noticia de FC que lo cambie.
+- **Solución implementada: PEGADO + CONFIRMACIÓN** (`src/ansiblex.ts`, `src/ansiblexControl.tsx`,
+  tabla `ansiblex`). El piloto copia la tabla del wiki de su alianza y la pega; Koru la analiza,
+  enseña lo que ha entendido y **no guarda nada hasta que el piloto confirma**. Mismo trato que las
+  fichas de instalación (F1c): la app propone, quien sabe declara.
+- **Reglas del parser** (validadas contra la red real de 194 filas → 97 puentes):
+  - Anclaje por CONTENIDO, no por posición de columna: una línea vale si tiene exactamente dos
+    campos que resuelven a sistemas reales del SDE. Aguanta que el wiki reordene columnas o que
+    otra alianza publique con otro formato.
+  - **Trampa ya pisada:** «coger la primera palabra corta como dueño» NO vale — las regiones de una
+    sola palabra (Cache, Catch, Detorid, Immensea, Omist, Tenerifis…) van primeras y se colaban
+    como dueño. De ahí el anclaje a los dos sistemas y leer los extras solo de lo que va DETRÁS.
+  - Una fila por puente (par canónico `a_id < b_id`), no dos: el wiki lista cada puente dos veces
+    porque cada punta es una estructura distinta, con **su propio dueño** (7 de los 97 de la Webway
+    son de corps diferentes). Para el grafo es UNA arista.
+  - Lo que no se entiende **no se traga en silencio**: se cuenta y se enseña (líneas ignoradas,
+    nombres sin resolver, puentes en un solo sentido).
+- **Detector de erratas medido:** se contrasta el ly declarado por la fuente contra el calculado de
+  `gx/gy/gz`. En la red real la desviación máxima es **0,0052 ly** (redondeo a 2 decimales del
+  wiki), así que el umbral de aviso es **0,05** — margen de 10× y sigue cazando cualquier
+  emparejamiento mal copiado, que se desviaría años luz enteros.
+- **`gx/gy/gz` de `neweden.json` ESTÁN en años luz.** Verificado contra las 97 distancias publicadas
+  (ratio 1.000). De aquí sale cualquier cálculo de distancia sin datos nuevos.
+- **Reemplazo total en cada pegado**, no fusión: el wiki es la foto completa y los puentes se caen y
+  se mueven. Un puente fantasma en el planificador es peor que no tener red — te manda por una ruta
+  que no existe.
+- **PENDIENTE (no hecho todavía):** añadir los puentes como **aristas extra** al grafo de rutas
+  (`geo.adj` en `map.tsx`) y marcar en la ruta qué saltos son por Ansiblex.
+
+**Nivel 4b — Coste de condensador Ansiblex (A LA ESPERA — deploy sept 2026).**
+- FC anunció el 2026-07-17/21 la revisión de proyección de fuerza. **Los números son PROPUESTOS y
+  FC avisa expresamente de que pueden variar hasta el deploy** → NO incrustarlos todavía; cuando se
+  implementen, que vayan versionados y fechados, no a pelo en el código.
+- Modelo anunciado: `coste = base(clase de nave) × multiplicador(zona del Ansiblex DESTINO)`, con la
+  zona medida en LY **desde el sistema capital de la alianza** (Z1 0-5 ×0 · Z2 5,1-10 ×2 ·
+  Z3 10,1-15 ×6 · Z4 15,1-20 ×9 · Z5 20,1+ ×15). Condensador 1250 TJ, ~200 TJ/h, recarga NO lineal.
+- **TRAMPA:** el multiplicador es el de la zona del **DESTINO**, pero el cap lo paga el Ansiblex de
+  **ORIGEN**. Es facilísimo programarlo al revés.
+- **TRAMPA 2:** la fila del Rorqual no cuadra con sus propios multiplicadores (base 19, pero Z2=57 y
+  Z3=104,5 en vez de 38 y 114). Verificar al lanzamiento: ¿errata o excepción?
+- Ya no hace falta ningún dato nuevo salvo **declarar el sistema capital de la alianza**: la
+  topología ya entra por pegado y las distancias salen de `gx/gy/gz`.
+- Lo que SÍ cambia y afecta al modelo actual: **fuera el ozono líquido** como requisito (la fórmula
+  `ozono = masa × ly × 0.000003 + 50` de más abajo queda obsoleta para Ansiblex), fuera los peajes,
+  ACL solo de alianza, y **capitales/supercapitales ya no pasan** (salvo Rorqual en la 1ª iteración).
 
 **Nivel 5 — Wormholes (difícil / externo).**
 - Las conexiones de wormhole son **dinámicas** y **no están en ESI** ni en el SDE. Solo se obtienen

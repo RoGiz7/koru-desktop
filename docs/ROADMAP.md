@@ -305,10 +305,21 @@ compuesta). Cero servidor nuestro.
   Fase 1 = mostrar la info en el mapa (sistemas con conexión Thera/Turnur, in/out, vida/masa).
   Fase 2 (más gorda) = rutar a través de wormholes (origen→sistema con WH→Thera→salida→destino).
   Es lo primero a hacer porque NO depende de nada externo del usuario.
-- ⏳ **Bloqueado — Ansiblex en rutas**: importar un archivo con la red de jump bridges de la alianza
-  (pares de sistemas) y añadir esas aristas al grafo de Dijkstra para que el planificador use los
-  puentes. Esperando a que el usuario consiga el archivo → al tenerlo, pasar una muestra para fijar
-  el formato del parser.
+- ✅ **DESBLOQUEADO — Ansiblex: importación de la red** (jul 2026). Ya no espera ningún archivo: la
+  red **se pega** desde la tabla que publica el wiki de la alianza y el piloto la confirma antes de
+  que se guarde nada (`src/ansiblex.ts` + `src/ansiblexControl.tsx` + tabla `ansiblex`). Validado
+  contra la red real: 194 filas → **97 puentes, 194 sistemas, 0 huérfanos**, y ly/ruta/dueños
+  correctos en los 97. Ver `SPEC.md §9c Nivel 4` para las reglas del parser y las trampas.
+- ⏳ **Siguiente — Ansiblex en rutas**: añadir esos puentes como aristas al grafo de Dijkstra
+  (`geo.adj` en `map.tsx`) y marcar en la ruta qué saltos son por puente. La topología ya está; solo
+  falta enchufarla al planificador.
+- ⏸️ **A la espera — coste de condensador Ansiblex** (deploy sept 2026): FC ya publicó los números
+  (1250 TJ, zonas ×0/2/6/9/15 desde el capital de la alianza, tabla base por clase de nave) **pero
+  avisa de que pueden variar hasta el deploy**, así que no se incrustan todavía. Cuando toque, van
+  versionados y fechados. No hace falta ningún dato nuevo salvo declarar el sistema capital: las
+  distancias ya salen de `gx/gy/gz` (verificado: están en años luz). Trampas anotadas en el SPEC —
+  el multiplicador es el de la zona DESTINO pero paga el Ansiblex ORIGEN, y la fila del Rorqual no
+  cuadra con sus propios multiplicadores.
 
 0. **★ NUEVO CANDIDATO DE CABEZA — Capa de Intel en vivo en el mapa** (research en
    `docs/RESEARCH_MAPA_INTEL.md`): leer el **log de chat** del juego (`Documents/EVE/logs/Chatlogs/`,

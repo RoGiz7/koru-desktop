@@ -31,6 +31,7 @@ import { LogisView } from "./logis";
 import { ReconView } from "./recon";
 import { GamelogControl, gamelogScan } from "./gamelogControl";
 import { MedalTexturesControl } from "./medalsControl";
+import { AnsiblexControl } from "./ansiblexControl";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
@@ -1638,6 +1639,10 @@ function App() {
               {/* Medallas de corp pintadas: extraer texturas de la SharedCache del usuario. */}
               <MedalTexturesControl />
 
+              {/* Red de Ansiblex de la alianza: se PEGA (ESI no la publica) y el piloto confirma
+                  la tabla antes de que se guarde nada. */}
+              <AnsiblexControl />
+
               {/* Copias automáticas: van DESPUÉS de Logs; la fila es carpeta + frecuencia + retención
                   en una sola línea (la ruta completa vive en el tooltip del botón, que si no ocupa
                   un renglón entero para algo que no se lee). */}
@@ -1882,6 +1887,7 @@ function App() {
           }}
           openTrack={mapTrackReq}
           hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
+          hereCharId={isGlobal ? null : cards[subjectId]?.character_id ?? null}
           charLocations={(isGlobal
             ? Object.values(cards)
             : cards[subjectId]

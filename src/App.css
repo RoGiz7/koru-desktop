@@ -2540,6 +2540,25 @@ h4 {
 .sys-assets-btn:hover {
   border-color: var(--accent-border, #4f9cff);
 }
+/* Interceptar destaca: es la acción de caza, no una más de la lista. Verde Ansiblex + borde vivo. */
+.intercept-btn {
+  color: #56d364;
+  font-weight: 600;
+  border-color: rgba(86, 211, 100, 0.4);
+}
+.intercept-btn:hover {
+  border-color: #56d364;
+  background: rgba(86, 211, 100, 0.1);
+}
+/* Interceptando: estado activo, verde lleno para que se vea de un vistazo que la ruta está atada. */
+.intercept-btn.on {
+  background: rgba(86, 211, 100, 0.18);
+  border-color: #56d364;
+}
+.intercept-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .map-label {
   fill: #cfd8e3;
@@ -6147,4 +6166,81 @@ h4 {
 }
 .pi-sys-worst {
   font-variant-numeric: tabular-nums;
+}
+
+/* --- Red de Ansiblex: caja de pegado y tabla de revisión (Ajustes) --- */
+.tb-ansiblex-paste {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  margin-top: 0.35rem;
+  resize: vertical;
+}
+.tb-ansiblex-paste:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+.tb-ansiblex-review table {
+  font-variant-numeric: tabular-nums;
+}
+.tb-ansiblex-review thead th {
+  position: sticky;
+  top: 0;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 0.2rem 0.3rem;
+  font-weight: 600;
+}
+.tb-ansiblex-review tbody td {
+  padding: 0.15rem 0.3rem;
+  border-bottom: 1px solid #21262d;
+}
+.tb-ansiblex-review tbody tr:hover {
+  background: #1c2128;
+}
+.route-ansi {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0;
+  cursor: pointer;
+}
+.route-ansi-leg {
+  font-size: 0.85em;
+}
+/* Los arcos de Ansiblex son decoración: no deben robar el click a los sistemas que cruzan. */
+.map-ansi {
+  pointer-events: none;
+}
+/* "Llegas en N" del cazador: verde Ansiblex, para que no se confunda con los saltos por puerta
+   (que son los que manda la alarma). */
+.intel-hunt {
+  color: #56d364;
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Enviar destino a EVE: acción de escritura, verde intenso para que se distinga de las de solo-ver. */
+.route-send-eve {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0a0d12;
+  background: #3fb950;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+.route-send-eve:hover:not(:disabled) {
+  background: #56d364;
+}
+.route-send-eve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #c9d1d9;
+  background: rgba(63, 185, 80, 0.2);
 }

@@ -1563,6 +1563,62 @@ const EN: Record<string, string> = {
   "Downtime diario de Tranquility (11:00 UTC)": "Tranquility daily downtime (11:00 UTC)",
   "Cuenta atrás para el downtime diario (11:00 UTC)":
     "Countdown to daily downtime (11:00 UTC)",
+  // --- Red de Ansiblex (pegar → revisar → confirmar) ---
+  "Red de Ansiblex de la alianza": "Alliance Ansiblex network",
+  puentes: "bridges",
+  sistemas: "systems",
+  "Sin red importada.": "No network imported.",
+  "ESI no publica los Ansiblex: no hay endpoint ni scope, y el de estructuras de corp exige rol Director, solo ve los de tu corp y ni siquiera trae el destino. Por eso la red se pega desde la tabla que publica tu alianza.":
+    "ESI does not publish Ansiblexes: there is no endpoint or scope, and the corp structures one needs a Director role, only sees your own corp's, and doesn't even include the destination. That's why the network is pasted from the table your alliance publishes.",
+  "Pegar red": "Paste network",
+  "Actualizar red": "Update network",
+  "Vaciar red": "Clear network",
+  "Red vaciada.": "Network cleared.",
+  "Selecciona la tabla de jump bridges en el wiki de tu alianza, cópiala y pégala aquí tal cual. Da igual que traiga el título, la cabecera o columnas de más.":
+    "Select the jump bridge table on your alliance wiki, copy it and paste it here as-is. It doesn't matter if it brings the title, the header row or extra columns.",
+  Analizar: "Analyse",
+  "filas leídas": "rows read",
+  "líneas ignoradas": "ignored lines",
+  "Ver líneas ignoradas": "Show ignored lines",
+  "Sistemas que no existen en el SDE (¿errata al copiar?)":
+    "Systems not found in the SDE (copy typo?)",
+  "puentes declarados en un solo sentido (¿pegado a medias?)":
+    "bridges declared in one direction only (half-pasted?)",
+  "puentes cuya distancia declarada no cuadra con la del SDE. Revísalos antes de guardar.":
+    "bridges whose declared distance doesn't match the SDE. Check them before saving.",
+  "Sistema A": "System A",
+  "Sistema B": "System B",
+  Dueños: "Owners",
+  "distancia declarada por la fuente": "distance declared by the source",
+  "Confirmar e importar": "Confirm and import",
+  "puentes guardados": "bridges saved",
+  "Al confirmar se sustituye la red anterior por completo: el wiki es la foto entera y los puentes se caen y se mueven.":
+    "Confirming replaces the previous network entirely: the wiki is the full picture and bridges go down and move.",
+  "Rutar por Ansiblex": "Route through Ansiblex",
+  "Se llega por Ansiblex": "Reached via Ansiblex",
+  Interceptar: "Intercept",
+  "Interceptando ✓": "Intercepting ✓",
+  "apuntado a mano": "manually aimed",
+  "Enviar destino a EVE": "Send destination to EVE",
+  "Enviar ruta a EVE": "Send route to EVE",
+  "Destino en EVE": "Destination set in EVE",
+  "Ruta en EVE": "Route set in EVE",
+  paradas: "stops",
+  "Pone el destino en el piloto automático de EVE (el juego calcula la ruta con tus preferencias).":
+    "Sets the destination in EVE's autopilot (the game plots the route with your own preferences).",
+  "Pone la ruta en el piloto automático de EVE (el juego la calcula con tus preferencias, Ansiblex incluidos si los tienes activados).":
+    "Sets the route in EVE's autopilot (the game plots it with your own preferences, Ansiblex included if you have them enabled).",
+  "Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».":
+    "Missing permission: log in again with 'Location' to grant 'set destination in EVE'.",
+  "Traza y mantiene la ruta desde tu cazador hasta el último sistema donde lo vieron. Se re-traza si se mueve.":
+    "Plots and keeps the route from your hunter to the last system it was seen in. Re-plots if it moves.",
+  "Selecciona el personaje cazador: su sistema es el punto de partida de la ruta.":
+    "Select the hunter character: their system is the route's starting point.",
+  "Selecciona el personaje cazador para trazar desde su ubicación.":
+    "Select the hunter character to plot from their location.",
+  "llegas en": "you arrive in",
+  "Saltos que tardas TÚ en llegar usando tus Ansiblex. La alarma sigue contando solo puertas: el hostil no puede cruzar tus puentes.":
+    "Jumps it takes YOU to get there using your Ansiblexes. The alarm still counts gates only: the hostile cannot cross your bridges.",
 };
 
 export function t(s: string, lang: Lang): string {

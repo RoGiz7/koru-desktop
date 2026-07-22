@@ -521,3 +521,35 @@ CREATE TABLE IF NOT EXISTS facility (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS facility_structure ON facility(structure_id)
     WHERE structure_id IS NOT NULL;
+
+-- Red de Ansiblex (jump bridges) de la alianza.
+--
+-- POR QUÉ ESTO ES UNA TABLA DECLARADA Y NO UN SYNC: ESI no expone la red. No hay endpoint ni scope
+-- de Ansiblex; lo único que los enseña es `/corporations/{id}/structures` — que exige rol Director,
+-- solo devuelve los de TU corp, y ni siquiera trae el destino (habría que deducirlo del nombre).
+-- Para un piloto de línea no hay nada que sincronizar. El dato entra pegando la tabla que la
+-- alianza publica en su wiki, y el piloto confirma lo que se guarda. Mismo principio que `facility`:
+-- lo que la máquina no puede saber, lo declara el usuario, y se dice de dónde salió.
+--
+-- UNA FILA POR PUENTE, NO DOS. El wiki lista cada puente dos veces (una por extremo) porque cada
+-- punta es una estructura distinta —con su propio dueño; 7 de los 97 de la Webway son de corps
+-- diferentes—, pero para el grafo de rutas es UNA arista. Par canónico: a_id < b_id siempre.
+--
+-- LO QUE NO GUARDAMOS: los años luz. Se calculan de gx/gy/gz del SDE, que son más exactos que los
+-- del wiki (que redondea a 2 decimales). Guardamos el declarado solo para poder CONTRASTARLO y
+-- cazar erratas al pegar: en la red real la desviación máxima es 0,005 ly, así que cualquier cosa
+-- por encima de 0,05 es un emparejamiento mal copiado.
+CREATE TABLE IF NOT EXISTS ansiblex (
+    a_id       INTEGER NOT NULL,  -- system_id del extremo A (SIEMPRE el menor de los dos)
+    b_id       INTEGER NOT NULL,  -- system_id del extremo B
+    a_name     TEXT NOT NULL,     -- copia del nombre: para poder enseñar la red sin cargar el SDE
+    b_name     TEXT NOT NULL,
+    ly_declared REAL,             -- el que decía la fuente; informativo/contraste, NO se usa a calcular
+    owner_a    TEXT,              -- ticker de la corp dueña de cada punta (pueden diferir)
+    owner_b    TEXT,
+    route      TEXT,              -- etiqueta/color con la que la alianza nombra el corredor
+    status     TEXT,              -- Online/Offline según la fuente
+    source     TEXT NOT NULL DEFAULT 'paste',
+    updated_at TEXT,
+    PRIMARY KEY (a_id, b_id)
+);

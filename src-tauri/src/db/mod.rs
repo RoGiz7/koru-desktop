@@ -2546,6 +2546,35 @@ pub struct JournalImportRow {
     pub reason: Option<String>,
 }
 
+/// Un puente Ansiblex ya resuelto contra el SDE. Par CANÓNICO (a_id < b_id): el wiki lista cada
+/// puente dos veces, una por extremo, pero para el grafo de rutas es una sola arista.
+/// `ly_declared` es lo que decía la fuente y NO se usa para calcular: los años luz buenos salen de
+/// gx/gy/gz del SDE. Se guarda solo para contrastarlo y cazar erratas al pegar.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AnsiblexRow {
+    pub a_id: i64,
+    pub b_id: i64,
+    pub a_name: String,
+    pub b_name: String,
+    #[serde(default)]
+    pub ly_declared: Option<f64>,
+    #[serde(default)]
+    pub owner_a: Option<String>,
+    #[serde(default)]
+    pub owner_b: Option<String>,
+    #[serde(default)]
+    pub route: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    /// De dónde salió: 'paste' (pegado del wiki de la alianza). Para poder decirlo en la vista.
+    #[serde(default = "default_ansiblex_source")]
+    pub source: String,
+}
+
+fn default_ansiblex_source() -> String {
+    "paste".into()
+}
+
 /// Ficha de instalación (F1c). Viaja tal cual al frontend: es exactamente lo que el usuario declara.
 /// OJO: aquí NO hay porcentajes. Los bonos se derivan del SDE con `type_id` y `rigs` en el momento
 /// de calcular; guardarlos congelados sería mentir en cuanto el SDE cambie.
@@ -2795,6 +2824,86 @@ impl Db {
             .query_map([], |r| r.get::<_, i64>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    // ---- ansiblex: red de jump bridges de la alianza (declarada, no sincronizada) ----
+    //
+    // Ver el comentario largo de schema.sql: ESI no expone esta red, así que entra por pegado y el
+    // piloto confirma. Una fila por puente (par canónico a_id < b_id), no dos como el wiki.
+
+    pub fn ansiblex_list(&self) -> AppResult<Vec<AnsiblexRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT a_id, b_id, a_name, b_name, ly_declared, owner_a, owner_b, route, status, source
+             FROM ansiblex ORDER BY a_name",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(AnsiblexRow {
+                    a_id: r.get(0)?,
+                    b_id: r.get(1)?,
+                    a_name: r.get(2)?,
+                    b_name: r.get(3)?,
+                    ly_declared: r.get(4)?,
+                    owner_a: r.get(5)?,
+                    owner_b: r.get(6)?,
+                    route: r.get(7)?,
+                    status: r.get(8)?,
+                    source: r.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Sustituye la red ENTERA por la que llega. Es a propósito: el wiki de la alianza es la foto
+    /// completa, y los puentes se caen, se mueven y cambian de dueño. Fusionar arrastraría puentes
+    /// muertos para siempre, y un puente fantasma en el planificador es peor que no tener ninguno:
+    /// te manda por una ruta que no existe. Todo dentro de UNA transacción — si algo falla, la red
+    /// anterior sigue intacta en vez de quedarse a medias.
+    pub fn ansiblex_replace(&self, rows: &[AnsiblexRow]) -> AppResult<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM ansiblex", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO ansiblex
+                     (a_id, b_id, a_name, b_name, ly_declared, owner_a, owner_b, route, status,
+                      source, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            )?;
+            for r in rows {
+                // Blindaje del par canónico: si llegara al revés, lo enderezamos aquí en vez de
+                // fiarnos del frontend. La clave primaria depende de ello.
+                let (a_id, b_id, a_name, b_name, owner_a, owner_b) = if r.a_id <= r.b_id {
+                    (r.a_id, r.b_id, &r.a_name, &r.b_name, &r.owner_a, &r.owner_b)
+                } else {
+                    (r.b_id, r.a_id, &r.b_name, &r.a_name, &r.owner_b, &r.owner_a)
+                };
+                stmt.execute(rusqlite::params![
+                    a_id,
+                    b_id,
+                    a_name,
+                    b_name,
+                    r.ly_declared,
+                    owner_a,
+                    owner_b,
+                    r.route,
+                    r.status,
+                    r.source,
+                    now
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(rows.len())
+    }
+
+    pub fn ansiblex_clear(&self) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM ansiblex", [])?;
+        Ok(())
     }
 
     pub fn location_system_clear_negative(&self) -> usize {

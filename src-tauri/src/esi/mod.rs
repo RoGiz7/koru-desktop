@@ -208,6 +208,44 @@ impl EsiClient {
         &self.http
     }
 
+    /// Pone un waypoint en el piloto automático DEL JUEGO (POST /ui/autopilot/waypoint).
+    /// Requiere el scope `esi-ui.write_waypoint.v1`. `destination_id` puede ser system_id,
+    /// station_id o structure_id. `clear` = true limpia los waypoints previos (destino nuevo);
+    /// false lo añade al final de la ruta actual. La ruta la calcula el JUEGO con las preferencias
+    /// del jugador (seguridad, usar Ansiblex, etc.), así que si tiene los puentes activados, EVE
+    /// rutea por ellos igual que Koru. Devuelve 204 sin cuerpo al acertar.
+    pub async fn set_waypoint(&self, token: &str, destination_id: i64, clear: bool) -> AppResult<()> {
+        let _permit = self
+            .sem
+            .acquire()
+            .await
+            .map_err(|e| AppError::Other(format!("semaphore: {e}")))?;
+        self.pace().await;
+        let url = format!(
+            "{}/ui/autopilot/waypoint/?add_to_beginning=false&clear_other_waypoints={}&destination_id={}",
+            config::ESI_BASE_URL, clear, destination_id
+        );
+        let resp = self
+            .http
+            .post(&url)
+            .header("X-Compatibility-Date", config::ESI_COMPATIBILITY_DATE)
+            .bearer_auth(token)
+            .send()
+            .await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            // 403 = falta el scope write_waypoint (el usuario no ha reautenticado con Ubicación).
+            if status.as_u16() == 403 {
+                return Err(AppError::Other(
+                    "falta el permiso de navegación: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE»".into(),
+                ));
+            }
+            return Err(AppError::Other(format!("ESI {status} al poner el waypoint: {body}")));
+        }
+        Ok(())
+    }
+
     /// Resuelve IDs (tipos, sistemas, personajes…) a nombres vía POST /universe/names/.
     /// Público, best-effort: devuelve un mapa id->nombre; ids no resueltos se omiten.
     pub async fn resolve_names(

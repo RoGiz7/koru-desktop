@@ -93,11 +93,16 @@ pub mod scopes {
         "esi-contracts.read_character_contracts.v1",
     ];
 
-    /// Estado en vivo (opcional, baja sensibilidad).
+    /// Estado en vivo (opcional, baja sensibilidad) + navegación.
+    /// `write_waypoint` es el ÚNICO scope de ESCRITURA de Koru: pone un destino en el piloto
+    /// automático DEL JUEGO (para «Enviar a EVE» desde el planificador de rutas / la interceptación).
+    /// Va aquí porque es navegación y ya se concede junto con la ubicación del cazador; no toca
+    /// nada más que el waypoint del cliente (abre el mapa in-game). No mueve ISK ni activos.
     pub const LOCATION: &[&str] = &[
         "esi-location.read_location.v1",
         "esi-location.read_ship_type.v1",
         "esi-location.read_online.v1",
+        "esi-ui.write_waypoint.v1",
     ];
 
     /// Bitácora: medallas in-game (condecoraciones de corp) + LP/lealtad (misiones) +
