@@ -521,6 +521,12 @@ function App() {
     }
   });
   const [intelOnlyRange, setIntelOnlyRange] = useState<boolean>(() => localStorage.getItem("koru-intel-onlyrange") === "1");
+  // Minutos que vive un avistamiento en el RASTRO del mapa. Separado de `recency` (que gradúa la
+  // opacidad de los avisos) porque son dos preguntas distintas: cuánto tiempo un aviso sigue siendo
+  // relevante, y cuánto rastro pasado quieres ver detrás del objetivo. 0 = sin caducidad.
+  const [intelTrailMin, setIntelTrailMin] = useState<number>(() =>
+    Number(localStorage.getItem("koru-intel-trailmin") ?? 60),
+  );
   // Interruptor maestro "Intel en vivo": si está ON, el vigilante sigue corriendo aunque mires otras
   // secciones de Koru (no depende de tener abierta la capa intel del mapa). Persistido.
   const [intelLive, setIntelLive] = useState<boolean>(() => {
@@ -633,6 +639,7 @@ function App() {
     folder?: string;
     anchors?: number[];
     onlyRange?: boolean;
+    trailMin?: number;
     soundChoice?: string;
     soundFile?: string;
   }) {
@@ -663,6 +670,10 @@ function App() {
     if (patch.onlyRange !== undefined) {
       setIntelOnlyRange(patch.onlyRange);
       localStorage.setItem("koru-intel-onlyrange", patch.onlyRange ? "1" : "0");
+    }
+    if (patch.trailMin !== undefined) {
+      setIntelTrailMin(patch.trailMin);
+      localStorage.setItem("koru-intel-trailmin", String(patch.trailMin));
     }
     if (patch.soundChoice !== undefined) {
       setIntelSoundChoice(patch.soundChoice);
@@ -1872,6 +1883,7 @@ function App() {
             sound: intelSound,
             anchors: intelAnchors,
             onlyRange: intelOnlyRange,
+            trailMin: intelTrailMin,
             soundChoice: intelSoundChoice,
             soundFile: intelSoundFile,
             live: intelLive,

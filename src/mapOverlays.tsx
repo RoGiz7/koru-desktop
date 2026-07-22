@@ -67,6 +67,34 @@ export function MapScaleLegend({ scale }: { scale: MapScale | null }) {
   );
 }
 
+/** Clave de colores de los TRAZOS (rastros, ruta, puentes). Va aparte de `MapScaleLegend` porque no
+ *  es una escala de valores sino de significados, y sobre todo porque solo lista **lo que hay ahora
+ *  mismo en pantalla**: una leyenda fija que explicara cinco colores de los que se ven dos enseña
+ *  menos que ninguna. Las entradas las decide quien la invoca. */
+export function MapTrailLegend({ items }: { items: { color: string; label: string; dash?: boolean }[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="map-scale map-trail-legend">
+      <div className="map-scale-bands">
+        {items.map((it, i) => (
+          <div key={i} className="map-scale-band">
+            <span
+              className="map-scale-line"
+              style={
+                it.dash
+                  ? { background: `repeating-linear-gradient(90deg, ${it.color} 0 5px, transparent 5px 9px)` }
+                  : { background: it.color }
+              }
+            />
+            <span className="map-scale-val">{it.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="map-scale-title">{tr("Leyenda")}</div>
+    </div>
+  );
+}
+
 /** Escala que corresponde a la capa activa. `max` es el valor máximo real de la capa (liveMax). */
 export function scaleFor(overlay: MapOverlay, max: number): MapScale | null {
   switch (overlay) {
@@ -150,12 +178,20 @@ export function renderBackdrop(
   ne: NewEden | null,
   overlay: MapOverlay,
   stride = 1,
+  zoom = 1,
 ) {
   if (!geo || !ne) return null;
   const isSec = overlay === "security";
   // LOD: muy alejado (vista galaxia) los sistemas se solapan en pocos píxeles → pintar 1 de cada
   // `stride` se ve casi igual y baja mucho el nº de nodos a pintar. stride=1 = todos (zoom normal).
   const sys = stride > 1 ? ne.systems.filter((_, i) => i % stride === 0) : ne.systems;
+  // El radio va en unidades de MUNDO (crece con el zoom) pero CON TOPE: sin él, al acercarte los
+  // sistemas se volvían discos enormes y el mapa se leía como una masa. En el juego el nodo se
+  // queda en un tamaño cómodo por mucho que amplíes. `r_pantalla = r_mundo × zoom`, así que topar
+  // `r_mundo` en `K/zoom` deja el nodo clavado en K unidades de pantalla a partir de cierto zoom.
+  const rBase = isSec ? 1.4 : 0.7;
+  const rCap = (isSec ? 6 : 5) / Math.max(zoom, 0.001);
+  const r = Math.min(rBase, rCap);
   return sys.map((s) => {
     const p = geo.proj(s);
     return (
@@ -163,9 +199,11 @@ export function renderBackdrop(
         key={s.id}
         cx={p.px}
         cy={p.py}
-        r={isSec ? 1.4 : 0.7}
-        fill={isSec ? secColor(s.s) : "#3a4654"}
-        fillOpacity={isSec ? 0.9 : 1}
+        r={r}
+        // Gris CLARO, no azul oscuro: sobre el fondo casi negro el `#3a4654` de antes apenas
+        // destacaba y los nodos se confundían con las líneas.
+        fill={isSec ? secColor(s.s) : "#8b97a8"}
+        fillOpacity={isSec ? 0.9 : 0.95}
       />
     );
   });

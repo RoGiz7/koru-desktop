@@ -6521,6 +6521,32 @@ h4 {
   flex: 0 0 auto;
   opacity: 0.75;
 }
+/* Muestra de TRAZO (leyenda de rastros/ruta): una raya, no un taco de color — se parece a lo que
+   representa. Si hay leyenda de capa y de trazos a la vez, la de trazos sube para no taparla. */
+.map-scale-line {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+/* La leyenda de TRAZOS va abajo a la DERECHA, no a la izquierda con la de capa: la izquierda la ocupa
+   el panel de intel en vivo de arriba abajo, y en modo Intel —justo cuando esta leyenda tiene algo
+   que decir— quedaba enterrada debajo. El hueco de 64px es para la columna de zoom.
+   Enfrentadas así, las dos leyendas no pueden pisarse aunque se muestren a la vez. */
+.map-trail-legend {
+  left: auto;
+  right: 64px;
+  max-width: 240px;
+}
+/* Edad del último avistamiento. El contorno oscuro (`paint-order: stroke`) es imprescindible: la
+   etiqueta cae justo encima del propio rastro y de la maraña de stargates. */
+.map-trail-age {
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #0a0d12;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
 .map-scale-sizes .map-scale-band {
   min-height: 17px;
 }
@@ -6604,4 +6630,13 @@ h4 {
   background: rgba(255, 255, 255, 0.08);
   border-color: var(--border);
   font-weight: 600;
+}
+
+/* Rótulo de una región DESPLEGADA (con su ✕ para replegar). A diferencia de .map-label, este SÍ
+   recibe clics: es un control, no una etiqueta decorativa. */
+.region-open-label {
+  fill: #cfd8e3;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
 }

@@ -5,7 +5,7 @@ import { tr } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
-import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, MapScaleLegend, scaleFor } from "./mapOverlays";
+import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, MapScaleLegend, MapTrailLegend, scaleFor } from "./mapOverlays";
 import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
 import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
@@ -52,6 +52,110 @@ const TURNUR_ID = 30002086;
  *  proporcional. Se pasa SIEMPRE el par en orden canónico (id menor primero) para que el mismo
  *  puente combe igual lo dibujemos desde la red o desde la ruta. */
 const ANSI_BOW = 0.12;
+
+/* Rastros del modo Intel. Dos colores con significado fijo, los mismos que los botones:
+ *   INTERCEPT (rojo)  = a quién persigues AHORA.   HUNT (morado) = a quién tienes en seguimiento.
+ * TRACK_DOT es la clave para que el mapa siga siendo legible: el punto del rastro va a la MITAD del
+ * de una alerta (1,3) porque cae en el mismo sistema que un aviso y, siendo igual o mayor, lo tapaba
+ * — perdías un aviso NUEVO de otro piloto justo donde más miras. */
+const INTERCEPT = "#ff5c5c";
+const INTERCEPT_DIM = "#c9383d";
+const HUNT = "#ff6ad5";
+const TRACK_DOT = 0.9;
+
+/** Antigüedad compacta para las etiquetas del rastro: 45s · 12min · 2h10.
+ *  Sin `tr()` a propósito: «s», «min» y «h» se escriben igual en los dos idiomas, así que la
+ *  etiqueta no añade claves al diccionario (que ya ronda las 1.360 y donde los choques rompen el
+ *  build). */
+function fmtAge(ts: number, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - ts) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest > 0 ? `${h}h${rest}` : `${h}h`;
+}
+
+/** Radio en unidades de mundo que DEJA DE CRECER al llegar a `capPx`. Mismo criterio que los nodos
+ *  del fondo: sin tope, cualquier círculo se convierte en una mancha de media pantalla al acercar. */
+function cappedR(base: number, capPx: number, z: number): number {
+  return Math.min(base, capPx / Math.max(z, 0.001));
+}
+
+/** Cuánto BAJA la etiqueta de edad respecto al último avistamiento.
+ *  Se mide desde el halo de la alerta de piloto seguido —el círculo MÁS GRANDE que puede coincidir en
+ *  ese mismo sistema— más un margen, así que la sigue aunque cambie con el zoom. Con el desfase
+ *  pequeño de antes (~6 px) la cifra caía DENTRO del marcador y no se leía. Va debajo porque el
+ *  nombre del sistema ocupa el lado superior derecho. */
+function ageOffset(z: number): number {
+  return cappedR(6.4, 20, z) + 6 / Math.max(z, 0.001);
+}
+
+/** Flechas de dirección repartidas por una secuencia de puntos. Sustituye a `marker-mid`, que daba
+ *  tres problemas: solo dispara en vértices INTERMEDIOS (un rastro de dos avistamientos se quedaba
+ *  sin ninguna), la flecha caía sobre el punto del sistema y quedaba tapada, y si el piloto había
+ *  IDO Y VUELTO por el mismo tramo las dos flechas se pisaban exactamente.
+ *  Aquí van a mitad de tramo y, cuando el mismo tramo se repite, la repetición se aparta a un lado y
+ *  otro del centro. **El apartado se calcula desde el TAMAÑO de la flecha, no como una fracción
+ *  fija**: una fracción constante del tramo se ve amplia al acercar el zoom pero se encoge al
+ *  alejarlo, mientras que la flecha mide siempre lo mismo en pantalla → a poca escala volverían a
+ *  pisarse. `fade` atenúa de lo más viejo a lo más nuevo.
+ *  El tamaño se divide por el zoom a mano: los marcadores SVG no admiten `non-scaling-stroke`. */
+function trailArrows(
+  pts: { px: number; py: number }[],
+  col: string,
+  z: number,
+  opts: { fade?: boolean; size?: number; opacity?: number } = {},
+): React.ReactNode[] {
+  const s = (opts.size ?? 9) / Math.max(z, 0.001);
+  const n = pts.length - 1;
+  if (n < 1) return [];
+  const seen = new Map<string, number>();
+  const out: React.ReactNode[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const dx = b.px - a.px;
+    const dy = b.py - a.py;
+    const len = Math.hypot(dx, dy);
+    // Tramo más corto que la propia flecha: dibujarla solo añadiría ruido sobre los dos puntos.
+    // El margen es 1,8× (y no 2,4×) porque al agrandar la flecha se perdían saltos cortos.
+    if (len < s * 1.8) continue;
+    const ka = `${a.px.toFixed(2)},${a.py.toFixed(2)}`;
+    const kb = `${b.px.toFixed(2)},${b.py.toFixed(2)}`;
+    const key = ka <= kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+    const rep = seen.get(key) ?? 0;
+    seen.set(key, rep + 1);
+    // Separación entre flechas del mismo tramo: 2,2 veces el tamaño de la flecha. Si ni apartándolas
+    // el máximo (35 % del tramo) caben sin pisarse —tramo corto o zoom bajo—, la repetición NO se
+    // dibuja: mejor una flecha limpia que dos amontonadas. Al acercar el zoom aparecen solas.
+    const need = (s * 2.2) / len;
+    if (rep > 0 && need > 0.35) continue;
+    const k = Math.ceil(rep / 2) * (rep % 2 === 1 ? -1 : 1);
+    // El desplazamiento se mide SIEMPRE desde el extremo canónico (el mismo para ida y para vuelta).
+    // Midiéndolo desde el origen de cada tramo, la vuelta con fracción 0,38 caía en el mismo punto
+    // del mapa que la ida con 0,62: las dos flechas del ida-y-vuelta acababan superpuestas.
+    const fwd = ka <= kb;
+    const f = Math.max(0.1, Math.min(0.9, 0.5 + k * Math.min(need, 0.35)));
+    const org = fwd ? a : b;
+    const sx = (fwd ? dx : -dx) * f;
+    const sy = (fwd ? dy : -dy) * f;
+    const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const op = opts.fade ? 0.3 + 0.7 * ((i + 1) / n) : (opts.opacity ?? 1);
+    out.push(
+      <path
+        key={`ar-${i}`}
+        d={`M${-s * 0.9},${-s * 0.62} L${s * 0.95},0 L${-s * 0.9},${s * 0.62} Z`}
+        fill={col}
+        fillOpacity={op}
+        transform={`translate(${org.px + sx} ${org.py + sy}) rotate(${ang})`}
+        pointerEvents="none"
+      />,
+    );
+  }
+  return out;
+}
 function ansiArc(pa: { px: number; py: number }, pb: { px: number; py: number }): string {
   const dx = pb.px - pa.px;
   const dy = pb.py - pa.py;
@@ -203,6 +307,16 @@ export function MapView(props: {
     setLayout(l);
     localStorage.setItem("koru-map-layout", l);
   };
+  // Regiones DESPLEGADAS dentro de la vista de regiones: se ven sus sistemas, el resto siguen
+  // plegadas en su nodo. Así abres solo lo que te interesa en vez de todo New Eden de golpe.
+  const [openRegions, setOpenRegions] = useState<Set<number>>(new Set());
+  const toggleRegion = (id: number) =>
+    setOpenRegions((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
   const [subFilter, setSubFilter] = useState<string>("all"); // sub-filtro de la capa activa
   useEffect(() => setSubFilter("all"), [overlay]); // reset al cambiar de capa
   const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
@@ -589,6 +703,13 @@ export function MapView(props: {
       regionEdges.push(ra < rb ? [ra, rb] : [rb, ra]);
     }
     const regionPos = new Map(regionLabels.map((r) => [r.id, r]));
+    // Sistemas de cada región, para poder DESPLEGAR una sola sin recorrer los 5.000 cada vez.
+    const byRegion = new Map<number, NeSystem[]>();
+    for (const s of ne.systems) {
+      const arr = byRegion.get(s.r);
+      if (arr) arr.push(s);
+      else byRegion.set(s.r, [s]);
+    }
     return {
       proj,
       idx,
@@ -600,6 +721,7 @@ export function MapView(props: {
       regionOf,
       regionEdges,
       regionPos,
+      byRegion,
     };
   }, [ne]);
 
@@ -699,9 +821,13 @@ export function MapView(props: {
   // Fondo de estrellas memorizado (no se reconstruye al mover el ratón / hover).
   // LOD del backdrop: en vista galaxia (muy alejado) pinta 1 de cada 3 sistemas (se solapan igual).
   const bgStride = view.z < 1.8 ? 3 : 1;
+  const bgZoom = Math.max(1, Math.round(view.z));
   const backdropCircles = useMemo(
-    () => renderBackdrop(geo, ne, overlay, bgStride),
-    [geo, ne, overlay, bgStride],
+    // El zoom se cuantiza a enteros a propósito: el radio depende de él, y sin cuantizar este memo
+    // (5.000 círculos) se recrearía en cada píxel de zoom. Con enteros son ~24 veces en todo el
+    // recorrido, que es gratis.
+    () => renderBackdrop(geo, ne, overlay, bgStride, bgZoom),
+    [geo, ne, overlay, bgStride, bgZoom],
   );
 
   // Soberanía memorizada (círculos coloreados por dueño).
@@ -814,6 +940,14 @@ export function MapView(props: {
   // último sistema donde lo cantaron. Se re-traza sola si se mueve. Ver el efecto más abajo.
   const [intercepting, setIntercepting] = useState(false);
   const [interceptPilot, setInterceptPilot] = useState<string | null>(null);
+  // Reloj de refresco de las etiquetas de edad del rastro. Sin él, «4min» se quedaría congelado
+  // hasta que llegara intel nuevo, que es justo cuando MENOS te fías de una cifra de tiempo.
+  const [ageTick, setAgeTick] = useState(0);
+  useEffect(() => {
+    if (overlay !== "intel") return;
+    const id = window.setInterval(() => setAgeTick((t) => t + 1), 15000);
+    return () => window.clearInterval(id);
+  }, [overlay]);
   // Re-apuntado MANUAL: si clicas un sistema durante la interceptación, la ruta va ahí (desde tu
   // cazador) en vez de al último avistamiento. Manda sobre el seguimiento hasta que apagues o
   // cambies de objetivo. null = sin override, sigue al perseguido.
@@ -878,42 +1012,65 @@ export function MapView(props: {
             <g transform={`translate(${p.px} ${p.py})`} pointerEvents="none">
               <circle
                 className="intel-ring-pulse"
-                r={1.4}
+                r={cappedR(2.8, 10, view.z)}
                 fill="none"
                 stroke={col}
-                strokeWidth={0.7}
+                strokeWidth={1.5}
+                vectorEffect="non-scaling-stroke"
                 style={{ ["--intel-op"]: op * 0.85 } as React.CSSProperties}
               />
             </g>
           ) : (
-            <circle cx={p.px} cy={p.py} r={2.1} fill="none" stroke={col} strokeOpacity={op * 0.3} strokeWidth={0.4} pointerEvents="none" />
+            <circle
+              cx={p.px}
+              cy={p.py}
+              r={cappedR(4.2, 14, view.z)}
+              fill="none"
+              stroke={col}
+              strokeOpacity={op * 0.3}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />
           )}
           {/* Halo extra para los seguidos: destaca aunque el punto quede lejos y pequeño. */}
           {tracked && (
             <circle
               cx={p.px}
               cy={p.py}
-              r={3.2}
+              r={cappedR(6.4, 20, view.z)}
               fill="none"
               stroke={col}
               strokeOpacity={op * 0.5}
-              strokeWidth={0.5}
+              strokeWidth={1.2}
+              vectorEffect="non-scaling-stroke"
               pointerEvents="none"
             />
           )}
           {/* zona de click ampliada (invisible) para acertar fácil el punto + tooltip */}
-          <circle cx={p.px} cy={p.py} r={2.6} fill="transparent">
+          <circle cx={p.px} cy={p.py} r={cappedR(5.2, 18, view.z)} fill="transparent">
             {/* Dos cifras y bien separadas: los saltos por PUERTA (lo que mide la amenaza) y, si
                 hay red importada y acorta, en cuánto llegas TÚ usando además tus Ansiblex. */}
             <title>{`${s.n}${j != null ? ` · ${j} ${tr("saltos")}` : ""}${
               h != null && j != null && h < j ? ` · ${tr("llegas en")} ${h} (Ansiblex)` : ""
             }\n${r.author}: ${r.message}\n${tr("(clic para ver detalle)")}`}</title>
           </circle>
-          <circle cx={p.px} cy={p.py} r={tracked ? 1.6 : 1.3} fill={col} fillOpacity={op} stroke="#0a0d12" strokeWidth={0.3} pointerEvents="none" />
+          <circle
+            cx={p.px}
+            cy={p.py}
+            r={cappedR(tracked ? 3.2 : 2.6, tracked ? 10 : 8.4, view.z)}
+            fill={col}
+            fillOpacity={op}
+            stroke="#0a0d12"
+            strokeWidth={0.7}
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="none"
+          />
         </g>
       );
     });
-  }, [geo, overlay, intelReports, jumpsFrom, huntFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange, huntSet]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo, overlay, intelReports, jumpsFrom, huntFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange, huntSet, view.z]);
 
   // --- Intel: marcadores de los puntos de ancla (anclas de proximidad) ---
   const intelAnchorMarkers = useMemo(() => {
@@ -1018,68 +1175,82 @@ export function MapView(props: {
 
 
   // Polilínea de la ruta del piloto seleccionado (sobre el grafo del mapa).
+  // EL COLOR LO DA EL PAPEL, NO LA FUENTE DEL DATO: rojo = a quien persigues, morado = a quien
+  // vigilas. Antes «Interceptando ✓» no pintaba nada rojo porque el rastro rojo colgaba de otro
+  // estado (`intelTrackPilot`, el botón «Trazar ruta según reportes» de la ficha). Y como solo se
+  // puede interceptar a alguien a quien YA sigues, encender los dos habría dibujado dos rastros del
+  // mismo piloto encima. Así que el que colorea es `huntTrackLine` (abajo) y este rastro efímero se
+  // calla cuando el piloto ya va por esa vía, que además guarda más historia.
+  const trailMin = intel?.trailMin ?? 60;
   const intelTrackLine = useMemo(() => {
     if (!geo || overlay !== "intel" || !intelTrackPilot) return null;
-    const track = pilotTrack(intelTrackPilot, intelReports?.feed ?? []);
+    if (huntTracks.has(intelTrackPilot)) return null;
+    const cutoff = trailMin > 0 ? Date.now() - trailMin * 60000 : 0;
+    const track = pilotTrack(intelTrackPilot, intelReports?.feed ?? []).filter((t) => t.ts >= cutoff);
     const pts = track
-      .map((t) => geo.idx.get(t.sysId))
-      .filter((s): s is NeSystem => !!s)
-      .map((s) => geo.proj(s));
+      .map((t) => ({ s: geo.idx.get(t.sysId), ts: t.ts }))
+      .filter((x): x is { s: NeSystem; ts: number } => !!x.s)
+      .map((x) => ({ ...geo.proj(x.s), ts: x.ts }));
     if (pts.length < 1) return null;
-    const poly = pts.map((p) => `${p.px},${p.py}`).join(" ");
     const first = pts[0];
     const last = pts[pts.length - 1];
+    const dot = cappedR(TRACK_DOT, 3.2, view.z);
     return (
       <g>
-        {pts.length >= 2 && (
-          <>
-            <defs>
-              <marker
-                id="intel-arrow"
-                markerWidth="4"
-                markerHeight="4"
-                refX="2.4"
-                refY="2"
-                orient="auto"
-                markerUnits="strokeWidth"
-              >
-                <path d="M0,0 L4,2 L0,4 Z" fill="#ffd98a" />
-              </marker>
-            </defs>
-            {/* trazo base tenue (toda la ruta) */}
-            <polyline points={poly} fill="none" stroke="#ffb24a" strokeOpacity={0.25} strokeWidth={0.6} />
-            {/* flujo direccional: las rayas viajan del origen al destino + flecha al final */}
-            <polyline
-              points={poly}
-              fill="none"
-              stroke="#ffd98a"
-              strokeWidth={0.7}
+        {/* Un TRAMO por salto, atenuado según su antigüedad: el más viejo al 20 %, el último a plena
+            luz. Sin esto, un rastro largo era una maraña uniforme en la que no se sabía por dónde
+            había empezado. Se dibuja tramo a tramo (y no una polilínea única) precisamente porque
+            cada uno lleva su propia opacidad. */}
+        {pts.slice(0, -1).map((a, i) => {
+          const b = pts[i + 1];
+          return (
+            <line
+              key={`ts-${i}`}
+              x1={a.px}
+              y1={a.py}
+              x2={b.px}
+              y2={b.py}
+              stroke={INTERCEPT}
+              strokeOpacity={0.2 + 0.8 * ((i + 1) / (pts.length - 1))}
+              strokeWidth={1.8}
+              vectorEffect="non-scaling-stroke"
               strokeLinecap="round"
-              strokeDasharray="2 2.5"
-              markerEnd="url(#intel-arrow)"
-            >
-              <animate attributeName="stroke-dashoffset" from="0" to="-4.5" dur="0.7s" repeatCount="indefinite" />
-            </polyline>
-          </>
-        )}
-        {/* sistemas intermedios */}
+            />
+          );
+        })}
+        {trailArrows(pts, INTERCEPT, view.z, { fade: true, size: 9 })}
+        {/* Puntos del rastro a MEDIA alerta (ver TRACK_DOT): el sistema donde está el objetivo suele
+            tener además su propio aviso rojo, y el punto del rastro lo tapaba. */}
         {pts.slice(1, -1).map((p, i) => (
-          <circle key={`tk-${i}`} cx={p.px} cy={p.py} r={0.9} fill="#ffb24a" />
+          <circle key={`tk-${i}`} cx={p.px} cy={p.py} r={dot * 0.7} fill={INTERCEPT_DIM} />
         ))}
         {/* origen (hueco) */}
-        <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ffb24a" strokeWidth={0.5}>
+        <circle cx={first.px} cy={first.py} r={dot * 0.85} fill="#0a0d12" stroke={INTERCEPT_DIM} strokeWidth={0.25}>
           <title>{tr("Origen")}</title>
         </circle>
         {/* destino / posición más reciente */}
         {pts.length >= 2 && (
-          <circle cx={last.px} cy={last.py} r={1.5} fill="#ffd98a" stroke="#0a0d12" strokeWidth={0.3}>
+          <circle cx={last.px} cy={last.py} r={dot} fill={INTERCEPT} stroke="#0a0d12" strokeWidth={0.15}>
             <title>{tr("Último reporte")}</title>
           </circle>
         )}
+        {/* La EDAD del último avistamiento. La atenuación da el orden de los saltos, no el reloj: sin
+            esta cifra, «estuvo ahí hace 40 segundos» y «hace 20 minutos» se dibujan igual, y son
+            decisiones opuestas para el que persigue. */}
+        <text
+          x={last.px}
+          y={last.py + ageOffset(view.z)}
+          textAnchor="middle"
+          className="map-trail-age"
+          style={{ fontSize: `${12 / view.z}px`, fill: INTERCEPT }}
+          pointerEvents="none"
+        >
+          {fmtAge(last.ts)}
+        </text>
       </g>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geo, overlay, intelTrackPilot, intelReports]);
+  }, [geo, overlay, intelTrackPilot, huntTracks, intelReports, view.z, trailMin, ageTick]);
 
   // Modo cazador: polilínea del rastro HISTÓRICO del objetivo (de la tabla intel_sightings, persiste
   // entre sesiones). Color magenta para distinguirlo del rastro de sesión (naranja). Colapsa sistemas
@@ -1088,67 +1259,89 @@ export function MapView(props: {
     if (!geo || overlay !== "intel" || huntTracks.size === 0) return null;
     // Un rastro por piloto seguido. El que estás interceptando va más marcado; los demás, atenuados,
     // para que se vea a quién persigues sin perder de vista dónde andan los otros.
+    const cutoff = trailMin > 0 ? Date.now() - trailMin * 60000 : 0;
     const lines = [...huntTracks.entries()].map(([name, track]) => {
       if (!track || track.length === 0) return null;
-      const seq: number[] = [];
-      for (const p of track) {
-        if (seq.length === 0 || seq[seq.length - 1] !== p.system_id) seq.push(p.system_id);
+      // El rastro CADUCA: `get_pilot_track` devuelve hasta 200 avistamientos y en una sesión larga
+      // acababas con líneas de hace horas compitiendo por la vista con las de ahora mismo. Se filtra
+      // aquí y no en la consulta para que cambiar el umbral no obligue a ir a la base de datos.
+      const fresh = track.filter((p) => p.ts_ms >= cutoff);
+      if (fresh.length === 0) return null;
+      // Colapsa sistemas consecutivos repetidos, quedándose con el ts del PRIMER paso por él.
+      const seq: { sid: number; ts: number }[] = [];
+      for (const p of fresh) {
+        if (seq.length === 0 || seq[seq.length - 1].sid !== p.system_id)
+          seq.push({ sid: p.system_id, ts: p.ts_ms });
       }
       const pts = seq
-        .map((sid) => geo.idx.get(sid))
-        .filter((s): s is NeSystem => !!s)
-        .map((s) => geo.proj(s));
+        .map((q) => ({ s: geo.idx.get(q.sid), ts: q.ts }))
+        .filter((x): x is { s: NeSystem; ts: number } => !!x.s)
+        .map((x) => ({ ...geo.proj(x.s), ts: x.ts }));
       if (pts.length < 1) return null;
-      const poly = pts.map((p) => `${p.px},${p.py}`).join(" ");
       const first = pts[0];
       const last = pts[pts.length - 1];
       const main = interceptPilot === name;
+      // ROJO al que persigues, morado a los demás: pulsar «Interceptar» tiene así una consecuencia
+      // inmediata e inconfundible en el mapa, sin añadir un segundo trazo encima del suyo.
+      const col = main ? INTERCEPT : HUNT;
       const op = main ? 1 : 0.45;
+      const dot = cappedR(TRACK_DOT, 3.2, view.z);
       return (
         <g key={`hunt-${name}`} opacity={op}>
-          {pts.length >= 2 && (
-            <>
-              <polyline points={poly} fill="none" stroke="#ff6ad5" strokeOpacity={0.25} strokeWidth={0.6} />
-              <polyline
-                points={poly}
-                fill="none"
-                stroke="#ff6ad5"
-                strokeWidth={main ? 0.7 : 0.5}
+          {/* Tramo a tramo, atenuado de lo más VIEJO a lo más NUEVO (20 % → 100 %). Fuera el halo
+              ancho que llevaba debajo: sumado al trazo hacía una cinta gruesa y era la mitad del
+              «demasiado grande». Aquí manda la dirección, no el grosor. */}
+          {pts.slice(0, -1).map((a, i) => {
+            const b = pts[i + 1];
+            return (
+              <line
+                key={`hs-${i}`}
+                x1={a.px}
+                y1={a.py}
+                x2={b.px}
+                y2={b.py}
+                stroke={col}
+                strokeOpacity={0.2 + 0.8 * ((i + 1) / (pts.length - 1))}
+                strokeWidth={main ? 1.5 : 1.1}
+                vectorEffect="non-scaling-stroke"
                 strokeLinecap="round"
-                strokeDasharray="2 2.5"
-                markerEnd="url(#hunt-arrow)"
-              >
-                <animate attributeName="stroke-dashoffset" from="0" to="-4.5" dur="0.7s" repeatCount="indefinite" />
-              </polyline>
-            </>
-          )}
+                strokeDasharray="4 5"
+              />
+            );
+          })}
+          {trailArrows(pts, col, view.z, { fade: true, size: main ? 9 : 7.2 })}
+          {/* Puntos a MEDIA alerta: el último avistamiento cae justo donde el sistema puede tener un
+              aviso nuevo de OTRO piloto, y antes (r=1.6, mayor que la propia alerta) lo tapaba. */}
           {pts.slice(1, -1).map((p, i) => (
-            <circle key={`h-${i}`} cx={p.px} cy={p.py} r={0.9} fill="#ff6ad5" />
+            <circle key={`h-${i}`} cx={p.px} cy={p.py} r={dot * 0.7} fill={col} fillOpacity={0.55} />
           ))}
-          <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ff6ad5" strokeWidth={0.5}>
+          <circle cx={first.px} cy={first.py} r={dot * 0.85} fill="#0a0d12" stroke={col} strokeWidth={0.25}>
             <title>{`${name} — ${tr("Primer avistamiento")}`}</title>
           </circle>
           {pts.length >= 2 && (
-            <circle cx={last.px} cy={last.py} r={1.6} fill="#ff6ad5" stroke="#0a0d12" strokeWidth={0.3}>
+            <circle cx={last.px} cy={last.py} r={dot} fill={col} stroke="#0a0d12" strokeWidth={0.15}>
               <title>{`${name} — ${tr("Último avistamiento")}`}</title>
             </circle>
           )}
+          {/* Edad del último avistamiento. Con VARIOS seguidos es lo que separa «este acaba de pasar»
+              de «este lleva media hora sin aparecer», que con solo la línea se ven idénticos. */}
+          <text
+            x={last.px}
+            y={last.py + ageOffset(view.z)}
+            textAnchor="middle"
+            className="map-trail-age"
+            style={{ fontSize: `${12 / view.z}px`, fill: col }}
+            pointerEvents="none"
+          >
+            {fmtAge(last.ts)}
+          </text>
         </g>
       );
     });
     if (lines.every((l) => l === null)) return null;
-    return (
-      <g>
-        {/* La flecha se define UNA vez para todos los rastros (antes iba dentro de cada uno). */}
-        <defs>
-          <marker id="hunt-arrow" markerWidth="4" markerHeight="4" refX="2.4" refY="2" orient="auto" markerUnits="strokeWidth">
-            <path d="M0,0 L4,2 L0,4 Z" fill="#ff6ad5" />
-          </marker>
-        </defs>
-        {lines}
-      </g>
-    );
-  }, [geo, overlay, huntTracks, interceptPilot]);
+    return <g>{lines}</g>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo, overlay, huntTracks, interceptPilot, view.z, trailMin, ageTick]);
 
   // Combustible (isótopos) y distancia al destino elegido.
   // fuel = dist(LY) × fuelPerLy × (1 − 10%·Jump Fuel Conservation).
@@ -1766,8 +1959,10 @@ export function MapView(props: {
                 colapsar el grafo, y por eso son dos ramas de pintado distintas. */}
             {layout === "regions" ? (
               <>
-                {/* Enlaces región↔región (stargates que cruzan de una a otra) */}
+                {/* Enlaces región↔región. Se OCULTA el enlace si las dos puntas están desplegadas:
+                    ahí ya se ven los stargates de verdad y la recta entre centroides estorbaría. */}
                 {geo.regionEdges.map(([ra, rb], i) => {
+                  if (openRegions.has(ra) && openRegions.has(rb)) return null;
                   const a = geo.regionPos.get(ra);
                   const b = geo.regionPos.get(rb);
                   if (!a || !b) return null;
@@ -1784,7 +1979,137 @@ export function MapView(props: {
                     />
                   );
                 })}
+                {/* ---- Regiones DESPLEGADAS: sus sistemas de verdad ---- */}
+                {openRegions.size > 0 && (
+                  <>
+                    {/* Stargates cuyos DOS extremos están en regiones abiertas. */}
+                    <path
+                      d={ne.jumps
+                        .map(([a, b]) => {
+                          const ra = geo.regionOf.get(a);
+                          const rb = geo.regionOf.get(b);
+                          if (ra == null || rb == null) return "";
+                          if (!openRegions.has(ra) || !openRegions.has(rb)) return "";
+                          const sa = geo.idx.get(a);
+                          const sb = geo.idx.get(b);
+                          if (!sa || !sb) return "";
+                          const pa = geo.proj(sa);
+                          const pb = geo.proj(sb);
+                          return `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}L${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`;
+                        })
+                        .join("")}
+                      stroke="#39465a"
+                      strokeWidth={1}
+                      vectorEffect="non-scaling-stroke"
+                      fill="none"
+                      opacity={0.9}
+                    />
+                    {[...openRegions].map((rid) =>
+                      (geo.byRegion.get(rid) ?? []).map((s) => {
+                        const p = geo.proj(s);
+                        const v = liveMap?.get(s.id) ?? 0;
+                        const hasV = v > 0;
+                        return (
+                          <g
+                            key={`os-${s.id}`}
+                            className="clickable-sys"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clickSystem(s.id);
+                            }}
+                          >
+                            {/* Nodo del sistema con el MISMO lenguaje visual que el modo Sistemas:
+                                radio en unidades de MUNDO (crece con el zoom), no de pantalla. Con
+                                radio de pantalla fija quedaban como puntitos al acercar. */}
+                            <circle
+                              cx={p.px}
+                              cy={p.py}
+                              r={Math.min(0.9, 5.5 / view.z)}
+                              fill={overlay === "security" ? secColor(s.s) : "#8b97a8"}
+                            >
+                              <title>{`${s.n} (sec ${s.s.toFixed(1)})${
+                                hasV ? `\n${tr(activeOverlay.label)}: ${fmtSp(v)}` : ""
+                              }`}</title>
+                            </circle>
+                            {/* Encima, el valor de la capa activa (tamaño de pantalla, como el
+                                overlay en vivo del modo Sistemas). */}
+                            {hasV && (
+                              <circle
+                                cx={p.px}
+                                cy={p.py}
+                                r={(1.5 + Math.sqrt(v / liveMax) * 14) / view.z}
+                                fill={liveColor ?? heatColor(v / liveMax)}
+                                fillOpacity={0.55}
+                                pointerEvents="none"
+                              />
+                            )}
+                            {view.z >= 2.2 && (
+                              <text
+                                x={p.px + 1.5}
+                                y={p.py + 1}
+                                className="map-label"
+                                style={{ fontSize: `${12.5 / view.z}px` }}
+                                pointerEvents="none"
+                              >
+                                {s.n}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })
+                    )}
+                    {/* Etiqueta de la región abierta + cómo volver a plegarla. */}
+                    {[...openRegions].map((rid) => {
+                      const r = geo.regionPos.get(rid);
+                      if (!r) return null;
+                      return (
+                        <g
+                          key={`ol-${rid}`}
+                          className="clickable-sys"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleRegion(rid);
+                          }}
+                        >
+                          {/* Zona de clic REAL detrás del texto: `.map-label` lleva
+                              `pointer-events: none`, así que el rótulo por sí solo nunca recibía el
+                              clic y la región no se podía replegar. */}
+                          {(() => {
+                            // Ancho según el largo del nombre: con uno fijo, «Vale of the Silent»
+                            // se salía de la cápsula y «Curse» nadaba dentro.
+                            const w = (r.name.length * 8.5 + 40) / view.z;
+                            const h = 26 / view.z;
+                            return (
+                              <rect
+                                x={r.px - w / 2}
+                                y={r.py - h / 2}
+                                width={w}
+                                height={h}
+                                rx={6 / view.z}
+                                fill="#0a0d12"
+                                fillOpacity={0.85}
+                                stroke="#5a6a80"
+                                strokeWidth={1 / view.z}
+                              />
+                            );
+                          })()}
+                          <text
+                            x={r.px}
+                            y={r.py}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            className="region-open-label"
+                            style={{ fontSize: `${15 / view.z}px` }}
+                          >
+                            {r.name} ✕
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </>
+                )}
                 {regionView?.nodes.map((r) => {
+                  if (openRegions.has(r.id)) return null; // desplegada: se pintan sus sistemas
                   // Radio: por el VALOR de la capa si la hay; si no, por nº de sistemas. Así la
                   // vista responde a lo que estés mirando y no siempre a lo mismo.
                   const t = regionView.hasAgg
@@ -1798,9 +2123,13 @@ export function MapView(props: {
                       className="clickable-sys"
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Clic en una región = entrar en ella: vuelve a sistemas y centra ahí.
-                        changeLayout("systems");
-                        focusOn(r.px, r.py, 4);
+                        // Clic = DESPLEGAR esa región (las demás siguen plegadas). Antes esto se
+                        // iba al mapa entero de sistemas y volvías a tener New Eden completo
+                        // delante, que es justo lo que esta vista viene a evitar.
+                        toggleRegion(r.id);
+                        // Y centrar en ella: sus sistemas ocupan poco y si no, se abren fuera de
+                        // la vista. Solo sube el zoom si estabas muy alejado; no lo baja nunca.
+                        focusOn(r.px, r.py, Math.max(view.z, 2.6));
                       }}
                     >
                       <circle
@@ -1832,10 +2161,10 @@ export function MapView(props: {
                       )}
                       <text
                         x={r.px}
-                        y={r.py + rad + 8 / view.z}
+                        y={r.py + rad + 9 / view.z}
                         textAnchor="middle"
                         className="map-label"
-                        style={{ fontSize: `${11 / view.z}px` }}
+                        style={{ fontSize: `${13 / view.z}px` }}
                         pointerEvents="none"
                       >
                         {r.name}
@@ -1855,7 +2184,7 @@ export function MapView(props: {
                   y={r.py}
                   className="region-label"
                   textAnchor="middle"
-                  style={{ fontSize: `${14 / view.z}px` }}
+                  style={{ fontSize: `${16 / view.z}px` }}
                 >
                   {r.name}
                 </text>
@@ -1868,7 +2197,7 @@ export function MapView(props: {
                   y={c.py}
                   className="region-label"
                   textAnchor="middle"
-                  style={{ fontSize: `${11 / view.z}px` }}
+                  style={{ fontSize: `${13 / view.z}px` }}
                 >
                   {c.name}
                 </text>
@@ -1885,7 +2214,7 @@ export function MapView(props: {
                     x={p.px + 1.5}
                     y={p.py + 1}
                     className="map-label"
-                    style={{ fontSize: `${10 / view.z}px` }}
+                    style={{ fontSize: `${12.5 / view.z}px` }}
                   >
                     {s.n}
                   </text>
@@ -1894,7 +2223,17 @@ export function MapView(props: {
             {/* LOD: en la vista galaxia (muy alejado) la maraña de saltos es ilegible y cara de
                 pintar → se oculta; reaparece al acercar el zoom. */}
             {view.z >= 1.8 && (
-              <path d={geo.jumpsPath} stroke="#243040" strokeWidth={0.5} fill="none" opacity={0.6} />
+              // `vectorEffect="non-scaling-stroke"` = el grosor se mide en PÍXELES DE PANTALLA y no
+              // lo toca el zoom. Antes iba en unidades de mundo y al acercarte las líneas engordaban
+              // hasta competir con los nodos (en el juego la línea es fina siempre, ~1px).
+              <path
+                d={geo.jumpsPath}
+                stroke="#39465a"
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+                fill="none"
+                opacity={0.75}
+              />
             )}
             {/* Red de Ansiblex, en verde y curvada como en el mapa del propio juego.
                 SOLO en Navegación: fuera de ahí es ruido — tapaba la maraña de stargates y competía
@@ -1914,9 +2253,9 @@ export function MapView(props: {
                     : "";
               if (!d) return null;
               return (
-                <g className="map-ansi" fill="none" strokeLinecap="round">
-                  <path d={d} stroke="#3fb950" strokeWidth={view.z >= 1.8 ? 1.1 : 1.8} opacity={0.14} />
-                  <path d={d} stroke="#56d364" strokeWidth={view.z >= 1.8 ? 0.35 : 0.6} opacity={0.9} />
+                <g className="map-ansi" fill="none" strokeLinecap="round" vectorEffect="non-scaling-stroke">
+                  <path d={d} stroke="#3fb950" strokeWidth={5} vectorEffect="non-scaling-stroke" opacity={0.14} />
+                  <path d={d} stroke="#56d364" strokeWidth={1.8} vectorEffect="non-scaling-stroke" opacity={0.9} />
                 </g>
               );
             })()}
@@ -1927,8 +2266,8 @@ export function MapView(props: {
                 ruta cruza ya salen como línea cian discontinua). En Navegación, la red entera. */}
             {wh && useWormholes && overlay !== "intel" && (routeActive || jumpActive) && (
               <g className="map-wh" fill="none" strokeLinecap="round" pointerEvents="none">
-                <path d={wh.path} stroke="#3ad6e0" strokeWidth={view.z >= 1.8 ? 0.9 : 1.5} opacity={0.12} />
-                <path d={wh.path} stroke="#3ad6e0" strokeWidth={view.z >= 1.8 ? 0.3 : 0.5} opacity={0.7} />
+                <path d={wh.path} stroke="#3ad6e0" strokeWidth={4.5} vectorEffect="non-scaling-stroke" opacity={0.12} />
+                <path d={wh.path} stroke="#3ad6e0" strokeWidth={1.6} vectorEffect="non-scaling-stroke" opacity={0.7} />
                 {wh.hubPos.has(THERA_ID) && (
                   <rect
                     x={wh.hubPos.get(THERA_ID)!.px - 1.3}
@@ -2065,6 +2404,10 @@ export function MapView(props: {
               const isSynthHub = (sid: number) => !geo.idx.get(sid) && !!wh?.hubName.has(sid);
               let yellow = "";
               let pen = false; // ¿venimos dibujando una sub-línea?
+              // Tramos continuos de la línea amarilla, para poder pintarles el SENTIDO. Se acumulan
+              // aparte porque la ruta se parte en varias sub-líneas (los saltos WH la interrumpen) y
+              // una flecha entre dos sub-líneas señalaría un camino que no existe.
+              const runs: { px: number; py: number }[][] = [];
               for (let i = 0; i < routePath.length; i++) {
                 if (i > 0 && whLegs.has(i)) pen = false; // no unir por encima de un salto WH
                 if (isSynthHub(routePath[i])) {
@@ -2077,6 +2420,8 @@ export function MapView(props: {
                   continue;
                 }
                 yellow += `${pen ? "L" : "M"}${p.px.toFixed(1)} ${p.py.toFixed(1)}`;
+                if (pen) runs[runs.length - 1].push(p);
+                else runs.push([p]);
                 pen = true;
               }
               // Segmentos WH: para Thera (sintético) se colapsa vecino↔vecino; para Turnur (real) se
@@ -2103,18 +2448,27 @@ export function MapView(props: {
                       d={yellow}
                       fill="none"
                       stroke="#ffd54a"
-                      strokeWidth={1.6 / view.z}
+                      strokeWidth={2}
+                      vectorEffect="non-scaling-stroke"
                       strokeLinejoin="round"
                       opacity={0.95}
                     />
                   )}
+                  {/* Sentido de la marcha. La ruta ya se lee de origen a destino en la lista de
+                      abajo, pero sobre el mapa —con la línea cruzando media galaxia y pudiendo
+                      volver sobre sí misma por un Ansiblex— no había forma de saber hacia dónde
+                      vas mirando solo el trazo. Sin atenuar: aquí todos los tramos valen igual. */}
+                  {runs.map((r, i) => (
+                    <g key={`ra-${i}`}>{trailArrows(r, "#ffd54a", view.z, { size: 9, opacity: 0.95 })}</g>
+                  ))}
                   {whD.length > 0 && (
                     <path
                       d={whD.join("")}
                       fill="none"
                       stroke="#3ad6e0"
-                      strokeWidth={1.4 / view.z}
-                      strokeDasharray={`${2 / view.z} ${1.5 / view.z}`}
+                      strokeWidth={2}
+                      vectorEffect="non-scaling-stroke"
+                      strokeDasharray="4 3"
                       strokeLinecap="round"
                       opacity={0.9}
                     />
@@ -2128,7 +2482,7 @@ export function MapView(props: {
                   key={`rep-${i}`}
                   cx={geo.proj(geo.idx.get(sid)!).px}
                   cy={geo.proj(geo.idx.get(sid)!).py}
-                  r={4 / view.z}
+                  r={5.5 / view.z}
                   fill={i === 0 ? "#7fdc8f" : "#ffd54a"}
                   stroke="#0a0d12"
                   strokeWidth={0.8 / view.z}
@@ -2143,7 +2497,7 @@ export function MapView(props: {
                 if (!s) return null;
                 const p = geo.proj(s);
                 return (
-                  <circle key={`jr-${sid}`} cx={p.px} cy={p.py} r={2.6 / view.z} fill="#b07cff" fillOpacity={0.6}>
+                  <circle key={`jr-${sid}`} cx={p.px} cy={p.py} r={3.4 / view.z} fill="#b07cff" fillOpacity={0.6}>
                     <title>{`${s.n} (sec ${s.s.toFixed(1)})\n${jumpReach.get(sid)!.toFixed(2)} LY`}</title>
                   </circle>
                 );
@@ -2153,7 +2507,7 @@ export function MapView(props: {
               geo.idx.get(jumpOrigin) &&
               (() => {
                 const p = geo.proj(geo.idx.get(jumpOrigin)!);
-                return <circle cx={p.px} cy={p.py} r={5 / view.z} fill="#7fd8ff" stroke="#0a0d12" strokeWidth={0.8 / view.z} />;
+                return <circle cx={p.px} cy={p.py} r={6.5 / view.z} fill="#7fd8ff" stroke="#0a0d12" strokeWidth={0.8 / view.z} />;
               })()}
             {/* overlay Ubicación: dónde están tus personajes (agrupados por sistema) */}
             {overlay === "ubicacion" &&
@@ -2168,7 +2522,7 @@ export function MapView(props: {
                   const s = geo.idx.get(sysId);
                   if (!s) return null;
                   const p = geo.proj(s);
-                  const r = 3.5 / view.z;
+                  const r = 4.6 / view.z;
                   return (
                     <g key={`loc-${sysId}`}>
                       <circle cx={p.px} cy={p.py} r={r} fill="#7fd8ff" stroke="#0a0d12" strokeWidth={0.6 / view.z}>
@@ -2198,7 +2552,7 @@ export function MapView(props: {
                 const p = geo.proj(s);
                 const col =
                   poi.kind === "hub" ? "#d8b24a" : poi.kind === "pvp" ? "#ff6b6b" : "#7fd8ff";
-                const r = 3 / view.z;
+                const r = 3.9 / view.z;
                 return (
                   <g key={`poi-${poi.name}`} className="clickable-sys" onClick={() => clickSystem(s.id)}>
                     <circle cx={p.px} cy={p.py} r={r * 2.4} fill={col} opacity={0.18} />
@@ -2221,7 +2575,7 @@ export function MapView(props: {
               geo.idx.get(hereSystemId) &&
               (() => {
                 const p = geo.proj(geo.idx.get(hereSystemId)!);
-                const r = 4 / view.z;
+                const r = 5.4 / view.z;
                 return (
                   <g>
                     <circle cx={p.px} cy={p.py} r={r} fill="#7fd8ff">
@@ -2305,6 +2659,33 @@ export function MapView(props: {
         {/* Leyenda de la capa activa, abajo a la izquierda como en el mapa del juego. Sin esto el
             color de un heatmap no significa nada para quien lo mira. */}
         <MapScaleLegend scale={scaleFor(overlay, liveMax)} />
+        {/* Clave de los trazos, solo con lo que hay pintado en este momento. */}
+        <MapTrailLegend
+          items={[
+            ...(overlay === "intel" && interceptPilot
+              ? [{ color: INTERCEPT, label: `${tr("Interceptando")}: ${interceptPilot}`, dash: true }]
+              : []),
+            ...(overlay === "intel" && huntTracks.size > (interceptPilot ? 1 : 0)
+              ? [
+                  {
+                    color: HUNT,
+                    label: `${tr("Seguido")} (${huntTracks.size - (interceptPilot ? 1 : 0)})`,
+                    dash: true,
+                  },
+                ]
+              : []),
+            ...(overlay === "intel" && intelTrackPilot && !huntTracks.has(intelTrackPilot)
+              ? [{ color: INTERCEPT, label: `${tr("Rastro")}: ${intelTrackPilot}` }]
+              : []),
+            ...(routePath && routePath.length > 1 ? [{ color: "#ffd54a", label: tr("Ruta") }] : []),
+            ...(ansi && useAnsiblex && (overlay === "intel" || routeActive || jumpActive)
+              ? [{ color: "#56d364", label: tr("Ansiblex") }]
+              : []),
+            ...(wh && useWormholes && (routeActive || jumpActive)
+              ? [{ color: "#3ad6e0", label: "Wormhole", dash: true }]
+              : []),
+          ]}
+        />
 
         <div className="map-zoom">
           <button onClick={() => zoomBy(1.3)}>+</button>
@@ -2656,6 +3037,17 @@ export function MapView(props: {
                       max={20}
                       value={intel.alertJumps}
                       onChange={(e) => intel.onConfig({ alertJumps: Math.max(0, Number(e.target.value)) })}
+                    />
+                  </label>
+                  <label>
+                    <span className="muted small">{tr("Rastro (min)")}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={720}
+                      value={intel.trailMin}
+                      title={tr("Antigüedad máxima de un avistamiento en el rastro. 0 = sin límite.")}
+                      onChange={(e) => intel.onConfig({ trailMin: Math.max(0, Number(e.target.value)) })}
                     />
                   </label>
                 </div>

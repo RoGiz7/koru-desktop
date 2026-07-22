@@ -872,6 +872,12 @@ const EN: Record<string, string> = {
   "No se encontraron canales en la carpeta.": "No channels found in the folder.",
   "Recencia (min)": "Recency (min)",
   "Alerta ≤ saltos": "Alert ≤ jumps",
+  "Rastro (min)": "Trail (min)",
+  "Antigüedad máxima de un avistamiento en el rastro. 0 = sin límite.":
+    "Maximum age of a sighting kept in the trail. 0 = no limit.",
+  Interceptando: "Intercepting",
+  Seguido: "Followed",
+  Leyenda: "Legend",
   Sonido: "Sound",
   Probar: "Test",
   "Mostrar solo intel en rango": "Show only intel in range",

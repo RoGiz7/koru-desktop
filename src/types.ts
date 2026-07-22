@@ -898,6 +898,8 @@ export type IntelConfig = {
   sound: boolean;
   anchors: number[];
   onlyRange: boolean;
+  /** Minutos que vive un avistamiento en el rastro del mapa. 0 = sin caducidad. */
+  trailMin: number;
   soundChoice: string;
   soundFile: string;
   /** El INTERRUPTOR del usuario. NO es prueba de que el vigilante esté leyendo: para eso, `status`. */
@@ -915,6 +917,7 @@ export type IntelConfig = {
     folder?: string;
     anchors?: number[];
     onlyRange?: boolean;
+    trailMin?: number;
     soundChoice?: string;
     soundFile?: string;
   }) => void;
