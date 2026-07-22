@@ -6538,6 +6538,14 @@ h4 {
   right: 64px;
   max-width: 240px;
 }
+/* Aviso de scope ESI que falta, junto a «Enviar a EVE». Ámbar de «esto no es un error, es algo que
+   tienes que hacer tú una vez», no rojo de fallo. */
+.route-scope-warn {
+  color: #ffb24a;
+  line-height: 1.3;
+  margin: 0.15rem 0;
+}
+
 /* Edad del último avistamiento. El contorno oscuro (`paint-order: stroke`) es imprescindible: la
    etiqueta cae justo encima del propio rastro y de la maraña de stargates. */
 .map-trail-age {

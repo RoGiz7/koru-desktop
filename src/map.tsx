@@ -83,6 +83,56 @@ function cappedR(base: number, capPx: number, z: number): number {
   return Math.min(base, capPx / Math.max(z, 0.001));
 }
 
+/** Rampa 0→1 entre dos zooms, para encadenar los niveles de detalle sin saltos secos.
+ *  Con ella un nivel de etiquetas se DESVANECE mientras el siguiente aparece, en vez de que uno
+ *  desaparezca de golpe y el otro salte de la nada en el mismo fotograma. */
+function ramp(v: number, a: number, b: number): number {
+  return Math.max(0, Math.min(1, (v - a) / (b - a)));
+}
+
+/** Colocador de etiquetas que DESCARTA las que se solaparían con una ya puesta.
+ *  Primero lo hice con una rejilla («una etiqueta por celda») y no bastaba: dos nombres en celdas
+ *  vecinas se siguen pisando si uno es largo. Aquí se compara la CAJA real de cada etiqueta, y para
+ *  no cotejar todas contra todas las aceptadas se guardan en cubos gruesos: solo se miran las de los
+ *  cubos que toca la caja candidata.
+ *  Todo en unidades del viewBox (que es donde vienen `sx`/`sy`), no en píxeles de mundo. */
+type LabelBox = { x0: number; x1: number; y0: number; y1: number };
+function makeLabelPlacer(cellVb = 90) {
+  const buckets = new Map<string, LabelBox[]>();
+  const cellsOf = (b: LabelBox) => {
+    const out: string[] = [];
+    for (let cx = Math.floor(b.x0 / cellVb); cx <= Math.floor(b.x1 / cellVb); cx++)
+      for (let cy = Math.floor(b.y0 / cellVb); cy <= Math.floor(b.y1 / cellVb); cy++)
+        out.push(`${cx}:${cy}`);
+    return out;
+  };
+  /** @returns true si cabe (y la reserva); false si choca y hay que callarla. */
+  return function place(
+    sx: number,
+    sy: number,
+    text: string,
+    font: number,
+    opts: { middle?: boolean; spacing?: number } = {},
+  ): boolean {
+    // Ancho estimado: 0,6·font por carácter es lo típico de una sans, más el espaciado entre letras.
+    const w = text.length * (font * 0.6 + (opts.spacing ?? 0));
+    const x0 = opts.middle ? sx - w / 2 : sx;
+    const box: LabelBox = { x0, x1: x0 + w, y0: sy - font * 0.8, y1: sy + font * 0.25 };
+    const cells = cellsOf(box);
+    for (const c of cells) {
+      for (const b of buckets.get(c) ?? []) {
+        if (box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0) return false;
+      }
+    }
+    for (const c of cells) {
+      const arr = buckets.get(c);
+      if (arr) arr.push(box);
+      else buckets.set(c, [box]);
+    }
+    return true;
+  };
+}
+
 /** Cuánto BAJA la etiqueta de edad respecto al último avistamiento.
  *  Se mide desde el halo de la alerta de piloto seguido —el círculo MÁS GRANDE que puede coincidir en
  *  ese mismo sistema— más un margen, así que la sigue aunque cambie con el zoom. Con el desfase
@@ -2176,50 +2226,106 @@ export function MapView(props: {
             ) : (
               <>
             {/* etiquetas con nivel de detalle (LOD) según el zoom */}
-            {view.z < 2.5 &&
-              geo.regionLabels.map((r, i) => (
-                <text
-                  key={`r-${i}`}
-                  x={r.px}
-                  y={r.py}
-                  className="region-label"
-                  textAnchor="middle"
-                  style={{ fontSize: `${16 / view.z}px` }}
-                >
-                  {r.name}
-                </text>
-              ))}
-            {view.z >= 2.5 && view.z < 6 &&
-              geo.constLabels.map((c, i) => (
-                <text
-                  key={`c-${i}`}
-                  x={c.px}
-                  y={c.py}
-                  className="region-label"
-                  textAnchor="middle"
-                  style={{ fontSize: `${13 / view.z}px` }}
-                >
-                  {c.name}
-                </text>
-              ))}
-            {view.z >= 6 &&
-              ne.systems.map((s) => {
-                const p = geo.proj(s);
-                const sx = view.x + p.px * view.z;
-                const sy = view.y + p.py * view.z;
-                if (sx < 0 || sx > MAP_W || sy < 0 || sy > MAP_H) return null;
-                return (
-                  <text
-                    key={`sl-${s.id}`}
-                    x={p.px + 1.5}
-                    y={p.py + 1}
-                    className="map-label"
-                    style={{ fontSize: `${12.5 / view.z}px` }}
-                  >
-                    {s.n}
-                  </text>
-                );
-              })}
+            {/* El `letter-spacing: 1px` de `.region-label` está en unidades LOCALES, así que el zoom lo
+                multiplica mientras el tamaño de letra se compensa dividiéndolo: a zoom medio salía un
+                «E L Y S I U M» estirado. Se fija aquí, proporcional a la letra, para que el
+                espaciado se vea igual a cualquier escala. */}
+            {view.z < 2.9 &&
+              (() => {
+                const place = makeLabelPlacer();
+                const F = 16;
+                const SP = 1.2;
+                const op = 1 - ramp(view.z, 2.2, 2.9); // se apaga MIENTRAS asoman las constelaciones
+                return geo.regionLabels
+                  .filter((r) => place(view.x + r.px * view.z, view.y + r.py * view.z, r.name, F, { middle: true, spacing: SP }))
+                  .map((r, i) => (
+                    <text
+                      key={`r-${i}`}
+                      x={r.px}
+                      y={r.py}
+                      className="region-label"
+                      textAnchor="middle"
+                      opacity={op}
+                      style={{ fontSize: `${F / view.z}px`, letterSpacing: `${SP / view.z}px` }}
+                    >
+                      {r.name}
+                    </text>
+                  ));
+              })()}
+            {view.z >= 2.2 && view.z < 6.4 &&
+              (() => {
+                const place = makeLabelPlacer();
+                const F = 13;
+                const SP = 1.2;
+                // Entra según se van las regiones y se apaga según asoman los nombres de sistema.
+                const op = ramp(view.z, 2.2, 2.9) * (1 - ramp(view.z, 5.6, 6.4));
+                return geo.constLabels
+                  .filter((c) => place(view.x + c.px * view.z, view.y + c.py * view.z, c.name, F, { middle: true, spacing: SP }))
+                  .map((c, i) => (
+                    <text
+                      key={`c-${i}`}
+                      x={c.px}
+                      y={c.py}
+                      className="region-label"
+                      textAnchor="middle"
+                      opacity={op}
+                      style={{ fontSize: `${F / view.z}px`, letterSpacing: `${SP / view.z}px` }}
+                    >
+                      {c.name}
+                    </text>
+                  ));
+              })()}
+            {/* Nombres de sistema CON DESCARTE POR SOLAPE. Antes se pintaban todos los que cayeran
+                dentro del encuadre y a zoom medio salían cientos amontonados: una sopa de letras
+                ilegible en la que no se distinguía ningún nombre — peor que no poner ninguno.
+                Ahora la pantalla se trocea en celdas del tamaño de una etiqueta y cada celda admite
+                UNA sola; el resto se calla hasta que al acercar el zoom queda sitio, que es como se
+                comporta el mapa del juego.
+                El orden importa: los sistemas con AVISO, los de la ruta y donde estás van PRIMERO,
+                así que si hay pelea por un hueco gana el nombre que necesitas leer.
+                ATENUACIÓN: justo al cruzar el umbral (z=6) los nombres entran tenues y se van
+                aclarando hasta z=11. Ahí es donde más apretados están, y en gris apagado se leen como
+                una textura de fondo en vez de gritar todos a la vez; al acercarte, cuando ya hay
+                sitio de sobra, llegan a pleno contraste. Los PRIORITARIOS se saltan la atenuación:
+                un sistema con hostiles no puede desvanecerse porque el mapa esté apretado. */}
+            {view.z >= 5.6 &&
+              (() => {
+                const place = makeLabelPlacer();
+                const out: React.ReactNode[] = [];
+                const fadeIn = ramp(view.z, 5.6, 6.4);
+                const dim = fadeIn * (0.32 + 0.68 * ramp(view.z, 6.4, 11));
+                const push = (s: NeSystem, keyLabel: boolean) => {
+                  const p = geo.proj(s);
+                  const sx = view.x + p.px * view.z;
+                  const sy = view.y + p.py * view.z;
+                  if (sx < 0 || sx > MAP_W || sy < 0 || sy > MAP_H) return;
+                  if (!place(sx + 5, sy + 4, s.n, 12.5)) return;
+                  out.push(
+                    <text
+                      key={`sl-${s.id}`}
+                      x={p.px + 5 / view.z}
+                      y={p.py + 4 / view.z}
+                      className="map-label"
+                      opacity={keyLabel ? fadeIn : dim}
+                      style={{ fontSize: `${12.5 / view.z}px` }}
+                    >
+                      {s.n}
+                    </text>,
+                  );
+                };
+                const first = new Set<number>([
+                  ...(intelReports ? [...intelReports.rep.keys()] : []),
+                  ...(routePath ?? []),
+                  ...(hereSystemId != null ? [hereSystemId] : []),
+                  ...(selected != null ? [selected] : []),
+                ]);
+                for (const sid of first) {
+                  const s = geo.idx.get(sid);
+                  if (s) push(s, true);
+                }
+                for (const s of ne.systems) if (!first.has(s.id)) push(s, false);
+                return out;
+              })()}
             {/* LOD: en la vista galaxia (muy alejado) la maraña de saltos es ilegible y cara de
                 pintar → se oculta; reaparece al acercar el zoom. */}
             {view.z >= 1.8 && (
@@ -3313,6 +3419,16 @@ export function MapView(props: {
                 {routeWaypoints.length > 1 ? tr("Enviar ruta a EVE") : tr("Enviar destino a EVE")}
               </button>
             )}
+            {/* El botón deshabilitado ya llevaba el motivo en su `title`, pero un control DESHABILITADO
+                no recibe eventos de ratón en WebView2 → ese tooltip NO se llega a ver nunca. Quedaba
+                un botón gris sin explicación, y justo tras esta actualización lo van a ver TODOS: el
+                scope `write_waypoint` es nuevo y los tokens ya emitidos no lo traen. Así que el
+                motivo va visible, no escondido. */}
+            {routeWaypoints.length > 0 && hereCharId != null && !canWaypoint && (
+              <div className="small route-scope-warn">
+                ⚠ {tr("Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».")}
+              </div>
+            )}
             {eveMsg && <div className="small muted">{eveMsg}</div>}
             <button
               className="route-detail-btn"
@@ -4040,7 +4156,17 @@ export function MapView(props: {
                   {routeWaypoints.length > 1 ? tr("Enviar ruta a EVE") : tr("Enviar destino a EVE")}
                 </button>
               )}
-              {eveMsg && <div className="small muted">{eveMsg}</div>}
+              {/* El botón deshabilitado ya llevaba el motivo en su `title`, pero un control DESHABILITADO
+                no recibe eventos de ratón en WebView2 → ese tooltip NO se llega a ver nunca. Quedaba
+                un botón gris sin explicación, y justo tras esta actualización lo van a ver TODOS: el
+                scope `write_waypoint` es nuevo y los tokens ya emitidos no lo traen. Así que el
+                motivo va visible, no escondido. */}
+            {routeWaypoints.length > 0 && hereCharId != null && !canWaypoint && (
+              <div className="small route-scope-warn">
+                ⚠ {tr("Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».")}
+              </div>
+            )}
+            {eveMsg && <div className="small muted">{eveMsg}</div>}
               {whLegs.size > 0 && (
                 <div className="small" style={{ color: "#3ad6e0" }}>
                   ◆ {tr("La ruta usa wormholes: EVE no los rutea, «Enviar a EVE» pondrá solo el destino final.")}
