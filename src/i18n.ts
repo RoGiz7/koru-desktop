@@ -1615,6 +1615,10 @@ const EN: Record<string, string> = {
   "Detalle de navegación": "Navigation detail",
   Desplegar: "Expand",
   Aviso: "Report",
+  Regiones: "Regions",
+  "Ver los sistemas de New Eden": "Show New Eden's systems",
+  "Colapsar el mapa en regiones y agregar la capa activa por región":
+    "Collapse the map into regions and aggregate the active layer per region",
   // --- Enlaces capa → sección desde el panel de contexto del mapa ---
   "Abrir tu minería": "Open your mining",
   "Abrir tus assets": "Open your assets",

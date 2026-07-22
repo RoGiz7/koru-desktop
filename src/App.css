@@ -6578,3 +6578,30 @@ h4 {
   border-color: #4f9cff;
   background: rgba(79, 156, 255, 0.16);
 }
+
+/* ===== Conmutador de disposición (Sistemas / Regiones) ===== */
+.map-layout-sw {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(16, 20, 28, 0.82);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(6px);
+}
+.map-layout-sw button {
+  padding: 0.18rem 0.6rem;
+  font-size: 0.74rem;
+  color: var(--text-muted, #8b949e);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.map-layout-sw button:hover { color: #c9d1d9; }
+.map-layout-sw button.active {
+  color: #c9d1d9;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border);
+  font-weight: 600;
+}

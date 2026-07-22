@@ -201,6 +201,27 @@ mapa y rutas para hacerlo. Dependía a propósito de todo lo construido.
    `../documentacion/koru-desktop-REVISION_2026-07-02.md` §8, fuera del repo):
    breadcrumb hover Región/Constelación/Sistema · barras de control FW (Caldari/Gallente,
    Minmatar/Amarr) · sub-filtro "franja de seguridad" · minimapa/inset al hacer zoom.
+
+### Mapa vivo — del análisis del mapa in-game (jul 2026)
+Análisis de 30 capturas nuevas en `../documentacion/mapa-new-eden/ANALISIS-2026-07-22.md` (fuera del
+repo). Objetivo marcado por RoGiz7: **que el mapa sea muy útil, no solo bonito.**
+- ✅ **Leyenda de escala por capa** (`MapScaleLegend`/`scaleFor` en mapOverlays.tsx). Tres formas
+  distintas a propósito: bandas (kills/jumps — `heatColor` tiene 3 escalones REALES, un degradado
+  suave fingiría precisión inexistente), tamaño (assets/minería: color fijo, varía el radio) y
+  categorías (PI/seguridad/WH/incursiones). Soberanía y FW sin leyenda: su color es un hash del dueño.
+- ✅ **Insignias numéricas en los nodos** (`fmtCompact`). Se etiquetan los **40 mayores** de la capa,
+  no "los que quepan": el radio se normaliza al máximo, así que en una hora floja se numerarían
+  todos los sistemas.
+- ✅ **Sistemas «Evitar» pintados** en todas las capas (señal de prohibido con disco opaco, para que
+  no se camufle sobre la maraña de stargates) + botón «Evitar» en la ficha del sistema.
+- ✅ **Enlace capa → sección** en el panel de contexto (`onOpenTab`, genérico): de la capa de minería
+  a tu minería, de Kills a Cazador, etc. El mapa deja de ser un callejón sin salida.
+- ⏳ **Disposición por REGIÓN** (siguiente): colapsar los ~5.000 sistemas en ~70 nodos-región usando
+  los centroides que `geo` ya calcula, con enlaces región↔región derivados de `ne.jumps`. La clave
+  para que sea útil: **cada capa se agrega por región**. Clic en una región → volver a sistemas
+  centrado ahí. Constelación queda fuera de momento (~1.100 nodos: ni detalle ni síntesis).
+- ⏸️ Ansiblex «Todos / Con acceso / Ninguno» (el juego distingue los que puedes cruzar) — esperar a
+  la ACL solo-alianza de septiembre 2026.
 6. De EVE Carbon aún sin adoptar: calculadora de refinado/ore · biblioteca de blueprints ME/TE
    (ligada a Fabricación) · timers de PI (Planetología hoy es básica).
 

@@ -194,6 +194,15 @@ export function MapView(props: {
   const [view, setView] = useState({ z: 1, x: 0, y: 0 });
   const [selected, setSelected] = useState<number | null>(null);
   const [hover, setHover] = useState<{ sid: number; sx: number; sy: number } | null>(null);
+  // Disposición del mapa: sistemas (los ~5.000) o REGIONES (los ~70 centroides). No es zoom, es
+  // colapsar el grafo — una vista estratégica que no se puede obtener alejando. Se recuerda.
+  const [layout, setLayout] = useState<"systems" | "regions">(
+    () => (localStorage.getItem("koru-map-layout") === "regions" ? "regions" : "systems")
+  );
+  const changeLayout = (l: "systems" | "regions") => {
+    setLayout(l);
+    localStorage.setItem("koru-map-layout", l);
+  };
   const [subFilter, setSubFilter] = useState<string>("all"); // sub-filtro de la capa activa
   useEffect(() => setSubFilter("all"), [overlay]); // reset al cambiar de capa
   const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
@@ -376,6 +385,12 @@ export function MapView(props: {
       return;
     }
     // Detección de sistema bajo el cursor (para el tooltip), eficiente.
+    // En vista de REGIONES no hay sistemas pintados: buscarlos igual sacaba la ficha de un sistema
+    // invisible bajo el cursor. Cada región ya lleva su propio <title>.
+    if (layout !== "systems") {
+      if (hover) setHover(null);
+      return;
+    }
     const rect = svgRef.current?.getBoundingClientRect();
     const vb = clientToVB(e.clientX, e.clientY);
     if (!rect || !vb || !geo) return;
@@ -542,9 +557,11 @@ export function MapView(props: {
         acc.set(key(s), a);
       }
       return [...acc.entries()].map(([id, a]) => ({
+        id,
         name: names.get(id) ?? "",
         px: a.sx / a.n,
         py: a.sy / a.n,
+        count: a.n,
       }));
     };
     const regionLabels = centroids(
@@ -555,8 +572,43 @@ export function MapView(props: {
       (s) => s.c,
       new Map(ne.constellations.map((c) => [c.id, c.n]))
     );
-    return { proj, idx, nameIdx, adj, jumpsPath, regionLabels, constLabels };
+    // Grafo de REGIONES (vista de disposición «Regiones»): los nodos son los centroides que ya
+    // calculamos para las etiquetas, y las aristas salen de los stargates que cruzan de una región
+    // a otra. Se hace aquí, dentro de `geo`, porque depende solo del SDE y ya estamos recorriendo
+    // los ~13.000 saltos: montarlo aparte sería recorrerlos dos veces.
+    const regionOf = new Map<number, number>(ne.systems.map((s) => [s.id, s.r]));
+    const seenPair = new Set<string>();
+    const regionEdges: [number, number][] = [];
+    for (const [a, b] of ne.jumps) {
+      const ra = regionOf.get(a);
+      const rb = regionOf.get(b);
+      if (ra == null || rb == null || ra === rb) continue;
+      const k = ra < rb ? `${ra}-${rb}` : `${rb}-${ra}`;
+      if (seenPair.has(k)) continue;
+      seenPair.add(k);
+      regionEdges.push(ra < rb ? [ra, rb] : [rb, ra]);
+    }
+    const regionPos = new Map(regionLabels.map((r) => [r.id, r]));
+    return {
+      proj,
+      idx,
+      nameIdx,
+      adj,
+      jumpsPath,
+      regionLabels,
+      constLabels,
+      regionOf,
+      regionEdges,
+      regionPos,
+    };
   }, [ne]);
+
+  // Centra la vista en un punto del mundo con el zoom dado. El transform es `mundo * z + offset`,
+  // así que para dejar (wx,wy) en el centro: offset = centro − mundo*z.
+  function focusOn(wx: number, wy: number, z: number) {
+    const nz = Math.min(Math.max(z, 1), 24);
+    setView({ z: nz, x: MAP_W / 2 - wx * nz, y: MAP_H / 2 - wy * nz });
+  }
 
   // Red de Ansiblex proyectada sobre el mapa: aristas para el grafo + trazo para pintarlas.
   // Va en su PROPIO memo y no dentro de `geo` a propósito: geo recorre los ~5.000 sistemas y las
@@ -1380,6 +1432,33 @@ export function MapView(props: {
         : null
       : null;
   const liveMax = liveMap ? maxOf([...liveMap.values()], 1) : 1; // spread NO: ver maxOf
+  // ===== Vista por REGIONES =====
+  // Lo que la hace útil y no decorativa: la capa activa se AGREGA por región. Ver de un vistazo
+  // dónde se concentran los kills de esta hora, tus assets o tu minería es una pregunta que hoy no
+  // se puede responder en Koru de ninguna forma — alejando el mapa solo ves puntos más pequeños.
+  // NO es un useMemo a propósito: depende de `liveMap`, que se calcula DESPUÉS del `return` temprano
+  // del componente, y un hook ahí rompe la regla de hooks («Rendered more hooks than during the
+  // previous render»). Es un cálculo barato — recorre la capa activa y ~70 regiones.
+  const regionView = (() => {
+    if (!geo || layout !== "regions") return null;
+    // Suma de la capa activa por región (si la capa es cuantitativa).
+    const agg = new Map<number, number>();
+    if (liveMap) {
+      for (const [sid, v] of liveMap) {
+        const r = geo.regionOf.get(sid);
+        if (r == null || v <= 0) continue;
+        agg.set(r, (agg.get(r) ?? 0) + v);
+      }
+    }
+    // maxOf y no spread: `Math.max(...)` revienta la pila con arrays grandes (ver charts.tsx).
+    const aggMax = maxOf([...agg.values()], 0);
+    const nodes = geo.regionLabels.map((r) => ({
+      ...r,
+      value: agg.get(r.id) ?? 0,
+    }));
+    return { nodes, aggMax, hasAgg: agg.size > 0 };
+  })();
+
   // Sistemas que llevan insignia numérica: los N mayores de la capa.
   // NO vale con "que el círculo sea grande": el radio se normaliza al máximo, así que en una hora
   // floja (máx 6 kills) TODOS los círculos salen grandes y se numerarían los 400 → nube ilegible.
@@ -1683,6 +1762,90 @@ export function MapView(props: {
         >
           <rect x="0" y="0" width={MAP_W} height={MAP_H} fill="#0a0d12" />
           <g transform={`translate(${view.x} ${view.y}) scale(${view.z})`}>
+            {/* DISPOSICIÓN: o los ~5.000 sistemas, o los ~70 nodos-región. No es un zoom: es
+                colapsar el grafo, y por eso son dos ramas de pintado distintas. */}
+            {layout === "regions" ? (
+              <>
+                {/* Enlaces región↔región (stargates que cruzan de una a otra) */}
+                {geo.regionEdges.map(([ra, rb], i) => {
+                  const a = geo.regionPos.get(ra);
+                  const b = geo.regionPos.get(rb);
+                  if (!a || !b) return null;
+                  return (
+                    <line
+                      key={`re-${i}`}
+                      x1={a.px}
+                      y1={a.py}
+                      x2={b.px}
+                      y2={b.py}
+                      stroke="#2b3a4d"
+                      strokeWidth={0.9 / view.z}
+                      opacity={0.75}
+                    />
+                  );
+                })}
+                {regionView?.nodes.map((r) => {
+                  // Radio: por el VALOR de la capa si la hay; si no, por nº de sistemas. Así la
+                  // vista responde a lo que estés mirando y no siempre a lo mismo.
+                  const t = regionView.hasAgg
+                    ? r.value / (regionView.aggMax || 1)
+                    : r.count / 110;
+                  const rad = (4.5 + Math.sqrt(Math.max(0, t)) * 13) / view.z;
+                  const dim = regionView.hasAgg && r.value <= 0;
+                  return (
+                    <g
+                      key={`rn-${r.id}`}
+                      className="clickable-sys"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Clic en una región = entrar en ella: vuelve a sistemas y centra ahí.
+                        changeLayout("systems");
+                        focusOn(r.px, r.py, 4);
+                      }}
+                    >
+                      <circle
+                        cx={r.px}
+                        cy={r.py}
+                        r={rad}
+                        fill={regionView.hasAgg ? heatColor(t) : "#4a5a70"}
+                        fillOpacity={dim ? 0.18 : 0.62}
+                        stroke="#0a0d12"
+                        strokeWidth={0.4 / view.z}
+                      >
+                        <title>{`${r.name}\n${r.count} ${tr("sistemas")}${
+                          regionView.hasAgg ? `\n${tr(activeOverlay.label)}: ${fmtSp(r.value)}` : ""
+                        }`}</title>
+                      </circle>
+                      {regionView.hasAgg && r.value > 0 && rad * view.z >= 5 && (
+                        <text
+                          x={r.px}
+                          y={r.py}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fontSize={Math.min(rad * view.z * 0.8, 11) / view.z}
+                          fontWeight={700}
+                          fill="#0a0d12"
+                          pointerEvents="none"
+                        >
+                          {fmtCompact(r.value)}
+                        </text>
+                      )}
+                      <text
+                        x={r.px}
+                        y={r.py + rad + 8 / view.z}
+                        textAnchor="middle"
+                        className="map-label"
+                        style={{ fontSize: `${11 / view.z}px` }}
+                        pointerEvents="none"
+                      >
+                        {r.name}
+                      </text>
+                    </g>
+                  );
+                })}
+              </>
+            ) : (
+              <>
             {/* etiquetas con nivel de detalle (LOD) según el zoom */}
             {view.z < 2.5 &&
               geo.regionLabels.map((r, i) => (
@@ -2098,6 +2261,8 @@ export function MapView(props: {
                     </text>
                   );
                 })}
+              </>
+            )}
           </g>
         </svg>
 
@@ -3160,6 +3325,26 @@ export function MapView(props: {
             barra de categorías mide más de 66px, así que le comía el borde al sub-filtro. Con la
             columna se apilan con hueco y aguanta aunque la barra envuelva a dos filas. */}
         <div className="map-bottombar">
+        {/* Disposición: sistemas o regiones. Arriba del todo porque cambia QUÉ se está mirando,
+            no cómo se filtra. Se oculta con un desplegable abierto, igual que el sub-filtro. */}
+        {!openCat && (
+          <div className="map-layout-sw">
+            <button
+              className={layout === "systems" ? "active" : ""}
+              onClick={() => changeLayout("systems")}
+              title={tr("Ver los sistemas de New Eden")}
+            >
+              {tr("Sistemas")}
+            </button>
+            <button
+              className={layout === "regions" ? "active" : ""}
+              onClick={() => changeLayout("regions")}
+              title={tr("Colapsar el mapa en regiones y agregar la capa activa por región")}
+            >
+              {tr("Regiones")}
+            </button>
+          </div>
+        )}
         {/* Sub-filtro de la capa activa. Se oculta mientras hay un desplegable de categoría abierto:
             el menú se abre justo encima y lo taparía, y además ahí estás eligiendo capa, no filtrando. */}
         {SUBFILTERS[overlay] && !openCat && (
