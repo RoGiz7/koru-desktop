@@ -6553,3 +6553,28 @@ h4 {
   left: auto;
   max-width: 100%;
 }
+
+/* Botón «Evitar» activo en la ficha del sistema. */
+.sys-links button.avoid-on {
+  color: #e5534b;
+  border-color: rgba(229, 83, 75, 0.5);
+  font-weight: 600;
+}
+
+/* Enlace capa → sección en el panel de contexto del mapa. */
+.mc-link {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.76rem;
+  text-align: left;
+  color: #7fb3ff;
+  background: rgba(79, 156, 255, 0.08);
+  border: 1px solid rgba(79, 156, 255, 0.3);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+.mc-link:hover {
+  border-color: #4f9cff;
+  background: rgba(79, 156, 255, 0.16);
+}

@@ -16,7 +16,7 @@ import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
-import type { MapOverlay } from "./constants";
+import type { MapOverlay, Tab } from "./constants";
 import type {
   IntelConfig,
   SysActivity,
@@ -152,6 +152,9 @@ export function MapView(props: {
   onOpenCazador?: (name?: string) => void;
   onOpenMisiones?: () => void;
   onOpenPi?: () => void;
+  /** Salta a una sección de la app. Genérico a propósito: el mapa enlaza a media docena de sitios y
+   *  un callback por sección sería una prop nueva cada vez. */
+  onOpenTab?: (tab: Tab) => void;
   openTrack?: { name: string; nonce: number } | null;
 }) {
   const {
@@ -163,6 +166,7 @@ export function MapView(props: {
     onOpenCazador,
     onOpenMisiones,
     onOpenPi,
+    onOpenTab,
     openTrack,
     assetsBySystem,
     miningBySystem,
@@ -1262,6 +1266,51 @@ export function MapView(props: {
     return d;
   }, [geo, routePath, ansiLegs]);
 
+  // Marcas de los sistemas VETADOS. Se pintan en TODAS las capas, no solo con la ruta activa: es una
+  // decisión tuya que afecta a cualquier cálculo, y hasta ahora solo se veía en la lista de abajo —
+  // trazabas una ruta sin saber por dónde le estabas prohibiendo pasar.
+  // Señal de prohibido (aro + barra), en rojo y a tamaño de pantalla constante (r / view.z).
+  const avoidMarkers = useMemo(() => {
+    if (!geo || avoid.size === 0) return null;
+    // Señal de PROHIBIDO grande y opaca. Tiene que gritar: si el piloto no se entera de que bloqueó
+    // un sistema, no entiende por qué la ruta da un rodeo. Cuatro capas para que se lea sobre
+    // cualquier fondo (nodos, líneas de stargate, arcos de Ansiblex, heatmaps):
+    //   resplandor exterior · disco oscuro que tapa lo de debajo · aro rojo grueso · barra diagonal.
+    const R = 7;
+    return [...avoid].map((sid) => {
+      const s = geo.idx.get(sid);
+      if (!s) return null;
+      const p = geo.proj(s);
+      const r = R / view.z;
+      const d = (R * 0.66) / view.z; // media diagonal de la barra, inscrita en el aro
+      const w = 1.9 / view.z;
+      return (
+        <g key={`avoid-${sid}`} pointerEvents="none">
+          <circle
+            cx={p.px}
+            cy={p.py}
+            r={r * 1.4}
+            fill="none"
+            stroke="#ff4d4d"
+            strokeOpacity={0.22}
+            strokeWidth={2.6 / view.z}
+          />
+          <circle cx={p.px} cy={p.py} r={r} fill="#12070a" fillOpacity={0.88} />
+          <circle cx={p.px} cy={p.py} r={r} fill="none" stroke="#ff4d4d" strokeWidth={w} />
+          <line
+            x1={p.px - d}
+            y1={p.py + d}
+            x2={p.px + d}
+            y2={p.py - d}
+            stroke="#ff4d4d"
+            strokeWidth={w}
+            strokeLinecap="round"
+          />
+        </g>
+      );
+    });
+  }, [geo, avoid, view.z]);
+
   // Igual pero para wormholes: índices a los que se llegó cruzando un WH (in-system ↔ hub).
   const whLegs = useMemo(() => {
     const legs = new Set<number>();
@@ -1376,6 +1425,28 @@ export function MapView(props: {
 
   // Capa activa + KPI contextual para el panel de la derecha
   const activeOverlay = OVERLAYS.find((o) => o.key === overlay) ?? OVERLAYS[0];
+
+  // A dónde lleva cada capa dentro de la app. El mapa del juego hace esto (desde la capa de menas te
+  // ofrece «abre el diario de minería») y es lo que evita que el mapa sea un callejón sin salida:
+  // ves algo interesante y saltas al sitio donde puedes trabajar con ello.
+  const ctxLink: { tab: Tab; label: string } | null =
+    overlay === "mineria"
+      ? { tab: "mineria", label: tr("Abrir tu minería") }
+      : overlay === "assets"
+      ? { tab: "assets", label: tr("Abrir tus assets") }
+      : overlay === "pvp"
+      ? { tab: "pvp", label: tr("Abrir tu PvP") }
+      : overlay === "kills"
+      ? { tab: "cazador", label: tr("Abrir Cazador") }
+      : overlay === "pi"
+      ? { tab: "planetologia", label: tr("Abrir Planetología") }
+      : overlay === "agentes"
+      ? { tab: "lealtad", label: tr("Abrir Misiones") }
+      : overlay === "corps_npc"
+      ? { tab: "lealtad", label: tr("Abrir Lealtad") }
+      : overlay === "standings"
+      ? { tab: "contactos", label: tr("Abrir Contactos") }
+      : null;
   const ctxKpi: { value: string; label: string } | null =
     overlay === "soberania" && sovBySystem
       ? { value: fmtSp(new Set([...sovBySystem.values()].map((v) => v.owner_id ?? 0)).size), label: "Dueños distintos" }
@@ -1820,6 +1891,8 @@ export function MapView(props: {
                   </g>
                 );
               })}
+            {/* Sistemas vetados (por encima de las capas, por debajo de la ruta) */}
+            {avoidMarkers}
             {/* ruta planificada */}
             {routePath && routePath.length > 1 && (() => {
               // La línea AMARILLA solo cubre puertas y Ansiblex. Los saltos por wormhole se pintan
@@ -2224,6 +2297,15 @@ export function MapView(props: {
                     }}
                   >
                     {tr("Saltar desde")}
+                  </button>
+                  {/* Vetar desde el propio mapa: es donde ves que un sistema está caliente. Antes
+                      solo se podía desde el buscador de la sección de abajo. */}
+                  <button
+                    className={avoid.has(selected) ? "avoid-on" : ""}
+                    title={tr("Los sistemas vetados se saltan al calcular cualquier ruta.")}
+                    onClick={() => toggleAvoid(selected)}
+                  >
+                    🚫 {avoid.has(selected) ? tr("Vetado ✓") : tr("Evitar")}
                   </button>
                 </div>
                 <div className="sys-links">
@@ -3061,6 +3143,12 @@ export function MapView(props: {
                       </div>
                     ))}
                   </div>
+                )}
+                {/* Salida de la capa hacia su sección: del mapa al sitio donde se trabaja el dato. */}
+                {ctxLink && onOpenTab && (
+                  <button className="mc-link" onClick={() => onOpenTab(ctxLink.tab)}>
+                    {ctxLink.label} →
+                  </button>
                 )}
               </>
             )}

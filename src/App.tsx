@@ -1846,6 +1846,17 @@ function App() {
               60,
             );
           }}
+          // Enlace genérico capa→sección desde el panel de contexto del mapa.
+          onOpenTab={(t) => {
+            changeTab(t);
+            window.setTimeout(
+              () =>
+                document
+                  .querySelector(".section-header")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+              60,
+            );
+          }}
           incursions={incursions}
           theraConns={theraConns}
           onNeedThera={() => {
