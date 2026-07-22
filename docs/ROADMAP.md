@@ -300,19 +300,24 @@ periódico** (carpeta + frecuencia + rotación, también hecho en v0.7.0). Pendi
 compuesta). Cero servidor nuestro.
 
 ★★ **SIGUIENTE — NAVEGACIÓN (próxima release, decidido 2026-06-29):**
-- 👉 **Accionable ya — Wormholes / Thera / Turnur (estilo eve-scout)**: capa de mapa con las
-  conexiones públicas de `api.eve-scout.com` (fetch nativo desde el backend Tauri, sin CORS).
-  Fase 1 = mostrar la info en el mapa (sistemas con conexión Thera/Turnur, in/out, vida/masa).
-  Fase 2 (más gorda) = rutar a través de wormholes (origen→sistema con WH→Thera→salida→destino).
-  Es lo primero a hacer porque NO depende de nada externo del usuario.
+- ✅ **HECHO — Wormholes / Thera / Turnur (estilo eve-scout)**: conexiones públicas de
+  `api.eve-scout.com` (`get_thera_connections`, fetch nativo del backend, sin CORS).
+  **Fase 1** (mostrar en el mapa) ✅. **Fase 2** (rutar a través de wormholes) ✅ jul 2026: memo `wh`
+  en map.tsx con el mismo patrón que Ansiblex — aristas in-system↔hub en el grafo de Dijkstra,
+  toggle «Rutar por wormholes», líneas cian + tramos marcados con ◆. **Turnur = nodo real** del SDE
+  (30002086); **Thera = nodo SINTÉTICO** (id 31000005, NO está en neweden.json) con posición =
+  centroide de sus conexiones (`posOf`/`nameOf` manejan el hub sintético). Enlace a eve-scout como
+  zKill/Dotlan. **LÍMITE conocido**: una ruta por WH NO se puede enviar a EVE (el juego no conoce el
+  wormhole) → «Enviar a EVE» pone solo el destino; se avisa en la UI. Validado en Python:
+  Jita→1DQ1-A 42 saltos por puertas → 2 por Thera.
 - ✅ **DESBLOQUEADO — Ansiblex: importación de la red** (jul 2026). Ya no espera ningún archivo: la
   red **se pega** desde la tabla que publica el wiki de la alianza y el piloto la confirma antes de
   que se guarde nada (`src/ansiblex.ts` + `src/ansiblexControl.tsx` + tabla `ansiblex`). Validado
   contra la red real: 194 filas → **97 puentes, 194 sistemas, 0 huérfanos**, y ly/ruta/dueños
   correctos en los 97. Ver `SPEC.md §9c Nivel 4` para las reglas del parser y las trampas.
-- ⏳ **Siguiente — Ansiblex en rutas**: añadir esos puentes como aristas al grafo de Dijkstra
-  (`geo.adj` en `map.tsx`) y marcar en la ruta qué saltos son por puente. La topología ya está; solo
-  falta enchufarla al planificador.
+- ✅ **HECHO — Ansiblex en rutas**: puentes como aristas en el grafo (memo `ansi`), toggle «Rutar por
+  Ansiblex», arcos verdes curvos, tramos marcados con el icono real, interceptación viva y «Enviar a
+  EVE» (1 o N waypoints; el juego rutea por puentes con tu preferencia in-game).
 - ⏸️ **A la espera — coste de condensador Ansiblex** (deploy sept 2026): FC ya publicó los números
   (1250 TJ, zonas ×0/2/6/9/15 desde el capital de la alianza, tabla base por clase de nave) **pero
   avisa de que pueden variar hasta el deploy**, así que no se incrustan todavía. Cuando toque, van

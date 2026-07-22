@@ -1595,6 +1595,44 @@ const EN: Record<string, string> = {
   "Al confirmar se sustituye la red anterior por completo: el wiki es la foto entera y los puentes se caen y se mueven.":
     "Confirming replaces the previous network entirely: the wiki is the full picture and bridges go down and move.",
   "Rutar por Ansiblex": "Route through Ansiblex",
+  "Rutar por wormholes": "Route through wormholes",
+  Ansiblex: "Ansiblex",
+  Wormholes: "Wormholes",
+  "Usar los Ansiblex de tu alianza al calcular la ruta":
+    "Use your alliance's Ansiblexes when plotting the route",
+  "Usar los wormholes de Thera/Turnur (eve-scout) al calcular la ruta":
+    "Use Thera/Turnur wormholes (eve-scout) when plotting the route",
+  Paradas: "Stops",
+  "Cómo rutar": "Routing options",
+  "La ruta": "The route",
+  Evitar: "Avoid",
+  Subir: "Move up",
+  Bajar: "Move down",
+  "Vaciar lista": "Clear list",
+  "Detalle de navegación": "Navigation detail",
+  Desplegar: "Expand",
+  Aviso: "Report",
+  Siguiendo: "Following",
+  "Dejar de seguir": "Stop following",
+  "Dejar de seguir a todos": "Stop following everyone",
+  "Poner este sistema como destino de la ruta": "Set this system as the route destination",
+  Habituales: "Regulars",
+  "Ver muertes registradas en zKillboard": "See kills recorded on zKillboard",
+  "sistemas evitados": "systems avoided",
+  "Añadir sistema a evitar…": "Add a system to avoid…",
+  "Evitar este sistema y recalcular": "Avoid this system and re-plot",
+  "Haz click en sistemas del mapa para poner origen y destino.":
+    "Click systems on the map to set origin and destination.",
+  "Los sistemas vetados se saltan al calcular. Se recuerdan entre sesiones. Un destino nunca se evita a sí mismo.":
+    "Blocked systems are skipped when plotting. They persist across sessions. A destination never avoids itself.",
+  "No hay ruta posible con los filtros actuales (¿demasiados sistemas evitados?).":
+    "No route possible with the current filters (too many avoided systems?).",
+  "Se llega por wormhole": "Reached via wormhole",
+  "La ruta usa wormholes: EVE no los rutea, «Enviar a EVE» pondrá solo el destino final.":
+    "The route uses wormholes: EVE can't route them, 'Send to EVE' will set only the final destination.",
+  "cargando…": "loading…",
+  "Abrir eve-scout (mapa de conexiones Thera/Turnur en vivo)":
+    "Open eve-scout (live Thera/Turnur connections map)",
   "Se llega por Ansiblex": "Reached via Ansiblex",
   Interceptar: "Intercept",
   "Interceptando ✓": "Intercepting ✓",

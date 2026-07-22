@@ -6244,3 +6244,234 @@ h4 {
   color: #c9d1d9;
   background: rgba(63, 185, 80, 0.2);
 }
+
+/* Wormholes en la ruta: cian, para distinguirlos de los Ansiblex (verde) y las puertas. */
+.route-wh-leg { color: #3ad6e0; font-weight: 600; }
+.route-list li.route-hub { opacity: 0.85; }
+.route-list li.route-hub .route-sysname { color: #3ad6e0; font-style: italic; }
+.route-evescout {
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  color: #3ad6e0;
+  background: rgba(58, 214, 224, 0.1);
+  border: 1px solid rgba(58, 214, 224, 0.4);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+.route-evescout:hover { border-color: #3ad6e0; }
+
+/* ===== Sección Navegación (detalle, debajo del mapa) ===== */
+.nav-section {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+}
+.nav-title {
+  margin: 0 0 0.7rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 1rem;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .nav-grid { grid-template-columns: 1fr; }
+}
+.nav-col { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.nav-head {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 0.4rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.nav-avoid-list, .nav-route-list {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.nav-avoid-list li, .nav-route-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.nav-route-list { counter-reset: navstep; }
+.nav-route-list li .route-sysname { flex: 1; }
+.route-mini {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.2rem 0;
+}
+.route-detail-btn {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+.route-detail-btn:hover { border-color: var(--accent-border, #4f9cff); }
+
+/* El feed de intel dentro de la sección de abajo: ya no es una columna estrecha flotando sobre el
+   mapa, así que aprovecha el ancho en varias columnas y con más aire. */
+.nav-section .intel-feed {
+  padding: 0;
+  max-height: 420px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.4rem;
+  align-content: start;
+}
+.nav-section .intel-row { border-radius: 4px; background: rgba(255, 255, 255, 0.02); }
+
+/* Las tarjetas de intel (rastro / detalle / habituales) dentro de la sección de abajo: dejan de
+   flotar sobre el mapa y se reparten el ancho. Sin posición absoluta ni límite de alto. */
+.nav-section .intel-rstack {
+  position: static;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+  max-height: none;
+  width: auto;
+  pointer-events: auto;
+}
+.nav-section .intel-detail {
+  position: static;
+  max-height: none;
+  width: auto;
+  margin: 0;
+}
+
+/* Tarjeta de ruta compacta (derecha, sobre el mapa): lo que se toca sobre la marcha. */
+.route-chip { display: flex; flex-direction: column; gap: 0.3rem; }
+.route-chip .route-mini { font-size: 0.8rem; font-weight: 600; }
+
+/* Cabecera plegable de las tarjetas flotantes de la derecha. */
+.chip-head { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.chip-fold {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0.2rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.chip-fold:hover { color: var(--accent-border, #4f9cff); }
+
+/* ===== Tarjeta única con pestañas (columna derecha del mapa) ===== */
+.right-card { display: flex; flex-direction: column; gap: 0.35rem; }
+.right-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25rem;
+}
+.right-tab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px 5px 0 0;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.45rem;
+}
+.right-tab:hover { color: #c9d1d9; }
+.right-tab.active {
+  color: #c9d1d9;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--border);
+  border-bottom-color: transparent;
+  font-weight: 600;
+}
+.right-tabs .chip-fold { margin-left: auto; }
+
+/* ===== Recorte de la tarjeta derecha =====
+   Con la barra de pestañas y los botones nuevos (Interceptar en la fila del piloto) el contenido
+   pasaba de los 300px y el `overflow:hidden` lo cortaba por la derecha — se perdía hasta la ✕ de
+   cerrar. Un poco más de ancho + que todo pueda encoger y envolver en vez de desbordar. */
+.intel-rstack { width: 340px; }
+@media (max-width: 1400px) {
+  .intel-rstack { width: 300px; }
+}
+.intel-rstack .intel-detail,
+.intel-rstack .intel-detail > * {
+  min-width: 0;
+}
+/* La ✕ nunca se encoge ni se sale; el título cede y recorta con puntos suspensivos. */
+.intel-detail-head {
+  gap: 0.4rem;
+  min-width: 0;
+}
+.intel-detail-head > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.intel-detail-head .sys-close {
+  flex: 0 0 auto;
+}
+/* Filas de botones (piloto, habituales): que envuelvan en vez de desbordar. */
+.intel-pilot-row,
+.intel-hab-row {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.intel-pilot-row > button,
+.intel-hab-row > button {
+  flex: 0 0 auto;
+}
+/* El mensaje del reporte puede traer nombres largos sin espacios. */
+.intel-detail-msg {
+  overflow-wrap: anywhere;
+}
+
+/* Blindaje contra el recorte: la tarjeta nunca puede superar el ancho de su columna, y nada de
+   dentro puede desbordarla (era lo que se comía la ✕ y los botones de la derecha). */
+.intel-rstack {
+  width: min(340px, calc(100% - 16px));
+  box-sizing: border-box;
+}
+.intel-rstack .intel-detail {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.intel-rstack .intel-detail * {
+  max-width: 100%;
+}
+
+/* ===== Lista de pilotos en seguimiento (pestaña Rastro) ===== */
+.hunt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.hunt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.35rem 0.4rem;
+  border-left: 2px solid #ff6ad5;
+  border-radius: 0 4px 4px 0;
+  background: rgba(255, 106, 213, 0.06);
+}
+/* El que estás interceptando manda visualmente sobre los demás seguidos. */
+.hunt-row.target {
+  background: rgba(255, 106, 213, 0.16);
+  border-left-width: 3px;
+}
+.hunt-row-top { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.hunt-row-top .intel-pilot-name { flex: 1 1 auto; }

@@ -39,6 +39,29 @@ const MAP_H = 760;
 const MAP_PAD = 16;
 // Icono real del Ansiblex (SDE type 35841) para el badge de «vía puente», en vez del emoji 🌉.
 const ANSI_ICON = typeIcon(ANSIBLEX_TYPE_ID, 32);
+
+// Hubs de wormhole (eve-scout). Turnur ES un sistema real de k-space (está en neweden.json con su
+// posición). Thera es J-space y NO está en neweden → nodo SINTÉTICO: se le da una posición (el
+// centroide de sus conexiones) solo para poder dibujarlo y rutar a través de él.
+const THERA_ID = 31000005;
+const TURNUR_ID = 30002086;
+
+/** Arco de un Ansiblex entre dos puntos ya proyectados. Curvo, no recto: un puente une sistemas
+ *  LEJANOS y la recta cruzaría media región confundiéndose con la maraña de stargates. El punto de
+ *  control se aparta de la mitad en perpendicular (−dy, dx) un BOW del largo, así la comba sale
+ *  proporcional. Se pasa SIEMPRE el par en orden canónico (id menor primero) para que el mismo
+ *  puente combe igual lo dibujemos desde la red o desde la ruta. */
+const ANSI_BOW = 0.12;
+function ansiArc(pa: { px: number; py: number }, pb: { px: number; py: number }): string {
+  const dx = pb.px - pa.px;
+  const dy = pb.py - pa.py;
+  const cx = (pa.px + pb.px) / 2 - dy * ANSI_BOW;
+  const cy = (pa.py + pb.py) / 2 + dx * ANSI_BOW;
+  return (
+    `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}` +
+    `Q${cx.toFixed(1)} ${cy.toFixed(1)} ${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`
+  );
+}
 // Badge reutilizable con el icono del juego. Se usa igual en la cabecera de ruta, en la lista de
 // sistemas y en el feed de intel, para que «vía Ansiblex» se vea siempre igual.
 function AnsiBadge({ size = 12 }: { size?: number }) {
@@ -119,6 +142,7 @@ export function MapView(props: {
   corpDetails?: Map<number, { id: number; name: string; lp: number }[]> | null;
   incursions?: Incursion[] | null;
   theraConns?: WhConn[] | null;
+  onNeedThera?: () => void;
   intel?: IntelConfig;
   hereSystemId?: number | null;
   hereCharId?: number | null;
@@ -152,6 +176,7 @@ export function MapView(props: {
     corpDetails,
     incursions,
     theraConns,
+    onNeedThera,
     hereSystemId,
     hereCharId,
     charLocations,
@@ -179,7 +204,19 @@ export function MapView(props: {
     setRouteStops,
     useAnsiblex,
     setUseAnsiblex,
+    useWormholes,
+    setUseWormholes,
+    avoid,
+    toggleAvoid,
+    clearAvoid,
   } = useRoutePlanner();
+  // Ancla para el botón «Detalle de navegación» de la tarjeta de ruta: baja a la sección de abajo.
+  const navRef = useRef<HTMLDivElement | null>(null);
+  // La columna derecha es UNA tarjeta con pestañas (antes eran cuatro apiladas y tapaban el mapa).
+  // `cardOpen` pliega la tarjeta entera dejando solo la barra de pestañas.
+  type RightTab = "ruta" | "rastro" | "aviso" | "habituales";
+  const [rightTab, setRightTab] = useState<RightTab>("ruta");
+  const [cardOpen, setCardOpen] = useState(true);
   // Red de Ansiblex de la alianza (declarada por el piloto en Ajustes; ESI no la publica).
   const [ansiRows, setAnsiRows] = useState<AnsiblexRow[]>([]);
   useEffect(() => {
@@ -534,29 +571,74 @@ export function MapView(props: {
       (adj.get(b.a_id) ?? adj.set(b.a_id, []).get(b.a_id)!).push(b.b_id);
       (adj.get(b.b_id) ?? adj.set(b.b_id, []).get(b.b_id)!).push(b.a_id);
       keys.add(edgeKey(b.a_id, b.b_id));
-      const pa = geo.proj(sa);
-      const pb = geo.proj(sb);
-      // Arco, no recta. El mapa del juego dibuja los puentes curvados y hay una razón práctica
-      // además de estética: un Ansiblex une sistemas LEJANOS, así que su recta cruza por encima de
-      // media región y se confunde con la maraña de stargates que hay debajo. La curva la despega
-      // del fondo y deja claro que es un enlace que se salta lo de en medio.
-      // El punto de control se aparta de la mitad en perpendicular, un 12% del largo. Como los
-      // pares vienen en orden canónico (a_id < b_id), todos los arcos comban igual: si el orden
-      // bailara, el mismo puente se curvaría a un lado u otro entre importaciones.
-      // Perpendicular al tramo = (-dy, dx). Escalada por BOW, la comba sale proporcional al largo:
-      // los puentes cortos apenas se curvan y los largos trazan un arco amplio.
-      const BOW = 0.12;
-      const dx = pb.px - pa.px;
-      const dy = pb.py - pa.py;
-      const cx = (pa.px + pb.px) / 2 - dy * BOW;
-      const cy = (pa.py + pb.py) / 2 + dx * BOW;
-      path +=
-        `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}` +
-        `Q${cx.toFixed(1)} ${cy.toFixed(1)} ${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`;
+      // Los pares vienen en orden canónico (a_id < b_id) desde la tabla, así que el arco es estable.
+      path += ansiArc(geo.proj(sa), geo.proj(sb));
       drawn++;
     }
     return { adj, keys, path, drawn };
   }, [geo, ansiRows]);
+
+  // Red de wormholes de eve-scout (Thera/Turnur) proyectada sobre el mapa. Cada conexión une un
+  // sistema de k-space con un HUB. Turnur es un nodo real; Thera es sintético (centroide de sus
+  // conexiones) porque no está en el SDE. Modelo idéntico a `ansi`: aristas + trazo + índices.
+  const wh = useMemo(() => {
+    if (!geo || !theraConns || theraConns.length === 0) return null;
+    // Posición de Thera = centroide de sus in-systems (para poder dibujarla y que las líneas
+    // converjan ahí). Turnur usa su posición real del SDE.
+    const theraK = theraConns
+      .filter((c) => c.hub === "Thera")
+      .map((c) => geo.idx.get(c.system_id))
+      .filter((s): s is NeSystem => !!s)
+      .map((s) => geo.proj(s));
+    const hubPos = new Map<number, { px: number; py: number }>();
+    if (theraK.length) {
+      hubPos.set(THERA_ID, {
+        px: theraK.reduce((a, p) => a + p.px, 0) / theraK.length,
+        py: theraK.reduce((a, p) => a + p.py, 0) / theraK.length,
+      });
+    }
+    const turnur = geo.idx.get(TURNUR_ID);
+    if (turnur) hubPos.set(TURNUR_ID, geo.proj(turnur));
+    const hubName = new Map<number, string>([
+      [THERA_ID, "Thera"],
+      [TURNUR_ID, "Turnur"],
+    ]);
+
+    const adj = new Map<number, number[]>();
+    const keys = new Set<string>();
+    let path = "";
+    let drawn = 0;
+    for (const c of theraConns) {
+      const hubId = c.hub === "Turnur" ? TURNUR_ID : THERA_ID;
+      const sysP = geo.idx.get(c.system_id);
+      const hubP = hubPos.get(hubId);
+      if (!sysP || !hubP || c.system_id === hubId) continue; // sin posición → no lo pintamos
+      (adj.get(c.system_id) ?? adj.set(c.system_id, []).get(c.system_id)!).push(hubId);
+      (adj.get(hubId) ?? adj.set(hubId, []).get(hubId)!).push(c.system_id);
+      keys.add(edgeKey(c.system_id, hubId));
+      const pa = geo.proj(sysP);
+      path += `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}L${hubP.px.toFixed(1)} ${hubP.py.toFixed(1)}`;
+      drawn++;
+    }
+    return { adj, keys, path, hubPos, hubName, drawn };
+  }, [geo, theraConns]);
+
+  // Cargar las conexiones de eve-scout en cuanto se enciende el rutado por wormholes (si no están
+  // ya cargadas de haber abierto la capa). El fetch vive en App (get_thera_connections).
+  useEffect(() => {
+    if (useWormholes && !theraConns) onNeedThera?.();
+  }, [useWormholes, theraConns, onNeedThera]);
+
+  // Posición de un sistema del grafo, incluyendo los hubs sintéticos (Thera). Para pintar la ruta
+  // y las líneas cuando el camino pasa por un nodo que no está en el SDE.
+  const posOf = (sid: number): { px: number; py: number } | null => {
+    const s = geo?.idx.get(sid);
+    if (s) return geo!.proj(s);
+    return wh?.hubPos.get(sid) ?? null;
+  };
+  // Nombre de un sistema del grafo, incluyendo los hubs sintéticos.
+  const nameOf = (sid: number): string =>
+    geo?.idx.get(sid)?.n ?? wh?.hubName.get(sid) ?? `#${sid}`;
 
   // Fondo de estrellas memorizado (no se reconstruye al mover el ratón / hover).
   // LOD del backdrop: en vista galaxia (muy alejado) pinta 1 de cada 3 sistemas (se solapan igual).
@@ -664,6 +746,40 @@ export function MapView(props: {
     [geo, intel?.lines, shipNames],
   );
 
+  // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
+  // El nº de líneas de intel es la señal de refresco: cuando llega un canto nuevo, el rastro del
+  // perseguido se vuelve a consultar, y con él su último sistema → la interceptación se re-traza.
+  const { huntPilots, huntTracks, loadHuntTrack, dropHuntPilot, clearHuntTrack } = useHuntTrack(
+    openTrack,
+    intel?.lines.length ?? 0
+  );
+  // Interceptación viva: la ruta se ata a UN piloto de los que sigues (solo puedes volar a un sitio).
+  // `interceptPilot` dice a cuál. El origen es dónde está TU cazador (`hereSystemId`); el destino, el
+  // último sistema donde lo cantaron. Se re-traza sola si se mueve. Ver el efecto más abajo.
+  const [intercepting, setIntercepting] = useState(false);
+  const [interceptPilot, setInterceptPilot] = useState<string | null>(null);
+  // Re-apuntado MANUAL: si clicas un sistema durante la interceptación, la ruta va ahí (desde tu
+  // cazador) en vez de al último avistamiento. Manda sobre el seguimiento hasta que apagues o
+  // cambies de objetivo. null = sin override, sigue al perseguido.
+  const [manualTarget, setManualTarget] = useState<number | null>(null);
+  // Último sistema donde se vio al perseguido = destino de la caza. El rastro viene de más viejo a
+  // más nuevo (el marcador de flecha ya apunta al final), así que el último punto es el más fresco.
+  const huntTarget = useMemo(() => {
+    const t = interceptPilot ? huntTracks.get(interceptPilot) : undefined;
+    if (!t || t.length === 0) return null;
+    return t[t.length - 1].system_id;
+  }, [huntTracks, interceptPilot]);
+  // Al cambiar de objetivo se olvida el re-apuntado manual (te re-enganchas al nuevo).
+  useEffect(() => {
+    setManualTarget(null);
+  }, [interceptPilot]);
+  // Nombres seguidos en minúsculas, para cotejar contra los pilotos de cada aviso sin repetir el
+  // toLowerCase en cada pintado del mapa.
+  const huntSet = useMemo(
+    () => new Set(huntPilots.map((p) => p.toLowerCase())),
+    [huntPilots]
+  );
+
   // --- Intel: círculos en el mapa (rojo, opacidad por recencia) ---
   const intelCircles = useMemo(() => {
     if (!geo || overlay !== "intel" || !intelReports) return null;
@@ -681,6 +797,11 @@ export function MapView(props: {
       const near = j != null && j <= (intel?.alertJumps ?? 0);
       // Filtro "solo en rango": oculta lo que esté fuera del umbral de saltos.
       if (intel?.onlyRange && !near) return null;
+      // ¿El aviso menciona a alguien que sigues? Entonces se pinta MORADO (el mismo de los botones
+      // de Seguir/Interceptar) en vez de rojo: con el mapa lleno de alertas, la que te importa tiene
+      // que cantar sola. El resto siguen en rojo, que es la amenaza genérica.
+      const tracked = huntSet.size > 0 && r.pilots.some((p) => huntSet.has(p.toLowerCase()));
+      const col = tracked ? "#ff6ad5" : "#ff3b3b";
       return (
         <g
           key={`intel-${sid}`}
@@ -688,14 +809,10 @@ export function MapView(props: {
           onClick={(e) => {
             e.stopPropagation();
             if (movedRef.current) return; // fue un paneo
-            // Si estás trazando una ruta o un salto, el punto rojo NO debe comerse el click: lo que
-            // quieres es marcar ESE sistema como parada, aunque tenga alerta encima. Antes el intel
-            // tapaba al sistema de debajo y no se podía elegir un destino con hostiles — justo el
-            // que más te interesa. En modo intel normal, sigue abriendo el detalle.
-            if (routeActive || jumpActive) {
-              clickSystem(sid);
-              return;
-            }
+            // Clicar un punto rojo SIEMPRE abre su aviso. Antes, con el modo Ruta activo (que la
+            // interceptación enciende sola), el click se desviaba a «poner parada» y el aviso ya no
+            // salía: comportamiento distinto según el modo = confuso. Para rutar a un sistema con
+            // alerta está el botón «Destino» dentro del propio aviso, que es explícito.
             openIntelDetail({ sysId: sid, sysName: s.n, ts: r.ts, author: r.author, message: r.message });
           }}
         >
@@ -707,13 +824,26 @@ export function MapView(props: {
                 className="intel-ring-pulse"
                 r={1.4}
                 fill="none"
-                stroke="#ff3b3b"
+                stroke={col}
                 strokeWidth={0.7}
                 style={{ ["--intel-op"]: op * 0.85 } as React.CSSProperties}
               />
             </g>
           ) : (
-            <circle cx={p.px} cy={p.py} r={2.1} fill="none" stroke="#ff3b3b" strokeOpacity={op * 0.3} strokeWidth={0.4} pointerEvents="none" />
+            <circle cx={p.px} cy={p.py} r={2.1} fill="none" stroke={col} strokeOpacity={op * 0.3} strokeWidth={0.4} pointerEvents="none" />
+          )}
+          {/* Halo extra para los seguidos: destaca aunque el punto quede lejos y pequeño. */}
+          {tracked && (
+            <circle
+              cx={p.px}
+              cy={p.py}
+              r={3.2}
+              fill="none"
+              stroke={col}
+              strokeOpacity={op * 0.5}
+              strokeWidth={0.5}
+              pointerEvents="none"
+            />
           )}
           {/* zona de click ampliada (invisible) para acertar fácil el punto + tooltip */}
           <circle cx={p.px} cy={p.py} r={2.6} fill="transparent">
@@ -723,11 +853,11 @@ export function MapView(props: {
               h != null && j != null && h < j ? ` · ${tr("llegas en")} ${h} (Ansiblex)` : ""
             }\n${r.author}: ${r.message}\n${tr("(clic para ver detalle)")}`}</title>
           </circle>
-          <circle cx={p.px} cy={p.py} r={1.3} fill="#ff3b3b" fillOpacity={op} stroke="#0a0d12" strokeWidth={0.3} pointerEvents="none" />
+          <circle cx={p.px} cy={p.py} r={tracked ? 1.6 : 1.3} fill={col} fillOpacity={op} stroke="#0a0d12" strokeWidth={0.3} pointerEvents="none" />
         </g>
       );
     });
-  }, [geo, overlay, intelReports, jumpsFrom, huntFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange, routeActive, jumpActive]);
+  }, [geo, overlay, intelReports, jumpsFrom, huntFrom, intel?.recency, intel?.alertJumps, intel?.onlyRange, huntSet]);
 
   // --- Intel: marcadores de los puntos de ancla (anclas de proximidad) ---
   const intelAnchorMarkers = useMemo(() => {
@@ -787,31 +917,6 @@ export function MapView(props: {
     intelAlert,
     setIntelAlert,
   } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, intelReports, intelOrigins });
-  // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
-  // El nº de líneas de intel es la señal de refresco: cuando llega un canto nuevo, el rastro del
-  // perseguido se vuelve a consultar, y con él su último sistema → la interceptación se re-traza.
-  const { huntPilot, huntTrack, loadHuntTrack, clearHuntTrack } = useHuntTrack(
-    openTrack,
-    intel?.lines.length ?? 0
-  );
-  // Interceptación viva: cuando está activa, la ruta se ata al piloto que sigues. El origen es dónde
-  // está TU cazador (el personaje activo, `hereSystemId`); el destino, el último sistema donde lo
-  // cantaron. Se re-traza sola si el objetivo se mueve. Ver el efecto más abajo.
-  const [intercepting, setIntercepting] = useState(false);
-  // Re-apuntado MANUAL: si clicas un sistema durante la interceptación, la ruta va ahí (desde tu
-  // cazador) en vez de al último avistamiento. Manda sobre el seguimiento hasta que apagues o
-  // cambies de piloto. null = sin override, sigue al objetivo.
-  const [manualTarget, setManualTarget] = useState<number | null>(null);
-  // Último sistema donde se vio al perseguido = destino de la caza. El rastro viene de más viejo a
-  // más nuevo (el marcador de flecha ya apunta al final), así que el último punto es el más fresco.
-  const huntTarget = useMemo(() => {
-    if (!huntTrack || huntTrack.length === 0) return null;
-    return huntTrack[huntTrack.length - 1].system_id;
-  }, [huntTrack]);
-  // Al cambiar de piloto seguido, se olvida el re-apuntado manual (te re-enganchas al nuevo objetivo).
-  useEffect(() => {
-    setManualTarget(null);
-  }, [huntPilot]);
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -850,6 +955,8 @@ export function MapView(props: {
     setIntelDetail(r);
     setIntelEntities(null);
     setIntelTrackPilot(null);
+    setRightTab("aviso"); // al abrir un aviso, la tarjeta salta a su pestaña
+    setCardOpen(true); // y se despliega, si estaba plegada
   }
 
 
@@ -922,64 +1029,70 @@ export function MapView(props: {
   // entre sesiones). Color magenta para distinguirlo del rastro de sesión (naranja). Colapsa sistemas
   // consecutivos repetidos y dibuja flujo direccional + flecha al último avistamiento.
   const huntTrackLine = useMemo(() => {
-    if (!geo || overlay !== "intel" || !huntTrack || huntTrack.length === 0) return null;
-    const seq: number[] = [];
-    for (const p of huntTrack) {
-      if (seq.length === 0 || seq[seq.length - 1] !== p.system_id) seq.push(p.system_id);
-    }
-    const pts = seq
-      .map((sid) => geo.idx.get(sid))
-      .filter((s): s is NeSystem => !!s)
-      .map((s) => geo.proj(s));
-    if (pts.length < 1) return null;
-    const poly = pts.map((p) => `${p.px},${p.py}`).join(" ");
-    const first = pts[0];
-    const last = pts[pts.length - 1];
+    if (!geo || overlay !== "intel" || huntTracks.size === 0) return null;
+    // Un rastro por piloto seguido. El que estás interceptando va más marcado; los demás, atenuados,
+    // para que se vea a quién persigues sin perder de vista dónde andan los otros.
+    const lines = [...huntTracks.entries()].map(([name, track]) => {
+      if (!track || track.length === 0) return null;
+      const seq: number[] = [];
+      for (const p of track) {
+        if (seq.length === 0 || seq[seq.length - 1] !== p.system_id) seq.push(p.system_id);
+      }
+      const pts = seq
+        .map((sid) => geo.idx.get(sid))
+        .filter((s): s is NeSystem => !!s)
+        .map((s) => geo.proj(s));
+      if (pts.length < 1) return null;
+      const poly = pts.map((p) => `${p.px},${p.py}`).join(" ");
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      const main = interceptPilot === name;
+      const op = main ? 1 : 0.45;
+      return (
+        <g key={`hunt-${name}`} opacity={op}>
+          {pts.length >= 2 && (
+            <>
+              <polyline points={poly} fill="none" stroke="#ff6ad5" strokeOpacity={0.25} strokeWidth={0.6} />
+              <polyline
+                points={poly}
+                fill="none"
+                stroke="#ff6ad5"
+                strokeWidth={main ? 0.7 : 0.5}
+                strokeLinecap="round"
+                strokeDasharray="2 2.5"
+                markerEnd="url(#hunt-arrow)"
+              >
+                <animate attributeName="stroke-dashoffset" from="0" to="-4.5" dur="0.7s" repeatCount="indefinite" />
+              </polyline>
+            </>
+          )}
+          {pts.slice(1, -1).map((p, i) => (
+            <circle key={`h-${i}`} cx={p.px} cy={p.py} r={0.9} fill="#ff6ad5" />
+          ))}
+          <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ff6ad5" strokeWidth={0.5}>
+            <title>{`${name} — ${tr("Primer avistamiento")}`}</title>
+          </circle>
+          {pts.length >= 2 && (
+            <circle cx={last.px} cy={last.py} r={1.6} fill="#ff6ad5" stroke="#0a0d12" strokeWidth={0.3}>
+              <title>{`${name} — ${tr("Último avistamiento")}`}</title>
+            </circle>
+          )}
+        </g>
+      );
+    });
+    if (lines.every((l) => l === null)) return null;
     return (
       <g>
-        {pts.length >= 2 && (
-          <>
-            <defs>
-              <marker
-                id="hunt-arrow"
-                markerWidth="4"
-                markerHeight="4"
-                refX="2.4"
-                refY="2"
-                orient="auto"
-                markerUnits="strokeWidth"
-              >
-                <path d="M0,0 L4,2 L0,4 Z" fill="#ff6ad5" />
-              </marker>
-            </defs>
-            <polyline points={poly} fill="none" stroke="#ff6ad5" strokeOpacity={0.25} strokeWidth={0.6} />
-            <polyline
-              points={poly}
-              fill="none"
-              stroke="#ff6ad5"
-              strokeWidth={0.7}
-              strokeLinecap="round"
-              strokeDasharray="2 2.5"
-              markerEnd="url(#hunt-arrow)"
-            >
-              <animate attributeName="stroke-dashoffset" from="0" to="-4.5" dur="0.7s" repeatCount="indefinite" />
-            </polyline>
-          </>
-        )}
-        {pts.slice(1, -1).map((p, i) => (
-          <circle key={`hunt-${i}`} cx={p.px} cy={p.py} r={0.9} fill="#ff6ad5" />
-        ))}
-        <circle cx={first.px} cy={first.py} r={1.1} fill="#0a0d12" stroke="#ff6ad5" strokeWidth={0.5}>
-          <title>{tr("Primer avistamiento")}</title>
-        </circle>
-        {pts.length >= 2 && (
-          <circle cx={last.px} cy={last.py} r={1.6} fill="#ff6ad5" stroke="#0a0d12" strokeWidth={0.3}>
-            <title>{tr("Último avistamiento")}</title>
-          </circle>
-        )}
+        {/* La flecha se define UNA vez para todos los rastros (antes iba dentro de cada uno). */}
+        <defs>
+          <marker id="hunt-arrow" markerWidth="4" markerHeight="4" refX="2.4" refY="2" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L4,2 L0,4 Z" fill="#ff6ad5" />
+          </marker>
+        </defs>
+        {lines}
       </g>
     );
-  }, [geo, overlay, huntTrack]);
+  }, [geo, overlay, huntTracks, interceptPilot]);
 
   // Combustible (isótopos) y distancia al destino elegido.
   // fuel = dist(LY) × fuelPerLy × (1 − 10%·Jump Fuel Conservation).
@@ -1003,18 +1116,25 @@ export function MapView(props: {
     [geo, jumpOrigin, jumpRange],
   );
 
-  // Grafo sobre el que se rutea. Con el interruptor de Ansiblex apagado es el de stargates tal
-  // cual. Con él encendido se AÑADEN las aristas de los puentes — copiando solo los arrays que
-  // tocamos, para no mutar `geo.adj` (lo comparten la proximidad de intel y el BFS).
+  // Grafo sobre el que se rutea. El de stargates tal cual, más las aristas EXTRA que estén
+  // encendidas: Ansiblex (puentes de la alianza) y/o wormholes (Thera/Turnur de eve-scout). Copiamos
+  // solo los arrays que tocamos, para no mutar `geo.adj` (lo comparten la proximidad de intel y el
+  // BFS — a propósito: la ALARMA nunca cuenta con puentes ni WH, solo puertas).
   const routeAdj = useMemo(() => {
     if (!geo) return null;
-    if (!ansi || !useAnsiblex) return geo.adj;
+    const addAnsi = ansi && useAnsiblex;
+    const addWh = wh && useWormholes;
+    if (!addAnsi && !addWh) return geo.adj;
     const merged = new Map(geo.adj);
-    for (const [from, tos] of ansi.adj) {
-      merged.set(from, [...(merged.get(from) ?? []), ...tos]);
-    }
+    const extra = (src: Map<number, number[]>) => {
+      for (const [from, tos] of src) {
+        merged.set(from, [...(merged.get(from) ?? []), ...tos]);
+      }
+    };
+    if (addAnsi) extra(ansi!.adj);
+    if (addWh) extra(wh!.adj);
     return merged;
-  }, [geo, ansi, useAnsiblex]);
+  }, [geo, ansi, useAnsiblex, wh, useWormholes]);
 
   // Interceptación: mientras esté activa, la ruta la MANDA el objetivo, no las paradas manuales.
   // Origen = tu cazador (personaje activo). Destino = último sistema donde lo vieron. Al moverse él,
@@ -1029,8 +1149,11 @@ export function MapView(props: {
   }, [intercepting, hereSystemId, huntTarget, manualTarget, setRouteStops]);
   // Se apaga si dejas de seguir al piloto (el chip desaparece y no tendría objetivo).
   useEffect(() => {
-    if (intercepting && !huntPilot) setIntercepting(false);
-  }, [intercepting, huntPilot]);
+    if (intercepting && (!interceptPilot || !huntPilots.includes(interceptPilot))) {
+      setIntercepting(false);
+      setInterceptPilot(null);
+    }
+  }, [intercepting, interceptPilot, huntPilots]);
   // Cuando la interceptación se APAGA (por el botón, por el ✕ del rastro o porque perdimos al
   // piloto), hay que borrar SU ruta: si no, la línea amarilla y la lista se quedan colgadas sobre
   // el mapa (justo el solapamiento que se veía al quitar el seguimiento). Un solo sitio para las
@@ -1050,13 +1173,13 @@ export function MapView(props: {
     if (stops.length < 2) return null;
     const full: number[] = [];
     for (let i = 0; i < stops.length - 1; i++) {
-      const seg = findRoute(routeAdj, geo.idx, stops[i], stops[i + 1], routeMode);
+      const seg = findRoute(routeAdj, geo.idx, stops[i], stops[i + 1], routeMode, avoid);
       if (!seg) return null;
       if (i === 0) full.push(...seg);
       else full.push(...seg.slice(1));
     }
     return full;
-  }, [geo, routeAdj, routeStops, routeMode]);
+  }, [geo, routeAdj, routeStops, routeMode, avoid]);
 
   // Paradas de la ruta en orden (sin huecos). Es lo que se manda a EVE como waypoints: así se puede
   // forzar un camino con escalas (cazar pasando por X, o un viaje planificado), no solo el destino.
@@ -1120,6 +1243,59 @@ export function MapView(props: {
     }
     return legs;
   }, [routePath, ansi, useAnsiblex, geo]);
+
+  // Arcos SOLO de los puentes que la ruta usa. En Intel pintar los 97 tapaba los avisos: ahí interesa
+  // ver por dónde vas, no la telaraña entera de la alianza.
+  const ansiRouteD = useMemo(() => {
+    if (!geo || !routePath || ansiLegs.size === 0) return "";
+    let d = "";
+    for (const i of ansiLegs) {
+      const u = routePath[i - 1];
+      const v = routePath[i];
+      // Orden canónico, para que el arco coincida exactamente con el de la red.
+      const [a, b] = u < v ? [u, v] : [v, u];
+      const sa = geo.idx.get(a);
+      const sb = geo.idx.get(b);
+      if (!sa || !sb) continue;
+      d += ansiArc(geo.proj(sa), geo.proj(sb));
+    }
+    return d;
+  }, [geo, routePath, ansiLegs]);
+
+  // Igual pero para wormholes: índices a los que se llegó cruzando un WH (in-system ↔ hub).
+  const whLegs = useMemo(() => {
+    const legs = new Set<number>();
+    if (!routePath || !wh || !useWormholes || !geo) return legs;
+    for (let i = 1; i < routePath.length; i++) {
+      const u = routePath[i - 1];
+      const v = routePath[i];
+      if (wh.keys.has(edgeKey(u, v)) && !(geo.adj.get(u) ?? []).includes(v)) legs.add(i);
+    }
+    return legs;
+  }, [routePath, wh, useWormholes, geo]);
+
+  // Pestañas disponibles de la tarjeta derecha: solo las que tienen algo que enseñar. Una pestaña
+  // vacía es ruido, y si no hay ninguna la tarjeta entera desaparece y el mapa queda limpio.
+  const rightTabs = useMemo(() => {
+    // Orden de lectura del cazador: primero lo que acaba de pasar (el aviso), luego a quién sigues,
+    // y la ruta al final — que es la consecuencia, no el punto de partida.
+    const t: { id: RightTab; label: string }[] = [];
+    if (overlay === "intel" && intelDetail) t.push({ id: "aviso", label: `📡 ${tr("Aviso")}` });
+    if (overlay === "intel" && huntPilots.length > 0)
+      t.push({ id: "rastro", label: `🎯 ${tr("Rastro")}` });
+    if (overlay === "intel" && habitualOpen)
+      t.push({ id: "habituales", label: `👥 ${tr("Habituales")}` });
+    if (routeActive) t.push({ id: "ruta", label: `🧭 ${tr("Ruta")}` });
+    return t;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen]);
+  // Si la pestaña activa deja de existir (cerraste el aviso, soltaste el rastro…), cae a la primera
+  // disponible en vez de dejar la tarjeta en blanco.
+  useEffect(() => {
+    if (rightTabs.length > 0 && !rightTabs.some((t) => t.id === rightTab)) {
+      setRightTab(rightTabs[0].id);
+    }
+  }, [rightTabs, rightTab]);
 
   if (!ne || !geo) return <p className="muted">{tr("Cargando mapa…")}</p>;
 
@@ -1238,147 +1414,6 @@ export function MapView(props: {
         {liveBusy && ` · ${tr("cargando datos en vivo…")}`}
       </p>
       <div className="map-wrap">
-        {routeActive && (
-        <div className="route-panel map-navcard">
-          <div className="route-panel-head">
-            <select value={routeMode} onChange={(e) => setRouteMode(e.target.value as RouteMode)}>
-              <option value="shortest">{tr("Más corta")}</option>
-              <option value="safer">{tr("Más segura")}</option>
-              <option value="insecure">{tr("Menos segura")}</option>
-            </select>
-            <span className="muted small">
-              {routePath ? (
-                <>
-                  {routePath.length - 1} {tr("saltos")}
-                  {ansiLegs.size > 0 && (
-                    <>
-                      {" · "}
-                      {ansiLegs.size} <AnsiBadge />
-                    </>
-                  )}
-                </>
-              ) : routeStops.filter((s) => s != null).length >= 2 ? (
-                tr("Sin ruta por stargates")
-              ) : (
-                tr("Elige origen y destino")
-              )}
-            </span>
-            <button
-              onClick={() => setRouteStops([null])}
-              title={tr("Limpiar")}
-            >
-              {tr("Limpiar")}
-            </button>
-          </div>
-          {routeStops.map((stop, i) => (
-            <div className="route-stop" key={i}>
-              <span className="route-stop-label">{i === 0 ? tr("Origen") : `${tr("Destino")} ${i}`}</span>
-              <SystemSearch
-                systems={ne.systems}
-                value={stop}
-                placeholder={tr("Escribe un sistema…")}
-                onPick={(id) =>
-                  setRouteStops((prev) => {
-                    const copy = [...prev];
-                    copy[i] = id;
-                    return copy;
-                  })
-                }
-              />
-              {i > 0 && (
-                <button
-                  className="route-stop-del"
-                  title={tr("Quitar")}
-                  onClick={() => setRouteStops((prev) => prev.filter((_, j) => j !== i))}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          ))}
-          <button className="route-add" onClick={() => setRouteStops((prev) => [...prev, null])}>
-            + {tr("Añadir destino")}
-          </button>
-          {/* Interruptor de Ansiblex. Solo aparece si hay red importada — un interruptor que no
-              hace nada porque no hay datos solo genera dudas. */}
-          {ansi && (
-            <label className="route-ansi small">
-              <input
-                type="checkbox"
-                checked={useAnsiblex}
-                onChange={(e) => setUseAnsiblex(e.target.checked)}
-              />
-              <span>
-                {tr("Rutar por Ansiblex")}{" "}
-                <span className="muted">({ansi.drawn})</span>
-              </span>
-            </label>
-          )}
-          {/* Enviar a EVE: pone el destino en el piloto automático del JUEGO. Solo si hay ruta y un
-              personaje activo. El juego rutea con TUS preferencias (si tienes Ansiblex activado, los
-              usa). Es la única acción de escritura de Koru y solo toca el waypoint del cliente. */}
-          {routeWaypoints.length > 0 && hereCharId != null && (
-            <button
-              className="route-send-eve"
-              disabled={!canWaypoint || sendingEve}
-              title={
-                canWaypoint
-                  ? tr("Pone la ruta en el piloto automático de EVE (el juego la calcula con tus preferencias, Ansiblex incluidos si los tienes activados).")
-                  : tr("Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».")
-              }
-              onClick={() => sendToEve(routeWaypoints)}
-            >
-              {sendingEve ? "⏳" : "🚀"}{" "}
-              {routeWaypoints.length > 1 ? tr("Enviar ruta a EVE") : tr("Enviar destino a EVE")}
-            </button>
-          )}
-          {eveMsg && <div className="small muted">{eveMsg}</div>}
-          <p className="muted small">
-            {tr("También puedes hacer click en sistemas del mapa para añadirlos · doble-click en el mapa = zoom.")}
-          </p>
-
-          {routePath && routePath.length > 1 && (
-            <div className="route-list">
-              <div className="muted small">{tr("Sistemas de la ruta")} ({routePath.length}):</div>
-              <ol>
-                {routePath.map((sid, i) => {
-                  const s = geo.idx.get(sid);
-                  const kills = liveKills?.get(sid) ?? 0;
-                  return (
-                    <li key={i}>
-                      <span className="route-sec" style={{ color: secColor(s?.s ?? 0) }}>
-                        {(s?.s ?? 0).toFixed(1)}
-                      </span>
-                      <span className="route-sysname">
-                        {ansiLegs.has(i) && (
-                          <span className="route-ansi-leg" title={tr("Se llega por Ansiblex")}>
-                            <AnsiBadge />{" "}
-                          </span>
-                        )}
-                        {s?.n ?? `#${sid}`}
-                      </span>
-                      <span className={`route-kills ${kills > 0 ? "hot" : ""}`} title={tr("Kills última hora")}>
-                        {kills} ⚔
-                      </span>
-                      <button
-                        className="route-dotlan"
-                        title={tr("Abrir en Dotlan")}
-                        onClick={() =>
-                          openUrl(
-                            `https://evemaps.dotlan.net/system/${(s?.n ?? "").replace(/ /g, "_")}`
-                          )
-                        }
-                      >
-                        Dotlan
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-          )}
-        </div>
-      )}
 
         {jumpActive && (
         <div className="route-panel map-navcard">
@@ -1620,20 +1655,46 @@ export function MapView(props: {
                 con las capas de kills/sov/intel, que son las que se miran en el resto de modos.
                 Dos trazos superpuestos: un halo ancho y translúcido + un núcleo fino y brillante.
                 Eso es lo que hace que se lean como un hilo luminoso y no como un rotulador. */}
-            {ansi && (routeActive || jumpActive) && (
-              <g className="map-ansi" fill="none" strokeLinecap="round">
-                <path
-                  d={ansi.path}
-                  stroke="#3fb950"
-                  strokeWidth={view.z >= 1.8 ? 1.1 : 1.8}
-                  opacity={0.14}
-                />
-                <path
-                  d={ansi.path}
-                  stroke="#56d364"
-                  strokeWidth={view.z >= 1.8 ? 0.35 : 0.6}
-                  opacity={0.9}
-                />
+            {(() => {
+              if (!ansi) return null;
+              // En INTEL solo los puentes que usa la ruta (si no, los 97 arcos tapan los avisos, y
+              // ahí lo que miras es la caza). En Navegación, la red entera: es donde la quieres ver
+              // para planificar por dónde tirar.
+              const d =
+                overlay === "intel"
+                  ? ansiRouteD
+                  : routeActive || jumpActive
+                    ? ansi.path
+                    : "";
+              if (!d) return null;
+              return (
+                <g className="map-ansi" fill="none" strokeLinecap="round">
+                  <path d={d} stroke="#3fb950" strokeWidth={view.z >= 1.8 ? 1.1 : 1.8} opacity={0.14} />
+                  <path d={d} stroke="#56d364" strokeWidth={view.z >= 1.8 ? 0.35 : 0.6} opacity={0.9} />
+                </g>
+              );
+            })()}
+            {/* Red de wormholes (Thera/Turnur), en cian, cuando el rutado por WH está activo. Las
+                líneas convergen en el hub; Thera es un nodo sintético (rombo) porque no está en el
+                SDE. Solo en Navegación, para no competir con las capas del resto de modos. */}
+            {/* Misma regla que los Ansiblex: en Intel no se pinta la red de WH (los tramos que la
+                ruta cruza ya salen como línea cian discontinua). En Navegación, la red entera. */}
+            {wh && useWormholes && overlay !== "intel" && (routeActive || jumpActive) && (
+              <g className="map-wh" fill="none" strokeLinecap="round" pointerEvents="none">
+                <path d={wh.path} stroke="#3ad6e0" strokeWidth={view.z >= 1.8 ? 0.9 : 1.5} opacity={0.12} />
+                <path d={wh.path} stroke="#3ad6e0" strokeWidth={view.z >= 1.8 ? 0.3 : 0.5} opacity={0.7} />
+                {wh.hubPos.has(THERA_ID) && (
+                  <rect
+                    x={wh.hubPos.get(THERA_ID)!.px - 1.3}
+                    y={wh.hubPos.get(THERA_ID)!.py - 1.3}
+                    width={2.6}
+                    height={2.6}
+                    transform={`rotate(45 ${wh.hubPos.get(THERA_ID)!.px} ${wh.hubPos.get(THERA_ID)!.py})`}
+                    fill="#3ad6e0"
+                    stroke="#0a0d12"
+                    strokeWidth={0.4}
+                  />
+                )}
               </g>
             )}
             {/* backdrop de sistemas (memorizado) */}
@@ -1726,23 +1787,71 @@ export function MapView(props: {
                 );
               })}
             {/* ruta planificada */}
-            {routePath && routePath.length > 1 && (
-              <path
-                d={routePath
-                  .map((sid, i) => {
-                    const s = geo.idx.get(sid);
-                    if (!s) return "";
-                    const p = geo.proj(s);
-                    return `${i === 0 ? "M" : "L"}${p.px.toFixed(1)} ${p.py.toFixed(1)}`;
-                  })
-                  .join("")}
-                fill="none"
-                stroke="#ffd54a"
-                strokeWidth={1.6 / view.z}
-                strokeLinejoin="round"
-                opacity={0.95}
-              />
-            )}
+            {routePath && routePath.length > 1 && (() => {
+              // La línea AMARILLA solo cubre puertas y Ansiblex. Los saltos por wormhole se pintan
+              // aparte, en CIAN DISCONTINUO, directos entre los dos sistemas reales que unen — así la
+              // línea NO se desvía al centroide de Thera (el pico feo) y un WH se lee como lo que es:
+              // «entras aquí, sales allá», sin recorrido intermedio.
+              const isSynthHub = (sid: number) => !geo.idx.get(sid) && !!wh?.hubName.has(sid);
+              let yellow = "";
+              let pen = false; // ¿venimos dibujando una sub-línea?
+              for (let i = 0; i < routePath.length; i++) {
+                if (i > 0 && whLegs.has(i)) pen = false; // no unir por encima de un salto WH
+                if (isSynthHub(routePath[i])) {
+                  pen = false; // el hub sintético no atrae la línea
+                  continue;
+                }
+                const p = posOf(routePath[i]);
+                if (!p) {
+                  pen = false;
+                  continue;
+                }
+                yellow += `${pen ? "L" : "M"}${p.px.toFixed(1)} ${p.py.toFixed(1)}`;
+                pen = true;
+              }
+              // Segmentos WH: para Thera (sintético) se colapsa vecino↔vecino; para Turnur (real) se
+              // dibuja a través de su posición real.
+              const whD: string[] = [];
+              const seg = (a: number, b: number) => {
+                const pa = posOf(a);
+                const pb = posOf(b);
+                if (pa && pb)
+                  whD.push(`M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}L${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`);
+              };
+              for (let j = 0; j < routePath.length; j++) {
+                if (isSynthHub(routePath[j])) seg(routePath[j - 1], routePath[j + 1]);
+              }
+              for (let i = 1; i < routePath.length; i++) {
+                if (!whLegs.has(i)) continue;
+                if (isSynthHub(routePath[i]) || isSynthHub(routePath[i - 1])) continue; // ya colapsado
+                seg(routePath[i - 1], routePath[i]);
+              }
+              return (
+                <>
+                  {yellow && (
+                    <path
+                      d={yellow}
+                      fill="none"
+                      stroke="#ffd54a"
+                      strokeWidth={1.6 / view.z}
+                      strokeLinejoin="round"
+                      opacity={0.95}
+                    />
+                  )}
+                  {whD.length > 0 && (
+                    <path
+                      d={whD.join("")}
+                      fill="none"
+                      stroke="#3ad6e0"
+                      strokeWidth={1.4 / view.z}
+                      strokeDasharray={`${2 / view.z} ${1.5 / view.z}`}
+                      strokeLinecap="round"
+                      opacity={0.9}
+                    />
+                  )}
+                </>
+              );
+            })()}
             {routeStops.map((sid, i) =>
               sid != null && geo.idx.get(sid) ? (
                 <circle
@@ -2448,77 +2557,190 @@ export function MapView(props: {
           </div>
         )}
 
-        {/* Tarjetas flotantes de intel (derecha): columna apilable auto-ajustable.
-            El chip "Rastro" arriba; debajo, la tarjeta abierta (detalle/habituales/ficha). */}
         <div className="intel-rstack">
-        {/* Modo cazador: chip flotante con el objetivo cuyo rastro se está mostrando. */}
-        {overlay === "intel" && huntPilot && (
-          <div className="intel-detail hunt-chip">
-            <span>
-              🎯 {tr("Rastro")}: <strong>{huntPilot}</strong>
-            </span>
-            <span className="muted small">
-              {huntTrack == null
-                ? tr("Cargando…")
-                : huntTrack.length === 0
-                  ? tr("Sin avistamientos guardados todavía (se acumulan según aparezca en intel).")
-                  : `${huntTrack.length} ${tr("avistamientos")}`}
-            </span>
-            {/* Interceptar: traza y MANTIENE la ruta desde tu cazador hasta donde esté el objetivo.
-                Necesita saber dónde estás → si no hay personaje activo con posición, se explica. */}
-            {huntTarget != null && (
+        {/* UNA sola tarjeta con pestañas: antes eran cuatro apiladas y se comían el mapa. Solo se
+            ve el panel de la pestaña activa; la cabecera dice qué hay disponible. */}
+        {rightTabs.length > 0 && (
+        <div className="intel-detail right-card">
+          <div className="right-tabs">
+            {rightTabs.map((t) => (
               <button
-                className={`intercept-btn ${intercepting ? "on" : ""}`}
-                disabled={hereSystemId == null}
-                title={
-                  hereSystemId == null
-                    ? tr("Selecciona el personaje cazador: su sistema es el punto de partida de la ruta.")
-                    : tr("Traza y mantiene la ruta desde tu cazador hasta el último sistema donde lo vieron. Se re-traza si se mueve.")
-                }
-                onClick={() => {
-                  const next = !intercepting;
-                  setIntercepting(next);
-                  // Al apagar, el efecto de `wasIntercepting` limpia la ruta; aquí solo la encendemos.
-                  if (next) {
-                    setJumpActive(false);
-                    setUseAnsiblex(true);
-                    setRouteActive(true);
-                  }
-                }}
+                key={t.id}
+                className={`right-tab${rightTab === t.id ? " active" : ""}`}
+                onClick={() => setRightTab(t.id)}
               >
-                🎯 {intercepting ? tr("Interceptando ✓") : tr("Interceptar")}
-                {intercepting && routePath && routePath.length > 1 && (
-                  <span className="muted"> · {routePath.length - 1} {tr("saltos")}</span>
-                )}
-                {intercepting && manualTarget != null && manualTarget !== huntTarget && (
-                  <span className="muted"> · {tr("apuntado a mano")}</span>
-                )}
+                {t.label}
+              </button>
+            ))}
+            <button
+              className="chip-fold"
+              title={cardOpen ? tr("Plegar") : tr("Desplegar")}
+              onClick={() => setCardOpen((v) => !v)}
+            >
+              {cardOpen ? "▾" : "▸"}
+            </button>
+          </div>
+          {cardOpen && (<>
+        {/* Tarjeta de RUTA compacta (derecha): lo que se toca sobre la marcha mientras miras el
+            mapa — a dónde vas, el interruptor de Ansiblex para probar rápido con/sin puentes, y
+            mandar a EVE. El editor completo (paradas, evitar, turn-by-turn) vive abajo. */}
+        {rightTab === "ruta" && routeActive && (
+          <>
+            <span className="chip-head">
+              🧭 {tr("Ruta")}
+              {routePath && (
+                <span className="muted small">
+                  {" · "}
+                  {routePath.length - 1} {tr("saltos")}
+                  {ansiLegs.size > 0 && <> · {ansiLegs.size} <AnsiBadge /></>}
+                  {whLegs.size > 0 && <span style={{ color: "#3ad6e0" }}> · {whLegs.size} ◆</span>}
+                </span>
+              )}
+            </span>
+            <span className="route-mini">
+              {routeWaypoints.length >= 2
+                ? `${nameOf(routeWaypoints[0])} → ${nameOf(routeWaypoints[routeWaypoints.length - 1])}`
+                : tr("Haz click en sistemas del mapa para poner origen y destino.")}
+            </span>
+            {ansi && (
+              <button
+                className={`intel-hab-track${useAnsiblex ? " active" : ""}`}
+                title={tr("Usar los Ansiblex de tu alianza al calcular la ruta")}
+                onClick={() => setUseAnsiblex(!useAnsiblex)}
+              >
+                <AnsiBadge /> {tr("Ansiblex")} <span className="muted">({ansi.drawn})</span>
               </button>
             )}
-            {hereSystemId == null && huntTarget != null && (
+            <button
+              className={`intel-hab-track${useWormholes ? " active" : ""}`}
+              title={tr("Usar los wormholes de Thera/Turnur (eve-scout) al calcular la ruta")}
+              onClick={() => setUseWormholes(!useWormholes)}
+            >
+              ◆ {tr("Wormholes")}{" "}
+              <span className="muted">
+                {wh ? `(${wh.drawn})` : useWormholes ? tr("cargando…") : ""}
+              </span>
+            </button>
+            {routeWaypoints.length > 0 && hereCharId != null && (
+              <button
+                className="route-send-eve"
+                disabled={!canWaypoint || sendingEve}
+                title={
+                  canWaypoint
+                    ? tr("Pone la ruta en el piloto automático de EVE (el juego la calcula con tus preferencias, Ansiblex incluidos si los tienes activados).")
+                    : tr("Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».")
+                }
+                onClick={() => sendToEve(routeWaypoints)}
+              >
+                {sendingEve ? "⏳" : "🚀"}{" "}
+                {routeWaypoints.length > 1 ? tr("Enviar ruta a EVE") : tr("Enviar destino a EVE")}
+              </button>
+            )}
+            {eveMsg && <div className="small muted">{eveMsg}</div>}
+            <button
+              className="route-detail-btn"
+              onClick={() => navRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            >
+              {tr("Detalle de navegación")} ↓
+            </button>
+          </>
+        )}
+        {/* Modo cazador: lista de TODOS los seguidos. Sus avistamientos salen en morado en el mapa;
+            el que estés interceptando lleva además el rastro a plena opacidad. */}
+        {rightTab === "rastro" && overlay === "intel" && huntPilots.length > 0 && (
+          <>
+            <span className="chip-head">
+              🎯 {tr("Siguiendo")} <span className="muted small">({huntPilots.length})</span>
+              <button
+                className="sys-close"
+                title={tr("Dejar de seguir a todos")}
+                style={{ marginLeft: "auto" }}
+                onClick={() => {
+                  setIntercepting(false);
+                  setInterceptPilot(null);
+                  setRouteActive(false);
+                  clearHuntTrack();
+                }}
+              >
+                ✕
+              </button>
+            </span>
+            {hereSystemId == null && (
               <span className="muted small">
                 {tr("Selecciona el personaje cazador para trazar desde su ubicación.")}
               </span>
             )}
-            <button
-              className="sys-close"
-              title={tr("Quitar rastro")}
-              onClick={() => {
-                // Quitar el rastro = salir de la caza del todo: apaga interceptación (el efecto
-                // borra la ruta) y sale del modo Ruta para no dejar el panel vacío colgando.
-                setIntercepting(false);
-                setRouteActive(false);
-                clearHuntTrack();
-              }}
-            >
-              ✕
-            </button>
-          </div>
+            <ul className="hunt-list">
+              {huntPilots.map((name) => {
+                const track = huntTracks.get(name);
+                const isTarget = interceptPilot === name;
+                const last = track && track.length > 0 ? track[track.length - 1].system_id : null;
+                return (
+                  <li key={name} className={isTarget ? "hunt-row target" : "hunt-row"}>
+                    <div className="hunt-row-top">
+                      <span className="intel-pilot-name">{name}</span>
+                      <button
+                        className="sys-close"
+                        title={tr("Dejar de seguir")}
+                        onClick={() => {
+                          if (interceptPilot === name) {
+                            setIntercepting(false);
+                            setInterceptPilot(null);
+                          }
+                          dropHuntPilot(name);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <span className="muted small">
+                      {track == null
+                        ? tr("Cargando…")
+                        : track.length === 0
+                          ? tr("Sin avistamientos guardados todavía (se acumulan según aparezca en intel).")
+                          : `${track.length} ${tr("avistamientos")}${last != null ? ` · ${nameOf(last)}` : ""}`}
+                    </span>
+                    {last != null && (
+                      <button
+                        className={`intercept-btn ${isTarget && intercepting ? "on" : ""}`}
+                        disabled={hereSystemId == null}
+                        title={
+                          hereSystemId == null
+                            ? tr("Selecciona el personaje cazador: su sistema es el punto de partida de la ruta.")
+                            : tr("Traza y mantiene la ruta desde tu cazador hasta el último sistema donde lo vieron. Se re-traza si se mueve.")
+                        }
+                        onClick={() => {
+                          if (isTarget && intercepting) {
+                            setIntercepting(false);
+                            setInterceptPilot(null);
+                            return;
+                          }
+                          setInterceptPilot(name);
+                          setJumpActive(false);
+                          setUseAnsiblex(true);
+                          setRouteActive(true);
+                          setIntercepting(true);
+                        }}
+                      >
+                        🎯 {isTarget && intercepting ? tr("Interceptando ✓") : tr("Interceptar")}
+                        {isTarget && intercepting && routePath && routePath.length > 1 && (
+                          <span className="muted"> · {routePath.length - 1} {tr("saltos")}</span>
+                        )}
+                        {isTarget && intercepting && manualTarget != null && manualTarget !== huntTarget && (
+                          <span className="muted"> · {tr("apuntado a mano")}</span>
+                        )}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
 
         {/* Tarjeta de detalle de un reporte de intel (piloto/nave/ruta/zKill) */}
-        {overlay === "intel" && intelDetail && (
-          <div className="intel-detail">
+        {rightTab === "aviso" && overlay === "intel" && intelDetail && (
+          <>
             <div className="intel-detail-head">
               <strong>{intelDetail.sysName ?? tr("Reporte")}</strong>
               <button className="sys-close" onClick={() => setIntelDetail(null)}>✕</button>
@@ -2566,11 +2788,42 @@ export function MapView(props: {
                         </button>
                       )}
                       <button
-                        className={`intel-hab-track${huntPilot === c.name ? " active" : ""}`}
+                        className={`intel-hab-track${huntPilots.includes(c.name) ? " active" : ""}`}
                         title={tr("Ver su rastro histórico en el mapa")}
                         onClick={() => loadHuntTrack(c.name)}
                       >
-                        🎯 {huntPilot === c.name ? tr("Seguir ✓") : tr("Seguir")}
+                        🎯 {huntPilots.includes(c.name) ? tr("Seguir ✓") : tr("Seguir")}
+                      </button>
+                      {/* Interceptar DESDE la ficha del piloto: sigue y traza en un solo clic, sin
+                          tener que ir a otra tarjeta. Si ya lo estabas interceptando, lo apaga. */}
+                      <button
+                        className={`intel-hab-track${
+                          intercepting && interceptPilot === c.name ? " active" : ""
+                        }`}
+                        disabled={hereSystemId == null}
+                        title={
+                          hereSystemId == null
+                            ? tr("Selecciona el personaje cazador: su sistema es el punto de partida de la ruta.")
+                            : tr("Traza y mantiene la ruta desde tu cazador hasta el último sistema donde lo vieron. Se re-traza si se mueve.")
+                        }
+                        onClick={() => {
+                          if (intercepting && interceptPilot === c.name) {
+                            setIntercepting(false);
+                            setInterceptPilot(null);
+                            return;
+                          }
+                          if (!huntPilots.includes(c.name)) loadHuntTrack(c.name);
+                          setInterceptPilot(c.name);
+                          setJumpActive(false);
+                          setUseAnsiblex(true);
+                          setRouteActive(true);
+                          setIntercepting(true);
+                        }}
+                      >
+                        🎯{" "}
+                        {intercepting && interceptPilot === c.name
+                          ? tr("Interceptando ✓")
+                          : tr("Interceptar")}
                       </button>
                       {onOpenCazador && (
                         <button
@@ -2617,6 +2870,25 @@ export function MapView(props: {
 
             {intelDetail.sysId != null && (
               <>
+                {/* Rutar hasta el sistema del aviso. Sustituye al viejo «click en el punto rojo pone
+                    parada»: allí el gesto cambiaba de significado según el modo; aquí es explícito. */}
+                <button
+                  className="sys-assets-btn"
+                  title={tr("Poner este sistema como destino de la ruta")}
+                  onClick={() => {
+                    const id = intelDetail.sysId!;
+                    setJumpActive(false);
+                    setRouteActive(true);
+                    setRouteStops((prev) => {
+                      const stops = prev.filter((s) => s != null) as number[];
+                      const from = hereSystemId ?? stops[0] ?? null;
+                      return from != null && from !== id ? [from, id] : [null, id];
+                    });
+                    setRightTab("ruta");
+                  }}
+                >
+                  🧭 {tr("Destino")}
+                </button>
                 {intel && (
                   <button
                     className="sys-assets-btn"
@@ -2641,12 +2913,12 @@ export function MapView(props: {
                 </div>
               </>
             )}
-          </div>
+          </>
         )}
 
         {/* Tarjeta de "Hostiles habituales" (aprendidos del intel por nº de menciones) */}
-        {overlay === "intel" && habitualOpen && (
-          <div className="intel-detail intel-habitual">
+        {rightTab === "habituales" && overlay === "intel" && habitualOpen && (
+          <>
             <div className="intel-detail-head">
               <strong>🎯 {tr("Hostiles habituales")}</strong>
               <button className="sys-close" onClick={() => setHabitualOpen(false)}>✕</button>
@@ -2686,11 +2958,11 @@ export function MapView(props: {
                       ×{h.seen_count}
                     </span>
                     <button
-                      className={`intel-hab-track${huntPilot === h.name ? " active" : ""}`}
+                      className={`intel-hab-track${huntPilots.includes(h.name) ? " active" : ""}`}
                       title={tr("Ver su rastro histórico en el mapa")}
                       onClick={() => loadHuntTrack(h.name)}
                     >
-                      🎯 {huntPilot === h.name ? tr("Rastro ✓") : tr("Rastro")}
+                      🎯 {huntPilots.includes(h.name) ? tr("Rastro ✓") : tr("Rastro")}
                     </button>
                     {onOpenCazador && (
                       <button
@@ -2713,10 +2985,14 @@ export function MapView(props: {
                 );
               })}
             </div>
-          </div>
+          </>
         )}
 
+          </>)}
         </div>
+        )}
+        </div>
+
 
         {/* Panel de contexto de la capa activa (derecha): KPIs propios de la capa, plegable.
             Se oculta en Intel (lo sustituyen sus paneles) y cuando hay Ruta/Salto (tarjeta a la derecha). */}
@@ -2854,6 +3130,293 @@ export function MapView(props: {
           </div>
         </div>
       </div>
+
+      {/* ================= NAVEGACIÓN (detalle) =================
+          El mapa arriba se quedó con lo que se toca sobre la marcha (los dos interruptores y un
+          resumen). Todo lo que necesita SITIO —paradas reordenables, sistemas a evitar, la ruta
+          turn-by-turn legible y el envío a EVE— vive aquí abajo, con espacio de verdad. El mapa
+          seguía creciendo en capas y el planificador competía con ellas por la misma esquina. */}
+      {routeActive && (
+        <div className="nav-section" ref={navRef}>
+          <h3 className="nav-title">
+            🧭 {tr("Navegación")}
+            {routePath && (
+              <span className="muted small">
+                {" · "}
+                {routePath.length - 1} {tr("saltos")}
+                {ansiLegs.size > 0 && ` · ${ansiLegs.size} Ansiblex`}
+                {whLegs.size > 0 && ` · ${whLegs.size} WH`}
+              </span>
+            )}
+          </h3>
+
+          <div className="nav-grid">
+            {/* ---- Columna 1: paradas + opciones ---- */}
+            <div className="nav-col">
+              <div className="nav-head">{tr("Paradas")}</div>
+              {routeStops.map((stop, i) => (
+                <div className="route-stop" key={i}>
+                  <span className="route-stop-label">
+                    {i === 0 ? tr("Origen") : `${tr("Destino")} ${i}`}
+                  </span>
+                  <SystemSearch
+                    systems={ne.systems}
+                    value={stop}
+                    placeholder={tr("Escribe un sistema…")}
+                    onPick={(id) =>
+                      setRouteStops((prev) => {
+                        const copy = [...prev];
+                        copy[i] = id;
+                        return copy;
+                      })
+                    }
+                  />
+                  {/* Reordenar con flechas en vez de arrastrar: es fiable, accesible y no depende
+                      de una librería de drag&drop para mover 3 paradas. */}
+                  {i > 0 && (
+                    <>
+                      <button
+                        className="route-stop-del"
+                        title={tr("Subir")}
+                        disabled={i <= 1}
+                        onClick={() =>
+                          setRouteStops((prev) => {
+                            const c = [...prev];
+                            [c[i - 1], c[i]] = [c[i], c[i - 1]];
+                            return c;
+                          })
+                        }
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="route-stop-del"
+                        title={tr("Bajar")}
+                        disabled={i >= routeStops.length - 1}
+                        onClick={() =>
+                          setRouteStops((prev) => {
+                            const c = [...prev];
+                            [c[i], c[i + 1]] = [c[i + 1], c[i]];
+                            return c;
+                          })
+                        }
+                      >
+                        ↓
+                      </button>
+                      <button
+                        className="route-stop-del"
+                        title={tr("Quitar")}
+                        onClick={() => setRouteStops((prev) => prev.filter((_, j) => j !== i))}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+              <button
+                className="route-add"
+                onClick={() => setRouteStops((prev) => [...prev, null])}
+              >
+                + {tr("Añadir destino")}
+              </button>
+              <button className="route-add" onClick={() => setRouteStops([null])}>
+                {tr("Limpiar")}
+              </button>
+
+              <div className="nav-head">{tr("Cómo rutar")}</div>
+              <select
+                value={routeMode}
+                onChange={(e) => setRouteMode(e.target.value as RouteMode)}
+              >
+                <option value="shortest">{tr("Más corta")}</option>
+                <option value="safer">{tr("Más segura")}</option>
+                <option value="insecure">{tr("Menos segura")}</option>
+              </select>
+              {ansi && (
+                <button
+                  className={`intel-hab-track${useAnsiblex ? " active" : ""}`}
+                  title={tr("Usar los Ansiblex de tu alianza al calcular la ruta")}
+                  onClick={() => setUseAnsiblex(!useAnsiblex)}
+                >
+                  <AnsiBadge /> {tr("Ansiblex")} <span className="muted">({ansi.drawn})</span>
+                </button>
+              )}
+              <button
+                className={`intel-hab-track${useWormholes ? " active" : ""}`}
+                title={tr("Usar los wormholes de Thera/Turnur (eve-scout) al calcular la ruta")}
+                onClick={() => setUseWormholes(!useWormholes)}
+              >
+                ◆ {tr("Wormholes")}{" "}
+                <span className="muted">
+                  {wh ? `(${wh.drawn})` : useWormholes ? tr("cargando…") : ""}
+                </span>
+              </button>
+              {useWormholes && (
+                <button
+                  className="route-evescout"
+                  title={tr("Abrir eve-scout (mapa de conexiones Thera/Turnur en vivo)")}
+                  onClick={() => openUrl("https://www.eve-scout.com/")}
+                >
+                  eve-scout ↗
+                </button>
+              )}
+            </div>
+
+            {/* ---- Columna 2: evitar ---- */}
+            <div className="nav-col">
+              <div className="nav-head">
+                🚫 {tr("Evitar")}{" "}
+                <span className="muted small">({avoid.size})</span>
+              </div>
+              <p className="muted small">
+                {tr("Los sistemas vetados se saltan al calcular. Se recuerdan entre sesiones. Un destino nunca se evita a sí mismo.")}
+              </p>
+              <SystemSearch
+                systems={ne.systems}
+                value={null}
+                placeholder={tr("Añadir sistema a evitar…")}
+                onPick={(id) => toggleAvoid(id)}
+              />
+              {avoid.size > 0 && (
+                <>
+                  <ul className="nav-avoid-list">
+                    {[...avoid].map((sid) => (
+                      <li key={sid}>
+                        <span
+                          className="route-sec"
+                          style={{ color: secColor(geo.idx.get(sid)?.s ?? 0) }}
+                        >
+                          {(geo.idx.get(sid)?.s ?? 0).toFixed(1)}
+                        </span>
+                        <span className="route-sysname">{nameOf(sid)}</span>
+                        <button
+                          className="route-stop-del"
+                          title={tr("Quitar")}
+                          onClick={() => toggleAvoid(sid)}
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button className="route-add" onClick={clearAvoid}>
+                    {tr("Vaciar lista")}
+                  </button>
+                </>
+              )}
+              {routeStops.filter((s) => s != null).length >= 2 && !routePath && (
+                <div className="fits-err small">
+                  {tr("No hay ruta posible con los filtros actuales (¿demasiados sistemas evitados?).")}
+                </div>
+              )}
+            </div>
+
+            {/* ---- Columna 3: la ruta + enviar a EVE ---- */}
+            <div className="nav-col nav-col-wide">
+              <div className="nav-head">{tr("La ruta")}</div>
+              {routeWaypoints.length > 0 && hereCharId != null && (
+                <button
+                  className="route-send-eve"
+                  disabled={!canWaypoint || sendingEve}
+                  title={
+                    canWaypoint
+                      ? tr("Pone la ruta en el piloto automático de EVE (el juego la calcula con tus preferencias, Ansiblex incluidos si los tienes activados).")
+                      : tr("Falta el permiso: vuelve a iniciar sesión con «Ubicación» para conceder «poner destino en EVE».")
+                  }
+                  onClick={() => sendToEve(routeWaypoints)}
+                >
+                  {sendingEve ? "⏳" : "🚀"}{" "}
+                  {routeWaypoints.length > 1 ? tr("Enviar ruta a EVE") : tr("Enviar destino a EVE")}
+                </button>
+              )}
+              {eveMsg && <div className="small muted">{eveMsg}</div>}
+              {whLegs.size > 0 && (
+                <div className="small" style={{ color: "#3ad6e0" }}>
+                  ◆ {tr("La ruta usa wormholes: EVE no los rutea, «Enviar a EVE» pondrá solo el destino final.")}
+                </div>
+              )}
+              {routePath && routePath.length > 1 ? (
+                <ol className="nav-route-list">
+                  {/* Sin el origen: ya lo tienes en su casilla, y repetirlo aquí confunde — así cada
+                      fila ES un salto y la lista cuadra con el contador de saltos de la cabecera.
+                      `i` se recalcula al índice real de routePath: los marcadores de tramo
+                      (ansiLegs/whLegs) van indexados por el salto i-1 → i y se desalinearían. */}
+                  {routePath.slice(1).map((sid, k) => {
+                    const i = k + 1;
+                    const s = geo.idx.get(sid);
+                    const isHub = !s && wh?.hubName.has(sid);
+                    const kills = liveKills?.get(sid) ?? 0;
+                    return (
+                      <li key={i} className={isHub ? "route-hub" : undefined}>
+                        <span
+                          className="route-sec"
+                          style={{ color: isHub ? "#3ad6e0" : secColor(s?.s ?? 0) }}
+                        >
+                          {isHub ? "◆" : (s?.s ?? 0).toFixed(1)}
+                        </span>
+                        <span className="route-sysname">
+                          {ansiLegs.has(i) && (
+                            <span className="route-ansi-leg" title={tr("Se llega por Ansiblex")}>
+                              <AnsiBadge />{" "}
+                            </span>
+                          )}
+                          {whLegs.has(i) && (
+                            <span className="route-wh-leg" title={tr("Se llega por wormhole")}>
+                              ◆{" "}
+                            </span>
+                          )}
+                          {nameOf(sid)}
+                        </span>
+                        {!isHub && (
+                          <>
+                            <span
+                              className={`route-kills ${kills > 0 ? "hot" : ""}`}
+                              title={tr("Kills última hora")}
+                            >
+                              {kills} ⚔
+                            </span>
+                            <button
+                              className="route-stop-del"
+                              title={tr("Evitar este sistema y recalcular")}
+                              onClick={() => toggleAvoid(sid)}
+                            >
+                              🚫
+                            </button>
+                            <button
+                              className="route-dotlan"
+                              title={tr("Abrir en Dotlan")}
+                              onClick={() =>
+                                openUrl(
+                                  `https://evemaps.dotlan.net/system/${(s?.n ?? "").replace(/ /g, "_")}`
+                                )
+                              }
+                            >
+                              Dotlan
+                            </button>
+                            {/* zKill del SISTEMA: las muertes registradas ahí. En una ruta es el
+                                dato que dice si un salto es una ratonera. */}
+                            <button
+                              className="route-dotlan"
+                              title={tr("Ver muertes registradas en zKillboard")}
+                              onClick={() => openUrl(`https://zkillboard.com/system/${sid}/`)}
+                            >
+                              zKill
+                            </button>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <p className="muted small">{tr("Elige origen y destino")}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </>
   );
 }

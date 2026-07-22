@@ -1,67 +1,93 @@
-// Rastro histórico persistente de un piloto (modo cazador): consulta la tabla intel_sightings
-// vía backend y expone el rastro para pintarlo en el mapa. Sub-feature autónomo (no toca la
+// Rastro histórico persistente de VARIOS pilotos (modo cazador): consulta la tabla intel_sightings
+// vía backend y expone sus rastros para pintarlos en el mapa. Sub-feature autónomo (no toca la
 // selección ni el sonido del intel) → hook propio, mismo patrón que useJumpPlanner/useRoutePlanner.
+//
+// MULTI-PILOTO a propósito: en una caza real vigilas a varios a la vez (el tackle, el logi, el que
+// va con la nave gorda). Sus avistamientos se destacan en el mapa frente a las demás alertas, así
+// que la lista tiene que admitir más de uno. La INTERCEPCIÓN, en cambio, sigue apuntando a UNO —
+// solo puedes volar hacia un sitio— y de eso se encarga el mapa, no este hook.
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+export type HuntPoint = { system_id: number; ts_ms: number };
+
 /**
- * @param refreshSignal  Un número que cambia cuando llega intel nuevo (p.ej. el nº de líneas). Al
- *   cambiar, se vuelve a consultar el rastro del piloto activo SIN togglearlo. Esto es lo que hace
- *   que la interceptación sea viva: si el perseguido salta de sistema y lo cantan, su último
+ * @param refreshSignal Un número que cambia cuando llega intel nuevo (p.ej. el nº de líneas). Al
+ *   cambiar se re-consultan los rastros de TODOS los seguidos sin togglear a ninguno. Esto es lo que
+ *   hace viva la interceptación: si el perseguido salta de sistema y lo cantan, su último
  *   avistamiento se actualiza y la ruta se re-traza sola.
  */
 export function useHuntTrack(
   openTrack?: { name: string; nonce: number } | null,
   refreshSignal?: number
 ) {
-  const [huntPilot, setHuntPilot] = useState<string | null>(null);
-  const [huntTrack, setHuntTrack] = useState<{ system_id: number; ts_ms: number }[] | null>(null);
-  // Espejo del piloto activo para poder refrescar sin meter huntPilot en las deps del efecto de
-  // refresco (si no, cada follow dispararía una consulta doble).
-  const pilotRef = useRef<string | null>(null);
+  const [huntPilots, setHuntPilots] = useState<string[]>([]);
+  // nombre → rastro. `undefined` para un seguido = todavía cargando.
+  const [huntTracks, setHuntTracks] = useState<Map<string, HuntPoint[]>>(new Map());
+  // Espejo de la lista para el efecto de refresco: si metiéramos `huntPilots` en sus deps, cada
+  // follow dispararía una consulta doble.
+  const pilotsRef = useRef<string[]>([]);
   useEffect(() => {
-    pilotRef.current = huntPilot;
-  }, [huntPilot]);
+    pilotsRef.current = huntPilots;
+  }, [huntPilots]);
 
-  // Activa el rastro de un piloto (sin toggle). Usado por el botón del mapa y el puente desde Cazador.
-  async function activateHuntTrack(name: string) {
-    setHuntPilot(name);
-    setHuntTrack(null);
+  async function fetchTrack(name: string) {
     try {
-      const pts = await invoke<{ system_id: number; ts_ms: number }[]>("get_pilot_track", {
-        name,
-        limit: 200,
-      });
-      setHuntTrack(pts);
+      const pts = await invoke<HuntPoint[]>("get_pilot_track", { name, limit: 200 });
+      setHuntTracks((prev) => new Map(prev).set(name, pts));
     } catch {
-      setHuntTrack([]);
+      setHuntTracks((prev) => new Map(prev).set(name, []));
     }
   }
+
+  /** Añade un piloto al seguimiento (sin toggle). Usado por el puente desde la sección Cazador. */
+  async function activateHuntTrack(name: string) {
+    setHuntPilots((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    await fetchTrack(name);
+  }
+
+  /** Toggle: si ya lo sigues, lo sueltas; si no, lo añades. */
   function loadHuntTrack(name: string) {
-    if (huntPilot === name) {
-      // Toggle: si ya está activo, lo apagamos.
-      setHuntPilot(null);
-      setHuntTrack(null);
+    if (pilotsRef.current.includes(name)) {
+      setHuntPilots((prev) => prev.filter((p) => p !== name));
+      setHuntTracks((prev) => {
+        const m = new Map(prev);
+        m.delete(name);
+        return m;
+      });
       return;
     }
     void activateHuntTrack(name);
   }
-  // Quita el rastro activo (botón ✕).
-  function clearHuntTrack() {
-    setHuntPilot(null);
-    setHuntTrack(null);
+
+  /** Suelta a uno concreto. */
+  function dropHuntPilot(name: string) {
+    setHuntPilots((prev) => prev.filter((p) => p !== name));
+    setHuntTracks((prev) => {
+      const m = new Map(prev);
+      m.delete(name);
+      return m;
+    });
   }
-  // Puente desde la sección Cazador: cuando cambia la petición, activar ese rastro en el mapa.
+
+  /** Suelta a todos. */
+  function clearHuntTrack() {
+    setHuntPilots([]);
+    setHuntTracks(new Map());
+  }
+
+  // Puente desde la sección Cazador: cuando cambia la petición, añadir ese rastro al mapa.
   useEffect(() => {
     if (openTrack?.name) void activateHuntTrack(openTrack.name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openTrack?.nonce]);
 
-  // Refresco por intel nuevo: re-consulta el rastro del piloto que ya estás siguiendo.
+  // Refresco por intel nuevo: re-consulta el rastro de todos los seguidos.
   useEffect(() => {
-    if (refreshSignal && pilotRef.current) void activateHuntTrack(pilotRef.current);
+    if (!refreshSignal) return;
+    for (const name of pilotsRef.current) void fetchTrack(name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSignal]);
 
-  return { huntPilot, huntTrack, loadHuntTrack, clearHuntTrack };
+  return { huntPilots, huntTracks, loadHuntTrack, dropHuntPilot, clearHuntTrack };
 }

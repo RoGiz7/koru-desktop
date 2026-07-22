@@ -4,13 +4,20 @@ import type { NeSystem } from "./types";
 
 export type RouteMode = "shortest" | "safer" | "insecure";
 
-/** Dijkstra sobre el grafo de stargates. mode pondera seguridad. */
+/**
+ * Dijkstra sobre el grafo de rutas. `mode` pondera seguridad.
+ *
+ * @param avoid Sistemas a EVITAR: se tratan como si no existieran. El origen y el destino NUNCA se
+ *   evitan aunque estén en la lista — si no, la ruta sería imposible y el usuario no entendería por
+ *   qué (pedir «llévame a X» y «evita X» a la vez es contradictorio; mandamos la petición explícita).
+ */
 export function findRoute(
   adj: Map<number, number[]>,
   idx: Map<number, NeSystem>,
   from: number,
   to: number,
-  mode: RouteMode
+  mode: RouteMode,
+  avoid?: Set<number>
 ): number[] | null {
   if (from === to) return [from];
   const weight = (n: number) => {
@@ -34,6 +41,8 @@ export function findRoute(
     visited.add(u);
     for (const v of adj.get(u) ?? []) {
       if (visited.has(v)) continue;
+      // Sistema vetado: se salta como si no estuviera en el grafo. Salvo que sea el destino.
+      if (avoid?.has(v) && v !== to) continue;
       const nd = best + weight(v);
       if (nd < (dist.get(v) ?? Infinity)) {
         dist.set(v, nd);

@@ -1848,6 +1848,9 @@ function App() {
           }}
           incursions={incursions}
           theraConns={theraConns}
+          onNeedThera={() => {
+            if (!theraConns) loadThera();
+          }}
           intel={{
             lines: intelLines,
             availChannels: intelAvailChannels,

@@ -5,6 +5,8 @@ import { useState } from "react";
 import type { RouteMode } from "./mapRoute";
 
 const ANSI_KEY = "koru-route-ansiblex";
+const WH_KEY = "koru-route-wormholes";
+const AVOID_KEY = "koru-route-avoid";
 
 export function useRoutePlanner() {
   const [routeActive, setRouteActive] = useState(false);
@@ -22,6 +24,37 @@ export function useRoutePlanner() {
     setUseAnsiblex(v);
     localStorage.setItem(ANSI_KEY, v ? "1" : "0");
   };
+  // Rutar por wormholes (Thera/Turnur, datos de eve-scout). OFF por defecto: los WH son volátiles
+  // (caducan, tienen límite de masa/tamaño de nave) y no siempre quieres depender de ellos.
+  const [useWormholes, setUseWormholes] = useState<boolean>(
+    () => localStorage.getItem(WH_KEY) === "1"
+  );
+  const toggleWormholes = (v: boolean) => {
+    setUseWormholes(v);
+    localStorage.setItem(WH_KEY, v ? "1" : "0");
+  };
+  // Sistemas a EVITAR al calcular la ruta (camperos conocidos, chokepoints, sistemas hostiles).
+  // Se recuerdan entre sesiones: los sitios por los que no quieres pasar no cambian cada día.
+  const [avoid, setAvoid] = useState<Set<number>>(() => {
+    try {
+      const raw = localStorage.getItem(AVOID_KEY);
+      return new Set<number>(raw ? (JSON.parse(raw) as number[]) : []);
+    } catch {
+      return new Set<number>();
+    }
+  });
+  const persistAvoid = (s: Set<number>) => {
+    setAvoid(s);
+    localStorage.setItem(AVOID_KEY, JSON.stringify([...s]));
+  };
+  const toggleAvoid = (sid: number) => {
+    const next = new Set(avoid);
+    if (next.has(sid)) next.delete(sid);
+    else next.add(sid);
+    persistAvoid(next);
+  };
+  const clearAvoid = () => persistAvoid(new Set());
+
   return {
     routeActive,
     setRouteActive,
@@ -31,5 +64,10 @@ export function useRoutePlanner() {
     setRouteStops,
     useAnsiblex,
     setUseAnsiblex: toggleAnsiblex,
+    useWormholes,
+    setUseWormholes: toggleWormholes,
+    avoid,
+    toggleAvoid,
+    clearAvoid,
   };
 }
