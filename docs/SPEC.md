@@ -1,6 +1,6 @@
 # Koru Desktop — Spec Técnico v1
 
-**Estado:** borrador inicial · **Fecha:** 2026-06-22 · **Owner:** RoGiz7 / equipo Rekium
+**Estado:** vivo · **Fecha:** 2026-06-22 · **Actualizado:** 2026-07-23 (v0.30.0) · **Owner:** RoGiz7 / equipo Rekium
 
 ## 1. Objetivo
 
@@ -276,8 +276,10 @@ es copiarla. El pegado convierte «meter 97 puentes a mano» en un Ctrl+V.*
 - **Reemplazo total en cada pegado**, no fusión: el wiki es la foto completa y los puentes se caen y
   se mueven. Un puente fantasma en el planificador es peor que no tener red — te manda por una ruta
   que no existe.
-- **PENDIENTE (no hecho todavía):** añadir los puentes como **aristas extra** al grafo de rutas
-  (`geo.adj` en `map.tsx`) y marcar en la ruta qué saltos son por Ansiblex.
+- ✅ **HECHO en v0.30.0:** los puentes entran como **aristas extra** en el rutado (`findRoute` con
+  conjuntos de aristas añadidas, SIN mutar `geo.adj`) y la ruta marca qué tramos van por Ansiblex.
+  Se pintan en verde curvo (`ansiArc`) como el mapa del juego, y la ruta puede **enviarse a EVE**
+  (`set_ingame_route`, ver Nivel 6). También el «llegas en N» del cazador contando los puentes.
 
 **Nivel 4b — Coste de condensador Ansiblex (A LA ESPERA — deploy sept 2026).**
 - FC anunció el 2026-07-17/21 la revisión de proyección de fuerza. **Los números son PROPUESTOS y
@@ -296,15 +298,27 @@ es copiarla. El pegado convierte «meter 97 puentes a mano» en un Ctrl+V.*
   `ozono = masa × ly × 0.000003 + 50` de más abajo queda obsoleta para Ansiblex), fuera los peajes,
   ACL solo de alianza, y **capitales/supercapitales ya no pasan** (salvo Rorqual en la 1ª iteración).
 
-**Nivel 5 — Wormholes (difícil / externo).**
-- Las conexiones de wormhole son **dinámicas** y **no están en ESI** ni en el SDE. Solo se obtienen
-  por escaneo en vivo (mapeadores tipo Tripwire/Pathfinder/Wanderer) o entrada manual.
-- Alcance realista: permitir **añadir conexiones temporales manualmente** al grafo (un WH abierto
-  de X a Y) para que el planificador las tenga en cuenta en esa sesión. Integración con mapeadores
-  externos = exploración futura.
+**Nivel 5 — Wormholes (Thera/Turnur) — ✅ HECHO en v0.30.0.**
+- Las conexiones de wormhole son **dinámicas** y **no están en ESI** ni en el SDE. Para Thera y
+  Turnur las publica **eve-scout** (`api.eve-scout.com/v2/public/signatures`), igual que zKill o
+  Dotlan: se consultan en vivo y se usan como aristas de ruta (en cian discontinuo).
+- Thera es un nodo **sintético** (no está en el SDE): rombo aparte, y los tramos que lo cruzan se
+  colapsan vecino↔vecino. Turnur sí es sistema real.
+- **EVE no sabe rutear wormholes**, así que al enviar la ruta al cliente se pone solo el destino
+  final y el piloto da el salto. El tramo a tramo por WH queda como mejora futura.
+- Pendiente del alcance original: añadir conexiones **manuales** (un WH cualquiera abierto de X a Y)
+  para la sesión. Sinergia con el rastreador de firmas (idea abierta): auto-escaneadas como aristas.
 
-**Orden sugerido:** N1 (rutas stargate) → N3 (rango/fuel de capital por skills) + N2 (fatiga) →
-N4 (Ansiblex manual) → N5 (WH manual). N1 ya aporta muchísimo y es barato.
+**Nivel 6 — Enviar la ruta a EVE — ✅ HECHO en v0.30.0.**
+- `POST /ui/autopilot/waypoint` con el **único scope de ESCRITURA** de Koru,
+  `esi-ui.write_waypoint.v1` (grupo LOCATION). `set_ingame_route` manda todas las paradas en orden
+  (la 1ª con `clear=true`); con una sola parada = poner destino.
+- **EXIGE re-login con «Ubicación»**: el scope es nuevo, los tokens ya emitidos no lo traen. La UI lo
+  comprueba (`canWaypoint` mira `characters[].scopes`) y avisa ANTES en ámbar — un 403 se explica,
+  pero llega tarde. OJO: el `title` de un botón deshabilitado NO se ve en WebView2.
+
+**Orden sugerido (histórico):** N1 (rutas stargate) → N3 (rango/fuel) + N2 (fatiga) → N4 (Ansiblex)
+→ N5 (WH) → N6 (enviar a EVE). **Todo hecho salvo N4b (coste condensador, a la espera de FC).**
 
 ## 10. Riesgos / decisiones abiertas
 

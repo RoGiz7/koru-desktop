@@ -1,13 +1,30 @@
 # Koru Desktop — Hoja de ruta
 
 **Fecha:** 2026-06-24 · Revisión completa de estado y pendientes.
-**Actualizado:** 2026-07-14 (v0.27.1) — ver "Estado actual" justo abajo.
+**Actualizado:** 2026-07-23 (v0.30.0) — ver "Estado actual" justo abajo.
 
 ---
 
-## 📌 Estado actual (v0.27.1 · 2026-07-14)
+## 📌 Estado actual (v0.30.0 · 2026-07-22)
 
-### Hecho desde v0.16.1 (resumen por versión)
+### Hecho desde v0.27.1
+- **v0.28.0** — ⚠️ SIN entrada en `changelog.ts` (se saltó la regla de «mantener en cada release»);
+  reconstruir su contenido desde las notas de GitHub si hace falta.
+- **v0.29.0 — «Mis instalaciones»** (Pilar Industrial): registro de estructuras que declara el
+  usuario (rigs+servicios que ESI no da), coste real de fabricación al ISK (VEO+índice+bonos+impuesto
+  +CCS, cuadrado contra el tooltip), fichas verde/ámbar que se quedan CORTAS nunca largas, gamelog al
+  día en cada sync, y ErrorBoundary contra la pantalla negra (+ fix del filtro de fechas en Minería).
+- **v0.30.0 — «El mapa, instrumento de navegación»**: **rutas a EVE** (`set_ingame_route`, scope
+  `esi-ui.write_waypoint.v1` — EXIGE re-login con Ubicación), **Ansiblex por copia y pega** (no hay
+  scope ESI; parser por contenido + revisión + confirmación + arcos verdes), **wormholes Thera/Turnur
+  en vivo** (eve-scout, ruta en cian), **caza en vivo** (multi-seguimiento morado + interceptar rojo +
+  «llegas en N» por puentes), **mapa reordenado** (regiones plegables, «Evitar» en todas las capas,
+  leyendas) y **legibilidad tipo juego** (trazos en px, etiquetas sin solape, LOD encadenado). Detalle
+  en la sección «Mapa vivo» más abajo.
+
+### Hecho hasta v0.27.1 (resumen por versión)
+
+### Detalle v0.16.1 → v0.27.1 (resumen por versión)
 - **v0.17–v0.18.4 — BITÁCORA completa**: motor de logros retroactivos + retos adaptativos
   (`db/bitacora.rs`), notificación nativa, pase de inmersión (marcos SVG, dominios, puntuación),
   Diario biográfico, medallero mixto con condecoraciones in-game (`read_medals`), Lealtad/LP +
@@ -81,7 +98,7 @@
 2. **Lote del próximo reescaneo** (agrupar, el I/O de 6,6 GB se paga una vez): **PvP desde el
    gamelog (tarea #45)** — daño/fallos/calidad por arma contra jugadores, peleas sin killmail — +
    fix del parser de boosts (preferir el hint EN localizado).
-3. Horizonte: Ansiblex (sigue bloqueado por FC) y el PILAR INDUSTRIAL (ver abajo). HECHOS y
+3. Horizonte: el PILAR INDUSTRIAL (ver abajo). HECHOS y
    fuera de esta lista: corp projects como retos (0.26.0), Fase 3.5 (0.26.0), títulos oficiales
    (0.26.0), +N intel (0.26.0), sistema del CSV → al lote de reescaneo, **repo público + firma
    SignPath (ya operativos)**.
@@ -193,7 +210,8 @@ mapa y rutas para hacerlo. Dependía a propósito de todo lo construido.
 1. **Bitácora Fase 2**: QA del catálogo (umbrales/fechas) → notificación nativa al desbloquear →
    Diario (timeline de la historia jugada + `corporationhistory` público) → medallas in-game
    (`read_medals`) → LP/misiones (`read_loyalty`). Retos de corp por fichero: futuro puente.
-2. **Ansiblex en rutas** — sigue bloqueado por el archivo de la red de puentes de la alianza.
+2. ✅ **Ansiblex en rutas** — HECHO en v0.30.0 por copia y pega (no había scope ESI que los listara).
+   Falta el filtro «Con acceso» (ACL solo-alianza de sept-2026).
 3. **Repo público + firma de código** (SignPath Foundation) — mitiga SmartScreen.
 4. Menores: contador +N intel · `useAppData()` · tematización por evento · feed de noticias ·
    merge de BD de dos PCs · Fabricación (aplazada).
@@ -202,9 +220,10 @@ mapa y rutas para hacerlo. Dependía a propósito de todo lo construido.
    breadcrumb hover Región/Constelación/Sistema · barras de control FW (Caldari/Gallente,
    Minmatar/Amarr) · sub-filtro "franja de seguridad" · minimapa/inset al hacer zoom.
 
-### Mapa vivo — del análisis del mapa in-game (jul 2026)
+### Mapa vivo — del análisis del mapa in-game (jul 2026) · **COMPLETADO en v0.30.0**
 Análisis de 30 capturas nuevas en `../documentacion/mapa-new-eden/ANALISIS-2026-07-22.md` (fuera del
-repo). Objetivo marcado por RoGiz7: **que el mapa sea muy útil, no solo bonito.**
+repo). Objetivo marcado por RoGiz7: **que el mapa sea muy útil, no solo bonito.** Los 5 puntos del
+plan, hechos y publicados; después, una tanda de LEGIBILIDAD que igualó el listón del mapa del juego.
 - ✅ **Leyenda de escala por capa** (`MapScaleLegend`/`scaleFor` en mapOverlays.tsx). Tres formas
   distintas a propósito: bandas (kills/jumps — `heatColor` tiene 3 escalones REALES, un degradado
   suave fingiría precisión inexistente), tamaño (assets/minería: color fijo, varía el radio) y
@@ -216,12 +235,24 @@ repo). Objetivo marcado por RoGiz7: **que el mapa sea muy útil, no solo bonito.
   no se camufle sobre la maraña de stargates) + botón «Evitar» en la ficha del sistema.
 - ✅ **Enlace capa → sección** en el panel de contexto (`onOpenTab`, genérico): de la capa de minería
   a tu minería, de Kills a Cazador, etc. El mapa deja de ser un callejón sin salida.
-- ⏳ **Disposición por REGIÓN** (siguiente): colapsar los ~5.000 sistemas en ~70 nodos-región usando
-  los centroides que `geo` ya calcula, con enlaces región↔región derivados de `ne.jumps`. La clave
-  para que sea útil: **cada capa se agrega por región**. Clic en una región → volver a sistemas
-  centrado ahí. Constelación queda fuera de momento (~1.100 nodos: ni detalle ni síntesis).
+- ✅ **Disposición por REGIÓN**: ~5.000 sistemas colapsados en nodos-región (centroides que `geo` ya
+  calcula, enlaces región↔región de `ne.jumps`), cada capa AGREGADA por región. Conmutador
+  Sistemas/Regiones + **plegar/desplegar una región a la vez** (`openRegions`). Clic en una región →
+  volver a sistemas centrado ahí (`focusOn`). Constelación fuera (~1.100 nodos: ni detalle ni síntesis).
+- ✅ **Legibilidad tipo juego** (commits `cd56dd3`, `e3930c6`): TODO trazo en píxeles de pantalla
+  (`non-scaling-stroke`) y todo círculo con tope (`cappedR`) — antes engordaban sin freno al acercar
+  el zoom; nodos gris claro sobre líneas de 1px, como el juego. **Etiquetas sin solape** por caja real
+  (`makeLabelPlacer`, no rejilla — falla en los dos sentidos) con prioridad a avisos/ruta/aquí, y
+  **LOD encadenado**: región→constelación→sistema se atenúan cruzándose (`ramp`) en vez de saltar.
+  `letter-spacing` inline por `/view.z` (en CSS era 1 unidad LOCAL → texto estirado con el zoom).
+- ✅ **Rastros de Intel con significado** (v0.30.0): rojo = interceptando · morado = seguido (el color
+  lo da el PAPEL, no la fuente); flechas de dirección repartidas sin solaparse en ida-y-vuelta
+  (`trailArrows`), edad del último avistamiento (`fmtAge`, refresco `ageTick`), caducidad configurable
+  (`trailMin`) y leyenda de trazos que solo lista lo visible (`MapTrailLegend`).
 - ⏸️ Ansiblex «Todos / Con acceso / Ninguno» (el juego distingue los que puedes cruzar) — esperar a
   la ACL solo-alianza de septiembre 2026.
+- 💤 **Anomalías/firmas** (idea de RoGiz7, sin empezar): pegar firmas del escáner de sondas, guardar
+  por sistema y anotar. Sinergia: los WH auto-escaneados como aristas de ruta.
 6. De EVE Carbon aún sin adoptar: calculadora de refinado/ore · biblioteca de blueprints ME/TE
    (ligada a Fabricación) · timers de PI (Planetología hoy es básica).
 
