@@ -699,6 +699,77 @@ pub fn ansiblex_clear(state: State<'_, AppState>) -> AppResult<()> {
     state.db.ansiblex_clear()
 }
 
+// ---- Firmas y anomalías del escáner de sondas (mismo espíritu: la app propone, el piloto declara).
+// El pegado no trae el sistema → lo pasa el frontend. Rust solo persiste lo confirmado.
+
+#[tauri::command]
+pub fn signatures_list(
+    state: State<'_, AppState>,
+    system_id: i64,
+) -> AppResult<Vec<crate::db::SignatureRow>> {
+    state.db.signatures_list(system_id)
+}
+
+/// Vuelca el escaneo de un sistema (upsert por firma, conservando notas y `first_seen`).
+/// Devuelve cuántas firmas quedaron en el pegado.
+#[tauri::command]
+pub fn signatures_replace_system(
+    state: State<'_, AppState>,
+    system_id: i64,
+    signatures: Vec<crate::db::SignatureRow>,
+) -> AppResult<usize> {
+    state.db.signatures_replace_system(system_id, &signatures)
+}
+
+#[tauri::command]
+pub fn signature_set_note(
+    state: State<'_, AppState>,
+    system_id: i64,
+    sig_id: String,
+    note: Option<String>,
+) -> AppResult<()> {
+    state.db.signature_set_note(system_id, &sig_id, note.as_deref())
+}
+
+#[tauri::command]
+pub fn signatures_clear_system(state: State<'_, AppState>, system_id: i64) -> AppResult<()> {
+    state.db.signatures_clear_system(system_id)
+}
+
+#[tauri::command]
+pub fn signature_set_kind(
+    state: State<'_, AppState>,
+    system_id: i64,
+    sig_id: String,
+    kind: String,
+) -> AppResult<()> {
+    state.db.signature_set_kind(system_id, &sig_id, &kind)
+}
+
+#[tauri::command]
+pub fn signature_set_name(
+    state: State<'_, AppState>,
+    system_id: i64,
+    sig_id: String,
+    name: String,
+) -> AppResult<()> {
+    state.db.signature_set_name(system_id, &sig_id, &name)
+}
+
+#[tauri::command]
+pub fn signatures_summary(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::SignatureSummary>> {
+    state.db.signatures_summary()
+}
+
+#[tauri::command]
+pub fn signatures_wormhole_notes(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::SignatureRow>> {
+    state.db.signatures_wormhole_notes()
+}
+
 #[tauri::command]
 pub fn facility_upsert(state: State<'_, AppState>, facility: FacilityRow) -> AppResult<i64> {
     state.db.facility_upsert(&facility)

@@ -553,3 +553,23 @@ CREATE TABLE IF NOT EXISTS ansiblex (
     updated_at TEXT,
     PRIMARY KEY (a_id, b_id)
 );
+
+-- Firmas y anomalías del escáner de sondas, por sistema. El pegado del escáner NO trae el sistema
+-- (igual que la tabla de Ansiblex no traía la región): lo pone el piloto. Clave = (sistema, id de
+-- firma); el id ("QLO-590") es estable dentro del sistema hasta el downtime.
+-- `note` es la anotación del piloto (p. ej. el destino de un wormhole) y se CONSERVA al re-pegar:
+-- por eso el re-escaneo hace upsert por firma, no un borrado total del sistema.
+CREATE TABLE IF NOT EXISTS signatures (
+    system_id   INTEGER NOT NULL,
+    sig_id      TEXT NOT NULL,           -- "QLO-590" (3 letras-guion-3 dígitos)
+    sig_group   TEXT NOT NULL,           -- 'anomaly' | 'signature'
+    kind        TEXT NOT NULL,           -- combat|ore|gas|data|relic|wormhole|unknown
+    name        TEXT NOT NULL DEFAULT '',-- "Madriguera de los Ángeles" ('' si sin identificar)
+    signal_pct  REAL,                    -- 0..100
+    distance_au REAL,                    -- distancia en AU (unidad canónica)
+    note        TEXT,                    -- anotación del piloto; NO se pierde al re-pegar
+    first_seen  TEXT NOT NULL,           -- RFC3339 del primer avistamiento de esta firma
+    last_seen   TEXT NOT NULL,           -- RFC3339 del último pegado que la incluía
+    PRIMARY KEY (system_id, sig_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sig_system ON signatures(system_id);

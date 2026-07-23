@@ -32,6 +32,7 @@ import { ReconView } from "./recon";
 import { GamelogControl, gamelogScan } from "./gamelogControl";
 import { MedalTexturesControl } from "./medalsControl";
 import { AnsiblexControl } from "./ansiblexControl";
+import { ExplorationView } from "./exploration";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
@@ -156,8 +157,10 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [feature, setFeature] = useState("core");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
-  const [settingsOpen, setSettingsOpen] = useState(false); // desplegable ⚙️ Ajustes (datos/backup)
+  const [settingsOpen, setSettingsOpen] = useState(false); // panel ⚙️ Ajustes (con pestañas)
+  const [settingsTab, setSettingsTab] = useState<"copias" | "logs" | "mapa" | "medallas">("copias");
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
   // Importador de histórico CSV (corptools) — vive en ⚙️ Ajustes para no tenerlo siempre a mano.
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -330,6 +333,23 @@ function App() {
     const on = () => computeSettingsPos();
     window.addEventListener("resize", on);
     return () => window.removeEventListener("resize", on);
+  }, [settingsOpen]);
+  // Cerrar el panel al hacer clic fuera o con Escape. Antes era un desplegable pequeño; ahora ocupa
+  // media pantalla, así que necesita una salida clara además de volver a pulsar el ⚙️.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (settingsPanelRef.current?.contains(t) || settingsBtnRef.current?.contains(t)) return;
+      setSettingsOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && setSettingsOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onEsc);
+    };
   }, [settingsOpen]);
 
   // --- Copia de seguridad / restauración del histórico local ---
@@ -1589,19 +1609,36 @@ function App() {
           </button>
           {settingsOpen && (
             <div
-              className="tb-settings-pop"
-              style={
-                settingsPos
-                  ? {
-                      position: "fixed",
-                      top: settingsPos.top,
-                      left: settingsPos.left,
-                      right: "auto",
-                      width: settingsPos.width,
-                    }
-                  : undefined
-              }
+              className="tb-settings-panel"
+              style={settingsPos ? { top: settingsPos.top } : undefined}
             >
+              <div className="tb-settings-inner" ref={settingsPanelRef}>
+                {/* Barra de pestañas: agrupa los seis bloques que antes iban apilados en un
+                    desplegable estrecho. Cada uno tenía su tabla/opciones comprimidas; con el panel
+                    ancho y por pestañas se leen bien. */}
+                <div className="tb-settings-tabs" role="tablist">
+                  {(
+                    [
+                      { k: "copias", ic: "💾", label: tr("Copias") },
+                      { k: "logs", ic: "📜", label: tr("Logs de EVE") },
+                      { k: "mapa", ic: "🗺️", label: tr("Mapa") },
+                      { k: "medallas", ic: "🎖️", label: tr("Medallas") },
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t.k}
+                      role="tab"
+                      className={`tb-settings-tab${settingsTab === t.k ? " active" : ""}`}
+                      onClick={() => setSettingsTab(t.k)}
+                    >
+                      {t.ic} {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="tb-settings-tabbody">
+            {settingsTab === "copias" && (
+              <>
               <div className="tb-settings-title small muted">{tr("Datos y copia de seguridad")}</div>
               <button className="tb-settings-item" onClick={handleBackup}>
                 <span className="tb-si-ic">💾</span>
@@ -1643,20 +1680,8 @@ function App() {
                 </div>
               )}
 
-              {/* Logs de EVE: carpeta + escaneo de gamelogs (logi / reconstrucción Fase C).
-                  Al completar un escaneo, las gráficas del gamelog abiertas se refrescan solas. */}
-              <GamelogControl onScanned={() => setGlTick((t) => t + 1)} />
-
-              {/* Medallas de corp pintadas: extraer texturas de la SharedCache del usuario. */}
-              <MedalTexturesControl />
-
-              {/* Red de Ansiblex de la alianza: se PEGA (ESI no la publica) y el piloto confirma
-                  la tabla antes de que se guarde nada. */}
-              <AnsiblexControl />
-
-              {/* Copias automáticas: van DESPUÉS de Logs; la fila es carpeta + frecuencia + retención
-                  en una sola línea (la ruta completa vive en el tooltip del botón, que si no ocupa
-                  un renglón entero para algo que no se lee). */}
+              {/* Copias automáticas: la fila es carpeta + frecuencia + retención en una sola línea
+                  (la ruta completa vive en el tooltip del botón). */}
               <div className="tb-settings-auto">
                 <label className="tb-auto-toggle">
                   <input
@@ -1727,9 +1752,32 @@ function App() {
                 >
                   📂 {tr("Abrir carpeta de datos")}
                 </button>
-                {/* Aviso legal: Koru usa material del juego (texturas de medallas extraídas
-                    de la instalación del propio usuario). La marca va literal; la coletilla, tr(). */}
-                <div className="small muted">
+              </div>
+              </>
+            )}
+
+            {settingsTab === "logs" && (
+              /* Logs de EVE: carpeta + escaneo de gamelogs (logi / reconstrucción Fase C).
+                 Al completar un escaneo, las gráficas del gamelog abiertas se refrescan solas. */
+              <GamelogControl onScanned={() => setGlTick((t) => t + 1)} />
+            )}
+
+            {settingsTab === "mapa" && (
+              /* Red de Ansiblex de la alianza: se PEGA (ESI no la publica) y el piloto confirma. Es
+                 casi configuración fija, por eso vive en Ajustes. Las firmas del escáner, que cambian
+                 cada día, tienen su propia sección «Exploración». */
+              <AnsiblexControl />
+            )}
+
+            {settingsTab === "medallas" && (
+              /* Medallas de corp pintadas: extraer texturas de la SharedCache del usuario. */
+              <MedalTexturesControl />
+            )}
+                </div>
+
+                {/* Aviso legal fijo (fuera de las pestañas): Koru usa material del juego (texturas de
+                    medallas de la instalación del usuario). La marca va literal; la coletilla, tr(). */}
+                <div className="tb-settings-legal small muted">
                   EVE Online © Fenris Creations (FC) — {tr("FC no respalda esta app ni es responsable de ella.")}
                 </div>
               </div>
@@ -2092,6 +2140,12 @@ function App() {
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "logis" && <LogisView subject={subject} />}
+          {tab === "exploracion" && (
+            <ExplorationView
+              hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
+              hereSystemName={isGlobal ? null : cards[subjectId]?.system_name ?? null}
+            />
+          )}
           {tab === "recon" && <ReconView subject={subject} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}

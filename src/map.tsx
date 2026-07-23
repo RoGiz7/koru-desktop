@@ -5,7 +5,8 @@ import { tr } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
-import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, MapScaleLegend, MapTrailLegend, scaleFor } from "./mapOverlays";
+import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, renderSignatures, MapScaleLegend, MapTrailLegend, scaleFor } from "./mapOverlays";
+import type { SignatureSummary, SignatureRow } from "./signatures";
 import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
 import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
@@ -383,6 +384,8 @@ export function MapView(props: {
     setUseAnsiblex,
     useWormholes,
     setUseWormholes,
+    useSigWormholes,
+    setUseSigWormholes,
     avoid,
     toggleAvoid,
     clearAvoid,
@@ -857,6 +860,53 @@ export function MapView(props: {
     if (useWormholes && !theraConns) onNeedThera?.();
   }, [useWormholes, theraConns, onNeedThera]);
 
+  // TUS wormholes escaneados y anotados con destino. Se cargan de la BD local al encender su rutado
+  // (o al abrir la capa de firmas). El destino lo escribiste como texto: aquí se resuelve a sistema.
+  // Se cargan en cuanto hay motivo para necesitarlos: rutando, con su rutado ya encendido, o mirando
+  // la capa de firmas. Cargarlos solo con el toggle encendido sería un pez que se muerde la cola —el
+  // botón «Mis WH» no aparecería nunca, porque depende de que estos datos existan.
+  const [sigWhNotes, setSigWhNotes] = useState<SignatureRow[] | null>(null);
+  useEffect(() => {
+    const wanted = useSigWormholes || overlay === "firmas" || routeActive || jumpActive;
+    if (wanted && sigWhNotes == null) {
+      invoke<SignatureRow[]>("signatures_wormhole_notes").then(setSigWhNotes).catch(() => setSigWhNotes([]));
+    }
+  }, [useSigWormholes, overlay, routeActive, jumpActive, sigWhNotes]);
+
+  // Aristas de ruta a partir de tus wormholes anotados. Mismo modelo que `wh` (adj + trazo + claves),
+  // pero aquí las dos puntas son sistemas REALES: el agujero está en `system_id` y el destino es la
+  // nota resuelta contra el SDE. Validado en Python: dedup del par, descarte de notas que no
+  // resuelven y de bucles, bidireccional, y NO muta `geo.adj` (la alarma nunca ve estos atajos).
+  const sigWh = useMemo(() => {
+    if (!geo || !sigWhNotes || sigWhNotes.length === 0) return null;
+    const adj = new Map<number, number[]>();
+    const keys = new Set<string>();
+    const edges: { a: number; b: number; sigId: string }[] = [];
+    let path = "";
+    let unresolved = 0;
+    for (const w of sigWhNotes) {
+      const dest = w.note ? geo.nameIdx.get(w.note.trim().toLowerCase()) : undefined;
+      if (!dest) {
+        unresolved++;
+        continue; // la nota no es un sistema (p. ej. "C2", "colapsando") → informativa, no arista
+      }
+      if (dest.id === w.system_id) continue; // bucle
+      const k = edgeKey(w.system_id, dest.id);
+      if (keys.has(k)) continue; // dedup del mismo par
+      keys.add(k);
+      (adj.get(w.system_id) ?? adj.set(w.system_id, []).get(w.system_id)!).push(dest.id);
+      (adj.get(dest.id) ?? adj.set(dest.id, []).get(dest.id)!).push(w.system_id);
+      edges.push({ a: w.system_id, b: dest.id, sigId: w.sig_id });
+      const src = geo.idx.get(w.system_id);
+      if (src) {
+        const pa = geo.proj(src);
+        const pb = geo.proj(dest);
+        path += `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}L${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`;
+      }
+    }
+    return { adj, keys, edges, path, unresolved };
+  }, [geo, sigWhNotes]);
+
   // Posición de un sistema del grafo, incluyendo los hubs sintéticos (Thera). Para pintar la ruta
   // y las líneas cuando el camino pasa por un nodo que no está en el SDE.
   const posOf = (sid: number): { px: number; py: number } | null => {
@@ -920,6 +970,18 @@ export function MapView(props: {
   const theraCircles = useMemo(
     () => renderThera(geo, overlay, theraConns),
     [geo, overlay, theraConns],
+  );
+
+  // Capa de FIRMAS escaneadas (tuyas, de la BD local). Se carga sola al activar la capa: es local y
+  // barato, así que no necesita bajar por props desde App como Thera/eve-scout.
+  const [sigSummary, setSigSummary] = useState<SignatureSummary[] | null>(null);
+  useEffect(() => {
+    if (overlay !== "firmas") return;
+    invoke<SignatureSummary[]>("signatures_summary").then(setSigSummary).catch(() => setSigSummary([]));
+  }, [overlay]);
+  const sigCircles = useMemo(
+    () => renderSignatures(geo, overlay, sigSummary, view.z),
+    [geo, overlay, sigSummary, view.z],
   );
 
   // Orígenes de proximidad: sistema del pj + puntos de ancla elegidos (sin duplicados).
@@ -1423,7 +1485,8 @@ export function MapView(props: {
     if (!geo) return null;
     const addAnsi = ansi && useAnsiblex;
     const addWh = wh && useWormholes;
-    if (!addAnsi && !addWh) return geo.adj;
+    const addSigWh = sigWh && useSigWormholes;
+    if (!addAnsi && !addWh && !addSigWh) return geo.adj;
     const merged = new Map(geo.adj);
     const extra = (src: Map<number, number[]>) => {
       for (const [from, tos] of src) {
@@ -1432,8 +1495,9 @@ export function MapView(props: {
     };
     if (addAnsi) extra(ansi!.adj);
     if (addWh) extra(wh!.adj);
+    if (addSigWh) extra(sigWh!.adj);
     return merged;
-  }, [geo, ansi, useAnsiblex, wh, useWormholes]);
+  }, [geo, ansi, useAnsiblex, wh, useWormholes, sigWh, useSigWormholes]);
 
   // Interceptación: mientras esté activa, la ruta la MANDA el objetivo, no las paradas manuales.
   // Origen = tu cazador (personaje activo). Destino = último sistema donde lo vieron. Al moverse él,
@@ -1618,6 +1682,18 @@ export function MapView(props: {
     return legs;
   }, [routePath, wh, useWormholes, geo]);
 
+  // Y para TUS wormholes escaneados: los tramos de la ruta que cruzan un agujero tuyo anotado.
+  const sigWhLegs = useMemo(() => {
+    const legs = new Set<number>();
+    if (!routePath || !sigWh || !useSigWormholes || !geo) return legs;
+    for (let i = 1; i < routePath.length; i++) {
+      const u = routePath[i - 1];
+      const v = routePath[i];
+      if (sigWh.keys.has(edgeKey(u, v)) && !(geo.adj.get(u) ?? []).includes(v)) legs.add(i);
+    }
+    return legs;
+  }, [routePath, sigWh, useSigWormholes, geo]);
+
   // Pestañas disponibles de la tarjeta derecha: solo las que tienen algo que enseñar. Una pestaña
   // vacía es ruido, y si no hay ninguna la tarjeta entera desaparece y el mapa queda limpio.
   const rightTabs = useMemo(() => {
@@ -1735,6 +1811,8 @@ export function MapView(props: {
       ? "Incursiones de Sansha: sistemas infestados (el más grande = staging). Color = estado (rojo establecida · naranja movilizando · amarillo retirándose)."
       : overlay === "wormholes"
       ? "Conexiones de wormhole a Thera/Turnur (datos de eve-scout): sistemas k-space con salida (cian = Thera, naranja = Turnur). El tooltip muestra tipo, tamaño máx y horas restantes."
+      : overlay === "firmas"
+      ? "Tus firmas del escáner de sondas, por sistema (violeta = wormhole con destino anotado · cian = wormhole sin destino · ámbar = firmas sin identificar · gris = todo identificado). Se pegan y guardan en Ajustes → Firmas."
       : overlay === "kills"
       ? "Kills de jugadores en la última hora (datos en vivo de ESI)."
       : overlay === "jumps"
@@ -1792,6 +1870,8 @@ export function MapView(props: {
       ? { value: fmtSp(incursions.length), label: "Incursiones activas" }
       : overlay === "wormholes" && theraConns
       ? { value: fmtSp(theraConns.length), label: "Conexiones Thera/Turnur" }
+      : overlay === "firmas" && sigSummary
+      ? { value: fmtSp(sigSummary.length), label: "Sistemas con firmas" }
       : overlay === "ubicacion"
       ? { value: fmtSp(charLocations?.length ?? 0), label: "Personajes situados" }
       : overlay === "poi"
@@ -2388,6 +2468,15 @@ export function MapView(props: {
                 )}
               </g>
             )}
+            {/* TUS wormholes escaneados con destino, en VIOLETA (el mismo de la capa de firmas): línea
+                directa entre los dos sistemas reales. Se pintan con el rutado por sig-WH encendido, o
+                sobre la capa de firmas para verlos aunque no estés rutando. */}
+            {sigWh && (useSigWormholes || overlay === "firmas") && overlay !== "intel" && (
+              <g className="map-sigwh" fill="none" strokeLinecap="round" pointerEvents="none">
+                <path d={sigWh.path} stroke="#b06bff" strokeWidth={4.5} vectorEffect="non-scaling-stroke" opacity={0.12} />
+                <path d={sigWh.path} stroke="#b06bff" strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeDasharray="5 4" opacity={0.75} />
+              </g>
+            )}
             {/* backdrop de sistemas (memorizado) */}
             {backdropCircles}
             {/* overlay de soberanía (memorizado) */}
@@ -2403,6 +2492,8 @@ export function MapView(props: {
             {/* overlay Incursiones (memorizado) */}
             {incursionCircles}
             {theraCircles}
+            {/* overlay Firmas escaneadas (tuyas, memorizado) */}
+            {sigCircles}
             {/* overlay Intel en vivo (memorizado) */}
             {intelAnchorMarkers}
             {intelTrackLine}
@@ -2515,7 +2606,8 @@ export function MapView(props: {
               // una flecha entre dos sub-líneas señalaría un camino que no existe.
               const runs: { px: number; py: number }[][] = [];
               for (let i = 0; i < routePath.length; i++) {
-                if (i > 0 && whLegs.has(i)) pen = false; // no unir por encima de un salto WH
+                // No unir la línea amarilla por encima de un salto por wormhole (de eve-scout o tuyo).
+                if (i > 0 && (whLegs.has(i) || sigWhLegs.has(i))) pen = false;
                 if (isSynthHub(routePath[i])) {
                   pen = false; // el hub sintético no atrae la línea
                   continue;
@@ -2547,6 +2639,16 @@ export function MapView(props: {
                 if (isSynthHub(routePath[i]) || isSynthHub(routePath[i - 1])) continue; // ya colapsado
                 seg(routePath[i - 1], routePath[i]);
               }
+              // Tramos por TUS wormholes: dos sistemas reales, línea violeta directa. Sin hubs
+              // sintéticos que colapsar, así que es un segmento simple por cada salto.
+              const sigWhD: string[] = [];
+              for (let i = 1; i < routePath.length; i++) {
+                if (!sigWhLegs.has(i)) continue;
+                const pa = posOf(routePath[i - 1]);
+                const pb = posOf(routePath[i]);
+                if (pa && pb)
+                  sigWhD.push(`M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}L${pb.px.toFixed(1)} ${pb.py.toFixed(1)}`);
+              }
               return (
                 <>
                   {yellow && (
@@ -2575,6 +2677,18 @@ export function MapView(props: {
                       strokeWidth={2}
                       vectorEffect="non-scaling-stroke"
                       strokeDasharray="4 3"
+                      strokeLinecap="round"
+                      opacity={0.9}
+                    />
+                  )}
+                  {sigWhD.length > 0 && (
+                    <path
+                      d={sigWhD.join("")}
+                      fill="none"
+                      stroke="#b06bff"
+                      strokeWidth={2}
+                      vectorEffect="non-scaling-stroke"
+                      strokeDasharray="5 4"
                       strokeLinecap="round"
                       opacity={0.9}
                     />
@@ -2789,6 +2903,9 @@ export function MapView(props: {
               : []),
             ...(wh && useWormholes && (routeActive || jumpActive)
               ? [{ color: "#3ad6e0", label: "Wormhole", dash: true }]
+              : []),
+            ...(sigWh && (useSigWormholes || overlay === "firmas") && sigWh.edges.length > 0
+              ? [{ color: "#b06bff", label: tr("Mis WH"), dash: true }]
               : []),
           ]}
         />
@@ -3404,6 +3521,16 @@ export function MapView(props: {
                 {wh ? `(${wh.drawn})` : useWormholes ? tr("cargando…") : ""}
               </span>
             </button>
+            {sigWh && sigWh.edges.length > 0 && (
+              <button
+                className={`intel-hab-track${useSigWormholes ? " active" : ""}`}
+                title={tr("Usar TUS wormholes escaneados con destino anotado al calcular la ruta")}
+                onClick={() => setUseSigWormholes(!useSigWormholes)}
+                style={{ color: useSigWormholes ? "#b06bff" : undefined }}
+              >
+                📡 {tr("Mis WH")} <span className="muted">({sigWh.edges.length})</span>
+              </button>
+            )}
             {routeWaypoints.length > 0 && hereCharId != null && (
               <button
                 className="route-send-eve"
@@ -4078,6 +4205,16 @@ export function MapView(props: {
                   {wh ? `(${wh.drawn})` : useWormholes ? tr("cargando…") : ""}
                 </span>
               </button>
+              {sigWh && sigWh.edges.length > 0 && (
+                <button
+                  className={`intel-hab-track${useSigWormholes ? " active" : ""}`}
+                  title={tr("Usar TUS wormholes escaneados con destino anotado al calcular la ruta")}
+                  onClick={() => setUseSigWormholes(!useSigWormholes)}
+                  style={{ color: useSigWormholes ? "#b06bff" : undefined }}
+                >
+                  📡 {tr("Mis WH")} <span className="muted">({sigWh.edges.length})</span>
+                </button>
+              )}
               {useWormholes && (
                 <button
                   className="route-evescout"
@@ -4170,6 +4307,11 @@ export function MapView(props: {
               {whLegs.size > 0 && (
                 <div className="small" style={{ color: "#3ad6e0" }}>
                   ◆ {tr("La ruta usa wormholes: EVE no los rutea, «Enviar a EVE» pondrá solo el destino final.")}
+                </div>
+              )}
+              {sigWhLegs.size > 0 && (
+                <div className="small" style={{ color: "#b06bff" }}>
+                  📡 {tr("La ruta usa wormholes tuyos: EVE tampoco los rutea, tendrás que dar el salto a mano.")}
                 </div>
               )}
               {routePath && routePath.length > 1 ? (

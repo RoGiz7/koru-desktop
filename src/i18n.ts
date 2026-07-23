@@ -1693,6 +1693,63 @@ const EN: Record<string, string> = {
   "llegas en": "you arrive in",
   "Saltos que tardas TÚ en llegar usando tus Ansiblex. La alarma sigue contando solo puertas: el hostil no puede cruzar tus puentes.":
     "Jumps it takes YOU to get there using your Ansiblexes. The alarm still counts gates only: the hostile cannot cross your bridges.",
+  // --- Rastreador de firmas del escáner de sondas (v0.31, en curso) ---
+  "Firmas del escáner de sondas": "Probe scanner signatures",
+  "El escáner es una ventana del cliente, no un dato de ESI. Selecciona las firmas en el escáner (Ctrl+A), copia (Ctrl+C) y pega aquí. El sistema lo pones tú: el pegado no lo trae.":
+    "The scanner is a client window, not ESI data. Select the signatures in the scanner (Ctrl+A), copy (Ctrl+C) and paste here. You set the system: the paste doesn't carry it.",
+  "(ninguno)": "(none)",
+  "buscar sistema…": "find system…",
+  Elegir: "Pick",
+  "No encuentro el sistema": "Can't find the system",
+  firmas: "signatures",
+  "Sin firmas guardadas en este sistema.": "No signatures saved in this system.",
+  "Pegar escaneo": "Paste scan",
+  "Borrar firmas": "Delete signatures",
+  "Pega aquí el escaneo. Da igual que traiga la cabecera o el «0 filtrado(s)».":
+    "Paste the scan here. It's fine if it brings the header or the '0 filtered'.",
+  wormholes: "wormholes",
+  ID: "ID",
+  "Señal": "Signal",
+  Distancia: "Distance",
+  Confirmar: "Confirm",
+  "Se vuelca el escaneo de este sistema conservando tus notas. Pegar solo anomalías no borra las firmas sondeadas (ni al revés).":
+    "This system's scan is written keeping your notes. Pasting only anomalies won't delete the probed signatures (or vice versa).",
+  Nota: "Note",
+  "destino…": "destination…",
+  "nota…": "note…",
+  "firmas guardadas": "signatures saved",
+  "Firmas del sistema borradas.": "System signatures deleted.",
+  Wormhole: "Wormhole",
+  Reliquias: "Relic",
+  Datos: "Data",
+  Gas: "Gas",
+  Menas: "Ore",
+  // --- Capa de firmas en el mapa ---
+  "Firmas escaneadas (tuyas)": "Scanned signatures (yours)",
+  Firmas: "Signatures",
+  "con destino": "with destination",
+  "sin identificar": "unidentified",
+  "WH con destino": "WH with destination",
+  "WH sin destino": "WH without destination",
+  Identificadas: "Identified",
+  "Sistemas con firmas": "Systems with signatures",
+  "con destino anotado": "with a set destination",
+  "Tus firmas del escáner de sondas, por sistema (violeta = wormhole con destino anotado · cian = wormhole sin destino · ámbar = firmas sin identificar · gris = todo identificado). Se pegan y guardan en Ajustes → Firmas.":
+    "Your probe-scanner signatures, by system (violet = wormhole with a set destination · cyan = wormhole without destination · amber = unidentified signatures · grey = all identified). Paste and save them in Settings → Signatures.",
+  Copias: "Backups",
+  Medallas: "Medals",
+  "Exploración": "Exploration",
+  Minado: "Mining",
+  "Cambiar categoría": "Change category",
+  "nombre…": "name…",
+  "Buscar este sitio en la wiki de EVE University": "Search this site on the EVE University wiki",
+  "Selecciona las firmas en el escáner de sondas del juego (Ctrl+A), cópialas y pégalas aquí. El sistema lo pones tú: el pegado no lo trae. Anota el destino de un wormhole y se convierte en atajo de ruta en el mapa.":
+    "Select the signatures in the game's probe scanner (Ctrl+A), copy them and paste them here. You set the system: the paste doesn't carry it. Annotate a wormhole's destination and it becomes a route shortcut on the map.",
+  "Mis WH": "My WHs",
+  "Usar TUS wormholes escaneados con destino anotado al calcular la ruta":
+    "Use YOUR scanned wormholes with a set destination when plotting the route",
+  "La ruta usa wormholes tuyos: EVE tampoco los rutea, tendrás que dar el salto a mano.":
+    "The route uses your wormholes: EVE won't route those either, you'll have to make the jump yourself.",
 };
 
 export function t(s: string, lang: Lang): string {

@@ -6,6 +6,7 @@ import type { RouteMode } from "./mapRoute";
 
 const ANSI_KEY = "koru-route-ansiblex";
 const WH_KEY = "koru-route-wormholes";
+const SIGWH_KEY = "koru-route-sig-wormholes";
 const AVOID_KEY = "koru-route-avoid";
 
 export function useRoutePlanner() {
@@ -32,6 +33,16 @@ export function useRoutePlanner() {
   const toggleWormholes = (v: boolean) => {
     setUseWormholes(v);
     localStorage.setItem(WH_KEY, v ? "1" : "0");
+  };
+  // Rutar por TUS wormholes escaneados (los que anotaste con destino). OFF por defecto por lo mismo
+  // que los de eve-scout: caducan en el downtime y tienen límite de masa. La diferencia es que estos
+  // los has visto tú con tus ojos, así que valen mientras el agujero siga abierto.
+  const [useSigWormholes, setUseSigWormholes] = useState<boolean>(
+    () => localStorage.getItem(SIGWH_KEY) === "1"
+  );
+  const toggleSigWormholes = (v: boolean) => {
+    setUseSigWormholes(v);
+    localStorage.setItem(SIGWH_KEY, v ? "1" : "0");
   };
   // Sistemas a EVITAR al calcular la ruta (camperos conocidos, chokepoints, sistemas hostiles).
   // Se recuerdan entre sesiones: los sitios por los que no quieres pasar no cambian cada día.
@@ -66,6 +77,8 @@ export function useRoutePlanner() {
     setUseAnsiblex: toggleAnsiblex,
     useWormholes,
     setUseWormholes: toggleWormholes,
+    useSigWormholes,
+    setUseSigWormholes: toggleSigWormholes,
     avoid,
     toggleAvoid,
     clearAvoid,

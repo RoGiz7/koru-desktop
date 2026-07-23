@@ -6,6 +6,7 @@ import { tr } from "./i18n";
 import { FW_FACTIONS } from "./constants";
 import type { MapOverlay } from "./constants";
 import type { NeSystem, NewEden, SovSystem, FwSystem, Incursion, WhConn } from "./types";
+import type { SignatureSummary } from "./signatures";
 
 // ===== Leyenda de escala =====
 // El mapa del juego pone SIEMPRE una leyenda abajo a la izquierda diciendo qué significa el color o
@@ -153,6 +154,17 @@ export function scaleFor(overlay: MapOverlay, max: number): MapScale | null {
           { color: "#e5534b", label: tr("Establecida") },
           { color: "#f0883e", label: tr("Movilizando") },
           { color: "#d29922", label: tr("Retirándose") },
+        ],
+      };
+    case "firmas":
+      return {
+        kind: "cats",
+        label: tr("Firmas"),
+        items: [
+          { color: SIG_LAYER.whNoted, label: tr("WH con destino") },
+          { color: SIG_LAYER.wormhole, label: tr("WH sin destino") },
+          { color: SIG_LAYER.unknown, label: tr("Sin identificar") },
+          { color: SIG_LAYER.known, label: tr("Identificadas") },
         ],
       };
     default:
@@ -377,6 +389,58 @@ export function renderIncursions(
 }
 
 // Wormholes (eve-scout): sistemas con conexión Thera/Turnur.
+/** Colores de la capa de FIRMAS, por prioridad para un cazador/explorador:
+ *  wormhole con destino anotado (arista de ruta) > wormhole sin anotar > firmas sin identificar
+ *  (algo por explorar) > solo firmas identificadas. Un color por SIGNIFICADO, no un heatmap. */
+const SIG_LAYER = {
+  whNoted: "#b06bff", // violeta: wormhole que ya sabes adónde va
+  wormhole: "#3ad6e0", // cian: hay un agujero, sin destino aún (igual que eve-scout)
+  unknown: "#ffb24a", // ámbar: firmas sin escanear del todo = algo por explorar
+  known: "#8b97a8", // gris: todo identificado, nada pendiente
+};
+
+/** Capa «Firmas escaneadas»: marca los sistemas donde el piloto tiene firmas guardadas, coloreados
+ *  por lo más accionable que haya en ellos. Radio con TOPE y trazo en píxeles (mismo criterio de
+ *  legibilidad que el resto del mapa: nada crece sin freno al acercar el zoom). */
+export function renderSignatures(
+  geo: Geo | null,
+  overlay: MapOverlay,
+  summary: SignatureSummary[] | null | undefined,
+  zoom: number,
+) {
+  if (!geo || overlay !== "firmas" || !summary) return null;
+  const r = Math.min(2.4, 7 / Math.max(zoom, 0.001));
+  return summary.map((s) => {
+    const sys = geo.idx.get(s.system_id);
+    if (!sys) return null;
+    const p = geo.proj(sys);
+    const col =
+      s.wh_noted > 0
+        ? SIG_LAYER.whNoted
+        : s.wormholes > 0
+          ? SIG_LAYER.wormhole
+          : s.unknown > 0
+            ? SIG_LAYER.unknown
+            : SIG_LAYER.known;
+    const parts = [
+      `${s.total} ${tr("firmas")}`,
+      s.wormholes > 0 ? `${s.wormholes} 🕳️${s.wh_noted > 0 ? ` (${s.wh_noted} ${tr("con destino")})` : ""}` : "",
+      s.unknown > 0 ? `${s.unknown} ${tr("sin identificar")}` : "",
+    ].filter(Boolean);
+    return (
+      <g key={`sig-${s.system_id}`}>
+        {/* Halo extra si hay wormhole con destino: es lo accionable (arista de ruta). */}
+        {s.wh_noted > 0 && (
+          <circle cx={p.px} cy={p.py} r={r * 1.9} fill="none" stroke={col} strokeOpacity={0.4} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+        )}
+        <circle cx={p.px} cy={p.py} r={r} fill={col} fillOpacity={0.9} stroke="#0a0d12" strokeWidth={0.8} vectorEffect="non-scaling-stroke">
+          <title>{`${sys.n} — ${parts.join(" · ")}`}</title>
+        </circle>
+      </g>
+    );
+  });
+}
+
 export function renderThera(
   geo: Geo | null,
   overlay: MapOverlay,

@@ -2546,6 +2546,41 @@ pub struct JournalImportRow {
     pub reason: Option<String>,
 }
 
+/// Una firma o anomalía del escáner de sondas, ya parseada y asignada a un sistema. El pegado no
+/// trae el sistema (lo pone el piloto). `note` es la anotación del piloto (p. ej. el destino de un
+/// wormhole) y se conserva al re-escanear. Serializa en camelCase-agnóstico: el frontend usa los
+/// mismos nombres snake_case.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SignatureRow {
+    pub system_id: i64,
+    pub sig_id: String,
+    pub sig_group: String,
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub signal_pct: Option<f64>,
+    #[serde(default)]
+    pub distance_au: Option<f64>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub first_seen: String,
+    #[serde(default)]
+    pub last_seen: String,
+}
+
+/// Resumen de firmas por sistema para la capa del mapa. Contadores enteros, sin filas de detalle.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SignatureSummary {
+    pub system_id: i64,
+    pub total: i64,
+    pub wormholes: i64,
+    /// Wormholes con destino anotado = aristas de ruta en potencia.
+    pub wh_noted: i64,
+    pub unknown: i64,
+}
+
 /// Un puente Ansiblex ya resuelto contra el SDE. Par CANÓNICO (a_id < b_id): el wiki lista cada
 /// puente dos veces, una por extremo, pero para el grafo de rutas es una sola arista.
 /// `ly_declared` es lo que decía la fuente y NO se usa para calcular: los años luz buenos salen de
@@ -2904,6 +2939,218 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM ansiblex", [])?;
         Ok(())
+    }
+
+    pub fn signatures_list(&self, system_id: i64) -> AppResult<Vec<SignatureRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT system_id, sig_id, sig_group, kind, name, signal_pct, distance_au, note,
+                    first_seen, last_seen
+             FROM signatures WHERE system_id = ?1 ORDER BY kind, sig_id",
+        )?;
+        let rows = stmt
+            .query_map([system_id], |r| {
+                Ok(SignatureRow {
+                    system_id: r.get(0)?,
+                    sig_id: r.get(1)?,
+                    sig_group: r.get(2)?,
+                    kind: r.get(3)?,
+                    name: r.get(4)?,
+                    signal_pct: r.get(5)?,
+                    distance_au: r.get(6)?,
+                    note: r.get(7)?,
+                    first_seen: r.get(8)?,
+                    last_seen: r.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Vuelca un escaneo de UN sistema. A diferencia de Ansiblex (reemplazo total), aquí:
+    ///  - se hace UPSERT por firma: si la firma ya existía, se conservan `first_seen` y `note`
+    ///    (la anotación del piloto —p. ej. el destino de un wormhole— no se pierde al re-escanear);
+    ///  - se borran las firmas de ESE sistema que ya no aparecen, pero SOLO dentro de los grupos
+    ///    presentes en el pegado. Así, pegar solo la pestaña de anomalías no borra las firmas
+    ///    sondeadas (y viceversa): un escaneo filtrado no arrasa lo que no muestra.
+    /// Todo en una transacción: si algo falla, el sistema queda como estaba.
+    pub fn signatures_replace_system(
+        &self,
+        system_id: i64,
+        rows: &[SignatureRow],
+    ) -> AppResult<usize> {
+        use std::collections::HashSet;
+        let mut conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction()?;
+
+        // Grupos presentes en el pegado (para acotar el borrado a lo que el escaneo SÍ cubre).
+        let has_anomaly = rows.iter().any(|r| r.sig_group == "anomaly");
+        let has_signature = rows.iter().any(|r| r.sig_group == "signature");
+        let new_ids: HashSet<&str> = rows.iter().map(|r| r.sig_id.as_str()).collect();
+
+        // SQL estático + iteración en Rust (más seguro que construir un IN(...) dinámico): saco las
+        // firmas actuales de este sistema y borro las que ya no aparecen, dentro de los grupos que el
+        // pegado cubre. Así, pegar solo anomalías no borra las firmas sondeadas (ni al revés).
+        {
+            let mut sel = tx.prepare(
+                "SELECT sig_id, sig_group FROM signatures WHERE system_id = ?1",
+            )?;
+            let existing: Vec<(String, String)> = sel
+                .query_map([system_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut del = tx.prepare(
+                "DELETE FROM signatures WHERE system_id = ?1 AND sig_id = ?2",
+            )?;
+            for (sig_id, grp) in existing {
+                let group_covered =
+                    (grp == "anomaly" && has_anomaly) || (grp == "signature" && has_signature);
+                if group_covered && !new_ids.contains(sig_id.as_str()) {
+                    del.execute(rusqlite::params![system_id, sig_id])?;
+                }
+            }
+        }
+
+        {
+            // UPSERT: conserva first_seen y note de la fila que ya existía.
+            let mut stmt = tx.prepare(
+                "INSERT INTO signatures
+                     (system_id, sig_id, sig_group, kind, name, signal_pct, distance_au,
+                      note, first_seen, last_seen)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)
+                 ON CONFLICT(system_id, sig_id) DO UPDATE SET
+                     sig_group   = excluded.sig_group,
+                     kind        = excluded.kind,
+                     name        = excluded.name,
+                     signal_pct  = excluded.signal_pct,
+                     distance_au = excluded.distance_au,
+                     last_seen   = excluded.last_seen",
+            )?;
+            for r in rows {
+                stmt.execute(rusqlite::params![
+                    system_id,
+                    r.sig_id,
+                    r.sig_group,
+                    r.kind,
+                    r.name,
+                    r.signal_pct,
+                    r.distance_au,
+                    r.note,
+                    now,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(rows.len())
+    }
+
+    /// Anota una firma (p. ej. el destino de un wormhole). Se guarda aunque `note` sea vacío (= borrar
+    /// la nota). No toca el resto de la fila.
+    pub fn signature_set_note(
+        &self,
+        system_id: i64,
+        sig_id: &str,
+        note: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE signatures SET note = ?3 WHERE system_id = ?1 AND sig_id = ?2",
+            rusqlite::params![system_id, sig_id, note],
+        )?;
+        Ok(())
+    }
+
+    pub fn signatures_clear_system(&self, system_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM signatures WHERE system_id = ?1", [system_id])?;
+        Ok(())
+    }
+
+    /// Nombre del sitio a mano. El escáner lo rellena al sondear del todo, pero el piloto puede
+    /// escribirlo antes (o corregirlo). No toca el resto de la fila.
+    pub fn signature_set_name(&self, system_id: i64, sig_id: &str, name: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE signatures SET name = ?3 WHERE system_id = ?1 AND sig_id = ?2",
+            rusqlite::params![system_id, sig_id, name],
+        )?;
+        Ok(())
+    }
+
+    /// Reclasifica una firma a mano (combate/ore/gas/data/relic/wormhole/unknown). Una firma sin
+    /// identificar llega SIN categoría del escáner; el piloto la clasifica al descubrir qué es. Si
+    /// deja de ser wormhole, se borra su nota de destino (ya no tiene sentido como arista de ruta).
+    pub fn signature_set_kind(&self, system_id: i64, sig_id: &str, kind: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        if kind == "wormhole" {
+            conn.execute(
+                "UPDATE signatures SET kind = ?3 WHERE system_id = ?1 AND sig_id = ?2",
+                rusqlite::params![system_id, sig_id, kind],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE signatures SET kind = ?3, note = NULL WHERE system_id = ?1 AND sig_id = ?2",
+                rusqlite::params![system_id, sig_id, kind],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Resumen por sistema para la CAPA del mapa: cuántas firmas, cuántos wormholes, cuántos de esos
+    /// wormholes tienen destino anotado (= arista de ruta en potencia) y cuántas firmas siguen sin
+    /// identificar. Un solo GROUP BY: barato aunque el piloto tenga cientos de sistemas escaneados.
+    pub fn signatures_summary(&self) -> AppResult<Vec<SignatureSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT system_id,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN kind = 'wormhole' THEN 1 ELSE 0 END) AS wormholes,
+                    SUM(CASE WHEN kind = 'wormhole' AND note IS NOT NULL AND note <> ''
+                             THEN 1 ELSE 0 END) AS wh_noted,
+                    SUM(CASE WHEN kind = 'unknown' THEN 1 ELSE 0 END) AS unknown
+             FROM signatures GROUP BY system_id",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(SignatureSummary {
+                    system_id: r.get(0)?,
+                    total: r.get(1)?,
+                    wormholes: r.get(2)?,
+                    wh_noted: r.get(3)?,
+                    unknown: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Todos los wormholes CON destino anotado (de cualquier sistema), para construir las aristas de
+    /// ruta. El destino se resuelve a sistema en el frontend (tiene el SDE). Fase 2b.
+    pub fn signatures_wormhole_notes(&self) -> AppResult<Vec<SignatureRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT system_id, sig_id, sig_group, kind, name, signal_pct, distance_au, note,
+                    first_seen, last_seen
+             FROM signatures
+             WHERE kind = 'wormhole' AND note IS NOT NULL AND note <> ''",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(SignatureRow {
+                    system_id: r.get(0)?,
+                    sig_id: r.get(1)?,
+                    sig_group: r.get(2)?,
+                    kind: r.get(3)?,
+                    name: r.get(4)?,
+                    signal_pct: r.get(5)?,
+                    distance_au: r.get(6)?,
+                    note: r.get(7)?,
+                    first_seen: r.get(8)?,
+                    last_seen: r.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     pub fn location_system_clear_negative(&self) -> usize {

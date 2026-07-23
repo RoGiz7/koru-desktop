@@ -27,6 +27,7 @@ export type Tab =
   | "diario"
   | "freelance"
   | "logis"
+  | "exploracion"
   | "recon"
   | "lealtad";
 
@@ -128,6 +129,15 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     typeId: 11978, // Scimitar (nave de logi)
     subs: [{ key: "logis", label: "Logis" }],
   },
+  {
+    // Exploración: firmas y anomalías del escáner de sondas. Va aquí y NO en Ajustes (donde sí se
+    // queda Ansiblex, que es casi configuración) porque las firmas CAMBIAN cada día — enterrarlas en
+    // ajustes era poco intuitivo. De un vistazo: combate, minado, exploración y wormholes.
+    group: "Exploración",
+    icon: "📡",
+    typeId: 30752, // Sondas de escaneo Core Scanner Probe
+    subs: [{ key: "exploracion", label: "Exploración" }],
+  },
 ];
 
 export type MapOverlay =
@@ -147,6 +157,7 @@ export type MapOverlay =
   | "agentes"
   | "corps_npc"
   | "wormholes"
+  | "firmas"
   | "intel";
 
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
@@ -243,6 +254,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
     title: "Logis",
     subtitle: "Reparación remota (dada y recibida) reconstruida de tu histórico de combate local",
   },
+  exploracion: {
+    title: "Exploración",
+    subtitle: "Tus firmas del escáner de sondas por sistema: combate, minado, exploración y wormholes. Pega el escaneo y anota los agujeros",
+  },
   recon: {
     title: "Reconstrucción",
     subtitle: "Minería, rateo y viaje reconstruidos de tu histórico de gamelog local (años que ESI no guarda)",
@@ -335,4 +350,5 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "intel", label: "Intel en vivo (chat)", short: "Intel", icon: "🚨", cat: "vivo" },
   { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", cat: "vivo" },
   { key: "wormholes", label: "Wormholes Thera/Turnur", short: "Wormholes", icon: "🕳️", cat: "vivo" },
+  { key: "firmas", label: "Firmas escaneadas (tuyas)", short: "Firmas", icon: "📡", cat: "vivo" },
 ];
