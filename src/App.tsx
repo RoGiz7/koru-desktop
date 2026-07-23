@@ -2003,7 +2003,21 @@ function App() {
                   {g.imgSrc ? (
                     <img className="navg-img navg-bw" src={g.imgSrc} alt="" loading="lazy" />
                   ) : g.typeId ? (
-                    <img className="navg-img" src={typeIcon(g.typeId)} alt="" loading="lazy" />
+                    <img
+                      className="navg-img"
+                      src={typeIcon(g.typeId)}
+                      alt=""
+                      loading="lazy"
+                      onError={(e) => {
+                        // typeID sin icono en el image server (o mal puesto) → caer al emoji del
+                        // grupo en vez de dejar la imagen rota. Reemplaza el <img> por el emoji.
+                        const img = e.currentTarget;
+                        const span = document.createElement("span");
+                        span.className = "navg-ico";
+                        span.textContent = g.icon;
+                        img.replaceWith(span);
+                      }}
+                    />
                   ) : (
                     <span className="navg-ico">{g.icon}</span>
                   )}{" "}

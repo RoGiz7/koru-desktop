@@ -5,9 +5,12 @@
 // Diseño: documentacion/koru-desktop-EXPLORACION_HISTORICO_diseno.md. RoGiz7, 2026-07-23.
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtIsk } from "./format";
-import { KIND_META, parseIskShorthand, fmtDuration } from "./signaturesControl";
+import { KIND_META, fmtDuration } from "./signaturesControl";
+import { parseIskShorthand } from "./lootPaste";
+import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import type { SigKind } from "./signatures";
 import type { ExplorationLogRow } from "./types";
 
@@ -32,6 +35,11 @@ export function ExplorationLogView({ charId }: Props) {
   const [editIsk, setEditIsk] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editLoot, setEditLoot] = useState("");
+  // Traductor ES→EN de nombres de sitio, para los enlaces a wikis. Ver siteNames.ts.
+  const [dungeonIdx, setDungeonIdx] = useState<DungeonIndex>(new Map());
+  useEffect(() => {
+    buildDungeonIndex().then(setDungeonIdx);
+  }, []);
 
   async function load() {
     try {
@@ -210,7 +218,22 @@ export function ExplorationLogView({ charId }: Props) {
                   <td style={{ whiteSpace: "nowrap" }} title={tr(kindMeta(r.kind).label)}>
                     {kindMeta(r.kind).icon} {tr(kindMeta(r.kind).label)}
                   </td>
-                  <td>{r.name || <span className="muted">—</span>}</td>
+                  <td>
+                    {r.name ? (
+                      <span className="sig-name-cell">
+                        {r.name}
+                        <button
+                          className="sig-wiki-link"
+                          title={`${tr("Buscar en la wiki de EVE University")}: ${siteNameEn(r.name, dungeonIdx)}`}
+                          onClick={() => openUrl(siteWikiUrl(r.name, dungeonIdx))}
+                        >
+                          ↗
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   {editId === r.id ? (
                     <>
                       <td style={{ textAlign: "right" }}>

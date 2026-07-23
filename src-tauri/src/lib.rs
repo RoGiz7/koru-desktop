@@ -190,6 +190,7 @@ pub fn run() {
             commands::signature_set_name,
             commands::signature_set_entered,
             commands::signatures_clear_system,
+            commands::signature_delete,
             commands::signatures_summary,
             commands::signatures_wormhole_notes,
             commands::signatures_systems,

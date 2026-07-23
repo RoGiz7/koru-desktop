@@ -4,7 +4,7 @@
 // confirma. La diferencia es que aquí el pegado pertenece a UN sistema (el escáner no lo dice), y no
 // se reemplaza todo: se hace upsert por firma conservando las anotaciones del piloto (el destino de
 // un wormhole, sobre todo). Ver `signatures.ts` (parser) y `db/mod.rs::signatures_replace_system`.
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
@@ -12,6 +12,9 @@ import { tr } from "./i18n";
 import { loadNewEden } from "./neweden";
 import { parseSignaturePaste, type ParsedSignature, type SignatureRow, type SigKind } from "./signatures";
 import type { NeSystem } from "./types";
+import { buildLootIndex, type LootIndex } from "./lootPaste";
+import { LootPasteModal } from "./lootPasteModal";
+import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 
 /** Etiqueta e icono por tipo de sitio. El wormhole va primero y marcado: es el que engancha con las
  *  rutas. `unknown` = firma aún sin identificar (poca señal). */
@@ -40,20 +43,6 @@ export function fmtDist(au: number | null): string {
   if (au == null) return "—";
   if (au < 0.01) return `${Math.round(au * 149_597_870.7)} km`;
   return `${au.toFixed(2)} AU`;
-}
-
-/** Interpreta un valor de ISK cómodo: "45m" = 45.000.000, "1,2b" = 1.200.000.000, "500k" = 500.000,
- *  o un número plano ("45000000"). Acepta coma o punto decimal (cliente ES/EN). Devuelve null si está
- *  vacío o no se entiende (loot opcional). */
-export function parseIskShorthand(s: string): number | null {
-  const t = s.trim().toLowerCase().replace(/\s/g, "");
-  if (!t) return null;
-  const m = t.match(/^([0-9]*[.,]?[0-9]+)\s*([kmb])?$/);
-  if (!m) return null;
-  const n = parseFloat(m[1].replace(",", "."));
-  if (!isFinite(n)) return null;
-  const mult = m[2] === "b" ? 1e9 : m[2] === "m" ? 1e6 : m[2] === "k" ? 1e3 : 1;
-  return Math.round(n * mult);
 }
 
 /** Duración legible entre dos instantes ISO: "45s", "12m", "1h 05m". Null si falta alguno. */
@@ -107,10 +96,19 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
   const [report, setReport] = useState<{ ignored: number; ignoredSample: string[]; wormholes: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  // Mini-form de "marcar hecha": la fila que se está cerrando y el botín tecleado (opcional).
-  const [markingId, setMarkingId] = useState<string | null>(null);
-  const [lootIsk, setLootIsk] = useState("");
-  const [lootNote, setLootNote] = useState("");
+  // Cierre de sitios: firmas seleccionadas (checkbox) + modal de botín. Un solo flujo cubre cerrar un
+  // sitio (desde la nave) o varios a la vez (loot acumulado en estación → reparto a partes iguales).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lootOpen, setLootOpen] = useState(false);
+  const [lootIndex, setLootIndex] = useState<LootIndex>(new Map());
+  // Traductor de nombres de sitio ES→EN, para los enlaces a wikis. Ver siteNames.ts.
+  const [dungeonIdx, setDungeonIdx] = useState<DungeonIndex>(new Map());
+
+  // Índices cargados una vez y cacheados: loot (nombre→typeID) y sitios (ES→EN para las wikis).
+  useEffect(() => {
+    buildLootIndex().then(setLootIndex);
+    buildDungeonIndex().then(setDungeonIdx);
+  }, []);
 
   // Índice de nombres del SDE, para resolver el sistema tecleado y para nombrar los del selector
   // (una sola carga, cacheada). Se construyen los dos sentidos: nombre→sistema e id→nombre.
@@ -269,30 +267,72 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
     }
   }
 
-  // Marcar una firma como HECHA: entra al histórico (permanente) con su botín y desaparece de
-  // Pendientes (el backend la oculta; se puede deshacer desde el Histórico). El personaje activo se
-  // sella en la entrada. `system_name` lo aporta el frontend (el backend solo guarda system_id).
-  async function markDone(row: SignatureRow) {
-    if (sysId == null) return;
+  function toggleSelect(sigId: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(sigId)) n.delete(sigId);
+      else n.add(sigId);
+      return n;
+    });
+  }
+
+  // Descartar las firmas seleccionadas: desaparecieron (las hizo otro, caducaron) o te equivocaste.
+  // NO van al histórico —no las hiciste tú—: solo se borran de Pendientes. Con confirmación porque es
+  // irreversible (aunque, si la firma sigue viva, reaparece al re-pegar el escaneo).
+  async function deleteSelected() {
+    if (sysId == null || selected.size === 0) return;
+    const n = selected.size;
+    const ok = await dialogConfirm(
+      `${tr("¿Descartar")} ${n} ${n === 1 ? tr("firma") : tr("firmas")}? ${tr("No van al histórico (no las hiciste tú).")}`,
+      { title: tr("Descartar firmas"), kind: "warning" },
+    );
+    if (!ok) return;
     setBusy(true);
     setMsg("");
     try {
-      await invoke<number>("signature_mark_done", {
-        systemId: sysId,
-        systemName: sysName,
-        sigId: row.sig_id,
-        lootIsk: parseIskShorthand(lootIsk),
-        lootNote: lootNote.trim() || null,
-        note: row.note?.trim() || null,
-        characterId: charId ?? null,
-      });
-      // Fuera de Pendientes (el backend ya la marcó con done_log_id).
-      setSaved((prev) => prev.filter((r) => r.sig_id !== row.sig_id));
+      for (const sigId of selected) {
+        await invoke("signature_delete", { systemId: sysId, sigId });
+      }
+      setSaved((prev) => prev.filter((r) => !selected.has(r.sig_id)));
       reloadSystems();
-      setMarkingId(null);
-      setLootIsk("");
-      setLootNote("");
-      setMsg(`✓ ${row.sig_id} ${tr("al histórico")}`);
+      setSelected(new Set());
+      setMsg(`🗑 ${n} ${n === 1 ? tr("firma descartada") : tr("firmas descartadas")}`);
+    } catch (e) {
+      setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Marcar como HECHOS los sitios SELECCIONADOS: cada uno entra al histórico (permanente) con su
+  // parte del botín y desaparece de Pendientes (el backend lo oculta; se deshace desde el Histórico).
+  // El botín total del modal se REPARTE a partes iguales entre los N (aproximado a propósito cuando
+  // acumulas loot de varias anomalías). La nota del sitio (destino WH, etc.) se conserva por sitio.
+  async function markSelectedDone(totalIsk: number | null, lootNote: string) {
+    if (sysId == null || selected.size === 0) return;
+    const rows = saved.filter((r) => selected.has(r.sig_id));
+    const n = rows.length;
+    const share = totalIsk != null ? totalIsk / n : null;
+    const noteBase = n > 1 ? `${tr("Lote de")} ${n}${lootNote ? ` · ${lootNote}` : ""}` : lootNote || null;
+    setBusy(true);
+    setMsg("");
+    try {
+      for (const row of rows) {
+        await invoke<number>("signature_mark_done", {
+          systemId: sysId,
+          systemName: sysName,
+          sigId: row.sig_id,
+          lootIsk: share,
+          lootNote: noteBase,
+          note: row.note?.trim() || null,
+          characterId: charId ?? null,
+        });
+      }
+      setSaved((prev) => prev.filter((r) => !selected.has(r.sig_id)));
+      reloadSystems();
+      setSelected(new Set());
+      setLootOpen(false);
+      setMsg(`✓ ${n} ${n === 1 ? tr("sitio") : tr("sitios")} ${tr("al histórico")}`);
     } catch (e) {
       setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
     } finally {
@@ -514,6 +554,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                 <table className="small sig-table">
                   <thead>
                     <tr className="sig-th">
+                      <th style={{ width: 22 }}></th>
                       <th onClick={() => clickSort("id")}>{tr("ID")}{arrow("id")}</th>
                       <th>{tr("Tipo")}</th>
                       <th onClick={() => clickSort("name")}>{tr("Nombre")}{arrow("name")}</th>
@@ -529,8 +570,15 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                   </thead>
                   <tbody>
                     {sortRows(rows).map((r) => (
-                      <Fragment key={r.sig_id}>
-                      <tr>
+                      <tr key={r.sig_id} className={selected.has(r.sig_id) ? "sig-row-sel" : ""}>
+                        <td style={{ textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(r.sig_id)}
+                            onChange={() => toggleSelect(r.sig_id)}
+                            title={tr("Seleccionar para marcar hecha")}
+                          />
+                        </td>
                         <td style={{ fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.sig_id}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           {/* Desplegable de categoría: la firma nueva llega sin tipo; lo pones al
@@ -564,12 +612,8 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                             {r.name && (
                               <button
                                 className="sig-wiki-link"
-                                title={tr("Buscar este sitio en la wiki de EVE University")}
-                                onClick={() =>
-                                  openUrl(
-                                    `https://wiki.eveuniversity.org/index.php?search=${encodeURIComponent(r.name)}`,
-                                  )
-                                }
+                                title={`${tr("Buscar en la wiki de EVE University")}: ${siteNameEn(r.name, dungeonIdx)}`}
+                                onClick={() => openUrl(siteWikiUrl(r.name, dungeonIdx))}
                               >
                                 ↗
                               </button>
@@ -611,51 +655,10 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                               ▶ {tr("Entrar")}
                             </button>
                           )}
-                          {/* Marcar hecha: abre el mini-form de botín en una fila desplegada debajo.
-                              La firma pasa al Histórico y sale de aquí (se puede deshacer allí). */}
-                          <button
-                            className="sig-done-btn"
-                            title={tr("Marcar como hecha y registrar el botín")}
-                            onClick={() => {
-                              setLootIsk("");
-                              setLootNote("");
-                              setMarkingId((id) => (id === r.sig_id ? null : r.sig_id));
-                            }}
-                          >
-                            ✓ {tr("Hecha")}
-                          </button>
+                          {/* Para marcar HECHA: selecciona la fila (checkbox) y usa la barra de abajo
+                              «✓ Hechas (N)», que abre el modal de botín (una o varias a la vez). */}
                         </td>
                       </tr>
-                      {markingId === r.sig_id && (
-                        <tr className="sig-done-form">
-                          <td colSpan={7}>
-                            <div className="sig-done-inner">
-                              <span className="small muted">{tr("Botín")}:</span>
-                              <input
-                                className="small"
-                                value={lootIsk}
-                                onChange={(e) => setLootIsk(e.target.value)}
-                                placeholder={tr("ISK (p.ej. 45m)")}
-                                style={{ width: 110 }}
-                              />
-                              <input
-                                className="small"
-                                value={lootNote}
-                                onChange={(e) => setLootNote(e.target.value)}
-                                placeholder={tr("qué cayó (opcional)")}
-                                style={{ flex: 1, minWidth: 120 }}
-                              />
-                              <button className="pp-add" onClick={() => markDone(r)} disabled={busy}>
-                                ✓ {tr("Confirmar")}
-                              </button>
-                              <button className="pp-add" onClick={() => setMarkingId(null)} disabled={busy}>
-                                {tr("Cancelar")}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -664,6 +667,34 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
           })}
         </div>
       )}
+
+      {/* Barra de cierre en lote: aparece al seleccionar ≥1 firma. «✓ Hechas (N)» abre el modal de
+          botín; con varias, el total se reparte a partes iguales entre ellas. */}
+      {!preview && selected.size > 0 && (
+        <div className="sig-batch-bar">
+          <span className="small">
+            {selected.size} {selected.size === 1 ? tr("seleccionada") : tr("seleccionadas")}
+          </span>
+          <button className="pp-add" onClick={() => setLootOpen(true)} disabled={busy}>
+            ✓ {tr("Hechas")} ({selected.size})
+          </button>
+          <button className="pp-add sig-del-btn" onClick={deleteSelected} disabled={busy}>
+            🗑 {tr("Eliminar")} ({selected.size})
+          </button>
+          <button className="pp-add" onClick={() => setSelected(new Set())} disabled={busy}>
+            {tr("Quitar selección")}
+          </button>
+        </div>
+      )}
+
+      <LootPasteModal
+        open={lootOpen}
+        siteCount={selected.size}
+        index={lootIndex}
+        busy={busy}
+        onCancel={() => setLootOpen(false)}
+        onConfirm={(isk, note) => markSelectedDone(isk, note)}
+      />
 
       {msg && <div className="small muted">{msg}</div>}
     </div>

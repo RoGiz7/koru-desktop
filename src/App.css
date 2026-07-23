@@ -4427,6 +4427,91 @@ h4 {
   padding: 0.15rem 0.3rem;
   vertical-align: top;
 }
+/* Fila de firma seleccionada para cerrar en lote. */
+.sig-row-sel {
+  background: var(--accent, #34507a);
+}
+/* Barra de cierre en lote (aparece al seleccionar firmas). */
+.sig-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--accent-border, #4f9cff);
+  border-radius: 6px;
+  background: var(--panel-2, rgba(79, 156, 255, 0.08));
+}
+/* Botón «Eliminar» de la barra de lote: acción destructiva → rojo al pasar. */
+.sig-del-btn:hover {
+  color: var(--err, #e5534b);
+  border-color: var(--err, #e5534b);
+}
+/* ---- Modal flotante de botín ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+.loot-modal {
+  width: min(560px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, #12171f);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.loot-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.loot-modal-x {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.loot-modal-x:hover {
+  color: var(--err, #e5534b);
+}
+.loot-modal-paste {
+  width: 100%;
+  font-family: monospace;
+  font-size: 11px;
+  resize: vertical;
+}
+.loot-modal-items {
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.loot-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.loot-modal-total {
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+.loot-modal-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
 
 .tb-settings-title {
   padding: 0.2rem 0.4rem 0.1rem;

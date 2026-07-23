@@ -136,7 +136,10 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     // ajustes era poco intuitivo. De un vistazo: combate, minado, exploración y wormholes.
     group: "Exploración",
     icon: "📡",
-    typeId: 30752, // Sondas de escaneo Core Scanner Probe
+    // OJO: el 30752 de antes era "Intact Hull Section" (salvage), no una sonda → icono roto (sin
+    // variante en el image server). El bueno es la Sisters Core Scanner Probe 30488, que además ya
+    // se renderiza en la Bitácora (medalla «Nómada»), así que es seguro. Reserva: emoji 📡.
+    typeId: 30488, // Sisters Core Scanner Probe (sonda de exploración)
     subs: [
       // Pendientes: las firmas VIVAS del escáner (caducan en el downtime). Pegar → clasificar →
       // anotar → marcar «hecha».

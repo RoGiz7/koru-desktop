@@ -3126,6 +3126,18 @@ impl Db {
         Ok(())
     }
 
+    /// Descarta UNA firma viva (desapareció: la hizo otro, caducó, o te equivocaste). NO va al
+    /// histórico —no la hiciste tú—: solo se borra de Pendientes. Irreversible (es dato vivo; si sigue
+    /// existiendo reaparece al re-pegar el escaneo).
+    pub fn signature_delete(&self, system_id: i64, sig_id: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM signatures WHERE system_id = ?1 AND sig_id = ?2",
+            rusqlite::params![system_id, sig_id],
+        )?;
+        Ok(())
+    }
+
     /// Nombre del sitio a mano. El escáner lo rellena al sondear del todo, pero el piloto puede
     /// escribirlo antes (o corregirlo). No toca el resto de la fila.
     pub fn signature_set_name(&self, system_id: i64, sig_id: &str, name: &str) -> AppResult<()> {

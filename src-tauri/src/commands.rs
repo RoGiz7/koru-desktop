@@ -736,6 +736,12 @@ pub fn signatures_clear_system(state: State<'_, AppState>, system_id: i64) -> Ap
     state.db.signatures_clear_system(system_id)
 }
 
+/// Descarta una firma viva (desapareció / caducó / la hizo otro). NO va al histórico.
+#[tauri::command]
+pub fn signature_delete(state: State<'_, AppState>, system_id: i64, sig_id: String) -> AppResult<()> {
+    state.db.signature_delete(system_id, &sig_id)
+}
+
 #[tauri::command]
 pub fn signature_set_kind(
     state: State<'_, AppState>,
