@@ -251,8 +251,17 @@ plan, hechos y publicados; después, una tanda de LEGIBILIDAD que igualó el lis
   (`trailMin`) y leyenda de trazos que solo lista lo visible (`MapTrailLegend`).
 - ⏸️ Ansiblex «Todos / Con acceso / Ninguno» (el juego distingue los que puedes cruzar) — esperar a
   la ACL solo-alianza de septiembre 2026.
-- 💤 **Anomalías/firmas** (idea de RoGiz7, sin empezar): pegar firmas del escáner de sondas, guardar
-  por sistema y anotar. Sinergia: los WH auto-escaneados como aristas de ruta.
+- ✅ **Sección EXPLORACIÓN** (commit `3f3f3d1`, sin release): rastreador de firmas del escáner de
+  sondas. Pegar→clasificar→anotar por sistema (`signatures.ts` + `signaturesControl.tsx` +
+  `exploration.tsx`), lista en cubos (WH/combate/exploración/minado/sin identificar), reclasificar y
+  nombre editables, cabeceras ordenables, enlace a wiki. **Capa `firmas` en el mapa** y **WH anotado
+  con destino → arista de ruta** (toggle «Mis WH»). Tabla `signatures` (upsert por firma conserva
+  notas). Ansiblex se queda en Ajustes (config fija); Ajustes reorganizado en 4 pestañas.
+  - **SIGUIENTE (acordado): firmas → TAREAS + HISTÓRICO** — marcar «hecha» con fecha + loot, tabla
+    `exploration_log` permanente (las firmas vivas caducan en downtime). Enlaza con medallas de
+    explorador y la Bitácora. Diseño en frío antes de construir.
+  - Pendientes: nombre en INGLÉS para wikis (nombres de dungeon, NO en el SDE — solo localización del
+    cliente); desplegable de tipo de WH (catálogo ~98); combat scanner probes (necesita muestra real).
 6. De EVE Carbon aún sin adoptar: calculadora de refinado/ore · biblioteca de blueprints ME/TE
    (ligada a Fabricación) · timers de PI (Planetología hoy es básica).
 
