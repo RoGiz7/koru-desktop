@@ -28,6 +28,7 @@ export type Tab =
   | "freelance"
   | "logis"
   | "exploracion"
+  | "exploracion_log"
   | "recon"
   | "lealtad";
 
@@ -136,7 +137,14 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     group: "Exploración",
     icon: "📡",
     typeId: 30752, // Sondas de escaneo Core Scanner Probe
-    subs: [{ key: "exploracion", label: "Exploración" }],
+    subs: [
+      // Pendientes: las firmas VIVAS del escáner (caducan en el downtime). Pegar → clasificar →
+      // anotar → marcar «hecha».
+      { key: "exploracion", label: "Pendientes" },
+      // Histórico: lo que YA hiciste (permanente). Marcar una firma «hecha» la mueve aquí con su
+      // botín y fecha. De aquí salen las estadísticas de exploración.
+      { key: "exploracion_log", label: "Histórico" },
+    ],
   },
 ];
 
@@ -255,8 +263,12 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
     subtitle: "Reparación remota (dada y recibida) reconstruida de tu histórico de combate local",
   },
   exploracion: {
-    title: "Exploración",
-    subtitle: "Tus firmas del escáner de sondas por sistema: combate, minado, exploración y wormholes. Pega el escaneo y anota los agujeros",
+    title: "Exploración — Pendientes",
+    subtitle: "Tus firmas VIVAS del escáner por sistema: combate, minado, exploración y wormholes. Pega el escaneo, anota los agujeros y marca «hecha» lo que corras",
+  },
+  exploracion_log: {
+    title: "Exploración — Histórico",
+    subtitle: "Lo que YA exploraste: sitios completados con su botín y fecha. Permanente (no caduca en el downtime) y con estadísticas de tu exploración",
   },
   recon: {
     title: "Reconstrucción",

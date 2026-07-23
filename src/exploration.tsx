@@ -13,9 +13,11 @@ type Props = {
   /** Sistema donde está el personaje ahora, si se conoce: sistema por defecto del pegado. */
   hereSystemId?: number | null;
   hereSystemName?: string | null;
+  /** Personaje activo (Global = null): se sella en el histórico al marcar una firma «hecha». */
+  charId?: number | null;
 };
 
-export function ExplorationView({ hereSystemId, hereSystemName }: Props) {
+export function ExplorationView({ hereSystemId, hereSystemName, charId }: Props) {
   return (
     <div className="exploration-view">
       <p className="muted small explo-intro">
@@ -23,7 +25,11 @@ export function ExplorationView({ hereSystemId, hereSystemName }: Props) {
           "Selecciona las firmas en el escáner de sondas del juego (Ctrl+A), cópialas y pégalas aquí. El sistema lo pones tú: el pegado no lo trae. Anota el destino de un wormhole y se convierte en atajo de ruta en el mapa."
         )}
       </p>
-      <SignaturesControl initialSystemId={hereSystemId} initialSystemName={hereSystemName} />
+      <SignaturesControl
+        initialSystemId={hereSystemId}
+        initialSystemName={hereSystemName}
+        charId={charId}
+      />
     </div>
   );
 }

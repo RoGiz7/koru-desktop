@@ -4,9 +4,10 @@
 // confirma. La diferencia es que aquí el pegado pertenece a UN sistema (el escáner no lo dice), y no
 // se reemplaza todo: se hace upsert por firma conservando las anotaciones del piloto (el destino de
 // un wormhole, sobre todo). Ver `signatures.ts` (parser) y `db/mod.rs::signatures_replace_system`.
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { tr } from "./i18n";
 import { loadNewEden } from "./neweden";
 import { parseSignaturePaste, type ParsedSignature, type SignatureRow, type SigKind } from "./signatures";
@@ -14,7 +15,7 @@ import type { NeSystem } from "./types";
 
 /** Etiqueta e icono por tipo de sitio. El wormhole va primero y marcado: es el que engancha con las
  *  rutas. `unknown` = firma aún sin identificar (poca señal). */
-const KIND_META: Record<SigKind, { icon: string; label: string }> = {
+export const KIND_META: Record<SigKind, { icon: string; label: string }> = {
   wormhole: { icon: "🕳️", label: "Wormhole" },
   combat: { icon: "⚔️", label: "Combate" },
   relic: { icon: "🏺", label: "Reliquias" },
@@ -35,20 +36,63 @@ const BUCKETS: { key: string; icon: string; label: string; kinds: SigKind[] }[] 
   { key: "nd", icon: "❔", label: "Sin identificar", kinds: ["unknown"] },
 ];
 
-function fmtDist(au: number | null): string {
+export function fmtDist(au: number | null): string {
   if (au == null) return "—";
   if (au < 0.01) return `${Math.round(au * 149_597_870.7)} km`;
   return `${au.toFixed(2)} AU`;
+}
+
+/** Interpreta un valor de ISK cómodo: "45m" = 45.000.000, "1,2b" = 1.200.000.000, "500k" = 500.000,
+ *  o un número plano ("45000000"). Acepta coma o punto decimal (cliente ES/EN). Devuelve null si está
+ *  vacío o no se entiende (loot opcional). */
+export function parseIskShorthand(s: string): number | null {
+  const t = s.trim().toLowerCase().replace(/\s/g, "");
+  if (!t) return null;
+  const m = t.match(/^([0-9]*[.,]?[0-9]+)\s*([kmb])?$/);
+  if (!m) return null;
+  const n = parseFloat(m[1].replace(",", "."));
+  if (!isFinite(n)) return null;
+  const mult = m[2] === "b" ? 1e9 : m[2] === "m" ? 1e6 : m[2] === "k" ? 1e3 : 1;
+  return Math.round(n * mult);
+}
+
+/** Duración legible entre dos instantes ISO: "45s", "12m", "1h 05m". Null si falta alguno. */
+export function fmtDuration(fromIso?: string | null, toIso?: string | null): string | null {
+  if (!fromIso || !toIso) return null;
+  const ms = new Date(toIso).getTime() - new Date(fromIso).getTime();
+  if (!isFinite(ms) || ms < 0) return null;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** Hora local corta "HH:MM" de un instante ISO. */
+export function fmtClock(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 type Props = {
   /** Sistema al que asignar el pegado. Si no viene, el piloto lo busca por nombre. */
   initialSystemId?: number | null;
   initialSystemName?: string | null;
+  /** Personaje activo, si lo hay: se sella en el histórico al marcar «hecha» (Global = null). */
+  charId?: number | null;
 };
 
-export function SignaturesControl({ initialSystemId, initialSystemName }: Props) {
+/** Un sistema con firmas pendientes (para el selector rápido). Espejo de db::SignatureSystem. */
+type SigSystem = { system_id: number; pending: number };
+
+export function SignaturesControl({ initialSystemId, initialSystemName, charId }: Props) {
   const [byName, setByName] = useState<Map<string, NeSystem> | null>(null);
+  // Índice inverso id→nombre, para poner nombre a los sistemas del selector de "ya trabajados".
+  const [byId, setById] = useState<Map<number, string>>(new Map());
+  // Sistemas donde ya tienes firmas pendientes: se eligen del desplegable sin teclear el nombre.
+  const [systems, setSystems] = useState<SigSystem[]>([]);
   const [sysId, setSysId] = useState<number | null>(initialSystemId ?? null);
   const [sysName, setSysName] = useState<string>(initialSystemName ?? "");
   const [search, setSearch] = useState("");
@@ -63,13 +107,31 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
   const [report, setReport] = useState<{ ignored: number; ignoredSample: string[]; wormholes: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // Mini-form de "marcar hecha": la fila que se está cerrando y el botín tecleado (opcional).
+  const [markingId, setMarkingId] = useState<string | null>(null);
+  const [lootIsk, setLootIsk] = useState("");
+  const [lootNote, setLootNote] = useState("");
 
-  // Índice de nombres del SDE, para resolver el sistema tecleado (una sola carga, cacheada).
+  // Índice de nombres del SDE, para resolver el sistema tecleado y para nombrar los del selector
+  // (una sola carga, cacheada). Se construyen los dos sentidos: nombre→sistema e id→nombre.
   useEffect(() => {
     loadNewEden()
-      .then((ne) => setByName(new Map(ne.systems.map((s) => [s.n.toLowerCase(), s]))))
-      .catch(() => setByName(new Map()));
+      .then((ne) => {
+        setByName(new Map(ne.systems.map((s) => [s.n.toLowerCase(), s])));
+        setById(new Map(ne.systems.map((s) => [s.id, s.n])));
+      })
+      .catch(() => {
+        setByName(new Map());
+        setById(new Map());
+      });
   }, []);
+
+  // Lista de sistemas con firmas pendientes (para el desplegable de "saltar a un sistema ya
+  // trabajado"). Se refresca al montar y tras cada cambio que altere los recuentos.
+  function reloadSystems() {
+    invoke<SigSystem[]>("signatures_systems").then(setSystems).catch(() => setSystems([]));
+  }
+  useEffect(reloadSystems, []);
 
   // Firmas guardadas del sistema activo.
   useEffect(() => {
@@ -93,6 +155,31 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
     setSysName(hit.n);
     setSearch("");
     setMsg("");
+  }
+
+  // Saltar a un sistema de las pestañas de "ya trabajados" (sin teclear el nombre).
+  function pickSystemById(id: number) {
+    setSysId(id);
+    setSysName(byId.get(id) ?? `#${id}`);
+    setSearch("");
+    setMsg("");
+  }
+
+  // Cerrar la pestaña de un sistema = borrar sus firmas VIVAS (con confirmación, porque se pierden
+  // también las notas de wormhole). NO toca el histórico. Si es el sistema activo, vacía la lista.
+  async function closeSystem(id: number, name: string) {
+    const ok = await dialogConfirm(
+      `${tr("¿Cerrar")} ${name}? ${tr("Se borran sus firmas vivas (el histórico no se toca).")}`,
+      { title: tr("Cerrar sistema"), kind: "warning" },
+    );
+    if (!ok) return;
+    try {
+      await invoke("signatures_clear_system", { systemId: id });
+      if (id === sysId) setSaved([]);
+      reloadSystems();
+    } catch (e) {
+      setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
+    }
   }
 
   function analyse() {
@@ -120,6 +207,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
       }));
       const n = await invoke<number>("signatures_replace_system", { systemId: sysId, signatures });
       setSaved(await invoke<SignatureRow[]>("signatures_list", { systemId: sysId }));
+      reloadSystems();
       setMsg(`✓ ${n} ${tr("firmas guardadas")}`);
       setPreview(null);
       setReport(null);
@@ -168,12 +256,57 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
     }
   }
 
+  // Entrar/salir del sitio: sella (o borra) la hora de entrada. Con la salida (marcar hecha) da el
+  // tiempo dentro. Actualiza la fila local para ver el estado "en curso" al momento.
+  async function setEntered(row: SignatureRow, entered: boolean) {
+    if (sysId == null) return;
+    try {
+      await invoke("signature_set_entered", { systemId: sysId, sigId: row.sig_id, entered });
+      const stamp = entered ? new Date().toISOString() : null;
+      setSaved((prev) => prev.map((r) => (r.sig_id === row.sig_id ? { ...r, entered_at: stamp } : r)));
+    } catch (e) {
+      setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
+    }
+  }
+
+  // Marcar una firma como HECHA: entra al histórico (permanente) con su botín y desaparece de
+  // Pendientes (el backend la oculta; se puede deshacer desde el Histórico). El personaje activo se
+  // sella en la entrada. `system_name` lo aporta el frontend (el backend solo guarda system_id).
+  async function markDone(row: SignatureRow) {
+    if (sysId == null) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      await invoke<number>("signature_mark_done", {
+        systemId: sysId,
+        systemName: sysName,
+        sigId: row.sig_id,
+        lootIsk: parseIskShorthand(lootIsk),
+        lootNote: lootNote.trim() || null,
+        note: row.note?.trim() || null,
+        characterId: charId ?? null,
+      });
+      // Fuera de Pendientes (el backend ya la marcó con done_log_id).
+      setSaved((prev) => prev.filter((r) => r.sig_id !== row.sig_id));
+      reloadSystems();
+      setMarkingId(null);
+      setLootIsk("");
+      setLootNote("");
+      setMsg(`✓ ${row.sig_id} ${tr("al histórico")}`);
+    } catch (e) {
+      setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function clearSystem() {
     if (sysId == null) return;
     setBusy(true);
     try {
       await invoke("signatures_clear_system", { systemId: sysId });
       setSaved([]);
+      reloadSystems();
       setMsg(tr("Firmas del sistema borradas."));
     } catch (e) {
       setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
@@ -240,6 +373,35 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
           {tr("Elegir")}
         </button>
       </div>
+
+      {/* Pestañas de los sistemas donde ya tienes firmas pendientes: clic en el nombre para saltar
+          ahí sin teclear; la ✕ cierra el sistema (borra sus firmas vivas, con confirmación). */}
+      {systems.length > 0 && (
+        <div className="sig-sys-tabs">
+          {systems.map((s) => {
+            const name = byId.get(s.system_id) ?? `#${s.system_id}`;
+            const active = s.system_id === sysId;
+            return (
+              <div key={s.system_id} className={`sig-sys-tab${active ? " active" : ""}`}>
+                <button
+                  className="sig-sys-tab-name"
+                  onClick={() => pickSystemById(s.system_id)}
+                  title={tr("Ver este sistema")}
+                >
+                  {name} <span className="muted">({s.pending})</span>
+                </button>
+                <button
+                  className="sig-sys-tab-x"
+                  title={tr("Cerrar este sistema (borra sus firmas vivas)")}
+                  onClick={() => closeSystem(s.system_id, name)}
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {sysId != null && (
         <>
@@ -362,11 +524,13 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
                         {tr("Distancia")}{arrow("dist")}
                       </th>
                       <th>{tr("Nota")}</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {sortRows(rows).map((r) => (
-                      <tr key={r.sig_id}>
+                      <Fragment key={r.sig_id}>
+                      <tr>
                         <td style={{ fontFamily: "monospace", whiteSpace: "nowrap" }}>{r.sig_id}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           {/* Desplegable de categoría: la firma nueva llega sin tipo; lo pones al
@@ -427,7 +591,71 @@ export function SignaturesControl({ initialSystemId, initialSystemName }: Props)
                             style={{ width: "100%" }}
                           />
                         </td>
+                        <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                          {/* Entrar / En curso: sella la hora de entrada. Al marcar hecha (salida) se
+                              guarda el tiempo dentro. */}
+                          {r.entered_at ? (
+                            <button
+                              className="sig-done-btn sig-in"
+                              title={`${tr("En curso desde")} ${fmtClock(r.entered_at)} · ${tr("clic para cancelar la entrada")}`}
+                              onClick={() => setEntered(r, false)}
+                            >
+                              ● {tr("En curso")}
+                            </button>
+                          ) : (
+                            <button
+                              className="sig-done-btn"
+                              title={tr("Marcar que has entrado en el sitio")}
+                              onClick={() => setEntered(r, true)}
+                            >
+                              ▶ {tr("Entrar")}
+                            </button>
+                          )}
+                          {/* Marcar hecha: abre el mini-form de botín en una fila desplegada debajo.
+                              La firma pasa al Histórico y sale de aquí (se puede deshacer allí). */}
+                          <button
+                            className="sig-done-btn"
+                            title={tr("Marcar como hecha y registrar el botín")}
+                            onClick={() => {
+                              setLootIsk("");
+                              setLootNote("");
+                              setMarkingId((id) => (id === r.sig_id ? null : r.sig_id));
+                            }}
+                          >
+                            ✓ {tr("Hecha")}
+                          </button>
+                        </td>
                       </tr>
+                      {markingId === r.sig_id && (
+                        <tr className="sig-done-form">
+                          <td colSpan={7}>
+                            <div className="sig-done-inner">
+                              <span className="small muted">{tr("Botín")}:</span>
+                              <input
+                                className="small"
+                                value={lootIsk}
+                                onChange={(e) => setLootIsk(e.target.value)}
+                                placeholder={tr("ISK (p.ej. 45m)")}
+                                style={{ width: 110 }}
+                              />
+                              <input
+                                className="small"
+                                value={lootNote}
+                                onChange={(e) => setLootNote(e.target.value)}
+                                placeholder={tr("qué cayó (opcional)")}
+                                style={{ flex: 1, minWidth: 120 }}
+                              />
+                              <button className="pp-add" onClick={() => markDone(r)} disabled={busy}>
+                                ✓ {tr("Confirmar")}
+                              </button>
+                              <button className="pp-add" onClick={() => setMarkingId(null)} disabled={busy}>
+                                {tr("Cancelar")}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

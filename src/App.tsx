@@ -33,6 +33,7 @@ import { GamelogControl, gamelogScan } from "./gamelogControl";
 import { MedalTexturesControl } from "./medalsControl";
 import { AnsiblexControl } from "./ansiblexControl";
 import { ExplorationView } from "./exploration";
+import { ExplorationLogView } from "./explorationLog";
 import { WhatsNew } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
@@ -2144,7 +2145,11 @@ function App() {
             <ExplorationView
               hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
               hereSystemName={isGlobal ? null : cards[subjectId]?.system_name ?? null}
+              charId={isGlobal ? null : subjectId}
             />
+          )}
+          {tab === "exploracion_log" && (
+            <ExplorationLogView charId={isGlobal ? null : subjectId} />
           )}
           {tab === "recon" && <ReconView subject={subject} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}

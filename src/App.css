@@ -4319,6 +4319,114 @@ h4 {
 .sig-wiki-link:hover {
   color: var(--text, #cfd8e3);
 }
+/* Pestañas de sistemas con firmas pendientes: saltar de un vistazo; la ✕ cierra el sistema. */
+.sig-sys-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+}
+.sig-sys-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  font-size: 0.78rem;
+}
+.sig-sys-tab.active {
+  border-color: var(--accent-border, #4f9cff);
+  background: var(--accent, #34507a);
+}
+.sig-sys-tab-name {
+  background: transparent;
+  border: none;
+  color: var(--text, #cfd8e3);
+  cursor: pointer;
+  padding: 0.1rem 0.45rem;
+  white-space: nowrap;
+}
+.sig-sys-tab-name:hover {
+  color: var(--accent-text, #7fb0ff);
+}
+.sig-sys-tab.active .sig-sys-tab-name {
+  color: #fff;
+}
+.sig-sys-tab-x {
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.7rem;
+}
+.sig-sys-tab-x:hover {
+  color: var(--err, #e5534b);
+}
+/* Botón «✓ Hecha» / «Editar» / «Deshacer»: discreto, alineado a la derecha de la fila. */
+.sig-done-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  margin-left: 0.2rem;
+}
+.sig-done-btn:hover {
+  color: var(--ok, #5ad18b);
+  border-color: var(--ok, #5ad18b);
+}
+/* "● En curso": firma en la que estás dentro ahora mismo (entrada marcada, sin salir). */
+.sig-done-btn.sig-in {
+  color: var(--accent-text, #7fb0ff);
+  border-color: var(--accent-border, #4f9cff);
+}
+.sig-done-btn.sig-in:hover {
+  color: var(--accent-text, #7fb0ff);
+  border-color: var(--accent-border, #4f9cff);
+  opacity: 0.8;
+}
+.sig-done-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Fila desplegada del mini-form de botín, bajo la firma que se marca hecha. */
+.sig-done-form td {
+  padding: 0.25rem 0.3rem;
+  background: var(--panel-2, rgba(255, 255, 255, 0.03));
+}
+.sig-done-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+/* ---- Histórico de exploración: tira de estadísticas + tabla ---- */
+.explog-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.explog-stat {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  min-width: 5rem;
+}
+.explog-stat-n {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text, #cfd8e3);
+}
+.explog-table td {
+  padding: 0.15rem 0.3rem;
+  vertical-align: top;
+}
 
 .tb-settings-title {
   padding: 0.2rem 0.4rem 0.1rem;

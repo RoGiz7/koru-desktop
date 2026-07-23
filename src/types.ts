@@ -130,6 +130,25 @@ export type IntelLine = {
   message: string;
 };
 
+// Una entrada del HISTÓRICO de exploración: una firma que marcaste como "hecha". Permanente (no
+// caduca en el downtime), con identidad `id` propia. system_name/kind/name son snapshot congelado.
+// Espejo de db::ExplorationLogRow. Ver koru-desktop-EXPLORACION_HISTORICO_diseno.md.
+export type ExplorationLogRow = {
+  id: number;
+  system_id: number;
+  system_name: string;
+  sig_id: string | null;
+  kind: string;
+  name: string;
+  scanned_at: string | null;
+  entered_at: string | null;
+  done_at: string;
+  loot_isk: number | null;
+  loot_note: string | null;
+  note: string | null;
+  character_id: number | null;
+};
+
 // Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space).
 export type WhConn = {
   system_id: number;

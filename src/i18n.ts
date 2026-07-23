@@ -1719,6 +1719,46 @@ const EN: Record<string, string> = {
   "nota…": "note…",
   "firmas guardadas": "signatures saved",
   "Firmas del sistema borradas.": "System signatures deleted.",
+  // --- Exploración: pestañas Pendientes / Histórico y "marcar hecha" ---
+  Entrar: "Enter",
+  "En curso": "In progress",
+  "Marcar que has entrado en el sitio": "Mark that you've entered the site",
+  "En curso desde": "In progress since",
+  "clic para cancelar la entrada": "click to cancel the entry",
+  "tiempo dentro": "time inside",
+  "tiempo dentro del sitio": "time inside the site",
+  "ISK/hora (cronometrado)": "ISK/hour (timed)",
+  "Ver este sistema": "View this system",
+  "Cerrar este sistema (borra sus firmas vivas)": "Close this system (deletes its live signatures)",
+  "Cerrar sistema": "Close system",
+  "¿Cerrar": "Close",
+  "Se borran sus firmas vivas (el histórico no se toca).":
+    "Its live signatures will be deleted (history is untouched).",
+  Pendientes: "Pending",
+  Histórico: "History",
+  Hecha: "Done",
+  Botín: "Loot",
+  Guardar: "Save",
+  Deshacer: "Undo",
+  "al histórico": "to history",
+  "Marcar como hecha y registrar el botín": "Mark as done and record the loot",
+  "ISK (p.ej. 45m)": "ISK (e.g. 45m)",
+  "qué cayó (opcional)": "what dropped (optional)",
+  "sitios hechos": "sites done",
+  "botín total (ISK)": "total loot (ISK)",
+  "Aún no has marcado ninguna firma como hecha. En «Pendientes», pulsa «✓ Hecha» en una firma que hayas corrido para registrarla aquí con su botín.":
+    "You haven't marked any signature as done yet. In “Pending”, press “✓ Done” on a signature you've run to record it here with its loot.",
+  "Deshacer: quita del histórico y devuelve a Pendientes":
+    "Undo: removes from history and returns it to Pending",
+  "Devuelto a Pendientes (si la firma sigue viva).":
+    "Returned to Pending (if the signature is still live).",
+  // TAB_HEAD de las dos pestañas de Exploración
+  "Exploración — Pendientes": "Exploration — Pending",
+  "Exploración — Histórico": "Exploration — History",
+  "Tus firmas VIVAS del escáner por sistema: combate, minado, exploración y wormholes. Pega el escaneo, anota los agujeros y marca «hecha» lo que corras":
+    "Your LIVE scanner signatures by system: combat, mining, exploration and wormholes. Paste the scan, note the holes and mark “done” what you run",
+  "Lo que YA exploraste: sitios completados con su botín y fecha. Permanente (no caduca en el downtime) y con estadísticas de tu exploración":
+    "What you've ALREADY explored: completed sites with their loot and date. Permanent (doesn't expire at downtime) and with exploration stats",
   Wormhole: "Wormhole",
   Reliquias: "Relic",
   Datos: "Data",

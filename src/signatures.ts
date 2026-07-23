@@ -58,6 +58,8 @@ export type SignatureRow = {
   note: string | null;
   first_seen: string;
   last_seen: string;
+  /** Cuándo entraste al sitio ("estoy en ella"); null si no. Con la salida da el tiempo dentro. */
+  entered_at?: string | null;
 };
 
 /** Resumen por sistema para la capa del mapa (viene de `signatures_summary`). */

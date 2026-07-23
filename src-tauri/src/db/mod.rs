@@ -155,6 +155,14 @@ impl Db {
         let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN hp_shield REAL NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN hp_armor REAL NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE logi_pilots ADD COLUMN hp_hull REAL NOT NULL DEFAULT 0", []);
+        // signatures: enlace suave a exploration_log (marcar firma "hecha" sin borrarla → permite
+        // deshacer). NULL = pendiente. Migración estructural NO destructiva (no toca datos ni exige
+        // reparse de gamelog): en BD nuevas ya viene en schema.sql, en las viejas la añade este ALTER.
+        let _ = conn.execute("ALTER TABLE signatures ADD COLUMN done_log_id INTEGER", []);
+        // signatures/exploration_log: entrada al sitio ("estoy en ella") → con done_at da la duración.
+        // Estructural NO destructiva, igual que done_log_id: nuevas BD lo traen en schema.sql.
+        let _ = conn.execute("ALTER TABLE signatures ADD COLUMN entered_at TEXT", []);
+        let _ = conn.execute("ALTER TABLE exploration_log ADD COLUMN entered_at TEXT", []);
         // Versionado de DATOS de logi (agregados reconstruidos del gamelog), separado del esquema.
         // Historial de versiones: v1 pilotos; v2 nombre "="; v3 nave "="; v4 solo personajes reales +
         // módulo + HP por tipo; v5 logi_daily (desglose por día); v6 fix is_char (excluir drones/NPC/
@@ -2568,6 +2576,10 @@ pub struct SignatureRow {
     pub first_seen: String,
     #[serde(default)]
     pub last_seen: String,
+    /// Cuándo entraste al sitio ("estoy en ella"); NULL si no marcaste entrada. Efímero (muere en el
+    /// downtime). El frontend lo pinta como estado "en curso" y calcula el tiempo dentro.
+    #[serde(default)]
+    pub entered_at: Option<String>,
 }
 
 /// Resumen de firmas por sistema para la capa del mapa. Contadores enteros, sin filas de detalle.
@@ -2579,6 +2591,49 @@ pub struct SignatureSummary {
     /// Wormholes con destino anotado = aristas de ruta en potencia.
     pub wh_noted: i64,
     pub unknown: i64,
+}
+
+/// Un sistema con firmas PENDIENTES (para el selector "saltar a un sistema ya trabajado" de la
+/// pestaña Pendientes, sin teclear el nombre). Solo cuenta lo pendiente (done_log_id NULL); el
+/// nombre lo resuelve el frontend con el SDE.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SignatureSystem {
+    pub system_id: i64,
+    pub pending: i64,
+}
+
+/// Una entrada del HISTÓRICO de exploración: una firma que el piloto marcó como "hecha". Es
+/// permanente (no caduca en el downtime) e independiente de la firma viva, que puede haber
+/// desaparecido: por eso `system_name`, `kind` y `name` son un snapshot congelado y `sig_id` es solo
+/// una referencia, no una clave. `id` es la identidad estable. Fuente de las estadísticas de
+/// exploración. Ver koru-desktop-EXPLORACION_HISTORICO_diseno.md.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExplorationLogRow {
+    #[serde(default)]
+    pub id: i64,
+    pub system_id: i64,
+    #[serde(default)]
+    pub system_name: String,
+    #[serde(default)]
+    pub sig_id: Option<String>,
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub scanned_at: Option<String>,
+    /// Cuándo entraste (NULL si no marcaste entrada). Con `done_at` da la duración dentro del sitio.
+    #[serde(default)]
+    pub entered_at: Option<String>,
+    #[serde(default)]
+    pub done_at: String,
+    #[serde(default)]
+    pub loot_isk: Option<f64>,
+    #[serde(default)]
+    pub loot_note: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub character_id: Option<i64>,
 }
 
 /// Un puente Ansiblex ya resuelto contra el SDE. Par CANÓNICO (a_id < b_id): el wiki lista cada
@@ -2941,12 +2996,16 @@ impl Db {
         Ok(())
     }
 
+    /// Firmas PENDIENTES de un sistema (las que salen en la pestaña "Pendientes"). Filtra las ya
+    /// marcadas como hechas (`done_log_id` no NULL): esas viven en `exploration_log` y se ven en el
+    /// Histórico, no aquí. Una firma hecha se puede "deshacer" (ver `signature_mark_done_undo`), lo
+    /// que vuelve a poner `done_log_id` a NULL y la reintegra a esta lista si sigue viva.
     pub fn signatures_list(&self, system_id: i64) -> AppResult<Vec<SignatureRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT system_id, sig_id, sig_group, kind, name, signal_pct, distance_au, note,
-                    first_seen, last_seen
-             FROM signatures WHERE system_id = ?1 ORDER BY kind, sig_id",
+                    first_seen, last_seen, entered_at
+             FROM signatures WHERE system_id = ?1 AND done_log_id IS NULL ORDER BY kind, sig_id",
         )?;
         let rows = stmt
             .query_map([system_id], |r| {
@@ -2961,6 +3020,7 @@ impl Db {
                     note: r.get(7)?,
                     first_seen: r.get(8)?,
                     last_seen: r.get(9)?,
+                    entered_at: r.get(10)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -3077,6 +3137,28 @@ impl Db {
         Ok(())
     }
 
+    /// Marca (o desmarca) que ESTÁS EN el sitio: `entered=true` sella `entered_at = ahora`,
+    /// `entered=false` lo pone a NULL (saliste sin completar / te equivocaste). Al marcar «hecha»
+    /// después, la duración = done_at − entered_at. No toca el resto de la fila.
+    pub fn signature_set_entered(
+        &self,
+        system_id: i64,
+        sig_id: &str,
+        entered: bool,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let val: Option<String> = if entered {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+        conn.execute(
+            "UPDATE signatures SET entered_at = ?3 WHERE system_id = ?1 AND sig_id = ?2",
+            rusqlite::params![system_id, sig_id, val],
+        )?;
+        Ok(())
+    }
+
     /// Reclasifica una firma a mano (combate/ore/gas/data/relic/wormhole/unknown). Una firma sin
     /// identificar llega SIN categoría del escáner; el piloto la clasifica al descubrir qué es. Si
     /// deja de ser wormhole, se borra su nota de destino (ya no tiene sentido como arista de ruta).
@@ -3130,7 +3212,7 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT system_id, sig_id, sig_group, kind, name, signal_pct, distance_au, note,
-                    first_seen, last_seen
+                    first_seen, last_seen, entered_at
              FROM signatures
              WHERE kind = 'wormhole' AND note IS NOT NULL AND note <> ''",
         )?;
@@ -3147,10 +3229,143 @@ impl Db {
                     note: r.get(7)?,
                     first_seen: r.get(8)?,
                     last_seen: r.get(9)?,
+                    entered_at: r.get(10)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Sistemas con AL MENOS una firma pendiente, con su recuento (para el selector rápido de la
+    /// pestaña Pendientes). Reciente/más cargado primero. El nombre lo pone el frontend (SDE).
+    pub fn signatures_systems(&self) -> AppResult<Vec<SignatureSystem>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT system_id, COUNT(*) AS pending
+             FROM signatures WHERE done_log_id IS NULL
+             GROUP BY system_id ORDER BY pending DESC, system_id",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(SignatureSystem {
+                    system_id: r.get(0)?,
+                    pending: r.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    // ---- Histórico de exploración (firmas "hechas" → exploration_log) ----
+
+    /// Marca una firma viva como HECHA: inserta una entrada permanente en `exploration_log`
+    /// (snapshot congelado + loot) y enlaza la firma viva con esa entrada (`done_log_id`) para
+    /// ocultarla de Pendientes sin borrarla (permite deshacer). Todo en una transacción: o entra el
+    /// registro Y se marca la firma, o no pasa nada. `system_name` lo aporta el frontend (tiene el
+    /// SDE); `character_id` es opcional (personaje activo, si lo hay). Devuelve el `id` del log.
+    pub fn signature_mark_done(
+        &self,
+        system_id: i64,
+        system_name: &str,
+        sig_id: &str,
+        loot_isk: Option<f64>,
+        loot_note: Option<&str>,
+        note: Option<&str>,
+        character_id: Option<i64>,
+    ) -> AppResult<i64> {
+        let mut conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction()?;
+        // Snapshot de la firma viva (kind/name/first_seen/entered_at). Si no existe, es error del
+        // llamante. `entered_at` puede ser NULL (marcaste hecha sin haber marcado entrada): entonces
+        // no hay duración, y no pasa nada.
+        let (kind, name, scanned_at, entered_at): (String, String, String, Option<String>) =
+            tx.query_row(
+                "SELECT kind, name, first_seen, entered_at FROM signatures
+                 WHERE system_id = ?1 AND sig_id = ?2",
+                rusqlite::params![system_id, sig_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+        tx.execute(
+            "INSERT INTO exploration_log
+                 (system_id, system_name, sig_id, kind, name, scanned_at, entered_at, done_at,
+                  loot_isk, loot_note, note, character_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+            rusqlite::params![
+                system_id, system_name, sig_id, kind, name, scanned_at, entered_at, now,
+                loot_isk, loot_note, note, character_id
+            ],
+        )?;
+        let log_id = tx.last_insert_rowid();
+        tx.execute(
+            "UPDATE signatures SET done_log_id = ?3 WHERE system_id = ?1 AND sig_id = ?2",
+            rusqlite::params![system_id, sig_id, log_id],
+        )?;
+        tx.commit()?;
+        Ok(log_id)
+    }
+
+    /// Deshace un "hecha": borra la entrada del log y, si la firma viva sigue existiendo, le pone
+    /// `done_log_id` a NULL para que vuelva a Pendientes. Si el downtime ya la purgó, el UPDATE afecta
+    /// a 0 filas (no hay nada que reabrir) y el borrado del log basta. Idempotente y a prueba de purga.
+    pub fn signature_mark_done_undo(&self, log_id: i64) -> AppResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM exploration_log WHERE id = ?1", [log_id])?;
+        tx.execute(
+            "UPDATE signatures SET done_log_id = NULL WHERE done_log_id = ?1",
+            [log_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// El HISTÓRICO completo, reciente→antiguo. El frontend filtra por personaje/sistema/tipo/fecha y
+    /// saca las estadísticas. Barato: una tabla propia, indexada por done_at.
+    pub fn exploration_log_list(&self) -> AppResult<Vec<ExplorationLogRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, system_id, system_name, sig_id, kind, name, scanned_at, entered_at, done_at,
+                    loot_isk, loot_note, note, character_id
+             FROM exploration_log ORDER BY done_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(ExplorationLogRow {
+                    id: r.get(0)?,
+                    system_id: r.get(1)?,
+                    system_name: r.get(2)?,
+                    sig_id: r.get(3)?,
+                    kind: r.get(4)?,
+                    name: r.get(5)?,
+                    scanned_at: r.get(6)?,
+                    entered_at: r.get(7)?,
+                    done_at: r.get(8)?,
+                    loot_isk: r.get(9)?,
+                    loot_note: r.get(10)?,
+                    note: r.get(11)?,
+                    character_id: r.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Edita el loot / notas de una entrada del histórico ya cerrada (los tres campos se sobrescriben
+    /// con lo que llegue, `None` = dejar vacío). No toca el snapshot ni las fechas.
+    pub fn exploration_log_set(
+        &self,
+        id: i64,
+        loot_isk: Option<f64>,
+        loot_note: Option<&str>,
+        note: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE exploration_log SET loot_isk = ?2, loot_note = ?3, note = ?4 WHERE id = ?1",
+            rusqlite::params![id, loot_isk, loot_note, note],
+        )?;
+        Ok(())
     }
 
     pub fn location_system_clear_negative(&self) -> usize {

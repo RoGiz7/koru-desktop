@@ -6,6 +6,22 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.31.0",
+    date: "2026-07-23",
+    es: [
+      "📡 Importante: el intel en vivo vuelve a leer aunque cierres clientes. Si juegas con varias cuentas a la vez, cada una escribe su propio registro del canal de intel. Koru se quedaba con uno solo y, al cerrar justo ese cliente, enmudecía —sin dar error, con el indicador en verde «Activo»— aunque otra cuenta siguiera oyendo el canal. Ahora lee a la vez todos los registros vivos del canal. Si alguna vez el intel se te quedó mudo al cerrar una ventana y pensaste que Koru había dejado de funcionar, era esto. Ya está.",
+      "🧭 Exploración estrena Histórico. Pega el escaneo de sondas, clasifícalo y, cuando corras un sitio, márcalo como hecho: pasa a tu registro permanente con su botín y su fecha. Las firmas vivas caducan en el mantenimiento diario, pero lo que exploraste queda para siempre — con estadísticas de sitios hechos, botín total y desglose por tipo. El que explora por fin tiene su historial, igual que el que hace PvP.",
+      "⏱️ Y con cronómetro: marca cuándo entras en un sitio y cuándo lo terminas, y Koru mide el tiempo dentro y te saca el ISK por hora real de tu exploración.",
+      "🗂️ Los sistemas donde tienes firmas pendientes salen como pestañas: saltas de uno a otro sin teclear el nombre, y cierras con una ✕ el que ya no necesites.",
+    ],
+    en: [
+      "📡 Important: live intel reads again even when you close clients. If you play with several accounts at once, each one writes its own log of the intel channel. Koru kept only one and, if you closed that exact client, it went silent — no error, the indicator still green “Active” — even while another account was still hearing the channel. Now it reads all the channel's live logs at once. If intel ever went quiet on you after closing a window and you thought Koru had stopped working, this was it. Fixed.",
+      "🧭 Exploration gets a History. Paste your probe scan, classify it and, when you run a site, mark it done: it moves to your permanent record with its loot and date. Live signatures expire at daily downtime, but what you explored stays forever — with stats for sites done, total loot and a breakdown by type. Explorers finally get their log, just like PvP does.",
+      "⏱️ With a stopwatch too: mark when you enter a site and when you finish it, and Koru measures the time inside and works out your real ISK per hour of exploration.",
+      "🗂️ The systems where you have pending signatures show up as tabs: hop between them without typing the name, and close the ones you're done with using an ✕.",
+    ],
+  },
+  {
     version: "0.30.0",
     date: "2026-07-22",
     es: [

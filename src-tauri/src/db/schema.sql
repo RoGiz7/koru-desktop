@@ -570,6 +570,41 @@ CREATE TABLE IF NOT EXISTS signatures (
     note        TEXT,                    -- anotación del piloto; NO se pierde al re-pegar
     first_seen  TEXT NOT NULL,           -- RFC3339 del primer avistamiento de esta firma
     last_seen   TEXT NOT NULL,           -- RFC3339 del último pegado que la incluía
+    done_log_id INTEGER,                 -- enlace SUAVE a exploration_log (NULL = pendiente).
+                                         -- Estado EFÍMERO de la lista viva: muere en el downtime
+                                         -- igual que la firma. La verdad histórica vive en
+                                         -- exploration_log. Se conserva al re-pegar (no está en el
+                                         -- DO UPDATE SET del upsert). Ver koru-desktop-EXPLORACION_*.
+    entered_at  TEXT,                    -- RFC3339 de cuándo ENTRASTE en el sitio (NULL = no dentro).
+                                         -- Marca "estoy en ella". Al marcar «hecha» se sella la salida
+                                         -- (done_at) y la duración = done_at − entered_at. Efímero
+                                         -- como done_at: se conserva al re-pegar, muere en el downtime.
     PRIMARY KEY (system_id, sig_id)
 );
 CREATE INDEX IF NOT EXISTS idx_sig_system ON signatures(system_id);
+
+-- Registro PERMANENTE de firmas COMPLETADAS ("hechas"). No caduca (a diferencia de `signatures`,
+-- que rota en el downtime). Se llena SOLO al marcar una firma como hecha; independiente de la firma
+-- viva, que puede desaparecer. `id` propio e INMUTABLE: (system_id, sig_id) NO sirve como clave
+-- porque el sig_id se recicla entre sistemas y días. Todo lo demás es un SNAPSHOT congelado en el
+-- momento de cerrar (la firma viva ya no existirá para releerlo). De aquí salen las estadísticas de
+-- exploración y, más adelante, las medallas de explorador. Ver koru-desktop-EXPLORACION_HISTORICO_*.
+CREATE TABLE IF NOT EXISTS exploration_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    system_id    INTEGER NOT NULL,
+    system_name  TEXT NOT NULL DEFAULT '', -- congelado (el frontend lo resuelve del SDE al cerrar)
+    sig_id       TEXT,                      -- "QLO-590" como referencia, NO clave
+    kind         TEXT NOT NULL,             -- combat|ore|gas|data|relic|wormhole|unknown
+    name         TEXT NOT NULL DEFAULT '',  -- nombre del sitio ('' si no se identificó)
+    scanned_at   TEXT,                      -- first_seen de la firma viva (cuándo apareció)
+    entered_at   TEXT,                      -- cuándo entraste (NULL si no marcaste entrada); con
+                                            -- done_at da la DURACIÓN dentro del sitio
+    done_at      TEXT NOT NULL,             -- RFC3339 de cuándo se marcó hecha = SALIDA (evento)
+    loot_isk     REAL,                      -- valor total estimado del botín (nullable)
+    loot_note    TEXT,                      -- texto libre / pegado del inventario (MVP)
+    note         TEXT,                      -- notas del piloto sobre el sitio
+    character_id INTEGER                    -- quién lo hizo (NULL si sin personaje; Global = todos)
+);
+CREATE INDEX IF NOT EXISTS idx_explog_system ON exploration_log(system_id);
+CREATE INDEX IF NOT EXISTS idx_explog_done   ON exploration_log(done_at);
+CREATE INDEX IF NOT EXISTS idx_explog_char   ON exploration_log(character_id);

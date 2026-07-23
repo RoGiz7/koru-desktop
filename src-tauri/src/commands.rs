@@ -756,6 +756,17 @@ pub fn signature_set_name(
     state.db.signature_set_name(system_id, &sig_id, &name)
 }
 
+/// Marca/desmarca que estás DENTRO del sitio (sella o borra `entered_at`).
+#[tauri::command]
+pub fn signature_set_entered(
+    state: State<'_, AppState>,
+    system_id: i64,
+    sig_id: String,
+    entered: bool,
+) -> AppResult<()> {
+    state.db.signature_set_entered(system_id, &sig_id, entered)
+}
+
 #[tauri::command]
 pub fn signatures_summary(
     state: State<'_, AppState>,
@@ -768,6 +779,69 @@ pub fn signatures_wormhole_notes(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<crate::db::SignatureRow>> {
     state.db.signatures_wormhole_notes()
+}
+
+/// Sistemas con firmas pendientes (+ recuento), para el selector rápido de la pestaña Pendientes.
+#[tauri::command]
+pub fn signatures_systems(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::SignatureSystem>> {
+    state.db.signatures_systems()
+}
+
+// ---- Histórico de exploración: firmas "hechas" → exploration_log (permanente, no caduca) ----
+
+/// Marca una firma como hecha (inserta en el histórico + la oculta de Pendientes con opción de
+/// deshacer). Devuelve el id de la entrada del log. `system_name` lo aporta el frontend (SDE).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn signature_mark_done(
+    state: State<'_, AppState>,
+    system_id: i64,
+    system_name: String,
+    sig_id: String,
+    loot_isk: Option<f64>,
+    loot_note: Option<String>,
+    note: Option<String>,
+    character_id: Option<i64>,
+) -> AppResult<i64> {
+    state.db.signature_mark_done(
+        system_id,
+        &system_name,
+        &sig_id,
+        loot_isk,
+        loot_note.as_deref(),
+        note.as_deref(),
+        character_id,
+    )
+}
+
+/// Deshace un "hecha": borra la entrada del log y devuelve la firma a Pendientes si sigue viva.
+#[tauri::command]
+pub fn signature_mark_done_undo(state: State<'_, AppState>, log_id: i64) -> AppResult<()> {
+    state.db.signature_mark_done_undo(log_id)
+}
+
+/// El histórico completo de exploración (reciente→antiguo). El frontend filtra y saca estadísticas.
+#[tauri::command]
+pub fn exploration_log_list(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::ExplorationLogRow>> {
+    state.db.exploration_log_list()
+}
+
+/// Edita loot/notas de una entrada del histórico ya cerrada.
+#[tauri::command]
+pub fn exploration_log_set(
+    state: State<'_, AppState>,
+    id: i64,
+    loot_isk: Option<f64>,
+    loot_note: Option<String>,
+    note: Option<String>,
+) -> AppResult<()> {
+    state
+        .db
+        .exploration_log_set(id, loot_isk, loot_note.as_deref(), note.as_deref())
 }
 
 #[tauri::command]
@@ -5236,10 +5310,14 @@ fn collect_intel_ext(
     let skip_before = cutoff - chrono::Duration::minutes(10);
 
     // 1ª pasada: un canal de intel es el MISMO feed para todos los alts → sus logs son idénticos.
-    // Así que por canal nos quedamos SOLO con el fichero VIVO (el de mtime más reciente = la sesión
-    // abierta del pj que está en ese canal ahora). Evita leer cientos de logs de sesiones viejas.
-    // live[channel] = (mtime_ns, len, path)
-    let mut live: std::collections::HashMap<String, (u128, u64, std::path::PathBuf)> =
+    // Con MULTIBOX hay UN fichero por cliente abierto en ese canal, todos vivos a la vez.
+    // ⚠️ BUG CAZADO (2026-07-23, Zigor con 3 clientes): antes nos quedábamos SOLO con el de eff más
+    // alto y leíamos ese. Al CERRAR el cliente cuyo fichero era el más nuevo, su log quedaba MUERTO
+    // pero conservaba la fecha de sesión más reciente → seguíamos leyendo el muerto (0 líneas nuevas)
+    // y el intel enmudecía, aunque otro cliente siguiera recibiendo. Relogar lo curaba (fichero nuevo
+    // = otra vez el más reciente). Fix: guardar VARIOS candidatos por canal y leer los K más recientes
+    // (ver LIVE_FILES_PER_CHANNEL abajo). candidatos[channel] = lista de (eff_ns, path).
+    let mut cands: std::collections::HashMap<String, Vec<(u128, std::path::PathBuf)>> =
         std::collections::HashMap::new();
     // Los prefijos, una vez. Antes se construía un `format!("{c}_")` por cada fichero y cada canal, en
     // cada tick: con 5.100 ficheros en la carpeta son decenas de miles de asignaciones cada 3 s.
@@ -5274,30 +5352,41 @@ fn collect_intel_ext(
         // INICIO de sesión—, así que el log VIVO se descartaba a los `recencia+10` minutos y el
         // intel enmudecía hasta relogear. El respaldo por nombre (2026-07-10) solo tapaba los
         // primeros minutos. La poda además SOBRABA: la recencia es un filtro de MENSAJES (lo hace
-        // la 2ª pasada con `cutoff_ms`), no de ficheros; y como abajo nos quedamos solo con el
-        // fichero más nuevo de cada canal, no podar no abre ni un fichero de más.
-        // Fichero vivo del canal = el de sesión más reciente. Manda el efectivo:
-        // con los mtime congelados en el arranque de cada sesión, el nombre ordena mejor.
+        // la 2ª pasada con `cutoff_ms`), no de ficheros; y como abajo nos quedamos con los K ficheros
+        // más recientes de cada canal, no podar aquí no abre ficheros de más.
+        // `eff` ordena los candidatos (sesión más reciente primero). Con los mtime congelados en el
+        // arranque de cada sesión, el nombre ordena mejor; el tamaño real lo pide intel_tail al handle.
         let eff_ns = eff
             .map(|d| d.timestamp_millis().max(0) as u128 * 1_000_000)
             .unwrap_or(0);
-        let entry = live.entry(ch).or_insert((0, 0, e.path()));
-        if eff_ns >= entry.0 {
-            *entry = (eff_ns, md.len(), e.path());
-        }
+        cands.entry(ch).or_default().push((eff_ns, e.path()));
     }
 
-    let files = live.len();
+    // Por canal nos quedamos con los K ficheros de sesión MÁS RECIENTE (por eff) y los leemos TODOS:
+    // así los clientes que siguen abiertos entran aunque un fichero MUERTO tenga la fecha más nueva.
+    // Las líneas se deduplican por (hora+autor+mensaje), así que solaparse entre alts es inocuo, y
+    // `intel_tail` solo relee lo que cada log ha CRECIDO (los muertos no crecen → coste ~0 por tick).
+    // K acota el coste: un multibox no tiene decenas de clientes del mismo canal a la vez.
+    const LIVE_FILES_PER_CHANNEL: usize = 12;
+    let mut live_paths: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for (ch, mut v) in cands {
+        v.sort_by(|a, b| b.0.cmp(&a.0)); // eff descendente: sesión más reciente primero
+        v.truncate(LIVE_FILES_PER_CHANNEL);
+        for (_eff, p) in v {
+            live_paths.push((ch.clone(), p));
+        }
+    }
+    let files = live_paths.len();
 
-    // 2ª pasada: leer SOLO la cola nueva del log vivo de cada canal (ver `intel_tail`).
-    for (ch, (_mtime_ns, _len, path)) in live {
+    // 2ª pasada: leer SOLO la cola nueva de cada log vivo del canal (ver `intel_tail`).
+    for (ch, path) in live_paths {
         for l in intel_tail(&path, &ch, skip_before.timestamp_millis()) {
             if l.ts_ms < cutoff_ms {
                 continue;
             }
             let key = (l.ts_ms / 1000, l.author.clone(), l.message.clone());
             if !seen.insert(key) {
-                continue; // duplicado entre personajes
+                continue; // duplicado entre personajes/clientes
             }
             out.push(l);
         }
