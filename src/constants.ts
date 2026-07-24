@@ -285,7 +285,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },
   comercio_watch: { title: "Watchlist de mercado", subtitle: "Precios, spread y libro por hub · arbitraje entre hubs · buscador de oportunidades" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
-  abyssals: { title: "Abyssals", subtitle: "Runs abisales (estimado por loot y journal)" },
+  abyssals: { title: "Abyssals", subtitle: "Sesiones cronometradas + estimación por filamentos" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
   contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },

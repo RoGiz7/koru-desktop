@@ -19,9 +19,13 @@ type Props = {
   onConfirm: (totalIsk: number | null, note: string) => void;
   onCancel: () => void;
   busy?: boolean;
+  /** Título de la cabecera. Si se omite, «Botín de N sitio(s)» (contexto exploración). */
+  title?: string;
+  /** Texto del botón de confirmar. Si se omite, «Marcar hechas (N)» (contexto exploración). */
+  confirmLabel?: string;
 };
 
-export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, busy }: Props) {
+export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, busy, title, confirmLabel }: Props) {
   const [text, setText] = useState("");
   const [override, setOverride] = useState(""); // ISK a mano (prevalece sobre el pegado)
   const [note, setNote] = useState("");
@@ -77,7 +81,7 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
       <div className="modal loot-modal" onClick={(e) => e.stopPropagation()}>
         <div className="loot-modal-head">
           <strong>
-            💰 {tr("Botín de")} {siteCount} {siteCount === 1 ? tr("sitio") : tr("sitios")}
+            💰 {title ?? `${tr("Botín de")} ${siteCount} ${siteCount === 1 ? tr("sitio") : tr("sitios")}`}
           </strong>
           <button className="loot-modal-x" onClick={onCancel} title={tr("Cerrar")}>
             ✕
@@ -170,7 +174,7 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
 
         <div className="loot-modal-actions">
           <button className="pp-add" onClick={() => onConfirm(total, note.trim())} disabled={busy}>
-            ✓ {tr("Marcar hechas")} ({siteCount})
+            ✓ {confirmLabel ?? `${tr("Marcar hechas")} (${siteCount})`}
           </button>
           <button className="pp-add" onClick={onCancel} disabled={busy}>
             {tr("Cancelar")}

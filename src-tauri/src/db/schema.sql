@@ -608,3 +608,31 @@ CREATE TABLE IF NOT EXISTS exploration_log (
 CREATE INDEX IF NOT EXISTS idx_explog_system ON exploration_log(system_id);
 CREATE INDEX IF NOT EXISTS idx_explog_done   ON exploration_log(done_at);
 CREATE INDEX IF NOT EXISTS idx_explog_char   ON exploration_log(character_id);
+
+-- Runs de actividad CRONOMETRADAS con botín: abisales (por filamento) y CRAB. MISMO patrón que
+-- exploration_log (sesión + cronómetro + loot pegado/valorado), pero para actividades con TIEMPO. Da lo
+-- que el asset-diff de abyssals NO puede: ISK/hora por tier/clima, tasa de muerte y P&L honesto (loot −
+-- naves perdidas). `ended_at` NULL = sesión ABIERTA (en curso; sobrevive a cerrar Koru a mitad de run).
+-- Ver documentacion/koru-desktop-ABYSSAL_CRAB_RUNS_diseno.md.
+CREATE TABLE IF NOT EXISTS activity_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    activity      TEXT NOT NULL,            -- 'abyssal' | 'crab'
+    variant_id    INTEGER,                  -- typeID del filamento (o beacon CRAB) → icono + tier/clima
+    variant_name  TEXT NOT NULL DEFAULT '', -- snapshot ("Raging Gamma Filament")
+    tier          TEXT,                     -- Calm..Cataclysmic (T1-T6), derivado del filamento
+    weather       TEXT,                     -- Dark|Electrical|Exotic|Firestorm|Gamma (null en CRAB)
+    system_id     INTEGER,
+    system_name   TEXT NOT NULL DEFAULT '',
+    ship_type_id  INTEGER,                  -- nave usada (opcional)
+    started_at    TEXT NOT NULL,            -- inicio de la sesión (cronómetro)
+    ended_at      TEXT,                     -- NULL = en curso; al terminar da la duración
+    outcome       TEXT NOT NULL DEFAULT 'open', -- open | done | died | aborted
+    loot_isk      REAL,                     -- valor del botín (del pegado, como exploración)
+    loot_note     TEXT,
+    ship_loss_isk REAL,                     -- si outcome='died': valor de la nave+fit perdidos (P&L)
+    note          TEXT,
+    character_id  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_runs_activity ON activity_runs(activity);
+CREATE INDEX IF NOT EXISTS idx_runs_ended    ON activity_runs(ended_at);
+CREATE INDEX IF NOT EXISTS idx_runs_char     ON activity_runs(character_id);

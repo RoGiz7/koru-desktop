@@ -6,6 +6,20 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.33.0",
+    date: "2026-07-24",
+    es: [
+      "🌀 Runs abisales, cronometradas. Elige tu filamento (tier y clima), pulsa Iniciar y Koru cuenta el tiempo con la cuenta atrás de los 20 minutos del abismo. Al terminar dices si saliste vivo, moriste o abortaste, pegas el botín y —si te reventaron— apuntas la nave perdida. Por fin ves tu ISK por hora REAL por tier y clima, cada cuántos filamentos mueres, y un P&L honesto (loot menos naves), no una estimación por compras.",
+      "📊 Con su histórico y sus filtros. Filtra por día, semana, mes o año y por filamento; si se te olvidó el botín de una run ya cerrada, lo editas; y las estadísticas (runs, P&L neto, ISK/hora, tasa de muerte) se recalculan solas.",
+      "🎨 Koru se viste de EVE. Cada sección estrena de fondo la nave insignia que le pega —el acorazado en PvP, la Orca en Industria, la Gila en el abismo, el carguero en Patrimonio…— fundida con el fondo sin estorbar la lectura. Y las runs abisales se tiñen con el color de cada clima (Firestorm rojo, Gamma dorado, Dark violeta, Electrical azul, Exotic verde) y en verde/rojo según cómo acabaron.",
+    ],
+    en: [
+      "🌀 Abyssal runs, on the clock. Pick your filament (tier and weather), hit Start and Koru times the run with the abyss's 20-minute countdown. When you finish you say whether you got out alive, died or bailed, paste the loot and —if you got blown up— note the ship you lost. You finally see your REAL ISK per hour by tier and weather, how many filaments between deaths, and an honest P&L (loot minus ships), not an estimate from purchases.",
+      "📊 With its own history and filters. Filter by day, week, month or year and by filament; if you forgot the loot on a closed run, just edit it; and the stats (runs, net P&L, ISK/hour, death rate) recalculate on their own.",
+      "🎨 Koru dresses up as EVE. Every section now carries its signature ship as a backdrop —the battleship in PvP, the Orca in Industry, the Gila in the abyss, the freighter in Net worth…— blended into the background without getting in the way. And abyssal runs are tinted with each weather's colour (Firestorm red, Gamma gold, Dark violet, Electrical blue, Exotic green) and green/red by how they ended.",
+    ],
+  },
+  {
     version: "0.32.0",
     date: "2026-07-24",
     es: [

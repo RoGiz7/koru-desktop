@@ -4450,6 +4450,79 @@ h4 {
   border-color: var(--accent-border, #4f9cff);
   background: var(--accent, #34507a);
 }
+/* Runs abisales cronometradas: sesión en curso, cronómetro con cuenta atrás y fin de run. */
+.abyss-runs {
+  margin-top: 0.4rem;
+}
+.abyss-start,
+.abyss-active,
+.abyss-end-btns,
+.abyss-finish {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.abyss-active {
+  border: 1px solid var(--accent-border, #4f9cff);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  background: rgba(79, 156, 255, 0.08);
+}
+.abyss-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text, #cfd8e3);
+}
+.abyss-count {
+  font-variant-numeric: tabular-nums;
+}
+.abyss-count.danger {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+.abyss-died {
+  color: #ff6b6b;
+}
+/* ---- Fondo de nave insignia por sección (patrón "carta de la Agencia"), reutilizable vía <SectionArt> ----
+   Render 3D en la esquina inferior derecha del contenido, con VIÑETA radial que funde por todos los bordes
+   + SCRIM diagonal que protege la legibilidad del texto + brillo para reconocer la nave. Ver la técnica en
+   memoria koru-iconografia-eve. */
+.panel-art-wrap {
+  position: relative;
+}
+.panel-art-wrap > *:not(.sec-art) {
+  position: relative;
+  z-index: 1;
+}
+.sec-art {
+  position: absolute;
+  right: 0;
+  top: 0; /* anclado ARRIBA del contenido: visible al entrar sin depender del scroll vertical */
+  width: 520px;
+  height: 320px;
+  max-width: 52%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.sec-art img {
+  position: absolute;
+  right: -30px;
+  top: -20px;
+  width: 100%;
+  opacity: 0.38;
+  filter: brightness(1.2) contrast(1.08);
+  -webkit-mask-image: radial-gradient(closest-side at 55% 45%, #000 38%, transparent 86%);
+  mask-image: radial-gradient(closest-side at 55% 45%, #000 38%, transparent 86%);
+}
+.sec-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, rgba(9, 12, 18, 0.85) 22%, rgba(9, 12, 18, 0.4) 55%, transparent 90%);
+}
 /* Pestañas de cubo de firmas (combate/minado/exploración/WH). Ahorran espacio vertical; la activa se
    tiñe con su color y el panel de abajo lleva un lavado del mismo color. */
 .sig-btabs {

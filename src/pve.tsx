@@ -7,6 +7,7 @@ import { tr } from "./i18n";
 import { fmtIsk, fmtSp, weekKey, daysAgo } from "./format";
 import { TypeIcon, Kpi, MultiLineProgress, DONUT_COLORS, RangePresets } from "./charts";
 import { FW_FACTIONS } from "./constants";
+import { AbyssalRunsView } from "./abyssalRuns";
 import type { MiningSeries, MineDimDay, FactionalView as FactionalData, AbyssalsData, GamelogRecon, GamelogMiningValued, GlOreWasteDay, BoostDay } from "./types";
 
 export function MineriaView({
@@ -717,14 +718,20 @@ export function FactionalSection({ data, busy }: { data: FactionalData | null; b
 }
 
 
-export function AbyssalsSection({ data, busy }: { data: AbyssalsData | null; busy: boolean }) {
-  if (!data) return <p className="muted">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>;
+export function AbyssalsSection({ data, busy, charId }: { data: AbyssalsData | null; busy: boolean; charId?: number | null }) {
   return (
     <>
-      <p className="muted small" style={{ marginTop: "1rem" }}>
+      {/* Capa DETALLADA: sesiones cronometradas → ISK/hora, tasa de muerte y P&L honesto. */}
+      <AbyssalRunsView charId={charId} />
+
+      {/* Capa PASIVA: estimación por compras de filamentos (sin tiempo). */}
+      <h4 style={{ marginTop: "1rem" }}>📦 {tr("Estimación por filamentos comprados")}</h4>
+      <p className="muted small">
         ⚠️ {tr("ESI no expone las runs abisales. Esto es una estimación a partir de tus compras de filamentos, ahora acumuladas en tu PC (cada sync guarda las nuevas; 1 filamento ≈ 1 run). Sincroniza la wallet con frecuencia para no perder transacciones fuera de la ventana de ESI.")}
       </p>
-      {data.by_filament.length === 0 ? (
+      {!data ? (
+        <p className="muted small">{busy ? tr("Cargando…") : tr("Sin datos.")}</p>
+      ) : data.by_filament.length === 0 ? (
         <p className="muted small">
           {tr("No se han detectado compras de filamentos en la ventana de transacciones.")}
         </p>

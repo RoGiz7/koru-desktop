@@ -39,6 +39,7 @@ import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
 import { ComercioView } from "./comercio";
 import { AssetsView } from "./assets";
+import { SectionArt } from "./sectionArt";
 import {
   FEATURES,
   SCOPE,
@@ -90,6 +91,41 @@ import type {
   WhConn,
   IntelLine,
 } from "./types";
+
+// Nave insignia de fondo por pestaña (patrón "carta de la Agencia", ver <SectionArt>). typeIDs
+// verificados contra type_names_es.json. Las que no estén aquí simplemente no llevan fondo.
+const SECTION_SHIP: Partial<Record<Tab, number>> = {
+  // PvP
+  pvp: 641, // Megathron
+  rivales: 641,
+  batallas: 641,
+  cazador: 641,
+  resumen: 641,
+  actividad: 641,
+  // Patrimonio / Personaje
+  patrimonio: 20185, // Charon (carguero = la caja fuerte)
+  wallet: 20185,
+  skills: 47466, // Praxis
+  assets: 20185,
+  contactos: 47466,
+  lealtad: 47466,
+  fiteos: 47466,
+  // Comercio
+  comercio: 20183, // Providence (carguero)
+  comercio_pnl: 20183,
+  comercio_watch: 20183,
+  planetologia: 20183,
+  // PvE
+  rateo: 645, // Dominix (ratear)
+  mineria: 22544, // Hulk (exhumer)
+  factional: 638, // Raven
+  abyssals: 17715, // Gila (reina del abismo)
+  // Industria
+  industria: 28606, // Orca
+  // Exploración
+  exploracion: 33468, // Astero (SoE)
+  exploracion_log: 33468,
+};
 
 /* ---------- relojes/contadores aislados (tic propio para NO re-renderizar toda la app) ---------- */
 // Hook de "ahora" con su propio intervalo, encapsulado en componentes pequeños de la barra de estado.
@@ -2062,6 +2098,9 @@ function App() {
             <span className="sh-subtitle">· {tr(TAB_HEAD[tab].subtitle)}</span>
           </div>
 
+          <div className="panel-art-wrap">
+          {SECTION_SHIP[tab] != null && <SectionArt typeId={SECTION_SHIP[tab]} />}
+
           {tab === "pvp" && (
             <PvpView
               stats={stats}
@@ -2207,8 +2246,9 @@ function App() {
             (isGlobal ? (
               <p className="muted small">{tr("Selecciona un personaje para ver la estimación de Abyssals.")}</p>
             ) : (
-              <AbyssalsSection data={abyssalsData} busy={sectionBusy} />
+              <AbyssalsSection data={abyssalsData} busy={sectionBusy} charId={subjectId} />
             ))}
+          </div>
         </div>
       </div>
 

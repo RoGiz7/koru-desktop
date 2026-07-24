@@ -850,6 +850,88 @@ pub fn exploration_log_set(
         .exploration_log_set(id, loot_isk, loot_note.as_deref(), note.as_deref())
 }
 
+// ---- Runs de actividad cronometradas (abisal por filamento / CRAB) → activity_runs ----
+
+/// Arranca una run (queda abierta con cronómetro). Devuelve su id.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn run_start(
+    state: State<'_, AppState>,
+    activity: String,
+    variant_id: Option<i64>,
+    variant_name: String,
+    tier: Option<String>,
+    weather: Option<String>,
+    system_id: Option<i64>,
+    system_name: String,
+    ship_type_id: Option<i64>,
+    character_id: Option<i64>,
+) -> AppResult<i64> {
+    state.db.run_start(
+        &activity,
+        variant_id,
+        &variant_name,
+        tier.as_deref(),
+        weather.as_deref(),
+        system_id,
+        &system_name,
+        ship_type_id,
+        character_id,
+    )
+}
+
+/// Termina una run (done/died/aborted) con su botín y, si muerte, el valor de la nave perdida.
+#[tauri::command]
+pub fn run_end(
+    state: State<'_, AppState>,
+    id: i64,
+    outcome: String,
+    loot_isk: Option<f64>,
+    loot_note: Option<String>,
+    ship_loss_isk: Option<f64>,
+    note: Option<String>,
+) -> AppResult<()> {
+    state
+        .db
+        .run_end(id, &outcome, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())
+}
+
+/// La run abierta (en curso) de un personaje, para restaurar el cronómetro.
+#[tauri::command]
+pub fn run_active(
+    state: State<'_, AppState>,
+    character_id: Option<i64>,
+) -> AppResult<Option<crate::db::ActivityRun>> {
+    state.db.run_active(character_id)
+}
+
+/// El histórico de runs finalizadas (para estadísticas de abyssals/CRAB).
+#[tauri::command]
+pub fn run_list(state: State<'_, AppState>) -> AppResult<Vec<crate::db::ActivityRun>> {
+    state.db.run_list()
+}
+
+/// Edita una run finalizada (botín / pérdida de nave / nota).
+#[tauri::command]
+pub fn run_set(
+    state: State<'_, AppState>,
+    id: i64,
+    loot_isk: Option<f64>,
+    loot_note: Option<String>,
+    ship_loss_isk: Option<f64>,
+    note: Option<String>,
+) -> AppResult<()> {
+    state
+        .db
+        .run_set(id, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())
+}
+
+/// Borra una run.
+#[tauri::command]
+pub fn run_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    state.db.run_delete(id)
+}
+
 #[tauri::command]
 pub fn facility_upsert(state: State<'_, AppState>, facility: FacilityRow) -> AppResult<i64> {
     state.db.facility_upsert(&facility)

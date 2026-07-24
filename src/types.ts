@@ -149,6 +149,28 @@ export type ExplorationLogRow = {
   character_id: number | null;
 };
 
+// Run cronometrada de actividad (abisales por filamento, CRAB…): sesión con tiempo → ISK/hora,
+// tasa de muerte y P&L honesto. Espejo de la tabla activity_runs / comandos run_*.
+export type ActivityRun = {
+  id: number;
+  activity: string; // "abyssal" | "crab"
+  variant_id: number | null; // typeID del filamento / beacon
+  variant_name: string;
+  tier: string | null;
+  weather: string | null;
+  system_id: number | null;
+  system_name: string;
+  ship_type_id: number | null;
+  started_at: string;
+  ended_at: string | null; // null = sesión abierta en curso
+  outcome: string; // "open" | "done" | "died" | "aborted"
+  loot_isk: number | null;
+  loot_note: string | null;
+  ship_loss_isk: number | null;
+  note: string | null;
+  character_id: number | null;
+};
+
 // Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space).
 export type WhConn = {
   system_id: number;

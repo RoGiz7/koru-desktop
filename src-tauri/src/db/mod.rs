@@ -2636,6 +2636,46 @@ pub struct ExplorationLogRow {
     pub character_id: Option<i64>,
 }
 
+/// Una RUN cronometrada de actividad (abisal por filamento, o CRAB). `ended_at` NULL = sesión ABIERTA
+/// (en curso). Al terminar da la duración; `outcome`+`ship_loss_isk` permiten el P&L honesto (morir en
+/// abismo pierde la nave). Ver koru-desktop-ABYSSAL_CRAB_RUNS_diseno.md.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ActivityRun {
+    #[serde(default)]
+    pub id: i64,
+    pub activity: String,
+    #[serde(default)]
+    pub variant_id: Option<i64>,
+    #[serde(default)]
+    pub variant_name: String,
+    #[serde(default)]
+    pub tier: Option<String>,
+    #[serde(default)]
+    pub weather: Option<String>,
+    #[serde(default)]
+    pub system_id: Option<i64>,
+    #[serde(default)]
+    pub system_name: String,
+    #[serde(default)]
+    pub ship_type_id: Option<i64>,
+    #[serde(default)]
+    pub started_at: String,
+    #[serde(default)]
+    pub ended_at: Option<String>,
+    #[serde(default)]
+    pub outcome: String,
+    #[serde(default)]
+    pub loot_isk: Option<f64>,
+    #[serde(default)]
+    pub loot_note: Option<String>,
+    #[serde(default)]
+    pub ship_loss_isk: Option<f64>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub character_id: Option<i64>,
+}
+
 /// Un puente Ansiblex ya resuelto contra el SDE. Par CANÓNICO (a_id < b_id): el wiki lista cada
 /// puente dos veces, una por extremo, pero para el grafo de rutas es una sola arista.
 /// `ly_declared` es lo que decía la fuente y NO se usa para calcular: los años luz buenos salen de
@@ -3378,6 +3418,141 @@ impl Db {
             rusqlite::params![id, loot_isk, loot_note, note],
         )?;
         Ok(())
+    }
+
+    // ---- Runs de actividad cronometradas (abisal por filamento / CRAB) → activity_runs ----
+
+    /// Arranca una run: la deja ABIERTA (`ended_at` NULL, `outcome`='open') con `started_at`=ahora.
+    /// Devuelve su id. La sesión abierta persiste (sobrevive a cerrar Koru a mitad de run).
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_start(
+        &self,
+        activity: &str,
+        variant_id: Option<i64>,
+        variant_name: &str,
+        tier: Option<&str>,
+        weather: Option<&str>,
+        system_id: Option<i64>,
+        system_name: &str,
+        ship_type_id: Option<i64>,
+        character_id: Option<i64>,
+    ) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO activity_runs
+                 (activity, variant_id, variant_name, tier, weather, system_id, system_name,
+                  ship_type_id, started_at, outcome, character_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10)",
+            rusqlite::params![
+                activity, variant_id, variant_name, tier, weather, system_id, system_name,
+                ship_type_id, now, character_id
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Termina una run: sella `ended_at`=ahora, el `outcome` (done/died/aborted) y el botín. Si muerte,
+    /// `ship_loss_isk` = valor de la nave perdida (para el P&L honesto).
+    pub fn run_end(
+        &self,
+        id: i64,
+        outcome: &str,
+        loot_isk: Option<f64>,
+        loot_note: Option<&str>,
+        ship_loss_isk: Option<f64>,
+        note: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE activity_runs SET ended_at = ?2, outcome = ?3, loot_isk = ?4, loot_note = ?5,
+                    ship_loss_isk = ?6, note = ?7 WHERE id = ?1",
+            rusqlite::params![id, now, outcome, loot_isk, loot_note, ship_loss_isk, note],
+        )?;
+        Ok(())
+    }
+
+    /// La run ABIERTA (en curso) de un personaje, si la hay — para restaurar el cronómetro al abrir Koru.
+    pub fn run_active(&self, character_id: Option<i64>) -> AppResult<Option<ActivityRun>> {
+        let conn = self.conn.lock().unwrap();
+        let row = conn
+            .query_row(
+                "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
+                        ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
+                        note, character_id
+                 FROM activity_runs
+                 WHERE ended_at IS NULL AND (character_id = ?1 OR (?1 IS NULL AND character_id IS NULL))
+                 ORDER BY started_at DESC LIMIT 1",
+                [character_id],
+                Self::map_activity_run,
+            )
+            .ok();
+        Ok(row)
+    }
+
+    /// El HISTÓRICO de runs FINALIZADAS (reciente→antiguo). El frontend filtra y saca estadísticas
+    /// (ISK/h por tier/clima, tasa de muerte, P&L neto). Las abiertas (en curso) NO salen aquí.
+    pub fn run_list(&self) -> AppResult<Vec<ActivityRun>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
+                    ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
+                    note, character_id
+             FROM activity_runs WHERE ended_at IS NOT NULL ORDER BY ended_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], Self::map_activity_run)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Edita una run finalizada (botín / pérdida de nave / nota). No toca fechas ni filamento.
+    pub fn run_set(
+        &self,
+        id: i64,
+        loot_isk: Option<f64>,
+        loot_note: Option<&str>,
+        ship_loss_isk: Option<f64>,
+        note: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE activity_runs SET loot_isk = ?2, loot_note = ?3, ship_loss_isk = ?4, note = ?5
+             WHERE id = ?1",
+            rusqlite::params![id, loot_isk, loot_note, ship_loss_isk, note],
+        )?;
+        Ok(())
+    }
+
+    /// Borra una run (finalizada o la abierta si te equivocaste al iniciarla).
+    pub fn run_delete(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM activity_runs WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Mapea una fila de `activity_runs` a `ActivityRun` (SELECT de 17 columnas, mismo orden en todos).
+    fn map_activity_run(r: &rusqlite::Row) -> rusqlite::Result<ActivityRun> {
+        Ok(ActivityRun {
+            id: r.get(0)?,
+            activity: r.get(1)?,
+            variant_id: r.get(2)?,
+            variant_name: r.get(3)?,
+            tier: r.get(4)?,
+            weather: r.get(5)?,
+            system_id: r.get(6)?,
+            system_name: r.get(7)?,
+            ship_type_id: r.get(8)?,
+            started_at: r.get(9)?,
+            ended_at: r.get(10)?,
+            outcome: r.get(11)?,
+            loot_isk: r.get(12)?,
+            loot_note: r.get(13)?,
+            ship_loss_isk: r.get(14)?,
+            note: r.get(15)?,
+            character_id: r.get(16)?,
+        })
     }
 
     pub fn location_system_clear_negative(&self) -> usize {
