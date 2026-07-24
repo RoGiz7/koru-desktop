@@ -6,6 +6,22 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.32.0",
+    date: "2026-07-24",
+    es: [
+      "💰 Tu botín, valorado solo. Al cerrar un sitio de exploración pega el saque del carguero o de la estación: Koru suma su valor (usa el precio estimado que ya trae EVE al copiar el inventario) y lo guarda en el Histórico. ¿Corriste varias anomalías seguidas y el loot va todo junto? Marca varias a la vez y el total se reparte entre ellas. El explorador por fin ve cuánto saca, no solo qué hace.",
+      "🗑️ Y lo que no hiciste, fuera. A veces una firma desaparece porque la corrió otro o caducó en el mantenimiento. Ahora la descartas de un botón, sin que ensucie tu histórico — solo cuenta lo que exploras tú.",
+      "🔗 Enlaces a la wiki que ahora sí funcionan. Si juegas con el cliente en español, el nombre del sitio salía en español y la wiki (en inglés) no lo encontraba. Koru lo traduce por detrás: pulsas ↗ y abre la página correcta.",
+      "🔊 «Intel en vivo» apagado ahora calla de verdad. Con el interruptor en OFF el intel sigue leyéndose si tienes la capa abierta (ves el feed y los avisos en el mapa), pero ya no suena ni te salta la alerta. Con ON, alerta estés en la sección que estés.",
+    ],
+    en: [
+      "💰 Your loot, valued on its own. When you close an exploration site, paste the haul from your cargo or station: Koru adds up its value (using the estimated price EVE already includes when you copy the inventory) and saves it to your History. Ran several anomalies in a row and the loot is all mixed together? Mark several at once and the total is split between them. Explorers finally see how much they make, not just what they do.",
+      "🗑️ And what you didn't run, gone. Sometimes a signature disappears because someone else ran it or it expired at downtime. Now you can discard it with one button, without cluttering your history — only what YOU explore counts.",
+      "🔗 Wiki links that actually work now. If you play with the client in Spanish (or any language), the site name came out localized and the (English) wiki couldn't find it. Koru translates it behind the scenes: press ↗ and it opens the right page.",
+      "🔊 Turning off “Live intel” now truly goes quiet. With the switch OFF, intel still reads if you have the layer open (you see the feed and warnings on the map), but it no longer beeps or pops the alert. With ON, it alerts wherever you are.",
+    ],
+  },
+  {
     version: "0.31.0",
     date: "2026-07-23",
     es: [
