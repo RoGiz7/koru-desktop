@@ -5414,6 +5414,11 @@ pub struct IntelWatchCfg {
     /// Orígenes de proximidad: sistema del personaje + puntos de ancla elegidos.
     pub origins: Vec<i64>,
     pub alert_jumps: i64,
+    /// ¿Sacar ALERTAS (notificación nativa + evento intel-alert → sonido/banner)? El vigilante SIGUE
+    /// leyendo y emitiendo el feed (intel-lines) para los puntos del mapa aunque esto sea false: así,
+    /// con el interruptor «Intel en vivo» APAGADO puedes seguir viendo el intel en la capa, pero NO
+    /// suena ni notifica. Lo pone el frontend = estado del interruptor maestro (`intel.live`).
+    pub alerts_enabled: bool,
 }
 
 #[derive(Default)]
@@ -5536,6 +5541,7 @@ pub fn start_intel_watch(
     recency_minutes: i64,
     origins: Vec<i64>,
     alert_jumps: i64,
+    alerts_enabled: bool,
 ) -> AppResult<()> {
     if let Ok(mut c) = state.intel.cfg.lock() {
         *c = Some(IntelWatchCfg {
@@ -5544,6 +5550,7 @@ pub fn start_intel_watch(
             recency_min: recency_minutes,
             origins,
             alert_jumps,
+            alerts_enabled,
         });
     }
     // Arrancar el hilo una sola vez; en sucesivas llamadas solo cambia la cfg.
@@ -5644,6 +5651,7 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
             let mut hc = std::collections::hash_map::DefaultHasher::new();
             cfg.origins.hash(&mut hc);
             cfg.alert_jumps.hash(&mut hc);
+            cfg.alerts_enabled.hash(&mut hc); // alternar el maestro reevalúa al momento
             let cfg_sig = hc.finish();
 
             let lines_changed = sig != last_sig;
@@ -5703,7 +5711,11 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                         .lock()
                                         .map(|mut a| a.insert(key))
                                         .unwrap_or(false);
-                                    if is_new {
+                                    // `is_new` se registra SIEMPRE (aunque no alertemos): así, al
+                                    // reactivar las alertas no se dispara de golpe todo lo que pasó
+                                    // mientras estaban apagadas. La ALERTA en sí (notificación +
+                                    // evento) solo sale si el interruptor maestro está ON.
+                                    if is_new && cfg.alerts_enabled {
                                         let system = g
                                             .id_to_name
                                             .get(sid)

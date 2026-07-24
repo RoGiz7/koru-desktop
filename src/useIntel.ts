@@ -179,6 +179,9 @@ export function useIntel({
       recencyMinutes: intel.recency,
       origins: intelOrigins,
       alertJumps: intel.alertJumps,
+      // ALERTAS (sonido/banner/notificación) SOLO con el interruptor maestro ON. Con OFF el vigilante
+      // sigue leyendo (feed/puntos en la capa intel), pero NO alerta. Fix del "OFF sigue sonando".
+      alertsEnabled: intel.live,
     }).catch(() => {});
     return () => {
       // Solo paramos al desmontar/recambiar si NO está el modo en vivo (si está ON, sigue corriendo).
