@@ -1721,6 +1721,8 @@ const EN: Record<string, string> = {
   "Firmas del sistema borradas.": "System signatures deleted.",
   // --- Exploración: enlace a wiki (nombre de sitio traducido ES→EN) ---
   "Buscar en la wiki de EVE University": "Search the EVE University wiki",
+  "Selecciona en el escáner (Ctrl+A, Ctrl+C) y pega aquí; el sistema lo pones tú.":
+    "Select in the scanner (Ctrl+A, Ctrl+C) and paste here; you set the system.",
   // --- Exploración: cierre en lote + modal de botín ---
   Eliminar: "Delete",
   firma: "signature",

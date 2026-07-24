@@ -9,6 +9,9 @@ function contactLogo(kind: string, id: number): string | null {
   if (kind === "character") return `https://images.evetech.net/characters/${id}/portrait?size=32`;
   if (kind === "corporation") return `https://images.evetech.net/corporations/${id}/logo?size=32`;
   if (kind === "alliance") return `https://images.evetech.net/alliances/${id}/logo?size=32`;
+  // Facciones (imperios): el image server sirve su escudo por la ruta de corporación con el faction
+  // ID (500001-500004). Si algún faction ID no respondiera, el <img> cae con onError (queda el color).
+  if (kind === "faction") return `https://images.evetech.net/corporations/${id}/logo?size=32`;
   return null;
 }
 const KIND_ES: Record<string, string> = {
@@ -66,6 +69,7 @@ export function ContactosView({
                           src={logo}
                           alt=""
                           loading="lazy"
+                          onError={(e) => (e.currentTarget.style.display = "none")}
                           style={{ borderRadius: c.kind === "character" ? "50%" : "3px" }}
                         />
                       )}

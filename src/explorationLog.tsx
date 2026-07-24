@@ -7,8 +7,8 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
-import { fmtIsk } from "./format";
-import { KIND_META, fmtDuration } from "./signaturesControl";
+import { fmtIsk, typeRender } from "./format";
+import { KIND_META, KindGlyph, fmtDuration, BUCKETS } from "./signaturesControl";
 import { parseIskShorthand } from "./lootPaste";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import type { SigKind } from "./signatures";
@@ -22,7 +22,16 @@ type Props = {
 /** Cubos de estadística, en el orden de caza (igual que Pendientes). `unknown` cae en "otros". */
 const STAT_KINDS: SigKind[] = ["wormhole", "combat", "relic", "data", "gas", "ore", "unknown"];
 
-function kindMeta(kind: string): { icon: string; label: string } {
+/** Filtro de tiempo del Histórico (ventana móvil, como la granularidad de las gráficas). */
+const PERIODS: { key: string; label: string; ms: number }[] = [
+  { key: "day", label: "Día", ms: 24 * 3600e3 },
+  { key: "week", label: "Semana", ms: 7 * 24 * 3600e3 },
+  { key: "month", label: "Mes", ms: 30 * 24 * 3600e3 },
+  { key: "year", label: "Año", ms: 365 * 24 * 3600e3 },
+  { key: "all", label: "Todo", ms: 0 },
+];
+
+function kindMeta(kind: string): { icon: string; label: string; tid?: number } {
   return KIND_META[kind as SigKind] ?? { icon: "❔", label: kind };
 }
 
@@ -35,11 +44,26 @@ export function ExplorationLogView({ charId }: Props) {
   const [editIsk, setEditIsk] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editLoot, setEditLoot] = useState("");
+  const [period, setPeriod] = useState<string>("all"); // filtro de tiempo (día/semana/mes/año/todo)
+  const [histTab, setHistTab] = useState<string>("all"); // pestaña por tipo ("all" = todos)
   // Traductor ES→EN de nombres de sitio, para los enlaces a wikis. Ver siteNames.ts.
   const [dungeonIdx, setDungeonIdx] = useState<DungeonIndex>(new Map());
   useEffect(() => {
     buildDungeonIndex().then(setDungeonIdx);
   }, []);
+
+  // Filtro por TIEMPO (ventana móvil) → luego por TIPO (pestaña). Las estadísticas se calculan sobre lo
+  // filtrado por tiempo (para "cuánto saqué esta semana"); la tabla, además, por la pestaña de tipo.
+  const periodMs = PERIODS.find((p) => p.key === period)?.ms ?? 0;
+  const periodRows = useMemo(
+    () => (periodMs === 0 ? rows : rows.filter((r) => Date.now() - new Date(r.done_at).getTime() <= periodMs)),
+    [rows, periodMs],
+  );
+  const kindsOf = (key: string) => BUCKETS.find((b) => b.key === key)?.kinds ?? [];
+  const activeBuckets = BUCKETS.filter((b) => periodRows.some((r) => b.kinds.includes(r.kind as SigKind)));
+  const curBucket = histTab === "all" ? null : (BUCKETS.find((b) => b.key === histTab) ?? null);
+  const tabRows =
+    histTab === "all" ? periodRows : periodRows.filter((r) => kindsOf(histTab).includes(r.kind as SigKind));
 
   async function load() {
     try {
@@ -65,7 +89,7 @@ export function ExplorationLogView({ charId }: Props) {
     const byKind = new Map<string, { n: number; isk: number }>();
     let totalIsk = 0;
     let totalMs = 0; // tiempo total dentro de sitios (solo los que tienen entrada y salida)
-    for (const r of rows) {
+    for (const r of periodRows) {
       const k = r.kind;
       const cur = byKind.get(k) ?? { n: 0, isk: 0 };
       cur.n += 1;
@@ -79,8 +103,8 @@ export function ExplorationLogView({ charId }: Props) {
     }
     // ISK/hora sobre el tiempo medido (solo si hay algo de tiempo cronometrado).
     const iskPerHour = totalMs > 0 ? totalIsk / (totalMs / 3_600_000) : 0;
-    return { total: rows.length, totalIsk, byKind, totalMs, iskPerHour };
-  }, [rows]);
+    return { total: periodRows.length, totalIsk, byKind, totalMs, iskPerHour };
+  }, [periodRows]);
 
   // "1h 05m" a partir de milisegundos (para el total; fmtDuration trabaja con ISO).
   function msToStr(ms: number): string {
@@ -151,7 +175,45 @@ export function ExplorationLogView({ charId }: Props) {
         </p>
       ) : (
         <>
-          {/* ---- Resumen de estadísticas ---- */}
+          {/* ---- Filtro de tiempo (ventana móvil, como la granularidad de las gráficas) ---- */}
+          <div className="explog-periods">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                className={`explog-period${period === p.key ? " on" : ""}`}
+                onClick={() => setPeriod(p.key)}
+              >
+                {tr(p.label)}
+              </button>
+            ))}
+          </div>
+
+          {/* ---- Pestañas por tipo: Todos + los cubos con entradas en el periodo ---- */}
+          <div className="sig-btabs">
+            <button
+              className={`sig-btab${histTab === "all" ? " on" : ""}`}
+              onClick={() => setHistTab("all")}
+            >
+              {tr("Todos")} <span className="muted">({periodRows.length})</span>
+            </button>
+            {activeBuckets.map((b) => {
+              const n = periodRows.filter((r) => b.kinds.includes(r.kind as SigKind)).length;
+              const on = histTab === b.key;
+              return (
+                <button
+                  key={b.key}
+                  className={`sig-btab${on ? " on" : ""}`}
+                  style={on ? { borderColor: b.color, background: `${b.color}22` } : undefined}
+                  onClick={() => setHistTab(b.key)}
+                >
+                  <KindGlyph icon={b.icon} tid={b.tid} size={16} /> {tr(b.label)}{" "}
+                  <span className="muted">({n})</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ---- Resumen de estadísticas (del periodo elegido) ---- */}
           <div className="explog-stats">
             <div className="explog-stat">
               <div className="explog-stat-n">{stats.total}</div>
@@ -179,7 +241,7 @@ export function ExplorationLogView({ charId }: Props) {
               return (
                 <div key={k} className="explog-stat" title={tr(kindMeta(k).label)}>
                   <div className="explog-stat-n">
-                    {kindMeta(k).icon} {s.n}
+                    <KindGlyph icon={kindMeta(k).icon} tid={kindMeta(k).tid} size={18} /> {s.n}
                   </div>
                   <div className="explog-stat-l small muted">
                     {tr(kindMeta(k).label)}
@@ -190,8 +252,15 @@ export function ExplorationLogView({ charId }: Props) {
             })}
           </div>
 
-          {/* ---- Tabla del histórico ---- */}
-          <table className="small sig-table explog-table">
+          {/* ---- Tabla del histórico, con fondo temático si hay pestaña de tipo activa ---- */}
+          <div
+            className="sig-bpanel"
+            style={curBucket ? { background: `linear-gradient(180deg, ${curBucket.color}1f, transparent 55%)` } : undefined}
+          >
+            {curBucket?.art && (
+              <img className="sig-bpanel-art" src={typeRender(curBucket.art, 512)} alt="" loading="lazy" />
+            )}
+            <table className="small sig-table explog-table">
             <thead>
               <tr className="sig-th">
                 <th>{tr("Fecha")}</th>
@@ -204,7 +273,7 @@ export function ExplorationLogView({ charId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {tabRows.map((r) => (
                 <tr key={r.id}>
                   <td style={{ whiteSpace: "nowrap" }} className="muted">
                     {r.done_at.slice(0, 10)}
@@ -216,7 +285,7 @@ export function ExplorationLogView({ charId }: Props) {
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>{r.system_name || `#${r.system_id}`}</td>
                   <td style={{ whiteSpace: "nowrap" }} title={tr(kindMeta(r.kind).label)}>
-                    {kindMeta(r.kind).icon} {tr(kindMeta(r.kind).label)}
+                    {tr(kindMeta(r.kind).label)}
                   </td>
                   <td>
                     {r.name ? (
@@ -299,7 +368,8 @@ export function ExplorationLogView({ charId }: Props) {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </>
       )}
       {msg && <div className="small muted">{msg}</div>}

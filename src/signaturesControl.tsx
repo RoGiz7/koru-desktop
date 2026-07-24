@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { tr } from "./i18n";
+import { typeIcon, typeRender } from "./format";
 import { loadNewEden } from "./neweden";
 import { parseSignaturePaste, type ParsedSignature, type SignatureRow, type SigKind } from "./signatures";
 import type { NeSystem } from "./types";
@@ -16,27 +17,48 @@ import { buildLootIndex, type LootIndex } from "./lootPaste";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 
-/** Etiqueta e icono por tipo de sitio. El wormhole va primero y marcado: es el que engancha con las
- *  rutas. `unknown` = firma aún sin identificar (poca señal). */
-export const KIND_META: Record<SigKind, { icon: string; label: string }> = {
+/** Etiqueta e icono por tipo de sitio. `tid` = typeID real de EVE (image server) para el icono
+ *  auténtico; el `icon` emoji es la reserva (y lo que se ve en los <select>, que no admiten <img>).
+ *  Los items elegidos son los que un explorador reconoce: los analizadores de reliquias/datos, el
+ *  recolector de gas y la mena. El wormhole/combate/sin-identificar se quedan en emoji (no hay item
+ *  claro y el emoji comunica igual). `unknown` = firma aún sin identificar (poca señal). */
+export const KIND_META: Record<SigKind, { icon: string; label: string; tid?: number }> = {
   wormhole: { icon: "🕳️", label: "Wormhole" },
-  combat: { icon: "⚔️", label: "Combate" },
-  relic: { icon: "🏺", label: "Reliquias" },
-  data: { icon: "💾", label: "Datos" },
-  gas: { icon: "☁️", label: "Gas" },
-  ore: { icon: "⛏️", label: "Menas" },
+  combat: { icon: "⚔️", label: "Combate", tid: 484 }, // 125mm Gatling AutoCannon I (arma, = capa kills)
+  relic: { icon: "🏺", label: "Reliquias", tid: 22177 }, // Relic Analyzer I
+  data: { icon: "💾", label: "Datos", tid: 22175 }, // Data Analyzer I
+  gas: { icon: "☁️", label: "Gas", tid: 25266 }, // Gas Cloud Scoop I
+  ore: { icon: "⛏️", label: "Menas", tid: 1230 }, // Veldspar
   unknown: { icon: "❔", label: "Sin identificar" },
 };
+
+/** Pinta el icono REAL de EVE (image server) si hay typeID, o el emoji de reserva. Pequeño, para
+ *  celdas y cabeceras. No usar en <option> (nativo, no admite <img> → ahí va el emoji). */
+export function KindGlyph({ icon, tid, size = 16 }: { icon: string; tid?: number; size?: number }) {
+  return tid ? (
+    <img
+      className="kind-glyph"
+      src={typeIcon(tid, 32)}
+      alt=""
+      loading="lazy"
+      style={{ width: size, height: size, verticalAlign: "-3px" }}
+    />
+  ) : (
+    <>{icon}</>
+  );
+}
 
 /** Cubos de la vista de Exploración (lo que pidió RoGiz7): combate · minado · exploración (data +
  *  relic + gas, el contenido «de explorar» clásico) · wormholes · sin identificar. El orden es el de
  *  interés de un cazador/explorador: primero los agujeros (rutas + por dónde entra el enemigo). */
-const BUCKETS: { key: string; icon: string; label: string; kinds: SigKind[] }[] = [
-  { key: "wh", icon: "🕳️", label: "Wormholes", kinds: ["wormhole"] },
-  { key: "combate", icon: "⚔️", label: "Combate", kinds: ["combat"] },
-  { key: "expl", icon: "🏺", label: "Exploración", kinds: ["relic", "data", "gas"] },
-  { key: "minado", icon: "⛏️", label: "Minado", kinds: ["ore"] },
-  { key: "nd", icon: "❔", label: "Sin identificar", kinds: ["unknown"] },
+// `art` = typeID de una NAVE temática para el render 3D tenue de fondo del panel (aire Agencia).
+export type Bucket = { key: string; icon: string; label: string; kinds: SigKind[]; tid?: number; color: string; art?: number };
+export const BUCKETS: Bucket[] = [
+  { key: "wh", icon: "🕳️", label: "Wormholes", kinds: ["wormhole"], color: "#b06bff", art: 29984 }, // morado · Tengu (T3, WH)
+  { key: "combate", icon: "⚔️", label: "Combate", kinds: ["combat"], tid: 484, color: "#e5534b", art: 17932 }, // rojo · Dramiel (pirata Ángel)
+  { key: "expl", icon: "🏺", label: "Exploración", kinds: ["relic", "data", "gas"], tid: 22177, color: "#4f9cff", art: 33468 }, // azul · Astero (Sisters)
+  { key: "minado", icon: "⛏️", label: "Minado", kinds: ["ore"], tid: 1230, color: "#5ad18b", art: 32880 }, // verde · Venture
+  { key: "nd", icon: "❔", label: "Sin identificar", kinds: ["unknown"], color: "#8b97a8" }, // gris (sin arte: es "desconocido")
 ];
 
 export function fmtDist(au: number | null): string {
@@ -85,6 +107,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
   const [sysId, setSysId] = useState<number | null>(initialSystemId ?? null);
   const [sysName, setSysName] = useState<string>(initialSystemName ?? "");
   const [search, setSearch] = useState("");
+  const [searchFocus, setSearchFocus] = useState(false); // para mostrar/ocultar las sugerencias
   const [saved, setSaved] = useState<SignatureRow[]>([]);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -103,6 +126,8 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
   const [lootIndex, setLootIndex] = useState<LootIndex>(new Map());
   // Traductor de nombres de sitio ES→EN, para los enlaces a wikis. Ver siteNames.ts.
   const [dungeonIdx, setDungeonIdx] = useState<DungeonIndex>(new Map());
+  // Cubo (pestaña) activo de las firmas guardadas. "" = auto: el primer cubo con firmas.
+  const [bucketTab, setBucketTab] = useState<string>("");
 
   // Índices cargados una vez y cacheados: loot (nombre→typeID) y sitios (ES→EN para las wikis).
   useEffect(() => {
@@ -141,19 +166,6 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
       .then(setSaved)
       .catch(() => setSaved([]));
   }, [sysId]);
-
-  function pickSystem() {
-    if (!byName) return;
-    const hit = byName.get(search.trim().toLowerCase());
-    if (!hit) {
-      setMsg(`${tr("No encuentro el sistema")}: ${search}`);
-      return;
-    }
-    setSysId(hit.id);
-    setSysName(hit.n);
-    setSearch("");
-    setMsg("");
-  }
 
   // Saltar a un sistema de las pestañas de "ya trabajados" (sin teclear el nombre).
   function pickSystemById(id: number) {
@@ -355,7 +367,31 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
     }
   }
 
-  const wormholesSaved = useMemo(() => saved.filter((r) => r.kind === "wormhole").length, [saved]);
+  // Sugerencias de sistema del buscador (autocompletar): coincidencias del SDE al teclear ≥2 letras.
+  const sysMatches =
+    searchFocus && byName && search.trim().length >= 2
+      ? [...byName.values()]
+          .filter((s) => s.n.toLowerCase().includes(search.trim().toLowerCase()))
+          .slice(0, 8)
+      : [];
+
+  // Pestañas de SISTEMA: los que tienen firmas pendientes + SIEMPRE el activo (aunque esté vacío), para
+  // que al elegir uno en el buscador se vea al instante que cambió (antes parecía que "no hacía nada").
+  const sysTabList: { system_id: number; pending: number }[] = [
+    ...(sysId != null && !systems.some((s) => s.system_id === sysId)
+      ? [{ system_id: sysId, pending: saved.length }]
+      : []),
+    ...systems.map((s) => ({ system_id: s.system_id, pending: s.pending })),
+  ];
+
+  // Cubos CON firmas (los que se vuelven pestañas). La pestaña activa: la elegida si sigue teniendo
+  // firmas, o el primer cubo con firmas (auto-recupera si el activo se vacía al cerrar/borrar).
+  const activeBuckets = useMemo(
+    () => BUCKETS.filter((b) => saved.some((r) => b.kinds.includes(r.kind as SigKind))),
+    [saved],
+  );
+  const curBucket = activeBuckets.find((b) => b.key === bucketTab) ?? activeBuckets[0] ?? null;
+  const curRows = curBucket ? saved.filter((r) => curBucket.kinds.includes(r.kind as SigKind)) : [];
 
   // Clic en una cabecera: si ya ordenaba por esa columna, invierte; si no, ordena por ella (con la
   // dirección natural de cada campo: señal de mayor a menor, distancia de menor a mayor).
@@ -387,39 +423,44 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
 
   return (
     <div className="tb-settings-logs">
-      <div className="small" style={{ fontWeight: 600 }}>
-        📡 {tr("Firmas del escáner de sondas")}
-      </div>
       <div className="small muted">
-        {tr(
-          "El escáner es una ventana del cliente, no un dato de ESI. Selecciona las firmas en el escáner (Ctrl+A), copia (Ctrl+C) y pega aquí. El sistema lo pones tú: el pegado no lo trae."
-        )}
+        📡 {tr("Selecciona en el escáner (Ctrl+A, Ctrl+C) y pega aquí; el sistema lo pones tú.")}
       </div>
 
-      {/* Sistema activo. Si viene dado (estás en él en el mapa), no hace falta buscarlo. */}
+      {/* Sistema activo. Si viene dado (estás en él en el mapa), no hace falta buscarlo. El nombre no
+          se repite aquí: sale ya en las pestañas de sistema de abajo (la activa va resaltada). */}
       <div className="tb-logs-row" style={{ alignItems: "center", gap: 6 }}>
-        <span className="small">
-          {tr("Sistema")}: <strong>{sysName || tr("(ninguno)")}</strong>
-        </span>
-        <input
-          className="small"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && pickSystem()}
-          placeholder={tr("buscar sistema…")}
-          style={{ width: 140 }}
-        />
-        <button className="pp-add" onClick={pickSystem} disabled={!byName || !search.trim()}>
-          {tr("Elegir")}
-        </button>
+        <div className="sys-search" style={{ position: "relative", width: 200 }}>
+          <input
+            className="small"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => setSearchFocus(true)}
+            onBlur={() => setTimeout(() => setSearchFocus(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && sysMatches[0]) pickSystemById(sysMatches[0].id);
+            }}
+            placeholder={tr("buscar sistema…")}
+            style={{ width: "100%" }}
+          />
+          {sysMatches.length > 0 && (
+            <ul className="sys-search-list">
+              {sysMatches.map((m) => (
+                <li key={m.id} onMouseDown={() => pickSystemById(m.id)}>
+                  {m.n} <span className="muted">{m.s.toFixed(1)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* Pestañas de los sistemas donde ya tienes firmas pendientes: clic en el nombre para saltar
           ahí sin teclear; la ✕ cierra el sistema (borra sus firmas vivas, con confirmación). */}
-      {systems.length > 0 && (
+      {sysTabList.length > 0 && (
         <div className="sig-sys-tabs">
-          {systems.map((s) => {
-            const name = byId.get(s.system_id) ?? `#${s.system_id}`;
+          {sysTabList.map((s) => {
+            const name = byId.get(s.system_id) ?? (sysName || `#${s.system_id}`);
             const active = s.system_id === sysId;
             return (
               <div key={s.system_id} className={`sig-sys-tab${active ? " active" : ""}`}>
@@ -428,15 +469,18 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                   onClick={() => pickSystemById(s.system_id)}
                   title={tr("Ver este sistema")}
                 >
-                  {name} <span className="muted">({s.pending})</span>
+                  {name}
+                  {s.pending > 0 && <span className="muted"> ({s.pending})</span>}
                 </button>
-                <button
-                  className="sig-sys-tab-x"
-                  title={tr("Cerrar este sistema (borra sus firmas vivas)")}
-                  onClick={() => closeSystem(s.system_id, name)}
-                >
-                  ✕
-                </button>
+                {s.pending > 0 && (
+                  <button
+                    className="sig-sys-tab-x"
+                    title={tr("Cerrar este sistema (borra sus firmas vivas)")}
+                    onClick={() => closeSystem(s.system_id, name)}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             );
           })}
@@ -445,13 +489,11 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
 
       {sysId != null && (
         <>
-          <div className="small muted">
-            {saved.length > 0
-              ? `${saved.length} ${tr("firmas")}${wormholesSaved ? ` · ${wormholesSaved} 🕳️` : ""}`
-              : tr("Sin firmas guardadas en este sistema.")}
-          </div>
+          {saved.length === 0 && (
+            <div className="small muted">{tr("Sin firmas guardadas en este sistema.")}</div>
+          )}
 
-          <div className="tb-logs-row">
+          <div className="tb-logs-row" style={{ justifyContent: "flex-start" }}>
             <button className="pp-add" onClick={() => setOpen((o) => !o)}>
               📋 {open ? tr("Cerrar") : tr("Pegar escaneo")}
             </button>
@@ -510,9 +552,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
               <tbody>
                 {preview.map((s) => (
                   <tr key={s.id}>
-                    <td title={KIND_META[s.kind].label}>
-                      {KIND_META[s.kind].icon} {tr(KIND_META[s.kind].label)}
-                    </td>
+                    <td title={KIND_META[s.kind].label}>{tr(KIND_META[s.kind].label)}</td>
                     <td style={{ fontFamily: "monospace" }}>{s.id}</td>
                     <td>{s.name || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: "right" }}>{s.signalPct != null ? `${s.signalPct}%` : "—"}</td>
@@ -536,21 +576,36 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
         </div>
       )}
 
-      {/* ---- Firmas guardadas del sistema, AGRUPADAS por cubo (combate/minado/exploración/WH). Cada
-              bloque solo aparece si tiene firmas — de un vistazo ves qué hay en el sistema. Anotable
+      {/* ---- Firmas guardadas del sistema, en PESTAÑAS por cubo (combate/minado/exploración/WH), con
+              fondo temático por color. Ahorra espacio vertical y de un vistazo ves qué hay. Anotable
               (el destino de un wormhole se convierte en arista de ruta en el mapa). ---- */}
       {!preview && saved.length > 0 && (
         <div className="sig-buckets">
-          {BUCKETS.map((b) => {
-            const rows = saved.filter((r) => b.kinds.includes(r.kind as SigKind));
-            if (rows.length === 0) return null;
-            return (
-              <div key={b.key} className="sig-bucket">
-                <div className="sig-bucket-head small">
-                  <span className="sig-bucket-ic">{b.icon}</span>
-                  <strong>{tr(b.label)}</strong>
-                  <span className="muted">({rows.length})</span>
-                </div>
+          <div className="sig-btabs">
+            {activeBuckets.map((b) => {
+              const n = saved.filter((r) => b.kinds.includes(r.kind as SigKind)).length;
+              const on = curBucket?.key === b.key;
+              return (
+                <button
+                  key={b.key}
+                  className={`sig-btab${on ? " on" : ""}`}
+                  style={on ? { borderColor: b.color, background: `${b.color}22` } : undefined}
+                  onClick={() => setBucketTab(b.key)}
+                >
+                  <KindGlyph icon={b.icon} tid={b.tid} size={16} /> {tr(b.label)}{" "}
+                  <span className="muted">({n})</span>
+                </button>
+              );
+            })}
+          </div>
+          {curBucket && (
+            <div
+              className="sig-bpanel"
+              style={{ background: `linear-gradient(180deg, ${curBucket.color}1f, transparent 55%)` }}
+            >
+                {curBucket.art && (
+                  <img className="sig-bpanel-art" src={typeRender(curBucket.art, 512)} alt="" loading="lazy" />
+                )}
                 <table className="small sig-table">
                   <thead>
                     <tr className="sig-th">
@@ -569,7 +624,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                     </tr>
                   </thead>
                   <tbody>
-                    {sortRows(rows).map((r) => (
+                    {sortRows(curRows).map((r) => (
                       <tr key={r.sig_id} className={selected.has(r.sig_id) ? "sig-row-sel" : ""}>
                         <td style={{ textAlign: "center" }}>
                           <input
@@ -592,7 +647,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                             {(["unknown", "combat", "data", "relic", "gas", "ore", "wormhole"] as SigKind[]).map(
                               (k) => (
                                 <option key={k} value={k}>
-                                  {KIND_META[k].icon} {tr(KIND_META[k].label)}
+                                  {tr(KIND_META[k].label)}
                                 </option>
                               ),
                             )}
@@ -662,9 +717,8 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                     ))}
                   </tbody>
                 </table>
-              </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       )}
 

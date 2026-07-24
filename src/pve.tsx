@@ -682,8 +682,19 @@ export function FactionalSection({ data, busy }: { data: FactionalData | null; b
     <>
       <div className="kpis">
         <div className="kpi" style={fac ? { borderTopColor: fac.color } : undefined}>
-          <div className="kpi-value">
-            {fac?.name ?? (data.faction_id ? `#${data.faction_id}` : "—")}
+          <div className="kpi-value" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {data.faction_id && (
+              // Escudo real del imperio (image server, ruta de corp con el faction ID). Si no
+              // respondiera, onError lo oculta y queda el nombre + color de ahora.
+              <img
+                src={`https://images.evetech.net/corporations/${data.faction_id}/logo?size=32`}
+                alt=""
+                loading="lazy"
+                onError={(e) => (e.currentTarget.style.display = "none")}
+                style={{ width: 24, height: 24, borderRadius: 3, flex: "0 0 auto" }}
+              />
+            )}
+            <span>{fac?.name ?? (data.faction_id ? `#${data.faction_id}` : "—")}</span>
           </div>
           <div className="kpi-label">{tr("Facción")}</div>
         </div>

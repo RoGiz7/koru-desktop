@@ -4427,6 +4427,104 @@ h4 {
   padding: 0.15rem 0.3rem;
   vertical-align: top;
 }
+/* Filtro de tiempo del Histórico (día/semana/mes/año/todo). */
+.explog-periods {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.3rem 0;
+}
+.explog-period {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+.explog-period:hover {
+  color: var(--text, #cfd8e3);
+}
+.explog-period.on {
+  color: #fff;
+  border-color: var(--accent-border, #4f9cff);
+  background: var(--accent, #34507a);
+}
+/* Pestañas de cubo de firmas (combate/minado/exploración/WH). Ahorran espacio vertical; la activa se
+   tiñe con su color y el panel de abajo lleva un lavado del mismo color. */
+.sig-btabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.4rem 0 0;
+}
+.sig-btab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.sig-btab:hover {
+  color: var(--text, #cfd8e3);
+}
+.sig-btab.on {
+  color: var(--text, #cfd8e3);
+  border-bottom-color: transparent;
+}
+.sig-bpanel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0 6px 6px 6px;
+  padding: 0.4rem 0.5rem 0.5rem;
+}
+/* Render 3D de una nave temática, tenue, de fondo (aire "carta de la Agencia"). */
+.sig-bpanel-art {
+  position: absolute;
+  right: -24px;
+  bottom: -24px;
+  height: 90%;
+  max-height: 240px;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+.sig-bpanel table {
+  position: relative;
+  z-index: 1;
+}
+/* Campos de texto de EXPLORACIÓN en oscuro/translúcido (antes salían blancos del navegador y
+   cantaban en el UI espacial). Escrito para toda la sección (Pendientes, Histórico y el modal). */
+.exploration-view input:not([type="checkbox"]),
+.exploration-view textarea {
+  background: rgba(10, 14, 20, 0.55);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: var(--text, #e8e8e8);
+  border-radius: 4px;
+}
+.exploration-view input:not([type="checkbox"]):focus,
+.exploration-view textarea:focus {
+  border-color: var(--accent-border, #4f9cff);
+  outline: none;
+}
+.exploration-view input::placeholder,
+.exploration-view textarea::placeholder {
+  color: var(--text-muted, #6b7280);
+}
+/* Icono real de EVE (image server) inline en celdas/cabeceras de exploración. Bordecito sutil para
+   que no floten sobre el fondo oscuro; los iconos de item de EVE ya vienen recortados. */
+.kind-glyph {
+  border-radius: 2px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
 /* Fila de firma seleccionada para cerrar en lote. */
 .sig-row-sel {
   background: var(--accent, #34507a);

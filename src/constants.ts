@@ -365,5 +365,5 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "intel", label: "Intel en vivo (chat)", short: "Intel", icon: "🚨", cat: "vivo" },
   { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", cat: "vivo" },
   { key: "wormholes", label: "Wormholes Thera/Turnur", short: "Wormholes", icon: "🕳️", cat: "vivo" },
-  { key: "firmas", label: "Firmas escaneadas (tuyas)", short: "Firmas", icon: "📡", cat: "vivo" },
+  { key: "firmas", label: "Firmas escaneadas (tuyas)", short: "Firmas", icon: "📡", typeId: 30488, cat: "vivo" }, // Sisters Core Scanner Probe
 ];
