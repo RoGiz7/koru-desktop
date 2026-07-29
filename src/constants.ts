@@ -18,6 +18,7 @@ export type Tab =
   | "comercio_watch"
   | "rateo"
   | "abyssals"
+  | "crab"
   | "factional"
   | "mineria"
   | "contactos"
@@ -98,6 +99,8 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     subs: [
       { key: "rateo", label: "Ingresos PvE", scopes: ["esi-wallet.read_character_wallet.v1"] },
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
+      // CRAB: tracker manual de runs (sesión+cronómetro+loot), sin scope ESI — siempre habilitada.
+      { key: "crab", label: "CRAB" },
       { key: "factional", label: "Factional", scopes: ["esi-characters.read_fw_stats.v1"] },
       // Misiones: LP por corp NPC + agentes con los que progresas (standings). Scope read_loyalty.
       { key: "lealtad", label: "Misiones", scopes: ["esi-characters.read_loyalty.v1"] },
@@ -286,6 +289,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   comercio_watch: { title: "Watchlist de mercado", subtitle: "Precios, spread y libro por hub · arbitraje entre hubs · buscador de oportunidades" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Sesiones cronometradas + estimación por filamentos" },
+  crab: { title: "CRAB", subtitle: "Sesiones cronometradas de CONCORD Rogue Analysis Beacon (ISK/hora, tasa de muerte, P&L)" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
   contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },

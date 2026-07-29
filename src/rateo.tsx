@@ -191,6 +191,30 @@ export function RateoView({
   const iskPerHour = rangeHours > 0 ? totalIsk / rangeHours : 0;
   const rateoYears = [...new Set(data.daily.map((d) => +d.date.slice(0, 4)))].sort((a, b) => b - a);
   const topSystems = data.by_system.slice(0, 12);
+  // Mejor día (pico) por sistema — all-time, como el resto de la tabla de detalle: el día en que más
+  // ISK cobraste en ese sistema (de daily_by_system, que ya viene del backend para la multilínea).
+  const bestDayBySys = new Map<number, { date: string; isk: number }>();
+  {
+    const per = new Map<number, Map<string, number>>();
+    for (const r of data.daily_by_system) {
+      let m = per.get(r.system_id);
+      if (!m) {
+        m = new Map();
+        per.set(r.system_id, m);
+      }
+      m.set(r.date, (m.get(r.date) ?? 0) + r.isk);
+    }
+    for (const [sys, m] of per) {
+      let bd = "";
+      let bi = -1;
+      for (const [d, v] of m)
+        if (v > bi) {
+          bi = v;
+          bd = d;
+        }
+      if (bi > 0) bestDayBySys.set(sys, { date: bd, isk: bi });
+    }
+  }
   // Sistemas que SOLO conoce el gamelog: rateaste ahí antes de que arrancara tu histórico de wallet.
   const esiSysNames = new Set(data.by_system.map((s) => sysName(s.system_id)));
   const glOnlySystems = [...glSys.entries()]
@@ -826,6 +850,7 @@ export function RateoView({
               <th>ISK</th>
               <th>%</th>
               <th>ISK/h</th>
+              <th title={tr("El día en que más ISK cobraste en ese sistema")}>{tr("Mejor día")}</th>
               <th>Bounty</th>
               <th>ESS</th>
               <th>{tr("Ratas")}</th>
@@ -844,6 +869,18 @@ export function RateoView({
                   <td>{fmtIsk(s.isk)}</td>
                   <td className="muted">{pct.toFixed(1)}%</td>
                   <td>{s.active_hours > 0 ? fmtIsk(iskH) : "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {bestDayBySys.has(s.system_id) ? (
+                      <>
+                        {fmtIsk(bestDayBySys.get(s.system_id)!.isk)}{" "}
+                        <span className="muted" style={{ fontSize: 10 }}>
+                          {bestDayBySys.get(s.system_id)!.date}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   <td>{fmtIsk(s.bounty)}</td>
                   <td>{fmtIsk(s.ess)}</td>
                   <td>{fmtSp(s.rats)}</td>

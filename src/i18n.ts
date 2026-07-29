@@ -59,6 +59,9 @@ const EN: Record<string, string> = {
     "Your orders: competition (undercut?), % filled and expiry",
   "Ingresos por bounties (PvE)": "Bounty income (PvE)",
   "Sesiones cronometradas + estimación por filamentos": "Timed sessions + estimate from filaments",
+  "Sesiones cronometradas de CONCORD Rogue Analysis Beacon (ISK/hora, tasa de muerte, P&L)":
+    "Timed CONCORD Rogue Analysis Beacon sessions (ISK/hour, death rate, P&L)",
+  "Selecciona un personaje para registrar runs CRAB.": "Select a character to track CRAB runs.",
   "Tu participación en la Guerra de Facciones": "Your Faction Warfare participation",
   "Tus colonias y extractores (PI)": "Your colonies and extractors (PI)",
 
@@ -1740,6 +1743,11 @@ const EN: Record<string, string> = {
   seleccionada: "selected",
   seleccionadas: "selected",
   "Quitar selección": "Clear selection",
+  "Repartir botín": "Split loot",
+  "Botín repartido entre": "Loot split among",
+  "Seleccionar para repartir botín": "Select to split loot",
+  "Reparte el total a partes iguales entre las seleccionadas (sustituye su botín)":
+    "Splits the total equally among the selected entries (replaces their loot)",
   "Seleccionar para marcar hecha": "Select to mark done",
   "Lote de": "Batch of",
   "Botín de": "Loot of",
@@ -1776,6 +1784,12 @@ const EN: Record<string, string> = {
   Deshacer: "Undo",
   // Runs abisales cronometradas (PvE → Abyssals).
   "Runs cronometradas": "Timed runs",
+  "Versión de Koru": "Koru version",
+  "Nave (opcional)": "Ship (optional)",
+  "Nave de la run": "Run ship",
+  "Por nave": "By ship",
+  "Mejor día": "Best day",
+  "El día en que más ISK cobraste en ese sistema": "The day you earned the most ISK in that system",
   "Iniciar run": "Start run",
   "Botín de la run": "Run loot",
   "Usar botín": "Use loot",

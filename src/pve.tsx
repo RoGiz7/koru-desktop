@@ -722,8 +722,22 @@ export function AbyssalsSection({ data, busy, charId }: { data: AbyssalsData | n
   return (
     <>
       {/* Capa DETALLADA: sesiones cronometradas → ISK/hora, tasa de muerte y P&L honesto. */}
-      <AbyssalRunsView charId={charId} />
+      <AbyssalRunsView activity="abyssal" charId={charId} />
+      <AbyssalsEstimateBlock data={data} busy={busy} />
+    </>
+  );
+}
 
+/** Sección CRAB (PvE): el mismo tracker de runs cronometradas, filtrado a activity='crab'
+ *  (beacon CONCORD Rogue Analysis 60244 / variante Carrier 92183). Sin scope ESI: todo manual. */
+export function CrabSection({ charId }: { charId?: number | null }) {
+  return <AbyssalRunsView activity="crab" charId={charId} />;
+}
+
+/** Capa PASIVA (solo abisales): estimación por compras de filamentos (sin tiempo). */
+function AbyssalsEstimateBlock({ data, busy }: { data: AbyssalsData | null; busy: boolean }) {
+  return (
+    <>
       {/* Capa PASIVA: estimación por compras de filamentos (sin tiempo). */}
       <h4 style={{ marginTop: "1rem" }}>📦 {tr("Estimación por filamentos comprados")}</h4>
       <p className="muted small">

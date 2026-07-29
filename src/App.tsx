@@ -16,7 +16,7 @@ import { CazadorView } from "./cazador";
 import { PvpView } from "./pvp";
 import { NetworthViewC, WalletViewC } from "./wallet";
 import { RateoView } from "./rateo";
-import { MineriaView, FactionalSection, AbyssalsSection } from "./pve";
+import { MineriaView, FactionalSection, AbyssalsSection, CrabSection } from "./pve";
 import { ContactosView } from "./contactos";
 import { ResumenView } from "./resumen";
 import { ActividadView } from "./actividad";
@@ -34,7 +34,7 @@ import { MedalTexturesControl } from "./medalsControl";
 import { AnsiblexControl } from "./ansiblexControl";
 import { ExplorationView } from "./exploration";
 import { ExplorationLogView } from "./explorationLog";
-import { WhatsNew } from "./whatsnew";
+import { WhatsNew, AppVersionTag } from "./whatsnew";
 import { LealtadView } from "./lealtad";
 import { playUnlock, ensureNotifPerm } from "./sound";
 import { ComercioView } from "./comercio";
@@ -120,6 +120,7 @@ const SECTION_SHIP: Partial<Record<Tab, number>> = {
   mineria: 22544, // Hulk (exhumer)
   factional: 638, // Raven
   abyssals: 17715, // Gila (reina del abismo)
+  crab: 19726, // Phoenix (dread crabero)
   // Industria
   industria: 28606, // Orca
   // Exploración
@@ -1473,6 +1474,7 @@ function App() {
         <div className="tb-brand">
           <h1>Koru</h1>
           <span className="muted small">EVE · stats</span>
+          <AppVersionTag />
         </div>
 
         <button
@@ -2247,6 +2249,12 @@ function App() {
               <p className="muted small">{tr("Selecciona un personaje para ver la estimación de Abyssals.")}</p>
             ) : (
               <AbyssalsSection data={abyssalsData} busy={sectionBusy} charId={subjectId} />
+            ))}
+          {tab === "crab" &&
+            (isGlobal ? (
+              <p className="muted small">{tr("Selecciona un personaje para registrar runs CRAB.")}</p>
+            ) : (
+              <CrabSection charId={subjectId} />
             ))}
           </div>
         </div>

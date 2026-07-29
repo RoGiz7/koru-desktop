@@ -896,19 +896,21 @@ pub fn run_end(
         .run_end(id, &outcome, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())
 }
 
-/// La run abierta (en curso) de un personaje, para restaurar el cronómetro.
+/// La run abierta (en curso) de un personaje PARA UNA ACTIVIDAD (abyssal/crab), para restaurar el
+/// cronómetro. El filtro por actividad evita que una run CRAB abierta aparezca en abisales (y viceversa).
 #[tauri::command]
 pub fn run_active(
     state: State<'_, AppState>,
+    activity: String,
     character_id: Option<i64>,
 ) -> AppResult<Option<crate::db::ActivityRun>> {
-    state.db.run_active(character_id)
+    state.db.run_active(&activity, character_id)
 }
 
-/// El histórico de runs finalizadas (para estadísticas de abyssals/CRAB).
+/// El histórico de runs finalizadas DE UNA ACTIVIDAD (para estadísticas de abyssals/CRAB por separado).
 #[tauri::command]
-pub fn run_list(state: State<'_, AppState>) -> AppResult<Vec<crate::db::ActivityRun>> {
-    state.db.run_list()
+pub fn run_list(state: State<'_, AppState>, activity: String) -> AppResult<Vec<crate::db::ActivityRun>> {
+    state.db.run_list(&activity)
 }
 
 /// Edita una run finalizada (botín / pérdida de nave / nota).

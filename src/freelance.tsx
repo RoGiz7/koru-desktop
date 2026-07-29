@@ -135,11 +135,16 @@ async function searchCatalog(kind: string, q: string): Promise<PickResults> {
 
 // Icono EVE representativo por métrica cuando el proyecto no filtra un tipo concreto.
 // ISK → bono de recompensa (ítem de ISK del juego); minería → Veldspar (mineral genérico).
+// Mismos typeIDs que usa la Bitácora en sus medallas/categorías, por consistencia visual entre
+// secciones (backlog iconografía «más EVE»): rateo=Clone Soldier Trainer Tag, minería=Arkonor,
+// kills=Rifter, daño/ISK destruido=1400mm Howitzer II, patrimonio=PLEX.
 const METRIC_ICON_TID: Record<string, number> = {
-  rateo: 55932, // 10M Bounty SCC Encrypted Bond (ISK)
-  isk_destruido: 55932,
-  patrimonio: 55932,
-  mineria: 1230, // Veldspar
+  rateo: 33138, // Clone Soldier Trainer Tag (como Bitácora)
+  isk_destruido: 2961, // 1400mm Howitzer II (como Bitácora)
+  damage: 2961,
+  kills: 587, // Rifter (como Bitácora)
+  patrimonio: 44992, // PLEX (como Bitácora)
+  mineria: 22, // Arkonor (como Bitácora)
 };
 // Icono para un id según el tipo de filtro: icono de tipo (nave/mineral) o retrato/logo (víctima).
 function entityIcon(kind: string, id: number): string | null {

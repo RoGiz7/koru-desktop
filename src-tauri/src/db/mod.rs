@@ -3473,8 +3473,10 @@ impl Db {
         Ok(())
     }
 
-    /// La run ABIERTA (en curso) de un personaje, si la hay — para restaurar el cronómetro al abrir Koru.
-    pub fn run_active(&self, character_id: Option<i64>) -> AppResult<Option<ActivityRun>> {
+    /// La run ABIERTA (en curso) de un personaje PARA UNA ACTIVIDAD ('abyssal'/'crab'), si la hay —
+    /// para restaurar el cronómetro al abrir Koru. Filtrada por actividad: una run CRAB abierta no
+    /// debe aparecer como sesión en curso de abisales (ni al revés). SQL validado en Python (SQLite).
+    pub fn run_active(&self, activity: &str, character_id: Option<i64>) -> AppResult<Option<ActivityRun>> {
         let conn = self.conn.lock().unwrap();
         let row = conn
             .query_row(
@@ -3482,27 +3484,29 @@ impl Db {
                         ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
                         note, character_id
                  FROM activity_runs
-                 WHERE ended_at IS NULL AND (character_id = ?1 OR (?1 IS NULL AND character_id IS NULL))
+                 WHERE ended_at IS NULL AND activity = ?1
+                   AND (character_id = ?2 OR (?2 IS NULL AND character_id IS NULL))
                  ORDER BY started_at DESC LIMIT 1",
-                [character_id],
+                rusqlite::params![activity, character_id],
                 Self::map_activity_run,
             )
             .ok();
         Ok(row)
     }
 
-    /// El HISTÓRICO de runs FINALIZADAS (reciente→antiguo). El frontend filtra y saca estadísticas
-    /// (ISK/h por tier/clima, tasa de muerte, P&L neto). Las abiertas (en curso) NO salen aquí.
-    pub fn run_list(&self) -> AppResult<Vec<ActivityRun>> {
+    /// El HISTÓRICO de runs FINALIZADAS de UNA ACTIVIDAD (reciente→antiguo). El frontend filtra y saca
+    /// estadísticas (ISK/h por tier/clima, tasa de muerte, P&L neto). Las abiertas (en curso) NO salen aquí.
+    pub fn run_list(&self, activity: &str) -> AppResult<Vec<ActivityRun>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                     ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
                     note, character_id
-             FROM activity_runs WHERE ended_at IS NOT NULL ORDER BY ended_at DESC, id DESC",
+             FROM activity_runs WHERE ended_at IS NOT NULL AND activity = ?1
+             ORDER BY ended_at DESC, id DESC",
         )?;
         let rows = stmt
-            .query_map([], Self::map_activity_run)?
+            .query_map([activity], Self::map_activity_run)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }

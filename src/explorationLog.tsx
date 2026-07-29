@@ -9,7 +9,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtIsk, typeRender } from "./format";
 import { KIND_META, KindGlyph, fmtDuration, BUCKETS } from "./signaturesControl";
-import { parseIskShorthand } from "./lootPaste";
+import { parseIskShorthand, buildLootIndex, type LootIndex } from "./lootPaste";
+import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import type { SigKind } from "./signatures";
 import type { ExplorationLogRow } from "./types";
@@ -46,6 +47,22 @@ export function ExplorationLogView({ charId }: Props) {
   const [editLoot, setEditLoot] = useState("");
   const [period, setPeriod] = useState<string>("all"); // filtro de tiempo (día/semana/mes/año/todo)
   const [histTab, setHistTab] = useState<string>("all"); // pestaña por tipo ("all" = todos)
+  // Reparto de loot EN LOTE sobre entradas YA hechas (flujo b: corres varias anomalías rápido y subes
+  // el loot después, en bloque). Multiselección + modal → el total se reparte a partes iguales y
+  // SUSTITUYE el botín de cada seleccionada (un exploration_log_set por entrada).
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [lootOpen, setLootOpen] = useState(false);
+  const [lootIndex, setLootIndex] = useState<LootIndex>(new Map());
+  useEffect(() => {
+    buildLootIndex().then(setLootIndex);
+  }, []);
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // Traductor ES→EN de nombres de sitio, para los enlaces a wikis. Ver siteNames.ts.
   const [dungeonIdx, setDungeonIdx] = useState<DungeonIndex>(new Map());
   useEffect(() => {
@@ -143,6 +160,38 @@ export function ExplorationLogView({ charId }: Props) {
         ),
       );
       setEditId(null);
+    } catch (e) {
+      setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Reparte el total del modal a partes iguales entre las entradas seleccionadas (sustituye su botín;
+  // conserva la nota propia de cada entrada). Espejo de markSelectedDone de Pendientes.
+  async function splitLootSelected(totalIsk: number | null, lootNote: string) {
+    if (selected.size === 0) return;
+    const targets = rows.filter((r) => selected.has(r.id));
+    const n = targets.length;
+    const share = totalIsk != null ? totalIsk / n : null;
+    const noteBase = n > 1 ? `${tr("Lote de")} ${n}${lootNote ? ` · ${lootNote}` : ""}` : lootNote || null;
+    setBusy(true);
+    setMsg("");
+    try {
+      for (const r of targets) {
+        await invoke("exploration_log_set", {
+          id: r.id,
+          lootIsk: share,
+          lootNote: noteBase,
+          note: r.note ?? null,
+        });
+      }
+      setRows((prev) =>
+        prev.map((r) => (selected.has(r.id) ? { ...r, loot_isk: share, loot_note: noteBase } : r)),
+      );
+      setSelected(new Set());
+      setLootOpen(false);
+      setMsg(`✓ ${tr("Botín repartido entre")} ${n} ${n === 1 ? tr("sitio") : tr("sitios")}`);
     } catch (e) {
       setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
     } finally {
@@ -263,6 +312,7 @@ export function ExplorationLogView({ charId }: Props) {
             <table className="small sig-table explog-table">
             <thead>
               <tr className="sig-th">
+                <th></th>
                 <th>{tr("Fecha")}</th>
                 <th>{tr("Sistema")}</th>
                 <th>{tr("Tipo")}</th>
@@ -274,7 +324,15 @@ export function ExplorationLogView({ charId }: Props) {
             </thead>
             <tbody>
               {tabRows.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} className={selected.has(r.id) ? "sig-row-sel" : ""}>
+                  <td style={{ textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                      title={tr("Seleccionar para repartir botín")}
+                    />
+                  </td>
                   <td style={{ whiteSpace: "nowrap" }} className="muted">
                     {r.done_at.slice(0, 10)}
                     {fmtDuration(r.entered_at, r.done_at) && (
@@ -370,8 +428,38 @@ export function ExplorationLogView({ charId }: Props) {
             </tbody>
             </table>
           </div>
+          {/* Barra de reparto en lote: aparece al seleccionar ≥1 entrada hecha. El total del modal se
+              reparte a partes iguales y SUSTITUYE el botín de cada una (flujo «subo el loot después»). */}
+          {selected.size > 0 && (
+            <div className="sig-batch-bar">
+              <span className="small">
+                {selected.size} {selected.size === 1 ? tr("seleccionada") : tr("seleccionadas")}
+              </span>
+              <button
+                className="pp-add"
+                onClick={() => setLootOpen(true)}
+                disabled={busy}
+                title={tr("Reparte el total a partes iguales entre las seleccionadas (sustituye su botín)")}
+              >
+                💰 {tr("Repartir botín")} ({selected.size})
+              </button>
+              <button className="pp-add" onClick={() => setSelected(new Set())} disabled={busy}>
+                {tr("Quitar selección")}
+              </button>
+            </div>
+          )}
         </>
       )}
+
+      <LootPasteModal
+        open={lootOpen}
+        siteCount={selected.size}
+        index={lootIndex}
+        busy={busy}
+        onCancel={() => setLootOpen(false)}
+        onConfirm={(isk, note) => splitLootSelected(isk, note)}
+      />
+
       {msg && <div className="small muted">{msg}</div>}
     </div>
   );

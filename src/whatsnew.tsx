@@ -8,6 +8,21 @@ import { entriesSince, entryFor, bullets, type ChangelogEntry } from "./changelo
 
 const KEY = "koru_last_seen_version";
 
+/** Versión de la app visible en la topbar (p.ej. «v0.34.0»). Autocontenido: lee getVersion() una vez.
+ *  Motivo: cuando alguien reporta un problema, saber QUÉ versión corre sin pedirle nada raro. */
+export function AppVersionTag() {
+  const [v, setV] = useState("");
+  useEffect(() => {
+    getVersion().then(setV).catch(() => {});
+  }, []);
+  if (!v) return null;
+  return (
+    <span className="muted small" title={tr("Versión de Koru")}>
+      v{v}
+    </span>
+  );
+}
+
 export function WhatsNew() {
   const [entries, setEntries] = useState<ChangelogEntry[]>([]);
   const [idx, setIdx] = useState(0);

@@ -6,6 +6,24 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.34.0",
+    date: "2026-07-29",
+    es: [
+      "🦀 CRAB estrena sección propia en PvE. El CONCORD Rogue Analysis Beacon ya tiene su tracker de runs cronometradas, como las abisales: eliges el beacon (estándar o el de Carrier), inicias, y al terminar registras botín, muerte o abandono. ISK por hora real, tasa de muerte y P&L honesto — sin cuenta atrás, que en el CRAB el reloj lo pones tú. Y no pide ningún permiso nuevo de ESI: todo es tuyo y local.",
+      "🚀 Apunta la nave de cada run (opcional) y Koru te saca la tabla «Por nave»: con cuál ganas más por hora y con cuál mueres menos. Vale para abisales y CRAB.",
+      "💰 El Histórico de Exploración aprende a repartir. ¿Corriste varias anomalías seguidas y subiste el loot después, todo junto? Selecciona las entradas ya hechas, pega el total y Koru lo reparte a partes iguales entre ellas.",
+      "🏷️ La versión de Koru ahora se ve en la barra superior. Cuando algo falle y preguntemos «¿qué versión tienes?», por fin habrá respuesta.",
+      "✨ Pulido: los proyectos personales lucen los mismos iconos reales de EVE que la Bitácora, y el detalle por sistema de Ingresos PvE gana la columna «Mejor día» — tu pico de ISK en cada sistema.",
+    ],
+    en: [
+      "🦀 CRAB gets its own section in PvE. The CONCORD Rogue Analysis Beacon now has its timed-runs tracker, just like abyssals: pick the beacon (standard or the Carrier one), start, and when you finish log the loot, a death or a bail-out. Real ISK per hour, death rate and honest P&L — no countdown, in the CRAB you set the pace. And it asks for no new ESI permission: it's all yours and local.",
+      "🚀 Note the ship of each run (optional) and Koru builds the “By ship” table: which one earns you more per hour and which one gets you killed less. Works for abyssals and CRAB.",
+      "💰 The Exploration History learns to split. Ran several anomalies in a row and pasted the loot later, all in one pile? Select the entries you already closed, paste the total and Koru splits it equally among them.",
+      "🏷️ Koru's version now shows in the top bar. When something breaks and we ask “which version are you on?”, there's finally an answer.",
+      "✨ Polish: personal projects wear the same real EVE icons as the Logbook, and the per-system detail in PvE Income gains a “Best day” column — your ISK peak in each system.",
+    ],
+  },
+  {
     version: "0.33.0",
     date: "2026-07-24",
     es: [
