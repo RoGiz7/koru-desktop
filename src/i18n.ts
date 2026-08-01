@@ -1840,6 +1840,10 @@ const EN: Record<string, string> = {
   "elige arriba una instalación con laboratorio — sin ella falta la tasa del job":
     "pick a facility with a laboratory above — without it the job fee is missing",
   "Tasa del job por intento": "Job fee per attempt",
+  declarados: "declared",
+  estructura: "structure",
+  impuestos: "taxes",
+  "tipo de estructura no resuelto": "structure type not resolved",
   "VEO de invención": "Invention EIV",
   tasa: "fee",
   intento: "attempt",

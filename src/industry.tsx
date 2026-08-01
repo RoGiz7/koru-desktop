@@ -416,7 +416,17 @@ function InventionBlock({
     const sd = lab.type_id != null ? ir.structures[String(lab.type_id)] : null;
     const brutoTotal = ctb * labIdx.invention * f * (sd?.cost ?? 1);
     const taxes = ctb * ((lab.tax ?? 0) / 100 + CCS_SURCHARGE);
-    return brutoTotal + taxes;
+    // Desglose para el tooltip: espejo del tooltip del juego, para cazar desviaciones al vuelo.
+    return {
+      total: brutoTotal + taxes,
+      ctb,
+      idx: labIdx.invention,
+      rigF: f,
+      strF: sd?.cost ?? 1,
+      strKnown: sd != null,
+      taxes,
+      nRigs: lab.rigs.length,
+    };
   })();
   // Tiempo por intento: base × (1 − 3%·Advanced Industry) × rigs de tiempo × estructura.
   // Verificado al segundo contra el fixture (15900×0,85×0,496×0,70 = 1:18:12). Implantes no
@@ -449,7 +459,7 @@ function InventionBlock({
   // TODOS los intentos por igual (no cambia el ranking entre decryptors, sí el número honesto).
   const costPerRun = (r: DecRow): number => {
     const p = inventionProb(baseProb, encLvl, sciSum, r.prob);
-    const attempt = attemptBase + (r.id != null ? (prices.get(r.id) ?? 0) : 0) + (fee ?? 0);
+    const attempt = attemptBase + (r.id != null ? (prices.get(r.id) ?? 0) : 0) + (fee?.total ?? 0);
     const runs = baseRuns + r.runs;
     return p > 0 && runs > 0 ? attempt / (p * runs) : Infinity;
   };
@@ -524,7 +534,14 @@ function InventionBlock({
       {fee != null && (
         <div className="bom-cost-row muted">
           <span>{tr("Tasa del job por intento")}{timePerTry != null ? ` · ⏱ ${fmtTry(timePerTry)}` : ""}</span>
-          <span>+{fmtIsk(fee)}</span>
+          {/* Desglose en el title = el espejo del tooltip del juego, para cazar desviaciones al
+              instante (CTB → índice → rigs → estructura → impuestos). */}
+          <span
+            style={{ cursor: "help" }}
+            title={`CTB (2% VEO): ${fmtIsk(fee.ctb)} · ${tr("índice")} ${(fee.idx * 100).toFixed(2)}% · rigs ×${fee.rigF.toFixed(3)} (${fee.nRigs} ${tr("declarados")}) · ${tr("estructura")} ×${fee.strF.toFixed(2)}${fee.strKnown ? "" : ` ⚠ ${tr("tipo de estructura no resuelto")}`} · ${tr("impuestos")} ${fmtIsk(fee.taxes)}`}
+          >
+            +{fmtIsk(fee.total)}
+          </span>
         </div>
       )}
       {lab && veoInv > 0 && (
@@ -615,7 +632,7 @@ function InventionBlock({
         <tbody>
           {decRows.map((r) => {
             const p = inventionProb(baseProb, encLvl, sciSum, r.prob);
-            const attempt = attemptBase + (r.id != null ? (prices.get(r.id) ?? 0) : 0) + (fee ?? 0);
+            const attempt = attemptBase + (r.id != null ? (prices.get(r.id) ?? 0) : 0) + (fee?.total ?? 0);
             const runs = baseRuns + r.runs;
             const isBest = r === best && !missingPrice;
             return (
