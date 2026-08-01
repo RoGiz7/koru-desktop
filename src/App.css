@@ -6534,6 +6534,19 @@ h4 {
 }
 /* Confianza de la ficha: verde = cuadra al ítem · ámbar = falta declarar algo y la cuenta se
    queda corta. Nunca un "esto es aproximado" genérico: la fórmula está verificada. */
+/* Chip informativo del tipo de WH (clase destino/vida/salto), morado como su cubo. */
+.wh-chip {
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: help;
+  background: #b06bff22;
+  color: #c9a2ff;
+  border: 1px solid #b06bff55;
+}
+
 /* F1d — veredicto build-vs-buy por nodo fabricable del BOM. */
 .bom-verdict {
   margin-left: 0.4rem;

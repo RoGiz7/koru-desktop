@@ -61,6 +61,22 @@ export const BUCKETS: Bucket[] = [
   { key: "nd", icon: "❔", label: "Sin identificar", kinds: ["unknown"], color: "#8b97a8" }, // gris (sin arte: es "desconocido")
 ];
 
+/** Clase de destino de un WH (attr 1381 del SDE) → etiqueta corta. Números crudos del dogma:
+ *  1-6 = C1..C6 · 7 alta · 8 baja · 9 nula · 12 Thera · 13 C13 (frag) · 14-18 drifter · 25 Pochven. */
+const WH_CLASS_LABEL: Record<number, string> = {
+  1: "C1", 2: "C2", 3: "C3", 4: "C4", 5: "C5", 6: "C6",
+  7: "HS", 8: "LS", 9: "NS", 12: "Thera", 13: "C13", 25: "Pochven", // siglas del juego, válidas en ES y EN
+  14: "Drifter", 15: "Drifter", 16: "Drifter", 17: "Drifter", 18: "Drifter",
+};
+const whClassLabel = (c: number | null): string => (c == null ? "?" : (WH_CLASS_LABEL[c] ?? `#${c}`));
+
+/** Masa de WH en kg → compacto («2,0G kg»). */
+function fmtKg(v: number): string {
+  if (v >= 1e9) return `${(v / 1e9).toFixed(v % 1e9 ? 1 : 0)}G`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(0)}M`;
+  return String(v);
+}
+
 export function fmtDist(au: number | null): string {
   if (au == null) return "—";
   if (au < 0.01) return `${Math.round(au * 149_597_870.7)} km`;
@@ -128,11 +144,20 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
   const [dungeonIdx, setDungeonIdx] = useState<DungeonIndex>(new Map());
   // Cubo (pestaña) activo de las firmas guardadas. "" = auto: el primer cubo con firmas.
   const [bucketTab, setBucketTab] = useState<string>("");
+  // Catálogo de tipos de WH (public/wh_types.json, del dogma del SDE): código → clase destino /
+  // vida / masa. Escribe el código en el NOMBRE de la firma (persiste por signature_set_name, sin
+  // schema nuevo) y el chip informativo se deriva en vivo. K162 va con nulls a propósito: es la
+  // boca de SALIDA, sus propiedades dependen del agujero de origen.
+  const [whTypes, setWhTypes] = useState<Record<
+    string,
+    { tid: number; cls: number | null; life_h: number | null; mass: number | null; jump: number | null }
+  > | null>(null);
 
   // Índices cargados una vez y cacheados: loot (nombre→typeID) y sitios (ES→EN para las wikis).
   useEffect(() => {
     buildLootIndex().then(setLootIndex);
     buildDungeonIndex().then(setDungeonIdx);
+    fetch("/wh_types.json").then((r) => r.json()).then(setWhTypes).catch(() => setWhTypes(null));
   }, []);
 
   // Índice de nombres del SDE, para resolver el sistema tecleado y para nombrar los del selector
@@ -657,11 +682,16 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                           <div className="sig-name-cell">
                             {/* Editable: el escáner lo rellena al sondear, pero puedes escribirlo o
                                 corregirlo antes. El enlace ↗ abre la wiki de EVE University con ese
-                                nombre para saber si puedes hacer el sitio y cómo. */}
+                                nombre para saber si puedes hacer el sitio y cómo.
+                                WORMHOLE: el nombre acepta el CÓDIGO del agujero (K162, B274…) con
+                                autocompletar del catálogo del SDE; si casa, sale el chip con la
+                                clase de destino, vida y masas. El código da la CLASE, no el sistema:
+                                el destino real sigue yendo en la nota (y hace la arista de ruta). */}
                             <input
                               className="small sig-name-inp"
                               defaultValue={r.name ?? ""}
-                              placeholder={tr("nombre…")}
+                              placeholder={r.kind === "wormhole" ? tr("código (K162…) o nombre…") : tr("nombre…")}
+                              list={r.kind === "wormhole" && whTypes ? "wh-codes" : undefined}
                               onBlur={(e) => e.target.value !== (r.name ?? "") && saveName(r.sig_id, e.target.value)}
                             />
                             {r.name && (
@@ -673,6 +703,30 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                                 ↗
                               </button>
                             )}
+                            {r.kind === "wormhole" &&
+                              whTypes &&
+                              r.name &&
+                              (() => {
+                                const wt = whTypes[r.name.trim().toUpperCase()];
+                                if (!wt) return null;
+                                return wt.cls == null ? (
+                                  <span
+                                    className="wh-chip"
+                                    title={tr("K162 es la boca de SALIDA: sus propiedades dependen del agujero de origen.")}
+                                  >
+                                    → {tr("salida")}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="wh-chip"
+                                    title={`${tr("Del catálogo del SDE")}: ${tr("clase de destino")} ${whClassLabel(wt.cls)}${wt.life_h ? ` · ${tr("vida")} ${wt.life_h}h` : ""}${wt.mass ? ` · ${tr("masa total")} ${fmtKg(wt.mass)} kg` : ""}${wt.jump ? ` · ${tr("por salto")} ${fmtKg(wt.jump)} kg` : ""}`}
+                                  >
+                                    → {whClassLabel(wt.cls)}
+                                    {wt.life_h != null && ` · ${wt.life_h}h`}
+                                    {wt.jump != null && ` · ${fmtKg(wt.jump)}kg`}
+                                  </span>
+                                );
+                              })()}
                           </div>
                         </td>
                         <td style={{ textAlign: "right", whiteSpace: "nowrap" }} className="muted">
@@ -739,6 +793,17 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
             {tr("Quitar selección")}
           </button>
         </div>
+      )}
+
+      {/* Catálogo de códigos de WH para el autocompletar del nombre (uno global, no por fila). */}
+      {whTypes && (
+        <datalist id="wh-codes">
+          {Object.entries(whTypes).map(([code, wt]) => (
+            <option key={code} value={code}>
+              {wt.cls == null ? tr("salida") : `→ ${whClassLabel(wt.cls)}${wt.life_h != null ? ` · ${wt.life_h}h` : ""}`}
+            </option>
+          ))}
+        </datalist>
       )}
 
       <LootPasteModal

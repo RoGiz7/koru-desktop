@@ -1789,6 +1789,16 @@ const EN: Record<string, string> = {
   "Nave de la run": "Run ship",
   "Por nave": "By ship",
   "Mejor día": "Best day",
+  // Rastreador: catálogo de tipos de WH
+  "código (K162…) o nombre…": "code (K162…) or name…",
+  salida: "exit",
+  "K162 es la boca de SALIDA: sus propiedades dependen del agujero de origen.":
+    "K162 is the EXIT side: its properties depend on the origin hole.",
+  "Del catálogo del SDE": "From the SDE catalogue",
+  "clase de destino": "target class",
+  vida: "life",
+  "masa total": "total mass",
+  "por salto": "per jump",
   // F1d — build-vs-buy y lista de la compra del BOM
   Comprar: "Buy",
   tipos: "types",
