@@ -19,8 +19,9 @@ type BpTree = {
 
 /* ---------- F1a: árbol BOM ---------- */
 
-/** public/bp_industry.json (R3): actividad → tiempo, insumos [[tid,qty]], producto, skills. */
-type BpAct = { t: number; in: [number, number][]; out: number[][] };
+/** public/bp_industry.json (R3): actividad → tiempo, insumos [[tid,qty]], producto, skills.
+ *  En invención (`i`) el out lleva [bpT2, runs, probabilidad] y `sk` las skills [[id, nivel]]. */
+type BpAct = { t: number; in: [number, number][]; out: number[][]; sk?: [number, number][] };
 type BpIndustry = Record<string, { m?: BpAct; i?: BpAct; r?: BpAct; c?: number; max?: number }>;
 /** Catálogo de nombres (public/market_types.json). Los ítems se muestran en INGLÉS a propósito. */
 type MType = { i: number; n: string; g: number };
@@ -71,6 +72,8 @@ type Facility = {
   system_id: number;
   type_id: number | null;
   has_mfg: boolean;
+  /** ¿Laboratorio Standup (invención/copia/investigación ME-TE)? Lo declara el usuario, como has_mfg. */
+  has_lab: boolean;
   rigs: number[];
   /** Impuesto del centro en %. `null` = no lo has declarado · `0` = declaraste que no cobra nada.
    *  No son lo mismo: con el 0 declarado la ficha está COMPLETA. */
@@ -188,6 +191,461 @@ function fmtRemain(end: string | null): { text: string; ready: boolean } {
   const mm = m % 60;
   const text = d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${mm}m` : `${mm}m`;
   return { text, ready: false };
+}
+
+/* ---------- F2: invención ---------- */
+
+/** public/invention.json (extract_invention.py): 8 decryptors genéricos + skills de encriptación. */
+type InventionData = {
+  dec: Record<string, { n: string; prob: number; me: number; te: number; runs: number }>;
+  enc: number[];
+};
+
+/** Probabilidad de invención — fórmula estándar de la comunidad (la que usan Ravworks/IPH):
+ *  base × (1 + encriptación/40 + Σciencias/30) × decryptor. El juego ENSEÑA la probabilidad final
+ *  en la ventana de industria, así que esto es CONTRASTABLE a simple vista — si tu pantalla dice
+ *  otra cosa, la fórmula está mal y hay que arreglarla, no discutirle al juego. */
+function inventionProb(base: number, enc: number, sciSum: number, decMult: number): number {
+  return base * (1 + enc / 40 + sciSum / 30) * decMult;
+}
+
+/** F2 — Panel de invención de un BP T1: datacores, skills (niveles reales por ESI, editables) y
+ *  la tabla por decryptor con probabilidad, BPC resultante (runs/ME/TE) y coste por intento /
+ *  por ÉXITO / por run. HONESTIDAD: sin la tasa del job (pendiente de calibrar con un job real)
+ *  y sin el coste de la copia del T1. */
+/** Desplegable de instalación CON ICONOS REALES (petición de Zigor: el tipo de estructura).
+ *  Un <select> nativo no admite <img> (limitación documentada), así que es un picker propio con
+ *  el patrón del autocompletar del Watchlist: botón + panel. Icono = el TIPO de la estructura
+ *  (Sotiyo/Raitaru/…) del Image Server; sin tipo declarado, un interrogante honesto. */
+function FacilityPicker({
+  usable,
+  pick,
+  onPick,
+}: {
+  usable: Facility[];
+  pick: number | null;
+  onPick: (id: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const cur = usable.find((f) => f.id === pick) ?? null;
+  return (
+    <span className="watch-search" style={{ display: "inline-block", width: "18rem", verticalAlign: "middle" }}>
+      <button
+        type="button"
+        className="small fac-pick-btn"
+        onClick={() => setOpen((o) => !o)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+      >
+        {cur ? (
+          <>
+            {cur.type_id != null ? (
+              <img className="kind-glyph" src={typeIcon(cur.type_id, 32)} alt="" />
+            ) : (
+              <span>❔</span>
+            )}{" "}
+            {cur.name}
+          </>
+        ) : (
+          tr("— Elige tu instalación —")
+        )}
+        <span className="muted"> ▾</span>
+      </button>
+      {open && (
+        <div className="watch-ac">
+          <button onMouseDown={() => { onPick(null); setOpen(false); }}>
+            <span className="muted">{tr("— Elige tu instalación —")}</span>
+          </button>
+          {usable.map((f) => (
+            <button key={f.id} onMouseDown={() => { onPick(f.id); setOpen(false); }}>
+              {f.type_id != null ? (
+                <img src={typeIcon(f.type_id, 32)} alt="" />
+              ) : (
+                <span style={{ width: 22, textAlign: "center" }}>❔</span>
+              )}
+              <span>{f.name}</span>
+              <span className="fac-pick-svc">
+                {/* Servicios con los MISMOS iconos EVE de las pestañas (regla de la casa). */}
+                {f.has_mfg && (
+                  <img src={typeIcon(TID_MFG_PLANT, 32)} alt="" title={tr("Fabricar")} />
+                )}
+                {f.has_lab && (
+                  <img src={typeIcon(TID_INVENTION_LAB, 32)} alt="" title={tr("Inventar")} />
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** Advanced Industry (−3% de tiempo por nivel): la parte de skills del tiempo de invención. */
+const ADV_INDUSTRY_SKILL = 3388;
+/** Industry (−4% de tiempo de fabricación por nivel). Factores VERIFICADOS contra el fixture del
+ *  Bantam: Industry V × Advanced Industry V = 0,80 × 0,85 = 0,68 (multiplicativos). */
+const INDUSTRY_SKILL = 3380;
+/** Iconos EVE de los servicios (regla de la casa: iconografía EVE primero; typeIDs verificados
+ *  en market_types.json): 35878 Standup Manufacturing Plant I · 35886 Standup Invention Lab I. */
+const TID_MFG_PLANT = 35878;
+const TID_INVENTION_LAB = 35886;
+
+function InventionBlock({
+  bpId,
+  inv,
+  ind,
+  nameOf,
+  subject,
+  lab,
+  noLabPicked,
+  ir,
+  sys,
+  stock,
+  inFacility,
+  vols,
+}: {
+  bpId: number;
+  inv: InventionData;
+  ind: BpIndustry;
+  nameOf: (tid: number) => string;
+  subject: number | "global";
+  /** La instalación del desplegable ÚNICO de arriba, SI tiene laboratorio (si no, null). */
+  lab: Facility | null;
+  /** true = hay instalación elegida pero sin Lab (para avisar con precisión). */
+  noLabPicked: boolean;
+  ir: IndustryRigs | null;
+  sys: { id: number; n: string; s: number }[] | null;
+  /** Stock que manda (en la instalación si se conoce, si no el total) + volúmenes: la lista de
+   *  compra/transporte del MODO invención son los datacores que faltan. */
+  stock: Map<number, number> | null;
+  inFacility: boolean;
+  vols: Map<number, number>;
+}) {
+  const act = ind[String(bpId)]?.i;
+  const [prices, setPrices] = useState<Map<number, number>>(new Map());
+  const [adjInv, setAdjInv] = useState<Map<number, number>>(new Map());
+  /** Niveles de las skills (las 3 de la invención + Advanced Industry para el tiempo):
+   *  precargados de ESI (nivel ACTIVO) y editables a mano. */
+  const [lvls, setLvls] = useState<Map<number, number>>(new Map());
+  // F2b — el laboratorio viene del desplegable ÚNICO de arriba (prop `lab`). De él salen índice
+  // del sistema, banda de seguridad (multiplicador de los rigs de lab), bonos e impuesto.
+  const [labIdx, setLabIdx] = useState<Record<string, number> | null>(null);
+  // Leyenda «¿quién es tu mejor inventor?» (idea de Zigor): skills de TODOS los personajes para
+  // esta invención. Clic en un chip → carga sus niveles en el simulador.
+  const [allChars, setAllChars] = useState<
+    { character_id: number; name: string; levels: Record<number, number> }[] | null
+  >(null);
+
+  const skIds = useMemo(() => (act?.sk ?? []).map(([s]) => s), [act]);
+  const t2bp0 = act?.out?.[0]?.[0];
+  useEffect(() => {
+    const ids = [
+      ...(act?.in ?? []).map(([tid]) => tid),
+      ...Object.keys(inv.dec).map(Number),
+    ];
+    if (ids.length)
+      invoke<Record<number, number>>("get_type_prices", { ids })
+        .then((r) => setPrices(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
+        .catch(() => setPrices(new Map()));
+    // VEO de invención — CANDIDATO a calibrar: materiales BASE de 1 run del BP T2 × adjusted.
+    // El fixture real dio VEO 263.050 (HH I→HH II): el panel lo enseña para compararlo en vivo.
+    const t2in = t2bp0 != null ? (ind[String(t2bp0)]?.m?.in ?? []) : [];
+    if (t2in.length)
+      invoke<Record<number, number>>("get_type_adjusted_prices", { ids: t2in.map(([t]) => t) })
+        .then((r) => setAdjInv(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
+        .catch(() => setAdjInv(new Map()));
+  }, [act, inv, ind, t2bp0]);
+  useEffect(() => {
+    const all = [...skIds, ADV_INDUSTRY_SKILL];
+    if (typeof subject !== "number" || skIds.length === 0) {
+      // Global o sin skills: niveles por defecto 3 (se pueden ajustar a mano).
+      setLvls(new Map(all.map((s) => [s, 3])));
+      return;
+    }
+    invoke<Record<number, number>>("get_skill_levels", { characterId: subject, ids: all })
+      .then((r) => setLvls(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
+      .catch(() => setLvls(new Map(all.map((s) => [s, 3]))));
+  }, [subject, skIds]);
+  useEffect(() => {
+    if (skIds.length === 0) return;
+    invoke<{ character_id: number; name: string; levels: Record<number, number> }[]>(
+      "get_skill_levels_all",
+      { ids: [...skIds, ADV_INDUSTRY_SKILL] },
+    )
+      .then(setAllChars)
+      .catch(() => setAllChars(null));
+  }, [skIds]);
+
+  const labSys = useMemo(
+    () => (lab ? (sys ?? []).find((x) => x.id === lab.system_id) ?? null : null),
+    [sys, lab],
+  );
+  useEffect(() => {
+    if (!lab) {
+      setLabIdx(null);
+      return;
+    }
+    invoke<Record<string, number>>("get_industry_index", { systemId: lab.system_id })
+      .then(setLabIdx)
+      .catch(() => setLabIdx(null));
+  }, [lab?.system_id]);
+
+  if (!act) return null;
+  const [t2bp, baseRuns, baseProb] = act.out[0] as [number, number, number];
+  const t2prod = ind[String(t2bp)]?.m?.out?.[0]?.[0] ?? null;
+
+  // ---- F2b: la tasa del job de invención, con la fórmula VERIFICADA AL ISK contra el fixture
+  // (HH I→HH II, 739 ISK): CTB = 2% del VEO → bruto = CTB × índice(invention) → bonificaciones
+  // MULTIPLICATIVAS de rigs de lab (× banda de seguridad) y estructura → + impuestos SOBRE el CTB
+  // (centro + CCS 4%). El VEO es el único CANDIDATO sin verificar (materiales del T2 a adjusted).
+  const veoInv = (t2bp != null ? (ind[String(t2bp)]?.m?.in ?? []) : []).reduce(
+    (a, [tid, q]) => a + q * (adjInv.get(tid) ?? 0),
+    0,
+  );
+  const fee = (() => {
+    if (!lab || !ir || labIdx?.invention == null || veoInv <= 0) return null;
+    const ctb = veoInv * 0.02;
+    const band = labSys ? secBand(labSys.s) : "hi";
+    let f = 1;
+    for (const id of lab.rigs) {
+      const r = ir.rigs[String(id)];
+      // Los rigs de LABORATORIO aplican a la invención SIN filtro de producto (Hoboleaks:
+      // entradas cost/time sin filterID = universales). Solo cuentan los que dan bono de coste.
+      if (r && r.mat === 0 && r.cost !== 0) f *= 1 + (r.cost * (r.sec[band] ?? 1)) / 100;
+    }
+    const sd = lab.type_id != null ? ir.structures[String(lab.type_id)] : null;
+    const brutoTotal = ctb * labIdx.invention * f * (sd?.cost ?? 1);
+    const taxes = ctb * ((lab.tax ?? 0) / 100 + CCS_SURCHARGE);
+    return brutoTotal + taxes;
+  })();
+  // Tiempo por intento: base × (1 − 3%·Advanced Industry) × rigs de tiempo × estructura.
+  // Verificado al segundo contra el fixture (15900×0,85×0,496×0,70 = 1:18:12). Implantes no
+  // contemplados (el juego los mete en la misma línea de skills).
+  const timePerTry = (() => {
+    if (!lab || !ir) return null;
+    const band = labSys ? secBand(labSys.s) : "hi";
+    let f = 1;
+    for (const id of lab.rigs) {
+      const r = ir.rigs[String(id)];
+      if (r && r.mat === 0 && r.time !== 0) f *= 1 + (r.time * (r.sec[band] ?? 1)) / 100;
+    }
+    const sd = lab.type_id != null ? ir.structures[String(lab.type_id)] : null;
+    const ai = lvls.get(ADV_INDUSTRY_SKILL) ?? 0;
+    return act.t * (1 - 0.03 * ai) * f * (sd?.time ?? 1);
+  })();
+  const encSet = new Set(inv.enc);
+  // Generalizado: 1 encriptación + N ciencias (102 invenciones del catálogo no siguen el 1+2 exacto).
+  const encLvl = skIds.filter((s) => encSet.has(s)).reduce((a, s) => a + (lvls.get(s) ?? 0), 0);
+  const sciSum = skIds.filter((s) => !encSet.has(s)).reduce((a, s) => a + (lvls.get(s) ?? 0), 0);
+  const attemptBase = (act.in ?? []).reduce((a, [tid, q]) => a + q * (prices.get(tid) ?? 0), 0);
+  const missingPrice = (act.in ?? []).some(([tid]) => prices.get(tid) == null);
+
+  type DecRow = { id: number | null; n: string; prob: number; me: number; te: number; runs: number };
+  const decRows: DecRow[] = [
+    { id: null, n: tr("Sin decryptor"), prob: 1, me: 0, te: 0, runs: 0 },
+    ...Object.entries(inv.dec).map(([id, d]) => ({ id: Number(id), ...d })),
+  ];
+  // La mejor fila por coste/run (solo comparable si hay precios). La tasa del job entra en
+  // TODOS los intentos por igual (no cambia el ranking entre decryptors, sí el número honesto).
+  const costPerRun = (r: DecRow): number => {
+    const p = inventionProb(baseProb, encLvl, sciSum, r.prob);
+    const attempt = attemptBase + (r.id != null ? (prices.get(r.id) ?? 0) : 0) + (fee ?? 0);
+    const runs = baseRuns + r.runs;
+    return p > 0 && runs > 0 ? attempt / (p * runs) : Infinity;
+  };
+  const best = decRows.reduce((a, b) => (costPerRun(b) < costPerRun(a) ? b : a), decRows[0]);
+  const fmtTry = (s: number) => {
+    const m = Math.round(s / 60);
+    return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+  };
+
+  return (
+    <div className="bom-cost small">
+      <div className="bom-cost-row">
+        <span>
+          <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" />{" "}
+          <strong>{tr("Invención")}</strong> → {t2prod != null && (
+            <img className="kind-glyph" src={typeIcon(t2prod, 32)} alt="" />
+          )}{" "}
+          {t2prod != null ? nameOf(t2prod) : nameOf(t2bp)}
+        </span>
+        <span className="muted">{tr("base")} {(baseProb * 100).toFixed(0)}%</span>
+      </div>
+      <div className="bom-cost-row muted">
+        <span>{(act.in ?? []).map(([tid, q]) => `${q}× ${nameOf(tid)}`).join(" + ")}</span>
+        <span>{fmtIsk(attemptBase)}</span>
+      </div>
+      {/* Qué comprar/transportar EN ESTE MODO: los datacores que faltan (contra el stock de la
+          instalación si se conoce). El decryptor va aparte porque depende de la fila que elijas. */}
+      {stock != null &&
+        (() => {
+          let isk = 0;
+          let m3 = 0;
+          const missing = (act.in ?? [])
+            .map(([tid, q]) => ({ tid, q, miss: Math.max(0, q - (stock.get(tid) ?? 0)) }))
+            .filter((x) => x.miss > 0);
+          for (const x of missing) {
+            isk += x.miss * (prices.get(x.tid) ?? 0);
+            m3 += x.miss * (vols.get(x.tid) ?? 0);
+          }
+          return missing.length === 0 ? (
+            <div className="bom-cost-row muted">
+              <span>
+                <img className="kind-glyph" src={typeIcon(act.in?.[0]?.[0] ?? 20419, 32)} alt="" />{" "}
+                {inFacility ? tr("Datacores: ya están EN la instalación") : tr("Datacores: los tienes")}
+              </span>
+              <span>✓</span>
+            </div>
+          ) : (
+            <div className="bom-cost-row muted">
+              <span>
+                <img className="kind-glyph" src={typeIcon(act.in?.[0]?.[0] ?? 20419, 32)} alt="" />{" "}
+                {tr("Datacores que faltan")}: {missing.map((x) => `${x.miss}× ${nameOf(x.tid)}`).join(" + ")}
+              </span>
+              <span>
+                {fmtIsk(isk)} · {m3 < 1 ? m3.toFixed(1) : fmtSp(Math.ceil(m3))} m³
+              </span>
+            </div>
+          );
+        })()}
+      {/* F2b — Laboratorio: la MISMA instalación del desplegable de arriba (si tiene 🔬). */}
+      <div className="bom-cost-row muted">
+        <span>
+          <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" /> {tr("Laboratorio")}
+        </span>
+        <span>
+          {lab
+            ? `${lab.name}${labIdx?.invention != null ? ` · ${tr("índice")} ${(labIdx.invention * 100).toFixed(2)}%` : ""}`
+            : noLabPicked
+              ? tr("la instalación elegida no tiene laboratorio declarado (marca 🔬 «Lab» en su ficha)")
+              : tr("elige arriba una instalación con laboratorio — sin ella falta la tasa del job")}
+        </span>
+      </div>
+      {fee != null && (
+        <div className="bom-cost-row muted">
+          <span>{tr("Tasa del job por intento")}{timePerTry != null ? ` · ⏱ ${fmtTry(timePerTry)}` : ""}</span>
+          <span>+{fmtIsk(fee)}</span>
+        </div>
+      )}
+      {lab && veoInv > 0 && (
+        <div className="bom-cost-row muted">
+          <span title={tr("VEO de invención (candidato: materiales del T2 a adjusted — compáralo con el tooltip del juego)")}>
+            {tr("VEO de invención")}
+          </span>
+          <span>{fmtIsk(veoInv)}</span>
+        </div>
+      )}
+      {/* Skills: nivel ACTIVO real del personaje (ESI), editable para simular. */}
+      <div className="bom-cost-row muted">
+        <span>{tr("Skills (nivel activo; toca para simular)")}</span>
+        <span>
+          {[...skIds, ADV_INDUSTRY_SKILL].map((s) => (
+            <label key={s} style={{ marginLeft: "0.6rem" }} title={s === ADV_INDUSTRY_SKILL ? `${nameOf(s)} (${tr("tiempo")})` : nameOf(s)}>
+              {s === ADV_INDUSTRY_SKILL ? "⏱ " : ""}
+              {nameOf(s).replace(/^Datacore - /, "").slice(0, 22)}{" "}
+              <select
+                className="small"
+                value={lvls.get(s) ?? 3}
+                onChange={(e) => setLvls(new Map(lvls).set(s, Number(e.target.value)))}
+              >
+                {[0, 1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </span>
+      </div>
+      {/* ¿Quién es tu MEJOR inventor? Retratos reales, ordenados por su probabilidad (sin
+          decryptor) con SUS skills. Clic en uno → el simulador carga sus niveles. */}
+      {allChars && allChars.length > 0 && (
+        <div className="bom-cost-row muted">
+          <span>{tr("Tus inventores (clic = usar sus niveles)")}</span>
+          <span>
+            {allChars
+              .map((c) => {
+                const enc = skIds
+                  .filter((s) => encSet.has(s))
+                  .reduce((a, s) => a + (c.levels[s] ?? 0), 0);
+                const sci = skIds
+                  .filter((s) => !encSet.has(s))
+                  .reduce((a, s) => a + (c.levels[s] ?? 0), 0);
+                return { c, p: inventionProb(baseProb, enc, sci, 1) };
+              })
+              .sort((a, b) => b.p - a.p)
+              .map(({ c, p }, i) => (
+                <button
+                  key={c.character_id}
+                  className="pp-tag"
+                  style={{ marginLeft: "0.4rem", cursor: "pointer" }}
+                  title={`${c.name}: ${[...skIds, ADV_INDUSTRY_SKILL].map((s) => `${nameOf(s).replace(/^Datacore - /, "")} ${c.levels[s] ?? 0}`).join(" · ")}`}
+                  onClick={() =>
+                    setLvls(
+                      new Map(
+                        [...skIds, ADV_INDUSTRY_SKILL].map((s) => [s, c.levels[s] ?? 0]),
+                      ),
+                    )
+                  }
+                >
+                  <img
+                    className="kind-glyph"
+                    src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=32`}
+                    alt=""
+                    style={{ borderRadius: "50%", width: 16, height: 16, verticalAlign: -3 }}
+                  />{" "}
+                  {i === 0 ? "★ " : ""}
+                  {c.name} {(p * 100).toFixed(1)}%
+                </button>
+              ))}
+          </span>
+        </div>
+      )}
+
+      <table className="small sig-table" style={{ marginTop: "0.3rem" }}>
+        <thead>
+          <tr className="sig-th">
+            <th>{tr("Decryptor")}</th>
+            <th style={{ textAlign: "right" }}>{tr("Prob.")}</th>
+            <th style={{ textAlign: "right" }}>{tr("BPC (runs · ME/TE)")}</th>
+            <th style={{ textAlign: "right" }}>{tr("Intento")}</th>
+            <th style={{ textAlign: "right" }}>{tr("Por ÉXITO")}</th>
+            <th style={{ textAlign: "right" }}>{tr("Por run")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {decRows.map((r) => {
+            const p = inventionProb(baseProb, encLvl, sciSum, r.prob);
+            const attempt = attemptBase + (r.id != null ? (prices.get(r.id) ?? 0) : 0) + (fee ?? 0);
+            const runs = baseRuns + r.runs;
+            const isBest = r === best && !missingPrice;
+            return (
+              <tr key={r.id ?? 0} className={isBest ? "bom-ok" : ""}>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {r.id != null && <img className="kind-glyph" src={typeIcon(r.id, 32)} alt="" style={{ width: 16, height: 16 }} />}{" "}
+                  {r.n}
+                  {isBest && <span className="bom-verdict build" title={tr("El coste por run del BPC más barato con estos precios y skills")}> ★ {tr("mejor")}</span>}
+                </td>
+                <td style={{ textAlign: "right" }}>{(p * 100).toFixed(1)}%</td>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  {runs} · ME{2 + r.me}/TE{4 + r.te}
+                </td>
+                <td style={{ textAlign: "right" }}>{fmtIsk(attempt)}</td>
+                <td style={{ textAlign: "right" }}>{p > 0 ? fmtIsk(attempt / p) : "—"}</td>
+                <td style={{ textAlign: "right" }}>{p > 0 && runs > 0 ? fmtIsk(attempt / (p * runs)) : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="muted" style={{ marginTop: "0.25rem" }}>
+        {missingPrice && <>⚠ {tr("Falta el precio de algún datacore: los costes se quedan cortos.")} </>}
+        {fee != null
+          ? tr("Coste = datacores + decryptor + tasa del job (fórmula verificada al ISK contra un job real; el VEO es candidato — compáralo arriba). Sin el coste de la copia del T1.")
+          : tr("Coste = datacores + decryptor, SIN la tasa del job (elige laboratorio). Sin el coste de la copia del T1.")}{" "}
+        {tr("La probabilidad es la fórmula estándar — compárala con la que enseña tu ventana de industria.")}
+      </div>
+    </div>
+  );
 }
 
 /** Sección Industria = jobs + biblioteca de blueprints.
@@ -339,6 +797,8 @@ function BomPanel({
   const [vols, setVols] = useState<Map<number, number>>(new Map());
   const [ir, setIr] = useState<IndustryRigs | null>(null);
   const [tree, setTree] = useState<BpTree | null>(null);
+  // F2: catálogo de invención (decryptors + skills de encriptación).
+  const [inv, setInv] = useState<InventionData | null>(null);
   /** F1c: el registro de instalaciones (BD). El BOM ya no pregunta a ESI qué estructuras tienes:
    *  usa las fichas que TÚ has declarado, porque ESI no sabe ni los rigs ni los servicios. */
   const [facs, setFacs] = useState<Facility[] | null>(null);
@@ -346,6 +806,14 @@ function BomPanel({
     const v = Number(localStorage.getItem(PICK_KEY)); // solo la ÚLTIMA elegida: preferencia, no dato
     return v > 0 ? v : null;
   });
+  /** Modo del panel (feedback de Zigor: mezclados era confuso): 🏭 fabricar o 🔬 inventar.
+   *  Cada modo enseña SOLO lo suyo, incluida su lista de compra/transporte. */
+  const [mode, setMode] = useState<"build" | "invent">("build");
+  /** Leyenda «tus fabricantes» (petición de Zigor, gemela de la de inventores): skills de TODOS
+   *  los personajes — velocidad (Industry × Advanced Industry) y si CUMPLEN las requeridas. */
+  const [buildChars, setBuildChars] = useState<
+    { character_id: number; name: string; levels: Record<number, number> }[] | null
+  >(null);
 
   useEffect(() => {
     fetch("/bp_industry.json").then((r) => r.json()).then(setInd).catch(() => setInd({}));
@@ -359,6 +827,7 @@ function BomPanel({
       .catch(() => setSys([]));
     fetch("/industry_rigs.json").then((r) => r.json()).then(setIr).catch(() => setIr(null));
     fetch("/bp_tree.json").then((r) => r.json()).then(setTree).catch(() => setTree(null));
+    fetch("/invention.json").then((r) => r.json()).then(setInv).catch(() => setInv(null));
     fetch("/type_volumes.json")
       .then((r) => r.json())
       .then((d: Record<string, number>) =>
@@ -368,9 +837,10 @@ function BomPanel({
     invoke<Facility[]>("facility_list").then(setFacs).catch(() => setFacs([]));
   }, [facsVersion]);
 
-  /** Elegibles: las que TÚ has marcado y declarado con planta de fabricación. Sin ficha no salen —
-   *  no vamos a ofrecerte una estructura de la que no sabemos nada como si supiéramos algo. */
-  const usable = useMemo(() => (facs ?? []).filter((f) => f.eligible && f.has_mfg), [facs]);
+  /** Elegibles: las fichas que TÚ has marcado. UN solo desplegable para todo el panel (decisión de
+   *  Zigor 2026-07-30: dos selectores mezclaban la vista): la FABRICACIÓN usa la ficha si tiene
+   *  planta (🏭) y la INVENCIÓN si tiene laboratorio (🔬). Cada bloque avisa si le falta su servicio. */
+  const usable = useMemo(() => (facs ?? []).filter((f) => f.eligible), [facs]);
   const st = useMemo(() => usable.find((f) => f.id === pick) ?? null, [usable, pick]);
   const sysHit = useMemo(
     () => (st ? (sys ?? []).find((x) => x.id === st.system_id) ?? null : null),
@@ -397,7 +867,9 @@ function BomPanel({
    *  grupo del producto que se fabrica en CADA nodo del árbol (antes todo el árbol se juzgaba con la
    *  categoría del producto RAÍZ: bien para el Bantam, mal en cuanto se despliegan componentes). */
   const bonosFor = useMemo(() => {
-    if (!st || !ir) return null;
+    // Sin planta de fabricación declarada (🏭) los bonos de fabricar no aplican: la ficha puede
+    // ser un laboratorio puro. La invención va aparte, con su propio bloque.
+    if (!st || !st.has_mfg || !ir) return null;
     const sd = st.type_id != null ? ir.structures[String(st.type_id)] : null;
     const band = sysHit ? secBand(sysHit.s) : "hi";
     return (cat: number | null, grp: number | null): Bonos => {
@@ -551,6 +1023,18 @@ function BomPanel({
 
   const act = ind?.[String(bp.type_id)]?.m;
 
+  // Skills de todos los personajes para la leyenda de fabricantes: las dos de velocidad + las
+  // REQUERIDAS por este plano (sin ellas el juego no deja ni lanzar el job).
+  useEffect(() => {
+    const reqIds = (act?.sk ?? []).map(([s]) => s);
+    invoke<{ character_id: number; name: string; levels: Record<number, number> }[]>(
+      "get_skill_levels_all",
+      { ids: [INDUSTRY_SKILL, ADV_INDUSTRY_SKILL, ...reqIds] },
+    )
+      .then(setBuildChars)
+      .catch(() => setBuildChars(null));
+  }, [act]);
+
   // --- F1b: coste del trabajo, con la fórmula VERIFICADA al ISK contra el juego ---
   // El VEO usa las cantidades BASE del blueprint (NO las de tras-ME) y el `adjusted_price`.
   // F1d: se piden para TODO el árbol (los sub-jobs del build-vs-buy también tienen su VEO).
@@ -574,7 +1058,8 @@ function BomPanel({
       if (p == null) faltan++;
       veo += base * runs * (p ?? 0);
     }
-    const index = idx?.manufacturing ?? null;
+    // Sin planta declarada no hay job de fabricación que costear en esa estructura.
+    const index = st?.has_mfg ? (idx?.manufacturing ?? null) : null;
     if (index == null) return { veo, faltan, index: null as number | null };
     const bruto = veo * index;
     // La bonificación de coste de la estructura sale del SDE (Sotiyo 0.95) y va sobre el BRUTO.
@@ -582,7 +1067,7 @@ function BomPanel({
     const tax = veo * ((st?.tax ?? 0) / 100); // el impuesto lo pone el dueño: ni ESI ni SDE lo saben
     const ccs = veo * CCS_SURCHARGE;
     return { veo, faltan, index, bruto, brutoTotal, tax, ccs, total: brutoTotal + tax + ccs };
-  }, [act, adj, runs, idx, bonos, (st?.tax ?? 0)]);
+  }, [act, adj, runs, idx, bonos, (st?.tax ?? 0), st?.has_mfg]);
   const product = act?.out?.[0]?.[0];
   const perRun = act?.out?.[0]?.[1] ?? 1;
   const maxRuns = bp.quantity === -1 ? 1_000_000 : Math.max(1, bp.runs);
@@ -687,22 +1172,14 @@ function BomPanel({
         <span className="bom-sep">·</span>
         <label title={tr("Tus fichas de instalación marcadas como elegibles. De la ficha salen el sistema (→ índice de coste y banda de seguridad), el tipo (→ los 3 bonos del SDE) y los rigs. Se editan en «Mis instalaciones», arriba.")}>
           {tr("Instalación")}{" "}
-          <select
-            style={{ width: "16rem" }}
-            value={pick ?? ""}
-            onChange={(e) => {
-              const v = Number(e.target.value) || null;
+          <FacilityPicker
+            usable={usable}
+            pick={pick}
+            onPick={(v) => {
               setPick(v);
               if (v) localStorage.setItem(PICK_KEY, String(v));
             }}
-          >
-            <option value="">{tr("— Elige tu instalación —")}</option>
-            {usable.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <span className="muted">
           {usable.length === 0
@@ -722,10 +1199,68 @@ function BomPanel({
         {st && <Confianza f={st} bonos={bonos} />}
       </div>
 
+      {/* Modo del panel: cada actividad con su espacio (regla de la casa). Solo hay pestañas si el
+          plano puede inventar; si no, el modo es fabricar y no se enseña el selector. */}
+      {ind?.[String(bp.type_id)]?.i && inv && (
+        <div className="seg seg-sm" style={{ margin: "0.4rem 0" }}>
+          <button className={mode === "build" ? "active" : ""} onClick={() => setMode("build")}>
+            <img className="kind-glyph" src={typeIcon(TID_MFG_PLANT, 32)} alt="" /> {tr("Fabricar")}
+          </button>
+          <button className={mode === "invent" ? "active" : ""} onClick={() => setMode("invent")}>
+            <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" /> {tr("Inventar")}
+          </button>
+        </div>
+      )}
+
+      {/* Leyenda «tus fabricantes» (gemela de la de inventores): velocidad del job por personaje
+          (Industry −4%/nivel × Advanced Industry −3%/nivel, factores verificados con el fixture)
+          y ✗ si le FALTAN las skills requeridas por el plano (el juego no le dejaría lanzarlo). */}
+      {mode === "build" && buildChars && buildChars.length > 0 && (
+        <div className="bom-cost small">
+          <div className="bom-cost-row muted">
+            <span>{tr("Tus fabricantes (velocidad del job)")}</span>
+            <span>
+              {buildChars
+                .map((c) => {
+                  const f =
+                    (1 - 0.04 * (c.levels[INDUSTRY_SKILL] ?? 0)) *
+                    (1 - 0.03 * (c.levels[ADV_INDUSTRY_SKILL] ?? 0));
+                  const missing = (act?.sk ?? []).filter(
+                    ([s, lvl]) => (c.levels[s] ?? 0) < lvl,
+                  );
+                  return { c, f, missing };
+                })
+                .sort((a, b) => (a.missing.length ? 1 : 0) - (b.missing.length ? 1 : 0) || a.f - b.f)
+                .map(({ c, f, missing }, i) => (
+                  <span
+                    key={c.character_id}
+                    className="pp-tag"
+                    style={{ marginLeft: "0.4rem" }}
+                    title={
+                      missing.length
+                        ? `${tr("Le falta")}: ${missing.map(([s, lvl]) => `${nameOf(s)} ${lvl}`).join(" · ")}`
+                        : `Industry ${c.levels[INDUSTRY_SKILL] ?? 0} · Advanced Industry ${c.levels[ADV_INDUSTRY_SKILL] ?? 0}`
+                    }
+                  >
+                    <img
+                      className="kind-glyph"
+                      src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=32`}
+                      alt=""
+                      style={{ borderRadius: "50%", width: 16, height: 16, verticalAlign: -3 }}
+                    />{" "}
+                    {i === 0 && missing.length === 0 ? "★ " : ""}
+                    {c.name} {missing.length ? "✗" : `−${Math.round((1 - f) * 100)}%`}
+                  </span>
+                ))}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* F1b — Coste del trabajo. Fórmula verificada al ISK contra el juego (fixture Bantam:
           279.893 × 0,0998 = 27.938 → −5% = 26.541 · +1% VEO = 2.799 · +4% VEO = 11.196 → 40.536).
           Ojo al orden: la bonificación de estructura va sobre el BRUTO; los impuestos, sobre el VEO. */}
-      {cost && (
+      {mode === "build" && cost && (
         <div className="bom-cost small">
           <div className="bom-cost-row">
             <span>{tr("Valor estimado del objeto (VEO)")}</span>
@@ -776,10 +1311,29 @@ function BomPanel({
         </div>
       )}
 
+      {/* F2 — Invención: si este plano T1 puede inventar, la tabla por decryptor (probabilidad,
+          BPC resultante y coste por intento/éxito/run). El componente se autoexcluye si no inventa. */}
+      {mode === "invent" && inv && ind && (
+        <InventionBlock
+          bpId={bp.type_id}
+          inv={inv}
+          ind={ind}
+          nameOf={nameOf}
+          subject={subject}
+          lab={st?.has_lab ? st : null}
+          noLabPicked={st != null && !st.has_lab}
+          ir={ir}
+          sys={sys}
+          stock={stockUsed}
+          inFacility={inFacility}
+          vols={vols}
+        />
+      )}
+
       {/* F1d — Qué comprar y transportar, según el árbol tal y como está desplegado: lo abierto se
           fabrica, las hojas se compran. El m³ usa el volumen REEMPAQUETADO cuando Hoboleaks corrige
           al SDE — si la ventaja se construye sobre un número, que sea el bueno. */}
-      {stockRows != null && shopping.types > 0 && (
+      {mode === "build" && stockRows != null && shopping.types > 0 && (
         <div className="bom-cost small">
           <div className="bom-cost-row">
             <span>
@@ -811,6 +1365,8 @@ function BomPanel({
         </div>
       )}
 
+      {mode === "build" && (
+      <>
       <table className="km-table bom-table">
         <thead>
           <tr>
@@ -903,6 +1459,8 @@ function BomPanel({
         )}
         {tr("El veredicto 🔧/🛒 compara comprar cada unidad a mercado con fabricarla (sus materiales a un nivel + la tasa del job); lo que despliegas se fabrica y las hojas van a la lista de la compra.")}
       </p>
+      </>
+      )}
     </div>
   );
 }
@@ -1124,6 +1682,13 @@ function BlueprintLibrary({
           {tr("afina con las pestañas o el buscador.")}
         </p>
       )}
+      {/* 0 resultados con texto en el buscador: decirlo. (Zigor perdió 10 min por un filtro
+          fantasma — el buscador tenía texto y las pestañas parecían rotas.) */}
+      {shown.length === 0 && ql !== "" && (
+        <p className="muted small">
+          ⚠ {tr("Sin resultados… pero tienes")} «{q.trim()}» {tr("en el buscador — bórralo para ver la pestaña completa.")}
+        </p>
+      )}
     </div>
   );
 }
@@ -1198,7 +1763,8 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
       alert(`${tr("No se pudo borrar la ficha")}:\n\n${e}`);
     }
   };
-  const toggle = async (f: Facility, k: "eligible" | "has_mfg") => save({ ...f, [k]: !f[k] });
+  const toggle = async (f: Facility, k: "eligible" | "has_mfg" | "has_lab") =>
+    save({ ...f, [k]: !f[k] });
 
   /** Trae de ESI las estructuras que ya conocemos, para no empezar con la lista en blanco. Solo
    *  rellena lo que ESI sabe (nombre/sistema/tipo) y las deja SIN marcar: una ficha sin declarar no
@@ -1228,6 +1794,7 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
     system_id: 0,
     type_id: null,
     has_mfg: true,
+    has_lab: false,
     rigs: [],
     tax: null, // sin declarar, que es la verdad de una ficha recién creada
     eligible: true,
@@ -1299,6 +1866,7 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
               <th>{tr("Sistema")}</th>
               <th>{tr("Tipo")}</th>
               <th title={tr("¿Tiene la planta de fabricación instalada? Sin ella no se puede fabricar ahí.")}>{tr("Fabrica")}</th>
+              <th title={tr("¿Tiene laboratorio Standup (invención, copia, investigación ME/TE)?")}>{tr("Lab")}</th>
               <th>{tr("Rigs")}</th>
               <th>{tr("Impuesto")}</th>
               <th>{tr("Origen")}</th>
@@ -1339,6 +1907,13 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
                         onChange={() => toggle(f, "has_mfg")}
                       />
                     )}
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={f.has_lab}
+                      onChange={() => toggle(f, "has_lab")}
+                    />
                   </td>
                   <td>{f.rigs.length || <span className="muted">—</span>}</td>
                   {/* `== null`, no falsy: un 0 declarado se enseña como «0 %», que es un dato. */}
@@ -1499,6 +2074,13 @@ function FacilityWizard({
             onChange={(e) => set({ has_mfg: e.target.checked })}
           />{" "}
           {tr("tiene planta de fabricación instalada")}
+          {"  ·  "}
+          <input
+            type="checkbox"
+            checked={d.has_lab}
+            onChange={(e) => set({ has_lab: e.target.checked })}
+          />{" "}
+          {tr("tiene laboratorio (invención / copia / investigación)")}
         </span>
         <em className="muted">
           {!puede
@@ -1538,7 +2120,14 @@ function FacilityWizard({
           >
             <option value="">{tr("+ añadir rig…")}</option>
             {Object.entries(ir.rigs)
-              .filter(([, r]) => r.scopes.length > 0 && r.mat !== 0)
+              // Rigs con ALGÚN bono real: material (fabricación) O tiempo/coste (los de
+              // invención/copia/investigación dan coste-tiempo y mat 0 — antes quedaban invisibles
+              // y una ficha de laboratorio no podía declararlos; lo cazó Zigor con F2).
+              .filter(([, r]) => r.scopes.length > 0 && (r.mat !== 0 || r.time !== 0 || r.cost !== 0))
+              // Por SERVICIO declarado (idea de Zigor): con bono de material = rig de fabricación →
+              // solo si la ficha tiene planta; sin material (coste/tiempo puro) = rig de laboratorio
+              // → solo si tiene lab. Así el desplegable enseña lo que esa estructura puede montar.
+              .filter(([, r]) => (r.mat !== 0 ? d.has_mfg : d.has_lab))
               // Tamaño: rig y estructura comparten el atributo `rigSize` del SDE — el MISMO que usan
               // los rigs de nave, donde la regla es coincidencia EXACTA, y el devblog lo respalda
               // (al pasar de Raitaru a Sotiyo se cambian los rigs M por XL). Pero ninguna fuente

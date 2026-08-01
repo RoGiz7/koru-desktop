@@ -6534,6 +6534,36 @@ h4 {
 }
 /* Confianza de la ficha: verde = cuadra al ítem · ámbar = falta declarar algo y la cuenta se
    queda corta. Nunca un "esto es aproximado" genérico: la fórmula está verificada. */
+/* Picker de instalación con iconos reales (los <option> nativos no admiten <img>). */
+.fac-pick-btn {
+  width: 100%;
+  text-align: left;
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.fac-pick-btn .kind-glyph {
+  width: 18px;
+  height: 18px;
+}
+/* Iconos de servicios (planta/lab) en las opciones del picker, alineados a la derecha. */
+.fac-pick-svc {
+  margin-left: auto;
+  display: flex;
+  gap: 0.25rem;
+}
+.fac-pick-svc img {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
 /* Chip informativo del tipo de WH (clase destino/vida/salto), morado como su cubo. */
 .wh-chip {
   margin-left: 0.35rem;
@@ -6642,7 +6672,8 @@ h4 {
   border: 1px solid var(--border, #333);
   border-radius: 6px;
   background: var(--bg-surface-2, #262626);
-  max-width: 28rem;
+  /* 28rem apelotonaba el panel de invención (feedback de Zigor 2026-07-30): que respire. */
+  max-width: 62rem;
 }
 .bom-cost-row {
   display: flex;

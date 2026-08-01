@@ -124,6 +124,12 @@ impl Db {
                  COMMIT;",
             );
         }
+        // facility: F2 invención — ¿tiene laboratorio (invención/copia/ME/TE)? Igual que has_mfg:
+        // lo declara quien lo sabe. ALTER idempotente, sin tocar LOGI_DATA_VERSION.
+        let _ = conn.execute(
+            "ALTER TABLE facility ADD COLUMN has_lab INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
         // personal_projects: filtro opcional (nave/mineral/sistema) añadido en 0.18.4.
@@ -2722,6 +2728,9 @@ pub struct FacilityRow {
     pub type_id: Option<i64>,
     #[serde(default)]
     pub has_mfg: bool,
+    /// ¿Laboratorio Standup (invención/copia/investigación ME-TE)? Como has_mfg: lo declara el usuario.
+    #[serde(default)]
+    pub has_lab: bool,
     #[serde(default)]
     pub rigs: Vec<i64>,
     /// Impuesto del centro en %. `None` = NO LO HAS DECLARADO · `Some(0.0)` = declaraste que no
@@ -2878,7 +2887,7 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, structure_id, name, system_id, type_id, has_mfg, rigs, tax, eligible,
-                    source, notes
+                    source, notes, has_lab
              FROM facility ORDER BY eligible DESC, name",
         )?;
         let rows = stmt
@@ -2895,6 +2904,7 @@ impl Db {
                     eligible: r.get::<_, i64>(8)? != 0,
                     source: r.get(9)?,
                     notes: r.get(10)?,
+                    has_lab: r.get::<_, i64>(11)? != 0,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -2910,11 +2920,11 @@ impl Db {
             conn.execute(
                 "UPDATE facility SET structure_id=?2, name=?3, system_id=?4, type_id=?5,
                         has_mfg=?6, rigs=?7, tax=?8, eligible=?9, source=?10, notes=?11,
-                        updated_at=?12
+                        updated_at=?12, has_lab=?13
                  WHERE id=?1",
                 rusqlite::params![
                     f.id, f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs,
-                    f.tax, f.eligible as i64, f.source, f.notes, now
+                    f.tax, f.eligible as i64, f.source, f.notes, now, f.has_lab as i64
                 ],
             )?;
             return Ok(f.id);
@@ -2926,14 +2936,14 @@ impl Db {
         // "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
         conn.execute(
             "INSERT INTO facility (structure_id, name, system_id, type_id, has_mfg, rigs, tax,
-                                   eligible, source, notes, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                                   eligible, source, notes, updated_at, has_lab)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
              ON CONFLICT(structure_id) WHERE structure_id IS NOT NULL DO UPDATE SET
                 name=excluded.name, system_id=excluded.system_id, type_id=excluded.type_id,
                 updated_at=excluded.updated_at",
             rusqlite::params![
                 f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs, f.tax,
-                f.eligible as i64, f.source, f.notes, now
+                f.eligible as i64, f.source, f.notes, now, f.has_lab as i64
             ],
         )?;
         Ok(conn.last_insert_rowid())

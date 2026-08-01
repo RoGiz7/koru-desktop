@@ -155,6 +155,8 @@ pub fn run() {
             commands::get_wallet_series,
             commands::get_wallet_series_global,
             commands::get_skills,
+            commands::get_skill_levels,
+            commands::get_skill_levels_all,
             commands::get_character_detail,
             commands::get_factional,
             commands::get_abyssals,

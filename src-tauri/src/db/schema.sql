@@ -508,6 +508,7 @@ CREATE TABLE IF NOT EXISTS facility (
     system_id    INTEGER NOT NULL, -- de aquí salen el índice de coste (ESI) y la banda de seguridad
     type_id      INTEGER,          -- Sotiyo, Raitaru…: de aquí salen sus 3 bonos del SDE
     has_mfg      INTEGER NOT NULL DEFAULT 1, -- ¿planta de fabricación instalada? lo sabe el usuario
+    has_lab      INTEGER NOT NULL DEFAULT 0, -- ¿laboratorio (invención/copia/ME/TE)? lo sabe el usuario
     rigs         TEXT NOT NULL DEFAULT '[]', -- JSON [typeID]: se resuelven contra el SDE al calcular
     -- Impuesto del centro: lo pone el dueño, nadie más lo sabe. ANULABLE a propósito:
     -- NULL = no lo has declarado · 0 = declaraste que no cobra nada. Son cosas distintas y la ficha

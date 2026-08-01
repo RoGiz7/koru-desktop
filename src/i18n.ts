@@ -1813,6 +1813,54 @@ const EN: Record<string, string> = {
   "Lo que te falta, a precio de mercado (prices_map local)":
     "What you're missing, at market price (local prices_map)",
   "Fabricar la unidad": "Build one unit",
+  // F2 — invención
+  "tiene laboratorio (invención / copia / investigación)":
+    "has a laboratory (invention / copying / research)",
+  "¿Tiene laboratorio Standup (invención, copia, investigación ME/TE)?":
+    "Does it have a Standup laboratory (invention, copying, ME/TE research)?",
+  Invención: "Invention",
+  "Sin decryptor": "No decryptor",
+  base: "base",
+  "Skills (nivel activo; toca para simular)": "Skills (active level; tweak to simulate)",
+  Intento: "Attempt",
+  Laboratorio: "Laboratory",
+  Fabricar: "Build",
+  Inventar: "Invent",
+  "Datacores: ya están EN la instalación": "Datacores: already AT the facility",
+  "Datacores: los tienes": "Datacores: you have them",
+  "Datacores que faltan": "Missing datacores",
+  "Tus inventores (clic = usar sus niveles)": "Your inventors (click = use their levels)",
+  "Tus fabricantes (velocidad del job)": "Your builders (job speed)",
+  "Le falta": "Missing",
+  "Sin resultados… pero tienes": "No results… but you have",
+  "en el buscador — bórralo para ver la pestaña completa.":
+    "in the search box — clear it to see the full tab.",
+  "la instalación elegida no tiene laboratorio declarado (marca 🔬 «Lab» en su ficha)":
+    "the chosen facility has no laboratory declared (tick 🔬 “Lab” on its card)",
+  "elige arriba una instalación con laboratorio — sin ella falta la tasa del job":
+    "pick a facility with a laboratory above — without it the job fee is missing",
+  "Tasa del job por intento": "Job fee per attempt",
+  "VEO de invención": "Invention EIV",
+  tasa: "fee",
+  intento: "attempt",
+  // («tiempo» ya existía en la línea ~328 — no duplicar, TS1117)
+  "VEO de invención (candidato: materiales del T2 a adjusted — compáralo con el tooltip del juego)":
+    "Invention EIV (candidate: T2 materials at adjusted — compare it with the in-game tooltip)",
+  "Coste = datacores + decryptor + tasa del job (fórmula verificada al ISK contra un job real; el VEO es candidato — compáralo arriba). Sin el coste de la copia del T1.":
+    "Cost = datacores + decryptor + job fee (formula verified to the ISK against a real job; the EIV is a candidate — compare it above). Without the T1 copy cost.",
+  "Coste = datacores + decryptor, SIN la tasa del job (elige laboratorio). Sin el coste de la copia del T1.":
+    "Cost = datacores + decryptor, WITHOUT the job fee (pick a laboratory). Without the T1 copy cost.",
+  "La probabilidad es la fórmula estándar — compárala con la que enseña tu ventana de industria.":
+    "The probability is the standard formula — compare it with what your industry window shows.",
+  "Por ÉXITO": "Per SUCCESS",
+  "Por run": "Per run",
+  mejor: "best",
+  "El coste por run del BPC más barato con estos precios y skills":
+    "The cheapest cost per BPC run with these prices and skills",
+  "Falta el precio de algún datacore: los costes se quedan cortos.":
+    "A datacore price is missing: costs fall short.",
+  "Coste = datacores + decryptor. SIN la tasa del job de invención (pendiente de calibrar contra un job real) y sin el coste de la copia del T1. La probabilidad es la fórmula estándar — compárala con la que enseña tu ventana de industria.":
+    "Cost = datacores + decryptor. WITHOUT the invention job fee (pending calibration against a real job) and without the T1 copy cost. The probability is the standard formula — compare it with what your industry window shows.",
   // F1d+ — stock EN la instalación elegida
   "En instalación": "At facility",
   "Qué comprar (descontado lo que ya hay EN la instalación)":

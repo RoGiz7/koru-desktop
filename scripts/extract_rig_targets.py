@@ -53,14 +53,16 @@ def main() -> int:
             continue
         cats: set[int] = set()
         grps: set[int] = set()
-        # El bono de MATERIAL es el que decide el BOM; unimos todas las actividades (manufacturing,
-        # reaction…) porque el producto elige sola la que le toca vía su categoría/grupo.
+        # Unimos material + time + cost de todas las actividades: el material decide el BOM de
+        # fabricación, y el time/cost es lo ÚNICO que traen los rigs de invención/copia/research
+        # (sin esto se quedaban sin aff). El producto elige la actividad que le toca vía cat/grupo.
         for act in src.values():
-            for ent in act.get("material", []):
-                filt = tf.get(str(ent.get("filterID")))
-                if filt:
-                    cats.update(filt["categoryIDs"])
-                    grps.update(filt["groupIDs"])
+            for kind in ("material", "time", "cost"):
+                for ent in act.get(kind, []):
+                    filt = tf.get(str(ent.get("filterID")))
+                    if filt:
+                        cats.update(filt["categoryIDs"])
+                        grps.update(filt["groupIDs"])
         rig["aff"] = {"c": sorted(cats), "g": sorted(grps)}
         mapped += 1
 

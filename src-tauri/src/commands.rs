@@ -966,6 +966,7 @@ pub async fn facility_seed_from_esi(state: State<'_, AppState>) -> AppResult<usi
             system_id: s.system_id,
             type_id: s.type_id,
             has_mfg: false,
+            has_lab: false, // como has_mfg: ESI no ve los servicios, lo declara el usuario
             rigs: Vec::new(),
             tax: None, // ESI no sabe el impuesto: sin declarar, no un 0 que parecería un dato
 
@@ -3891,6 +3892,74 @@ pub async fn get_fatigue(character_id: i64, state: State<'_, AppState>) -> AppRe
         }),
         Err(e) => Err(e),
     }
+}
+
+/// F2 (invención) — niveles ENTRENADOS de una lista de skills del personaje (0 si no la tiene).
+/// Lee la respuesta cacheada de /skills/ (mismo scope que la sección Skills). Usa el nivel
+/// `active_skill_level` (el que aplica el juego: un alfa con la skill capada inventa con el activo).
+#[tauri::command]
+pub async fn get_skill_levels(
+    character_id: i64,
+    ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<i64, i64>> {
+    let token =
+        token_with_scope(&state, character_id, "esi-skills.read_skills.v1", "Skills").await?;
+    let resp = crate::esi::skills::skills(&state.esi, &state.db, character_id, &token).await?;
+    let have: std::collections::HashMap<i64, i64> = resp
+        .skills
+        .iter()
+        .map(|s| (s.skill_id, s.active_skill_level))
+        .collect();
+    Ok(ids
+        .into_iter()
+        .map(|id| (id, have.get(&id).copied().unwrap_or(0)))
+        .collect())
+}
+
+/// F2 — niveles ACTIVOS de una lista de skills para TODOS los personajes con el scope de skills.
+/// Para la leyenda «¿quién es tu mejor inventor?»: compara alts sin cambiar de sujeto.
+#[derive(Debug, Clone, Serialize)]
+pub struct CharSkillLevels {
+    pub character_id: i64,
+    pub name: String,
+    pub levels: std::collections::HashMap<i64, i64>,
+}
+
+#[tauri::command]
+pub async fn get_skill_levels_all(
+    ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<CharSkillLevels>> {
+    let mut out = Vec::new();
+    for c in state.db.list_characters()? {
+        if !c.scopes.iter().any(|s| s == "esi-skills.read_skills.v1") {
+            continue;
+        }
+        let token = match state.tokens.access_token(state.esi.http(), c.character_id).await {
+            Ok(v) => v.access_token,
+            Err(_) => continue, // sin token vivo no hay lectura: se omite, no se inventa un 0
+        };
+        let resp =
+            match crate::esi::skills::skills(&state.esi, &state.db, c.character_id, &token).await {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+        let have: std::collections::HashMap<i64, i64> = resp
+            .skills
+            .iter()
+            .map(|s| (s.skill_id, s.active_skill_level))
+            .collect();
+        out.push(CharSkillLevels {
+            character_id: c.character_id,
+            name: c.name.clone(),
+            levels: ids
+                .iter()
+                .map(|id| (*id, have.get(id).copied().unwrap_or(0)))
+                .collect(),
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]

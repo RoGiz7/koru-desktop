@@ -109,13 +109,15 @@ def main() -> int:
                 # quedaba solo con AdvComponent → el rig no se aplicaba al fabricar una estructura.
                 # 11 de los 113 rigs con bono de material estaban truncados así.
                 #
-                # Solo miramos los efectos `*MaterialBonus`: son los que deciden el BOM, y el valor
-                # del bono (`mat`) es UNO por rig, común a todos sus alcances.
+                # Alcances de TODOS los tipos de bono (Material|Time|Cost). Antes solo Material:
+                # los 18 rigs de invención/copia/investigación (que dan coste/tiempo y mat 0)
+                # quedaban con scopes VACÍO → el desplegable de la ficha los escondía y una ficha
+                # de laboratorio no podía declararlos. Lo cazó Zigor montando F2 (2026-07-30).
                 scopes = sorted(
                     {
                         m.group(1)
                         for e in eff
-                        if (m := re.match(r"^rig(.+?)MaterialBonus$", e))
+                        if (m := re.match(r"^rig(.+?)(?:Material|Time|Cost)Bonus$", e))
                     }
                 )
                 rigs[str(tid)] = {
