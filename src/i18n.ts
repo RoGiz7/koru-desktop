@@ -1789,6 +1789,27 @@ const EN: Record<string, string> = {
   "Nave de la run": "Run ship",
   "Por nave": "By ship",
   "Mejor día": "Best day",
+  // F1d — build-vs-buy y lista de la compra del BOM
+  Comprar: "Buy",
+  tipos: "types",
+  fabricar: "build",
+  comprar: "buy",
+  "Qué comprar (las hojas del árbol, descontado tu stock)":
+    "What to buy (the tree's leaves, minus your stock)",
+  "Qué transportar": "What to haul",
+  "tipo(s) sin precio de mercado (el ISK se queda corto)":
+    "type(s) without market price (the ISK falls short)",
+  "sin volumen (el m³ se queda corto)": "without volume (the m³ falls short)",
+  "Lo que te falta, a precio de mercado (prices_map local)":
+    "What you're missing, at market price (local prices_map)",
+  "Fabricar la unidad": "Build one unit",
+  Comprarla: "Buy it",
+  "Fabricar = sus materiales (un nivel, a mercado) + la tasa de su job con TU instalación. No optimiza el árbol entero: es la comparación de ESTE nodo.":
+    "Build = its materials (one level, at market) + its job fee with YOUR facility. It doesn't optimize the whole tree: it's THIS node's comparison.",
+  "Estimado: falta algún precio o el plano (ME 0).":
+    "Estimated: a price is missing or you lack the blueprint (ME 0).",
+  "El veredicto 🔧/🛒 compara comprar cada unidad a mercado con fabricarla (sus materiales a un nivel + la tasa del job); lo que despliegas se fabrica y las hojas van a la lista de la compra.":
+    "The 🔧/🛒 verdict compares buying each unit at market vs building it (its materials one level down + the job fee); what you expand gets built and the leaves go to the shopping list.",
   "El día en que más ISK cobraste en ese sistema": "The day you earned the most ISK in that system",
   "Iniciar run": "Start run",
   "Botín de la run": "Run loot",

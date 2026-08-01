@@ -4491,11 +4491,14 @@ h4 {
    memoria koru-iconografia-eve. */
 .panel-art-wrap {
   position: relative;
+  /* Contexto de apilamiento PROPIO: permite mandar el arte a z negativo sin que se cuele detrás
+     del fondo del panel. Y lo importante: el CONTENIDO ya no necesita z-index ninguno. */
+  isolation: isolate;
 }
-.panel-art-wrap > *:not(.sec-art) {
-  position: relative;
-  z-index: 1;
-}
+/* ⚠️ NO reponer aquí un `> * { z-index: 1 }`: convertía cada bloque de la sección en su propio
+   contexto de apilamiento y los desplegables (watch-ac, autocompletar…) quedaban DEBAJO de las
+   tablas hermanas que venían después en el DOM aunque tuvieran z-index 30 (bug del Watchlist,
+   2026-07-30). Con el arte a z:-1 dentro del contexto aislado, el contenido pinta encima solo. */
 .sec-art {
   position: absolute;
   right: 0;
@@ -4505,7 +4508,7 @@ h4 {
   max-width: 52%;
   overflow: hidden;
   pointer-events: none;
-  z-index: 0;
+  z-index: -1;
 }
 .sec-art img {
   position: absolute;
@@ -6531,6 +6534,26 @@ h4 {
 }
 /* Confianza de la ficha: verde = cuadra al ítem · ámbar = falta declarar algo y la cuenta se
    queda corta. Nunca un "esto es aproximado" genérico: la fórmula está verificada. */
+/* F1d — veredicto build-vs-buy por nodo fabricable del BOM. */
+.bom-verdict {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: help;
+}
+.bom-verdict.build {
+  background: #34d39922;
+  color: #34d399;
+  border: 1px solid #34d39955;
+}
+.bom-verdict.buy {
+  background: #fbbf2422;
+  color: #fbbf24;
+  border: 1px solid #fbbf2455;
+}
+
 .bom-conf {
   padding: 0.05rem 0.35rem;
   border-radius: 4px;

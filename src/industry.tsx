@@ -49,8 +49,15 @@ type IndustryRigs = {
       sec: { hi?: number; low?: number; null?: number };
       size: number;
       scopes: string[];
+      /** F1d — mapeo rig→producto del CLIENTE (Hoboleaks, extract_rig_targets.py): categorías y
+       *  grupos de producto a los que aplica el bono de MATERIAL. Validado por triple vía:
+       *  Hoboleaks = EVE Ref = fixture real del Bantam (37181 ON [6,32] · 43705 OFF para naves).
+       *  Sin `aff` (outposts) se cae al fallback por nombre de efecto (SCOPE_CAT). */
+      aff?: { c: number[]; g: number[] };
     }
   >;
+  /** Procedencia del mapeo `aff` (revisión del cliente y timestamp de Hoboleaks). */
+  aff_meta?: { source: string; revision: number; timestamp: string };
 };
 
 /** Ficha de instalación (tabla `facility`). Es el registro del fabricante: idea de RoGiz7, y nace de
@@ -326,6 +333,10 @@ function BomPanel({
   const [sys, setSys] = useState<{ id: number; n: string; s: number }[] | null>(null);
   const [idx, setIdx] = useState<Record<string, number> | null>(null);
   const [adj, setAdj] = useState<Map<number, number>>(new Map());
+  // F1d: precio de MERCADO (prices_map local; ≠ adjusted_price, que es solo para el VEO) y m³
+  // (SDE + reempaquetado de Hoboleaks) de todo el universo de materiales de este árbol.
+  const [prices, setPrices] = useState<Map<number, number>>(new Map());
+  const [vols, setVols] = useState<Map<number, number>>(new Map());
   const [ir, setIr] = useState<IndustryRigs | null>(null);
   const [tree, setTree] = useState<BpTree | null>(null);
   /** F1c: el registro de instalaciones (BD). El BOM ya no pregunta a ESI qué estructuras tienes:
@@ -348,6 +359,12 @@ function BomPanel({
       .catch(() => setSys([]));
     fetch("/industry_rigs.json").then((r) => r.json()).then(setIr).catch(() => setIr(null));
     fetch("/bp_tree.json").then((r) => r.json()).then(setTree).catch(() => setTree(null));
+    fetch("/type_volumes.json")
+      .then((r) => r.json())
+      .then((d: Record<string, number>) =>
+        setVols(new Map(Object.entries(d).map(([k, v]) => [Number(k), v]))),
+      )
+      .catch(() => setVols(new Map()));
     invoke<Facility[]>("facility_list").then(setFacs).catch(() => setFacs([]));
   }, [facsVersion]);
 
@@ -372,39 +389,53 @@ function BomPanel({
   }, [st?.system_id]);
 
   const es = getLang() === "es";
-  /** Categoría del PRODUCTO de este plano: decide qué rigs aplican (Bantam → 6 = Nave). */
+  /** Categoría y GRUPO del producto de este plano: deciden qué rigs aplican (Bantam → cat 6 grupo 25). */
   const prodCat = tree?.bp[String(bp.type_id)]?.[0] ?? null;
+  const prodGrp = tree?.bp[String(bp.type_id)]?.[1] ?? null;
 
-  /** Bonos resueltos DESDE EL DATO: los 3 de la estructura (SDE, por su tipo) y los rigs de la
-   *  ficha con su bono efectivo (base × multiplicador de la banda de seguridad) y si aplican. */
-  const bonos: Bonos | null = useMemo(() => {
+  /** F1d — bonos POR PRODUCTO: el mismo cálculo de siempre pero parametrizado por la categoría y el
+   *  grupo del producto que se fabrica en CADA nodo del árbol (antes todo el árbol se juzgaba con la
+   *  categoría del producto RAÍZ: bien para el Bantam, mal en cuanto se despliegan componentes). */
+  const bonosFor = useMemo(() => {
     if (!st || !ir) return null;
     const sd = st.type_id != null ? ir.structures[String(st.type_id)] : null;
     const band = sysHit ? secBand(sysHit.s) : "hi";
-    const rigs = st.rigs.map((id) => {
-      const r = ir.rigs[String(id)];
-      if (!r) return { id, name: `#${id}`, mat: 0, eff: 0, state: "unmapped" as const };
-      const eff = r.mat * (r.sec[band] ?? 1);
-      // Un rig tiene VARIOS alcances y basta con que UNO cubra este producto para que aplique.
-      // Los tres estados, y por qué son tres:
-      //   on       — algún alcance que sabemos situar cubre la categoría de este producto.
-      //   off      — sabemos situar TODOS sus alcances y ninguno cubre esto. Es un «no aplica»
-      //              afirmado, no una duda: no ensucia la confianza de la ficha.
-      //   unmapped — le queda algún alcance que no sabemos situar: no lo aplicamos (nos quedamos
-      //              cortos) y lo decimos, porque podría cubrir esto y no podemos descartarlo.
-      const conocidos = r.scopes.filter((s) => SCOPE_CAT[s]);
-      const cubre =
-        prodCat != null && conocidos.some((s) => SCOPE_CAT[s].includes(prodCat));
-      const state = cubre
-        ? ("on" as const)
-        : conocidos.length < r.scopes.length || r.scopes.length === 0
-          ? ("unmapped" as const)
-          : ("off" as const);
-      return { id, name: es ? r.n.es : r.n.en, mat: r.mat, eff, state };
-    });
-    // Fortizar y compañía no tienen bono de material: `null` = sin bono (factor 1), NO cero.
-    return { strMat: sd?.mat ?? 1, strCost: sd?.cost ?? 1, rigs };
-  }, [st, ir, sysHit, prodCat, es]);
+    return (cat: number | null, grp: number | null): Bonos => {
+      const rigs = st.rigs.map((id) => {
+        const r = ir.rigs[String(id)];
+        if (!r) return { id, name: `#${id}`, mat: 0, eff: 0, state: "unmapped" as const };
+        const eff = r.mat * (r.sec[band] ?? 1);
+        // Decidir si el rig aplica a ESTE producto. Dos vías, por orden de calidad del dato:
+        //   1) `aff` (Hoboleaks = la tabla con la que decide el SERVIDOR): categorías + grupos.
+        //      Con aff el veredicto es BINARIO (on/off): ya no existe «unmapped» para estos rigs.
+        //   2) Fallback por nombre de efecto (SCOPE_CAT), para rigs sin aff — con sus tres estados
+        //      de siempre (on / off afirmado / unmapped que no aplicamos y decimos).
+        let state: "on" | "off" | "unmapped";
+        if (r.aff) {
+          const cubre =
+            (cat != null && r.aff.c.includes(cat)) || (grp != null && r.aff.g.includes(grp));
+          state = cubre ? "on" : "off";
+        } else {
+          const conocidos = r.scopes.filter((s) => SCOPE_CAT[s]);
+          const cubre = cat != null && conocidos.some((s) => SCOPE_CAT[s].includes(cat));
+          state = cubre
+            ? "on"
+            : conocidos.length < r.scopes.length || r.scopes.length === 0
+              ? "unmapped"
+              : "off";
+        }
+        return { id, name: es ? r.n.es : r.n.en, mat: r.mat, eff, state };
+      });
+      // Fortizar y compañía no tienen bono de material: `null` = sin bono (factor 1), NO cero.
+      return { strMat: sd?.mat ?? 1, strCost: sd?.cost ?? 1, rigs };
+    };
+  }, [st, ir, sysHit, es]);
+
+  /** Bonos del producto RAÍZ (para el coste del job, la Confianza y el desglose visible). */
+  const bonos: Bonos | null = useMemo(
+    () => (bonosFor ? bonosFor(prodCat, prodGrp) : null),
+    [bonosFor, prodCat, prodGrp],
+  );
 
   // Stock real: lo que ya tienes, para el "te falta". Multi-personaje si el sujeto es Global.
   useEffect(() => {
@@ -443,6 +474,27 @@ function BomPanel({
 
   const nameOf = (tid: number) => names.get(tid) ?? `#${tid}`;
 
+  /** F1d — TODOS los typeIDs alcanzables desde este plano (a cualquier profundidad): el universo
+   *  de materiales del árbol, para pedir precios y adjusted de una vez (lecturas locales, sin red). */
+  const allTids = useMemo(() => {
+    const s = new Set<number>();
+    if (!ind) return s;
+    const seen = new Set<string>();
+    const rec = (bpId: string) => {
+      if (seen.has(bpId)) return;
+      seen.add(bpId);
+      const a = ind[bpId]?.m;
+      if (!a) return;
+      for (const [tid] of a.in) {
+        s.add(tid);
+        const sb = bpByProduct.get(tid);
+        if (sb) rec(sb);
+      }
+    };
+    rec(String(bp.type_id));
+    return s;
+  }, [ind, bp.type_id, bpByProduct]);
+
   type Row = {
     tid: number;
     qty: number;
@@ -459,7 +511,11 @@ function BomPanel({
       const act = ind[bpId]?.m;
       if (!act) return;
       const me = meOf.get(Number(bpId));
-      const f = matFactor(me ?? 0, bonos);
+      // F1d: los bonos se juzgan con el producto de ESTE plano (cada nodo el suyo), no con el de
+      // la raíz. Un rig de componentes debe aplicar al subárbol de componentes de una nave, y el
+      // de naves no debe tocar los componentes.
+      const [c, g] = tree?.bp[bpId] ?? [null, null];
+      const f = matFactor(me ?? 0, bonosFor ? bonosFor(c, g) : null);
       for (const [tid, base] of act.in) {
         const qty = matQty(base, n, f);
         const sb = bpByProduct.get(tid) ?? null;
@@ -473,19 +529,23 @@ function BomPanel({
     };
     walk(String(bp.type_id), runs, 0);
     return out;
-  }, [ind, bp, runs, bonos, open, meOf, bpByProduct]);
+  }, [ind, bp, runs, bonosFor, tree, open, meOf, bpByProduct]);
 
   const act = ind?.[String(bp.type_id)]?.m;
 
   // --- F1b: coste del trabajo, con la fórmula VERIFICADA al ISK contra el juego ---
   // El VEO usa las cantidades BASE del blueprint (NO las de tras-ME) y el `adjusted_price`.
+  // F1d: se piden para TODO el árbol (los sub-jobs del build-vs-buy también tienen su VEO).
   useEffect(() => {
-    const ids = (act?.in ?? []).map(([tid]) => tid);
+    const ids = [...allTids];
     if (ids.length === 0) return;
     invoke<Record<number, number>>("get_type_adjusted_prices", { ids })
       .then((r) => setAdj(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
       .catch(() => setAdj(new Map()));
-  }, [act]);
+    invoke<Record<number, number>>("get_type_prices", { ids })
+      .then((r) => setPrices(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
+      .catch(() => setPrices(new Map()));
+  }, [allTids]);
 
   const cost = useMemo(() => {
     if (!act) return null;
@@ -508,6 +568,64 @@ function BomPanel({
   const product = act?.out?.[0]?.[0];
   const perRun = act?.out?.[0]?.[1] ?? 1;
   const maxRuns = bp.quantity === -1 ? 1_000_000 : Math.max(1, bp.runs);
+
+  /** F1d — coste de FABRICAR una unidad de un material fabricable, para el build-vs-buy por nodo:
+   *  sus materiales (un nivel, valorados a MERCADO) + la tasa de su job (VEO×índice×bonif + centro
+   *  + CCS), entre las unidades que salen por carrera. Decisión v1 a propósito: los hijos se valoran
+   *  a mercado (no se optimiza el árbol entero recursivamente) y se dice — esperanza ≠ promesa.
+   *  `est` = true si falta algún precio o no tienes el plano (ME 0 estimado). */
+  const buildUnit = (sb: string): { unit: number; est: boolean } | null => {
+    const a = ind?.[sb]?.m;
+    if (!a) return null;
+    const outQty = a.out?.[0]?.[1] ?? 1;
+    const me = meOf.get(Number(sb));
+    const [c, g] = tree?.bp[sb] ?? [null, null];
+    const f = matFactor(me ?? 0, bonosFor ? bonosFor(c, g) : null);
+    let mats = 0;
+    let veo = 0;
+    let est = me == null;
+    for (const [tid, base] of a.in) {
+      const q = matQty(base, 1, f);
+      const p = prices.get(tid);
+      if (p == null) est = true;
+      mats += q * (p ?? 0);
+      veo += base * (adj.get(tid) ?? 0);
+    }
+    // Tasa del sub-job con TU misma instalación (índice del sistema + bonos de la ficha elegida).
+    const index = idx?.manufacturing ?? 0;
+    const fee =
+      veo * index * (bonos?.strCost ?? 1) + veo * ((st?.tax ?? 0) / 100) + veo * CCS_SURCHARGE;
+    return { unit: (mats + fee) / outQty, est };
+  };
+
+  /** F1d — la LISTA DE LA COMPRA según el árbol tal y como lo tienes desplegado: lo desplegado se
+   *  fabrica, las hojas se compran. Agregada por tipo (el stock se descuenta UNA vez, no por fila)
+   *  → total ISK a mercado y m³ a transportar (volumen reempaquetado cuando Hoboleaks lo corrige). */
+  const shopping = useMemo(() => {
+    const need = new Map<number, number>();
+    for (const r of rows) {
+      const leaf = !r.subBp || !open.has(r.tid);
+      if (!leaf) continue;
+      need.set(r.tid, (need.get(r.tid) ?? 0) + r.qty);
+    }
+    let isk = 0;
+    let m3 = 0;
+    let types = 0;
+    let sinPrecio = 0;
+    let sinVol = 0;
+    for (const [tid, n] of need) {
+      const miss = Math.max(0, n - (stock?.get(tid) ?? 0));
+      if (miss <= 0) continue;
+      types++;
+      const p = prices.get(tid);
+      if (p == null) sinPrecio++;
+      else isk += miss * p;
+      const v = vols.get(tid);
+      if (v == null) sinVol++;
+      else m3 += miss * v;
+    }
+    return { types, isk, m3, sinPrecio, sinVol };
+  }, [rows, open, stock, prices, vols]);
 
   if (!ind) return <p className="muted small">{tr("Cargando…")}</p>;
   if (!act)
@@ -640,6 +758,39 @@ function BomPanel({
         </div>
       )}
 
+      {/* F1d — Qué comprar y transportar, según el árbol tal y como está desplegado: lo abierto se
+          fabrica, las hojas se compran. El m³ usa el volumen REEMPAQUETADO cuando Hoboleaks corrige
+          al SDE — si la ventaja se construye sobre un número, que sea el bueno. */}
+      {stock != null && shopping.types > 0 && (
+        <div className="bom-cost small">
+          <div className="bom-cost-row">
+            <span>
+              {/* PLEX (44992) = comprar, Badger (648) = transportar: los mismos iconos reales del
+                  Image Server que usa el resto de la app (elección de Zigor). */}
+              <img className="kind-glyph" src={typeIcon(44992, 32)} alt="" />{" "}
+              {tr("Qué comprar (las hojas del árbol, descontado tu stock)")}:{" "}
+              {shopping.types} {tr("tipos")}
+            </span>
+            <strong>{fmtIsk(shopping.isk)}</strong>
+          </div>
+          <div className="bom-cost-row muted">
+            <span>
+              <img className="kind-glyph" src={typeIcon(648, 32)} alt="" /> {tr("Qué transportar")}
+            </span>
+            <span>{fmtSp(Math.ceil(shopping.m3))} m³</span>
+          </div>
+          {(shopping.sinPrecio > 0 || shopping.sinVol > 0) && (
+            <div className="muted">
+              ⚠{" "}
+              {shopping.sinPrecio > 0 &&
+                `${shopping.sinPrecio} ${tr("tipo(s) sin precio de mercado (el ISK se queda corto)")}`}
+              {shopping.sinPrecio > 0 && shopping.sinVol > 0 && " · "}
+              {shopping.sinVol > 0 && `${shopping.sinVol} ${tr("sin volumen (el m³ se queda corto)")}`}
+            </div>
+          )}
+        </div>
+      )}
+
       <table className="km-table bom-table">
         <thead>
           <tr>
@@ -647,6 +798,7 @@ function BomPanel({
             <th>{tr("Necesitas")}</th>
             <th>{tr("Tienes")}</th>
             <th>{tr("Te falta")}</th>
+            <th title={tr("Lo que te falta, a precio de mercado (prices_map local)")}>{tr("Comprar")}</th>
           </tr>
         </thead>
         <tbody>
@@ -654,6 +806,17 @@ function BomPanel({
             const have = stock?.get(r.tid) ?? 0;
             const miss = Math.max(0, r.qty - have);
             const isOpen = open.has(r.tid);
+            const price = prices.get(r.tid);
+            // F1d — veredicto build-vs-buy del nodo fabricable: comprar la unidad a mercado vs
+            // fabricarla (materiales de UN nivel a mercado + tasa de su job). v1 honesto: no
+            // optimiza recursivamente el árbol entero, y lo dice en el tooltip.
+            const bi = r.subBp && price != null ? buildUnit(r.subBp) : null;
+            const verdict =
+              bi && price != null
+                ? bi.unit < price
+                  ? { build: true, pct: (1 - bi.unit / price) * 100 }
+                  : { build: false, pct: (1 - price / bi.unit) * 100 }
+                : null;
             return (
               <tr key={`${r.tid}-${r.depth}-${i}`} className={miss === 0 ? "bom-ok" : ""}>
                 <td style={{ paddingLeft: `${0.4 + r.depth * 1.1}rem` }}>
@@ -679,11 +842,24 @@ function BomPanel({
                       — ME {r.childMe ?? 0}%{r.childMe == null ? ` (${tr("estimado")})` : ""}
                     </span>
                   )}
+                  {verdict && (
+                    <span
+                      className={`bom-verdict ${verdict.build ? "build" : "buy"}`}
+                      title={`${tr("Fabricar la unidad")}: ${fmtIsk(bi!.unit)} · ${tr("Comprarla")}: ${fmtIsk(price!)}. ${tr("Fabricar = sus materiales (un nivel, a mercado) + la tasa de su job con TU instalación. No optimiza el árbol entero: es la comparación de ESTE nodo.")}${bi!.est ? ` ${tr("Estimado: falta algún precio o el plano (ME 0).")}` : ""}`}
+                    >
+                      {verdict.build ? "🔧" : "🛒"}{" "}
+                      {verdict.build ? tr("fabricar") : tr("comprar")} −{verdict.pct.toFixed(0)}%
+                      {bi!.est ? "~" : ""}
+                    </span>
+                  )}
                 </td>
                 <td>{fmtSp(r.qty)}</td>
                 <td className="muted">{stock == null ? "…" : fmtSp(have)}</td>
                 <td className={miss > 0 ? "bom-miss" : "bom-ok-txt"}>
                   {stock == null ? "…" : miss > 0 ? fmtSp(miss) : "✓"}
+                </td>
+                <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                  {miss > 0 && price != null ? fmtIsk(miss * price) : miss > 0 ? "—" : ""}
                 </td>
               </tr>
             );
@@ -691,7 +867,8 @@ function BomPanel({
         </tbody>
       </table>
       <p className="muted small">
-        {tr("«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.")}
+        {tr("«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.")}{" "}
+        {tr("El veredicto 🔧/🛒 compara comprar cada unidad a mercado con fabricarla (sus materiales a un nivel + la tasa del job); lo que despliegas se fabrica y las hojas van a la lista de la compra.")}
       </p>
     </div>
   );
