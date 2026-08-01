@@ -251,6 +251,10 @@ pub struct AssetDetailRow {
     pub type_id: i64,
     pub quantity: i64,
     pub system_id: i64, // 0 = ubicación desconocida (estructura sin acceso)
+    /// Id de la UBICACIÓN RAÍZ del stack (estación/estructura/sistema), tras subir por el árbol de
+    /// contenedores/naves con `root_location`. Es el que casa con `facility.structure_id` → permite
+    /// saber qué stock ya está EN la instalación elegida (F1d+, idea de RoGiz7).
+    pub location_id: i64,
     /// Nombre de la estación/estructura (o "espacio" si está en el espacio). Vacío si desconocido.
     pub location_name: String,
     /// Nombre del contenedor/nave que lo contiene (propio si lo tiene), o None si está suelto.
@@ -489,6 +493,7 @@ pub async fn detail(
                 type_id,
                 quantity,
                 system_id: sys,
+                location_id: root,
                 location_name,
                 container,
                 container_id,

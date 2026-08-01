@@ -6,6 +6,26 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.35.0",
+    date: "2026-07-30",
+    es: [
+      "🏭 Fabricar o comprar, por fin con respuesta. Cada material fabricable del árbol lleva su veredicto 🔧 fabricar / 🛒 comprar con el ahorro en %: compara el precio de mercado con fabricarlo en TU instalación (materiales + tasa del job). Y el árbol ahora aplica los rigs correctos a cada nivel — el de componentes a los componentes, el de naves a las naves — con el mapeo real del cliente del juego. Si tu ficha está completa, el sello «✓ ficha completa» ya no dudará.",
+      "🧾 La lista de la compra se hace sola. Lo que despliegas se fabrica; lo que queda como hoja se compra: total en ISK y —con el volumen REAL reempaquetado, que el que trae el SDE está mal— los m³ exactos que tendrá que mover tu carguero.",
+      "🏗️ Y sabe qué hay en tu fábrica. Si tu ficha viene de ESI, la columna «Tienes» pasa a «En instalación»: cuenta solo lo que ya está dentro de esa estructura (contenedores y naves incluidos), así que «te falta» es literalmente lo que hay que llevar.",
+      "🕳️ Los agujeros de gusano, con apellido. En Exploración, el nombre de una firma WH autocompleta con los 102 códigos del juego (K162, B274…) y al elegirlo sale su ficha: a qué clase lleva, cuánto vive y cuánta masa aguanta por salto. El K162 dice «salida», que es la verdad.",
+      "🛠️ Arreglado: en secciones con nave de fondo, los desplegables (como el buscador del Watchlist) quedaban tapados por las tablas. Ahora pintan encima, como debe ser.",
+      "📦 Datos del juego al día (SDE del 28 de julio, alineado con el resto de fuentes).",
+    ],
+    en: [
+      "🏭 Build or buy, finally answered. Every buildable material in the tree carries its 🔧 build / 🛒 buy verdict with the % saved: it compares the market price against building it at YOUR facility (materials + job fee). And the tree now applies the right rigs at every level — the component rig to components, the ship rig to ships — using the game client's real mapping. If your facility card is complete, the “✓ complete” seal no longer hesitates.",
+      "🧾 The shopping list writes itself. What you expand gets built; what remains as a leaf gets bought: total ISK and — using the REAL repackaged volume, since the SDE's is wrong — the exact m³ your hauler will move.",
+      "🏗️ And it knows what's at your factory. If your facility card comes from ESI, the “You have” column becomes “At facility”: it counts only what's already inside that structure (containers and ships included), so “missing” is literally what you need to haul.",
+      "🕳️ Wormholes, with a surname. In Exploration, a WH signature's name autocompletes with the game's 102 codes (K162, B274…) and picking one shows its card: what class it leads to, how long it lives and how much mass per jump. K162 says “exit”, which is the truth.",
+      "🛠️ Fixed: in sections with a ship backdrop, dropdowns (like the Watchlist search) were hidden under tables. They now paint on top, as they should.",
+      "📦 Game data refreshed (July 28 SDE, aligned with every other source).",
+    ],
+  },
+  {
     version: "0.34.0",
     date: "2026-07-29",
     es: [

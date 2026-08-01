@@ -4609,6 +4609,9 @@ pub struct AssetDetailView {
     pub quantity: i64,
     pub system_id: i64,
     pub system_name: Option<String>,
+    /// Ubicación RAÍZ del stack (id de estación/estructura/sistema). Casa con
+    /// `facility.structure_id` → el BOM puede decir qué stock ya está EN tu instalación.
+    pub location_id: i64,
     pub location_name: String,
     pub container: Option<String>,
     pub container_id: i64,
@@ -4652,6 +4655,7 @@ async fn resolve_asset_detail(
             } else {
                 None
             },
+            location_id: r.location_id,
             location_name: r.location_name,
             container: r.container,
             container_id: r.container_id,
@@ -6228,7 +6232,11 @@ pub async fn get_char_skill_levels(
 pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<Vec<AssetDetailView>> {
     use std::collections::HashMap;
     let all_tokens = structure_tokens(&state).await;
-    let mut agg: HashMap<(i64, i64, String, Option<String>, i64, i64, String), i64> = HashMap::new();
+    // Clave: (type, system, UBICACIÓN RAÍZ, nombre ubicación, contenedor, container_id,
+    // container_type, slot). El location_id va en la clave para que dos personajes con el mismo
+    // material en estructuras DISTINTAS no se fusionen (lo necesita «En instalación» en Global).
+    let mut agg: HashMap<(i64, i64, i64, String, Option<String>, i64, i64, String), i64> =
+        HashMap::new();
     for c in state.db.list_characters()? {
         if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
             continue;
@@ -6250,6 +6258,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
                     .entry((
                         r.type_id,
                         r.system_id,
+                        r.location_id,
                         r.location_name,
                         r.container,
                         r.container_id,
@@ -6267,6 +6276,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
                 (
                     type_id,
                     system_id,
+                    location_id,
                     location_name,
                     container,
                     container_id,
@@ -6279,6 +6289,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
                     type_id,
                     quantity,
                     system_id,
+                    location_id,
                     location_name,
                     container,
                     container_id,

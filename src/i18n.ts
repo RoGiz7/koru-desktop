@@ -1813,6 +1813,17 @@ const EN: Record<string, string> = {
   "Lo que te falta, a precio de mercado (prices_map local)":
     "What you're missing, at market price (local prices_map)",
   "Fabricar la unidad": "Build one unit",
+  // F1d+ — stock EN la instalación elegida
+  "En instalación": "At facility",
+  "Qué comprar (descontado lo que ya hay EN la instalación)":
+    "What to buy (minus what's already AT the facility)",
+  "Lo que ya está DENTRO de la estructura de tu ficha (contenedores y naves incluidos)":
+    "What's already INSIDE your facility's structure (containers and ships included)",
+  "Todos tus assets, estén donde estén": "All your assets, wherever they are",
+  "«En instalación» cuenta SOLO lo que ya está dentro de la estructura de tu ficha (subiendo por contenedores y naves): lo que falte ahí es exactamente lo que hay que comprar o transportar.":
+    "“At facility” counts ONLY what's already inside your facility's structure (climbing through containers and ships): whatever is missing there is exactly what you need to buy or haul.",
+  "Tu ficha es manual (sin estructura de ESI), así que no sabemos qué hay dentro: se usa el total de tus assets.":
+    "Your facility card is manual (no ESI structure), so we can't know what's inside: your total assets are used.",
   Comprarla: "Buy it",
   "Fabricar = sus materiales (un nivel, a mercado) + la tasa de su job con TU instalación. No optimiza el árbol entero: es la comparación de ESTE nodo.":
     "Build = its materials (one level, at market) + its job fee with YOUR facility. It doesn't optimize the whole tree: it's THIS node's comparison.",

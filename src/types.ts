@@ -262,6 +262,8 @@ export type AssetDetail = {
   quantity: number;
   system_id: number;
   system_name: string | null;
+  /** Ubicación RAÍZ del stack (estación/estructura/sistema): casa con facility.structure_id. */
+  location_id: number;
   location_name: string;
   container: string | null;
   container_id: number;

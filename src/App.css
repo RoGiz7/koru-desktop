@@ -6647,9 +6647,22 @@ h4 {
 .bom-cost-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   font-variant-numeric: tabular-nums;
   padding: 0.08rem 0;
+}
+/* Etiqueta de la fila (icono + texto): alineada y sin que el icono dispare su tamaño intrínseco.
+   Sin esto, el PLEX/Badger del panel de compra salían a 32px+ y partían el texto (captura 30-jul). */
+.bom-cost-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.bom-cost .kind-glyph {
+  width: 20px;
+  height: 20px;
 }
 .bom-cost-total {
   border-top: 1px solid var(--border-2, #3a3a3a);

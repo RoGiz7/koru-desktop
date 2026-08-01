@@ -438,19 +438,37 @@ function BomPanel({
   );
 
   // Stock real: lo que ya tienes, para el "te falta". Multi-personaje si el sujeto es Global.
+  // F1d+ (idea de RoGiz7): se guarda también POR UBICACIÓN RAÍZ, para poder decir qué stock ya
+  // está EN la instalación elegida (= qué NO hay que transportar). El root viene del backend
+  // (root_location sube contenedor/nave → estructura, código ya probado en la vista de Assets).
+  type StockRow = { type_id: number; quantity: number; location_id: number };
+  const [stockRows, setStockRows] = useState<StockRow[] | null>(null);
   useEffect(() => {
     const p =
       subject === "global"
-        ? invoke<{ type_id: number; quantity: number }[]>("get_assets_detail_global")
-        : invoke<{ type_id: number; quantity: number }[]>("get_assets_detail", {
-            characterId: subject,
-          });
-    p.then((list) => {
-      const m = new Map<number, number>();
-      for (const r of list) m.set(r.type_id, (m.get(r.type_id) ?? 0) + r.quantity);
-      setStock(m);
-    }).catch(() => setStock(new Map()));
+        ? invoke<StockRow[]>("get_assets_detail_global")
+        : invoke<StockRow[]>("get_assets_detail", { characterId: subject });
+    p.then(setStockRows).catch(() => setStockRows([]));
   }, [subject]);
+  // Total global (comportamiento de siempre)…
+  useEffect(() => {
+    if (stockRows == null) return;
+    const m = new Map<number, number>();
+    for (const r of stockRows) m.set(r.type_id, (m.get(r.type_id) ?? 0) + r.quantity);
+    setStock(m);
+  }, [stockRows]);
+  // …y el stock EN la estructura de la ficha elegida (null si la ficha es manual: ahí «no lo sé»
+  // es la respuesta honesta — sin structure_id no hay ubicación que casar, y no fingimos un 0).
+  const stockHere = useMemo(() => {
+    if (stockRows == null || st?.structure_id == null) return null;
+    const m = new Map<number, number>();
+    for (const r of stockRows)
+      if (r.location_id === st.structure_id) m.set(r.type_id, (m.get(r.type_id) ?? 0) + r.quantity);
+    return m;
+  }, [stockRows, st?.structure_id]);
+  /** El stock que manda en la tabla y la lista de la compra: el de la instalación si se conoce. */
+  const stockUsed = stockHere ?? stock;
+  const inFacility = stockHere != null;
 
   // producto → blueprint que lo fabrica (para saber qué material es a su vez fabricable)
   const bpByProduct = useMemo(() => {
@@ -614,7 +632,7 @@ function BomPanel({
     let sinPrecio = 0;
     let sinVol = 0;
     for (const [tid, n] of need) {
-      const miss = Math.max(0, n - (stock?.get(tid) ?? 0));
+      const miss = Math.max(0, n - (stockUsed?.get(tid) ?? 0));
       if (miss <= 0) continue;
       types++;
       const p = prices.get(tid);
@@ -625,7 +643,7 @@ function BomPanel({
       else m3 += miss * v;
     }
     return { types, isk, m3, sinPrecio, sinVol };
-  }, [rows, open, stock, prices, vols]);
+  }, [rows, open, stockUsed, prices, vols]);
 
   if (!ind) return <p className="muted small">{tr("Cargando…")}</p>;
   if (!act)
@@ -761,15 +779,17 @@ function BomPanel({
       {/* F1d — Qué comprar y transportar, según el árbol tal y como está desplegado: lo abierto se
           fabrica, las hojas se compran. El m³ usa el volumen REEMPAQUETADO cuando Hoboleaks corrige
           al SDE — si la ventaja se construye sobre un número, que sea el bueno. */}
-      {stock != null && shopping.types > 0 && (
+      {stockRows != null && shopping.types > 0 && (
         <div className="bom-cost small">
           <div className="bom-cost-row">
             <span>
               {/* PLEX (44992) = comprar, Badger (648) = transportar: los mismos iconos reales del
                   Image Server que usa el resto de la app (elección de Zigor). */}
               <img className="kind-glyph" src={typeIcon(44992, 32)} alt="" />{" "}
-              {tr("Qué comprar (las hojas del árbol, descontado tu stock)")}:{" "}
-              {shopping.types} {tr("tipos")}
+              {inFacility
+                ? tr("Qué comprar (descontado lo que ya hay EN la instalación)")
+                : tr("Qué comprar (las hojas del árbol, descontado tu stock)")}
+              : {shopping.types} {tr("tipos")}
             </span>
             <strong>{fmtIsk(shopping.isk)}</strong>
           </div>
@@ -796,14 +816,22 @@ function BomPanel({
           <tr>
             <th>{tr("Material")}</th>
             <th>{tr("Necesitas")}</th>
-            <th>{tr("Tienes")}</th>
+            <th
+              title={
+                inFacility
+                  ? tr("Lo que ya está DENTRO de la estructura de tu ficha (contenedores y naves incluidos)")
+                  : tr("Todos tus assets, estén donde estén")
+              }
+            >
+              {inFacility ? tr("En instalación") : tr("Tienes")}
+            </th>
             <th>{tr("Te falta")}</th>
             <th title={tr("Lo que te falta, a precio de mercado (prices_map local)")}>{tr("Comprar")}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => {
-            const have = stock?.get(r.tid) ?? 0;
+            const have = stockUsed?.get(r.tid) ?? 0;
             const miss = Math.max(0, r.qty - have);
             const isOpen = open.has(r.tid);
             const price = prices.get(r.tid);
@@ -854,9 +882,9 @@ function BomPanel({
                   )}
                 </td>
                 <td>{fmtSp(r.qty)}</td>
-                <td className="muted">{stock == null ? "…" : fmtSp(have)}</td>
+                <td className="muted">{stockRows == null ? "…" : fmtSp(have)}</td>
                 <td className={miss > 0 ? "bom-miss" : "bom-ok-txt"}>
-                  {stock == null ? "…" : miss > 0 ? fmtSp(miss) : "✓"}
+                  {stockRows == null ? "…" : miss > 0 ? fmtSp(miss) : "✓"}
                 </td>
                 <td className="muted" style={{ whiteSpace: "nowrap" }}>
                   {miss > 0 && price != null ? fmtIsk(miss * price) : miss > 0 ? "—" : ""}
@@ -867,7 +895,12 @@ function BomPanel({
         </tbody>
       </table>
       <p className="muted small">
-        {tr("«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.")}{" "}
+        {inFacility
+          ? tr("«En instalación» cuenta SOLO lo que ya está dentro de la estructura de tu ficha (subiendo por contenedores y naves): lo que falte ahí es exactamente lo que hay que comprar o transportar.")
+          : tr("«Tienes» suma tus assets (los del personaje activo, o de todos en Global). Un material desplegado usa el ME de TU plano; si no lo tienes, se calcula con ME 0 y se marca «estimado» — nunca se disfraza de real.")}{" "}
+        {!inFacility && st != null && st.structure_id == null && (
+          <>{tr("Tu ficha es manual (sin estructura de ESI), así que no sabemos qué hay dentro: se usa el total de tus assets.")} </>
+        )}
         {tr("El veredicto 🔧/🛒 compara comprar cada unidad a mercado con fabricarla (sus materiales a un nivel + la tasa del job); lo que despliegas se fabrica y las hojas van a la lista de la compra.")}
       </p>
     </div>
