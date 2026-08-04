@@ -1831,6 +1831,7 @@ const EN: Record<string, string> = {
   "Datacores que faltan": "Missing datacores",
   "Tus inventores (clic = usar sus niveles)": "Your inventors (click = use their levels)",
   "Tus fabricantes (velocidad del job)": "Your builders (job speed)",
+  "Avisos de PI": "PI alerts",
   "Le falta": "Missing",
   "Sin resultados… pero tienes": "No results… but you have",
   "en el buscador — bórralo para ver la pestaña completa.":

@@ -134,6 +134,8 @@ export function PlanetologiaView({
   const [alertHoursText, setAlertHoursText] = useState("");
 
   const [p0table, setP0table] = useState<P0Planets | null>(null);
+  /** Interruptor maestro de los avisos de PI (meta "pi_alerts_on"). ON por defecto. */
+  const [alertsOn, setAlertsOn] = useState(true);
 
   useEffect(() => {
     fetch("/pi_schematics.json").then((r) => r.json()).then(setSchematics).catch(() => setSchematics({}));
@@ -144,6 +146,7 @@ export function PlanetologiaView({
         setAlertHoursText(h.join(", "));
       })
       .catch(() => {});
+    invoke<boolean>("get_pi_alerts_on").then(setAlertsOn).catch(() => {});
   }, []);
 
   // Detalle de cada colonia (≤6 por personaje; get_cached con ETag → refresco barato).
@@ -301,6 +304,25 @@ export function PlanetologiaView({
       </p>
 
       <div className="pi-alert-cfg small">
+        {/* Interruptor MAESTRO (feedback de un jugador sin PI al que le saltaba «PARADOS»):
+            en OFF no suena ni notifica NADA de PI — la sección sigue enseñando el estado igual,
+            el mismo contrato que el interruptor del intel. */}
+        <label style={{ marginRight: "0.6rem" }}>
+          <input
+            type="checkbox"
+            checked={alertsOn}
+            onChange={async (e) => {
+              const v = e.target.checked;
+              setAlertsOn(v);
+              try {
+                await invoke("set_pi_alerts_on", { on: v });
+              } catch {
+                setAlertsOn(!v); // si no se pudo guardar, la UI no miente
+              }
+            }}
+          />{" "}
+          🔔 {tr("Avisos de PI")} {alertsOn ? "ON" : "OFF"}
+        </label>
         <span className="muted">{tr("Avisos de extractor (horas, separadas por coma):")}</span>
         <input
           value={alertHoursText}

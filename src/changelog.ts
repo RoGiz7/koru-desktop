@@ -6,6 +6,26 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.36.0",
+    date: "2026-07-30",
+    es: [
+      "🔬 La invención, con las cuentas claras. Los planos T1 estrenan pestaña «Inventar»: los datacores que pide, y la tabla completa de decryptors con la probabilidad REAL (con tus skills leídas del juego), el BPC que sale (carreras y ME/TE), y los tres números que importan — coste por intento, por ÉXITO y por run del BPC — con estrella en el más rentable. Verificado al dato contra la ventana de industria del juego: probabilidad al decimal, coste del job al ISK y tiempo al segundo.",
+      "🏗️ Tus fichas de instalación aprenden un servicio nuevo: el laboratorio. Márcalo y los rigs de investigación e invención (antes invisibles en el desplegable, mea culpa) aparecen para declararlos. La tasa del job de invención sale de TU laboratorio: índice del sistema, rigs, bonos de estructura y su impuesto.",
+      "👥 ¿Quién lo hace mejor? Dos leyendas nuevas con los retratos de tus personajes: en Inventar, la probabilidad de cada uno con SUS skills (clic = simular con sus niveles); en Fabricar, quién construye más rápido y quién ni siquiera puede lanzar el job por skills que le faltan (y cuáles son).",
+      "🧰 Pestañas Fabricar/Inventar para que cada tarea tenga su espacio, selector de instalación con el icono real de cada estructura y sus servicios, y la tasa del job con desglose completo al pasar el ratón — el espejo del tooltip del juego, para que ningún número se esconda.",
+      "🔎 Y un detalle honesto: si una pestaña de la biblioteca sale vacía pero tienes texto en el buscador, Koru te lo dice — que un filtro fantasma no te robe diez minutos.",
+      "🔕 Los avisos de Planetología, con interruptor. Si no haces PI (o la tienes aparcada), apágalos en la propia sección y Koru deja de avisarte de extractores parados — la vista sigue enseñando el estado igual, solo se calla el ruido. Como el interruptor del intel. (Gracias al piloto que lo sufrió.)",
+    ],
+    en: [
+      "🔬 Invention, with honest numbers. T1 blueprints get an “Invent” tab: the datacores it needs, and the full decryptor table with the REAL probability (using your skills read from the game), the resulting BPC (runs and ME/TE), and the three numbers that matter — cost per attempt, per SUCCESS and per BPC run — with a star on the most profitable. Verified against the game's industry window: probability to the decimal, job fee to the ISK and time to the second.",
+      "🏗️ Your facility cards learn a new service: the laboratory. Tick it and the research/invention rigs (previously invisible in the dropdown, mea culpa) show up to declare. The invention job fee comes from YOUR lab: system index, rigs, structure bonuses and its tax.",
+      "👥 Who does it best? Two new legends with your characters' portraits: in Invent, each one's probability with THEIR skills (click = simulate with their levels); in Build, who builds fastest and who can't even start the job for missing skills (and which ones).",
+      "🧰 Build/Invent tabs so each task gets its own space, a facility picker with each structure's real icon and services, and the job fee with a full breakdown on hover — the mirror of the game's tooltip, so no number can hide.",
+      "🔎 One honest touch: if a library tab comes up empty while there's text in the search box, Koru tells you — no more ghost filters stealing ten minutes.",
+      "🔕 Planetology alerts now have a switch. If you don't do PI (or parked it), turn them off right in the section and Koru stops warning about stopped extractors — the view still shows the state, only the noise goes quiet. Just like the intel switch. (Thanks to the pilot who suffered it.)",
+    ],
+  },
+  {
     version: "0.35.0",
     date: "2026-07-30",
     es: [

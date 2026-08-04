@@ -244,6 +244,18 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| vec![8.0, 1.0]);
     pi_thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    // Interruptor MAESTRO de los avisos de PI (petición de un jugador vía Zigor: a quien no hace
+    // planetología le saltaba «extractores PARADOS» igualmente). meta "pi_alerts_on", default ON.
+    // Con OFF se vacían los umbrales (no se recolecta nada) — la SECCIÓN Planetología sigue
+    // enseñando el estado igual: esto solo silencia notificaciones y toasts, como el intel en OFF.
+    let pi_alerts_on = state
+        .db
+        .meta_get("pi_alerts_on")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    if !pi_alerts_on {
+        pi_thresholds.clear();
+    }
     for c in state.db.list_characters()? {
         let valid = match state
             .tokens
@@ -349,6 +361,11 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                         continue;
                     };
                     for pin in &detail.pins {
+                        // Interruptor maestro en OFF: ni siquiera los «PARADOS» (dead se empuja
+                        // fuera de los umbrales, así que vaciar pi_thresholds NO bastaba).
+                        if !pi_alerts_on {
+                            continue;
+                        }
                         let (Some(_ex), Some(expiry)) = (&pin.extractor, &pin.expiry_time) else {
                             continue;
                         };
@@ -7590,6 +7607,19 @@ pub async fn get_pi_map_global(state: State<'_, AppState>) -> AppResult<Vec<PiSy
         all.append(&mut cols);
     }
     Ok(pi_systems_from(all))
+}
+
+/// Interruptor maestro de los avisos de PI (notificación + toast). Default ON. Con OFF la
+/// sección Planetología sigue enseñando el estado; solo se silencia el ruido (como el intel).
+#[tauri::command]
+pub fn get_pi_alerts_on(state: State<'_, AppState>) -> AppResult<bool> {
+    Ok(state.db.meta_get("pi_alerts_on").map(|v| v != "0").unwrap_or(true))
+}
+
+#[tauri::command]
+pub fn set_pi_alerts_on(on: bool, state: State<'_, AppState>) -> AppResult<bool> {
+    state.db.meta_set("pi_alerts_on", if on { "1" } else { "0" })?;
+    Ok(on)
 }
 
 /// Umbrales (horas) de la alarma de PI, configurables por el usuario. Por defecto [8, 1].
