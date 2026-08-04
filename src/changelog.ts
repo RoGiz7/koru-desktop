@@ -6,6 +6,20 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.37.0",
+    date: "2026-08-04",
+    es: [
+      "⚔️ Las Campañas Militares de Nueva Eden, en Koru el mismo día que salieron a ESI. Sección nueva en Bitácora: las campañas de los cuatro imperios con su escudo, su historia y su progreso EN VIVO contra el objetivo. Despliega una y verás sus objetivos: qué pide cada uno (minar, fabricar, hackear, misiones, matar…), cuánta gente está comprometida ahora mismo (con el total histórico y los que de verdad contribuyen en el tooltip), y las recompensas por intervalo — ISK, LP y standing. Los objetivos solo de milicia llevan el escudo de su facción.",
+      "🧭 Todo con rutas públicas: no pide ningún permiso nuevo. La siguiente entrega traerá TU contribución personal por personaje (esa sí pedirá un permiso nuevo del juego, y te avisaremos).",
+      "🔩 Por debajo: Koru se actualiza a la fecha de compatibilidad más reciente de ESI (2026-08-04). Si notas algo raro en cualquier sección tras sincronizar, cuéntanoslo.",
+    ],
+    en: [
+      "⚔️ New Eden's Military Campaigns, in Koru the same day they hit ESI. New section under Logbook: the four empires' campaigns with their crest, their story and their LIVE progress against the target. Expand one to see its objectives: what each asks for (mining, building, hacking, missions, killing…), how many people are committed right now (with the historical total and actual contributors in the tooltip), and the rewards per interval — ISK, LP and standing. Militia-only objectives carry their faction's crest.",
+      "🧭 All public routes: no new permission required. The next installment brings YOUR personal contribution per character (that one will need a new game permission, and we'll let you know).",
+      "🔩 Under the hood: Koru moves to ESI's latest compatibility date (2026-08-04). If anything looks off in any section after syncing, tell us.",
+    ],
+  },
+  {
     version: "0.36.0",
     date: "2026-07-30",
     es: [
