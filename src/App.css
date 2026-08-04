@@ -6534,6 +6534,59 @@ h4 {
 }
 /* Confianza de la ficha: verde = cuadra al ítem · ámbar = falta declarar algo y la cuenta se
    queda corta. Nunca un "esto es aproximado" genérico: la fórmula está verificada. */
+/* Campañas militares: tarjeta por campaña con escudo de facción, progreso y objetivos. */
+.camp-card {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: var(--bg-surface-2, #262626);
+  margin: 0.5rem 0;
+  max-width: 62rem;
+}
+.camp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+}
+.camp-flag {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+.camp-title {
+  flex: 1;
+  min-width: 0;
+}
+.camp-state {
+  text-align: right;
+  min-width: 9rem;
+}
+.camp-chip {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid #8b949e66;
+  color: #8b949e;
+}
+.camp-chip.on {
+  border-color: #34d39966;
+  color: #34d399;
+  background: #34d39916;
+}
+.camp-objs {
+  padding: 0 0.7rem 0.6rem;
+}
+.camp-militia {
+  width: 14px;
+  height: 14px;
+  margin-left: 0.3rem;
+  border-radius: 2px;
+  vertical-align: -2px;
+}
+
 /* Picker de instalación con iconos reales (los <option> nativos no admiten <img>). */
 .fac-pick-btn {
   width: 100%;

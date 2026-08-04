@@ -26,6 +26,7 @@ import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
 import { DiarioView } from "./diario";
+import { CampanasView } from "./campanas";
 import { FreelanceView } from "./freelance";
 import { LogisView } from "./logis";
 import { ReconView } from "./recon";
@@ -121,6 +122,7 @@ const SECTION_SHIP: Partial<Record<Tab, number>> = {
   factional: 638, // Raven
   abyssals: 17715, // Gila (reina del abismo)
   crab: 19726, // Phoenix (dread crabero)
+  campanas: 44996, // Marshal (acorazado de CONCORD — el estandarte del esfuerzo de guerra)
   // Industria
   industria: 28606, // Orca
   // Exploración
@@ -2207,6 +2209,7 @@ function App() {
             <ExplorationLogView charId={isGlobal ? null : subjectId} />
           )}
           {tab === "recon" && <ReconView subject={subject} />}
+          {tab === "campanas" && <CampanasView />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (

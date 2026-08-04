@@ -1,8 +1,8 @@
 {
-  "captured_at": "2026-06-24T13:45:29.272Z",
-  "compatibility_date": "2026-06-01",
-  "spec_version": "2026-05-19",
-  "count": 218,
+  "captured_at": "2026-08-04T16:22:29.117Z",
+  "compatibility_date": "2026-08-04",
+  "spec_version": "2026-08-04",
+  "count": 225,
   "endpoints": [
     {
       "method": "DELETE",
@@ -155,7 +155,7 @@
     {
       "method": "GET",
       "path": "/characters/{character_id}",
-      "operationId": "GetCharactersCharacterId",
+      "operationId": "GetCharactersDetail",
       "summary": "Get character's public information",
       "tags": [
         "Character"
@@ -566,6 +566,30 @@
       ],
       "scopes": [
         "esi-activities.read_character.v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/characters/{character_id}/military-campaigns/objectives",
+      "operationId": "GetCharactersMilitaryCampaignsObjectivesListing",
+      "summary": "List character participation in military campaigns",
+      "tags": [
+        "Military Campaigns"
+      ],
+      "scopes": [
+        "esi.activity.char:read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/characters/{character_id}/military-campaigns/objectives/{objective_id}",
+      "operationId": "GetCharactersMilitaryCampaignsObjectivesParticipation",
+      "summary": "Get character military campaign objective participation",
+      "tags": [
+        "Military Campaigns"
+      ],
+      "scopes": [
+        "esi.activity.char:read"
       ]
     },
     {
@@ -1760,11 +1784,61 @@
     },
     {
       "method": "GET",
+      "path": "/meta/name",
+      "operationId": "GetMetaName",
+      "summary": "Get the name of ESI",
+      "tags": [
+        "Meta"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
       "path": "/meta/status",
       "operationId": "GetMetaStatus",
       "summary": "Get health status",
       "tags": [
         "Meta"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
+      "path": "/military-campaigns",
+      "operationId": "GetMilitaryCampaignsListing",
+      "summary": "List military campaigns",
+      "tags": [
+        "Military Campaigns"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
+      "path": "/military-campaigns/{campaign_id}",
+      "operationId": "GetMilitaryCampaignsDetail",
+      "summary": "Get military campaign details",
+      "tags": [
+        "Military Campaigns"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
+      "path": "/military-campaigns/{campaign_id}/objectives",
+      "operationId": "GetMilitaryCampaignsObjectivesListing",
+      "summary": "List military campaign objectives",
+      "tags": [
+        "Military Campaigns"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
+      "path": "/military-campaigns/{campaign_id}/objectives/{objective_id}",
+      "operationId": "GetMilitaryCampaignsObjectivesDetail",
+      "summary": "Get military campaign objective details",
+      "tags": [
+        "Military Campaigns"
       ],
       "scopes": []
     },

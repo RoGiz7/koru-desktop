@@ -1832,6 +1832,38 @@ const EN: Record<string, string> = {
   "Tus inventores (clic = usar sus niveles)": "Your inventors (click = use their levels)",
   "Tus fabricantes (velocidad del job)": "Your builders (job speed)",
   "Avisos de PI": "PI alerts",
+  // Campañas militares (fase 1 pública)
+  Campañas: "Campaigns",
+  Campaña: "Campaign",
+  "Las campañas militares de Nueva Eden: progreso en vivo, objetivos y recompensas":
+    "New Eden's military campaigns: live progress, objectives and rewards",
+  "Cargando campañas…": "Loading campaigns…",
+  "Cargando objetivos…": "Loading objectives…",
+  "Ahora mismo no hay campañas visibles en ESI.": "No campaigns visible on ESI right now.",
+  "definición pendiente del próximo SDE": "definition pending the next SDE",
+  Activa: "Active",
+  // («Objetivo» ya existía como "Target" en ~188 — usamos el plural para la cabecera, TS1117)
+  Objetivos: "Objectives",
+  Método: "Method",
+  Progreso: "Progress",
+  Participan: "Committed",
+  Recompensa: "Reward",
+  "Comprometidos ahora (tooltip: total apuntados · contribuyentes)":
+    "Committed right now (tooltip: total signed up · contributors)",
+  "Recompensas por intervalo de progreso": "Rewards per progress interval",
+  "Total apuntados": "Total signed up",
+  contribuyentes: "contributors",
+  "Solo milicianos de esta facción": "Militia members of this faction only",
+  Minar: "Mine ore",
+  "Matar NPC": "Kill NPCs",
+  "Misiones de agente": "Agent missions",
+  Hackear: "Hack",
+  "Complejos de FW": "FW complexes",
+  "Matar capsuleers": "Kill capsuleers",
+  "Hacer daño": "Deal damage",
+  "Reparación remota": "Remote repair",
+  "Datos en vivo de ESI (rutas públicas, sin permisos) + definiciones del SDE. La participación enseña los comprometidos AHORA; el tooltip trae el total histórico y los que han contribuido. Tu contribución personal llegará en una fase próxima (requiere un permiso nuevo del juego).":
+    "Live data from ESI (public routes, no permissions) + SDE definitions. Participation shows those committed NOW; the tooltip has the historical total and actual contributors. Your personal contribution arrives in an upcoming phase (needs a new game permission).",
   "Le falta": "Missing",
   "Sin resultados… pero tienes": "No results… but you have",
   "en el buscador — bórralo para ver la pestaña completa.":

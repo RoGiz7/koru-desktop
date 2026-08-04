@@ -2740,6 +2740,116 @@ pub struct DiaryCorp {
 }
 
 /// Historia de corporación del personaje = espina biográfica del Diario. Endpoint PÚBLICO
+// ---- Military Campaigns (Cradle of War) — rutas PÚBLICAS, devblog 2026-08-04 ----
+// Shapes verificados contra pegados REALES de las rutas (curl de Zigor, 2026-08-04):
+//   /military-campaigns            → {"campaigns":[{id: UUID, state, progress}]}
+//   /military-campaigns/{id}       → {id, state, progress} (los tiempos NO aparecen en activas)
+//   /.../objectives                → {"cursor":{before,after}, "objectives":[{id, state, progress,
+//                                     participants:{total,committed,contributors}, last_modified,
+//                                     started}]} — PAGINADO por cursor (10/página).
+// ⚠️ IDs = UUID (String, no i64). Scheduled/canceladas = 404 y ausentes del listing (no es error).
+// Los textos/recompensas viven en public/military_campaigns.json (SDE, mismas UUIDs).
+
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct MilitaryCampaign {
+    pub id: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub progress: i64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Serialize, Default)]
+pub struct CampaignParticipants {
+    #[serde(default)]
+    pub total: i64,
+    #[serde(default)]
+    pub committed: i64,
+    #[serde(default)]
+    pub contributors: i64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct CampaignObjective {
+    pub id: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub progress: i64,
+    #[serde(default)]
+    pub participants: CampaignParticipants,
+    #[serde(default)]
+    pub started: Option<String>,
+    #[serde(default)]
+    pub last_modified: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CampaignsWrap {
+    #[serde(default)]
+    campaigns: Vec<MilitaryCampaign>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct CampaignCursor {
+    #[serde(default)]
+    after: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ObjectivesWrap {
+    #[serde(default)]
+    cursor: Option<CampaignCursor>,
+    #[serde(default)]
+    objectives: Vec<CampaignObjective>,
+}
+
+/// Listado público de campañas militares (activas/completadas/expiradas). Cache namespace 0.
+#[tauri::command]
+pub async fn get_military_campaigns(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<MilitaryCampaign>> {
+    let w: CampaignsWrap = state
+        .esi
+        .get_cached(&state.db, 0, "/military-campaigns", None)
+        .await?;
+    Ok(w.campaigns)
+}
+
+/// Objetivos de UNA campaña, siguiendo el cursor hasta agotarlo (10/página en los pegados reales).
+/// Tope de páginas por si el cursor no terminara nunca: preferimos quedarnos cortos y decirlo.
+#[tauri::command]
+pub async fn get_military_campaign_objectives(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<CampaignObjective>> {
+    let mut out: Vec<CampaignObjective> = Vec::new();
+    let mut after: Option<String> = None;
+    let mut seen_cursors: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for _page in 0..30 {
+        // Los cursores reales son URL-safe ("1.GMim_3gHkTBF": alfanumérico + punto + guion bajo)
+        // → sin dependencia de urlencoding. Si algún día trajeran caracteres raros, filtramos.
+        let path = match &after {
+            Some(a) if a.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) => {
+                format!("/military-campaigns/{campaign_id}/objectives?after={a}")
+            }
+            Some(_) => break, // cursor con pinta rara: cortamos antes que mandar basura a ESI
+            None => format!("/military-campaigns/{campaign_id}/objectives"),
+        };
+        let w: ObjectivesWrap = state.esi.get_cached(&state.db, 0, &path, None).await?;
+        if w.objectives.is_empty() {
+            break;
+        }
+        out.extend(w.objectives);
+        match w.cursor.and_then(|c| c.after) {
+            // Cursor repetido = fin (defensa ante un `after` que no avanza).
+            Some(a) if seen_cursors.insert(a.clone()) => after = Some(a),
+            _ => break,
+        }
+    }
+    Ok(out)
+}
+
 /// `/characters/{id}/corporationhistory/` (sin token, cacheado por ESI). Ordena reciente→antiguo.
 #[tauri::command]
 pub async fn get_corp_history(

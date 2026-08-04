@@ -155,7 +155,7 @@ function entityIcon(kind: string, id: number): string | null {
 }
 
 // Limpia el rich-text de EVE (<font>, <br>, <a href="showinfo:...">) a texto plano legible.
-function cleanEveText(s: string): string {
+export function cleanEveText(s: string): string {
   return s
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/?font[^>]*>/gi, "")

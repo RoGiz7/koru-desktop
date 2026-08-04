@@ -31,7 +31,10 @@ pub const ESI_BASE_URL: &str = "https://esi.evetech.net";
 /// Si no se envía, ESI sirve la versión MÁS ANTIGUA. Subir conscientemente al revisar cambios.
 /// 2026-06-09 (Cradle of War): expone `achievement_score` y `character_title_id` en
 /// GET /characters/{id}; también renombra `title_id`→`corporation_title_id` (Koru no lo usa).
-pub const ESI_COMPATIBILITY_DATE: &str = "2026-06-09";
+// 2026-08-04: fecha de las rutas de Military Campaigns (devblog 2026-08-04). El diff del capturador
+// desde la fecha anterior solo mostró ALTAS (7 endpoints, 0 retirados, 0 scopes cambiados); si algún
+// endpoint viejo cambió de schema entre fechas, saltará en el primer sync de dev — vigilar.
+pub const ESI_COMPATIBILITY_DATE: &str = "2026-08-04";
 
 /// User-Agent identificativo (CCP lo exige para buen comportamiento y soporte).
 /// La versión se toma de Cargo.toml en compilación, así nunca queda desfasada.

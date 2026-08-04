@@ -171,6 +171,19 @@ export type ActivityRun = {
   character_id: number | null;
 };
 
+// Military Campaigns (rutas públicas de ESI; IDs = UUID, por eso string). Shapes verificados
+// contra pegados reales (2026-08-04). Las definiciones (textos/recompensas) van aparte, del SDE.
+export type MilitaryCampaign = { id: string; state: string; progress: number };
+export type CampaignParticipants = { total: number; committed: number; contributors: number };
+export type CampaignObjective = {
+  id: string;
+  state: string;
+  progress: number;
+  participants: CampaignParticipants;
+  started: string | null;
+  last_modified: string | null;
+};
+
 // Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space).
 export type WhConn = {
   system_id: number;

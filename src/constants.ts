@@ -19,6 +19,7 @@ export type Tab =
   | "rateo"
   | "abyssals"
   | "crab"
+  | "campanas"
   | "factional"
   | "mineria"
   | "contactos"
@@ -53,6 +54,9 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
         label: "Trabajos y proyectos",
         scopes: ["esi-characters.read_freelance_jobs.v1", "esi-corporations.read_projects.v1"],
       },
+      // Campañas militares (Cradle of War): rutas PÚBLICAS de ESI + definiciones del SDE.
+      // Sin scope en fase 1; la contribución personal (esi.activity.char:read) llegará en fase 2.
+      { key: "campanas", label: "Campañas" },
       // Reconstrucción (Fase C): minería/rateo/viaje del gamelog local (sin scopes). Al escanear.
       { key: "recon", label: "Reconstrucción" },
     ],
@@ -290,6 +294,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Sesiones cronometradas + estimación por filamentos" },
   crab: { title: "CRAB", subtitle: "Sesiones cronometradas de CONCORD Rogue Analysis Beacon (ISK/hora, tasa de muerte, P&L)" },
+  campanas: { title: "Campañas", subtitle: "Las campañas militares de Nueva Eden: progreso en vivo, objetivos y recompensas" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
   contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },

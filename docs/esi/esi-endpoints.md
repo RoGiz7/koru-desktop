@@ -1,10 +1,10 @@
 # Inventario de endpoints ESI
 
-- **Capturado:** 2026-06-24T13:45:29.272Z
-- **compatibility_date:** 2026-06-01
-- **Versión spec:** 2026-05-19
-- **Total endpoints:** 218
-- **Categorías:** 36
+- **Capturado:** 2026-08-04T16:22:29.117Z
+- **compatibility_date:** 2026-08-04
+- **Versión spec:** 2026-08-04
+- **Total endpoints:** 225
+- **Categorías:** 37
 
 > Generado por `scripts/capture-esi-spec.mjs`. Ejecútalo de nuevo (`npm run esi:capture`) para detectar cambios.
 
@@ -36,7 +36,8 @@
 | Loyalty | 2 |
 | Mail | 9 |
 | Market | 11 |
-| Meta | 3 |
+| Meta | 4 |
+| Military Campaigns | 6 |
 | Planetary Interaction | 4 |
 | Routes | 1 |
 | Search | 1 |
@@ -322,13 +323,25 @@
 | GET | `/markets/prices` | — (público) | List market prices |
 | GET | `/markets/structures/{structure_id}` | esi-markets.structure_markets.v1 | List orders in a structure |
 
-## Meta (3)
+## Meta (4)
 
 | Método | Ruta | Scope | Descripción |
 |---|---|---|---|
 | GET | `/meta/changelog` | — (público) | Get changelog |
 | GET | `/meta/compatibility-dates` | — (público) | Get compatibility dates |
+| GET | `/meta/name` | — (público) | Get the name of ESI |
 | GET | `/meta/status` | — (público) | Get health status |
+
+## Military Campaigns (6)
+
+| Método | Ruta | Scope | Descripción |
+|---|---|---|---|
+| GET | `/characters/{character_id}/military-campaigns/objectives` | esi.activity.char:read | List character participation in military campaigns |
+| GET | `/characters/{character_id}/military-campaigns/objectives/{objective_id}` | esi.activity.char:read | Get character military campaign objective participation |
+| GET | `/military-campaigns` | — (público) | List military campaigns |
+| GET | `/military-campaigns/{campaign_id}` | — (público) | Get military campaign details |
+| GET | `/military-campaigns/{campaign_id}/objectives` | — (público) | List military campaign objectives |
+| GET | `/military-campaigns/{campaign_id}/objectives/{objective_id}` | — (público) | Get military campaign objective details |
 
 ## Planetary Interaction (4)
 

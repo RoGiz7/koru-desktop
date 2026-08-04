@@ -159,6 +159,8 @@ pub fn run() {
             commands::get_skill_levels_all,
             commands::get_pi_alerts_on,
             commands::set_pi_alerts_on,
+            commands::get_military_campaigns,
+            commands::get_military_campaign_objectives,
             commands::get_character_detail,
             commands::get_factional,
             commands::get_abyssals,
