@@ -5,6 +5,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
 import { fmtSp, fmtIsk, bpIcon, typeIcon } from "./format";
 import { Kpi } from "./charts";
+// F-REACCIONES / F4a — «de dónde traerlo»: grafo real de New Eden + BFS de saltos, los mismos que
+// usa el mapa. Nada de estimaciones por distancia en píxeles.
+import { loadNewEden } from "./neweden";
+import { proximityBFS } from "./mapRoute";
 import type { JobView, Blueprint } from "./types";
 
 /** public/bp_tree.json — categoría y grupo de INVENTARIO del PRODUCTO de cada blueprint, con
@@ -34,11 +38,24 @@ type IndustryRigs = {
   /** Grupos donde ENTRA la Standup Manufacturing Plant I, leídos de sus propios `canFitShipGroupNN`:
    *  1657 Citadel · 1404 Engineering Complex · 1406 Refinery. Fuera de ahí no se fabrica, punto. */
   mfg_groups: number[];
+  /** Grupos donde entran los reactores Standup (Composite/Hybrid/Biochemical), de sus propios
+   *  `canFitShipGroupNN`: solo 1406 Refinery. Reaccionar fuera de ahí no existe. */
+  reaction_groups?: number[];
   /** Toda estructura publicada → su grupo. Sirve para descartar las que no pueden fabricar. */
   kinds: Record<string, { n: { es: string; en: string }; g: number; gn: string }>;
   structures: Record<
     string,
-    { n: { es: string; en: string }; mat: number | null; cost: number | null; time: number | null; slots: number; size: number }
+    {
+      n: { es: string; en: string };
+      mat: number | null;
+      cost: number | null;
+      time: number | null;
+      slots: number;
+      size: number;
+      /** Bono de REACCIÓN de la estructura. Hoy solo existe `time`, y solo lo tiene la Tatara
+       *  (0.75 = −25 %). NO hay bono de coste ni de material de reacción en ninguna. */
+      react?: { time?: number };
+    }
   >;
   rigs: Record<
     string,
@@ -55,6 +72,12 @@ type IndustryRigs = {
        *  Hoboleaks = EVE Ref = fixture real del Bantam (37181 ON [6,32] · 43705 OFF para naves).
        *  Sin `aff` (outposts) se cae al fallback por nombre de efecto (SCOPE_CAT). */
       aff?: { c: number[]; g: number[] };
+      /** F-REACCIONES — bonos de reacción, en atributos DISTINTOS de los de fabricación
+       *  (RefRigMatBonus/RefRigTimeBonus). **No existe rig de coste de reacción.** Y su `sec`
+       *  vale null ×1.1, no ×2.1: usar el de fabricación duplicaría el bono. */
+      react?: { mat?: number; time?: number };
+      /** `disallowInHighSec` del SDE: reaccionar en highsec no se puede. */
+      no_hi?: boolean;
     }
   >;
   /** Procedencia del mapeo `aff` (revisión del cliente y timestamp de Hoboleaks). */
@@ -74,14 +97,48 @@ type Facility = {
   has_mfg: boolean;
   /** ¿Laboratorio Standup (invención/copia/investigación ME-TE)? Lo declara el usuario, como has_mfg. */
   has_lab: boolean;
+  /** ¿Reactor Standup? Solo cabe en refinerías (grupo 1406 del SDE), y esas no fabrican. */
+  has_reactor: boolean;
   rigs: number[];
   /** Impuesto del centro en %. `null` = no lo has declarado · `0` = declaraste que no cobra nada.
    *  No son lo mismo: con el 0 declarado la ficha está COMPLETA. */
   tax: number | null;
+  /** Impuesto POR ACTIVIDAD (JSON). Vacío = usa `tax` para todo, como hasta ahora.
+   *  Existe porque el juego lo configura así: el Weaselior cobra 1% inventando y 0% en ME/TE, y
+   *  una refinería lista TRES impuestos de reacción (compuestas/bioquímicas/híbridas) por separado.
+   *  Claves: mfg · invention · copy · me · te · reaction_comp · reaction_bio · reaction_hyb. */
+  tax_by_activity: string;
   eligible: boolean;
   source: string; // 'esi' descubierta · 'manual' escrita a mano
   notes: string | null;
 };
+
+/** Actividades con impuesto propio en las Upwell. El orden es el de la ficha. */
+export const TAX_ACTS = [
+  { k: "mfg", label: "Fabricación" },
+  { k: "invention", label: "Invención" },
+  { k: "copy", label: "Copia" },
+  { k: "me", label: "Investigación ME" },
+  { k: "te", label: "Investigación TE" },
+  { k: "reaction_comp", label: "Reacciones compuestas" },
+  { k: "reaction_bio", label: "Reacciones bioquímicas" },
+  { k: "reaction_hyb", label: "Reacciones híbridas" },
+] as const;
+export type TaxAct = (typeof TAX_ACTS)[number]["k"];
+
+/** Impuesto de UNA actividad: el declarado por actividad si existe, si no el `tax` general.
+ *  Devuelve `null` si no hay ninguno de los dos — que NO es lo mismo que 0 (ver `tax`). */
+export function taxFor(f: { tax: number | null; tax_by_activity?: string }, act: TaxAct): number | null {
+  if (f.tax_by_activity) {
+    try {
+      const v = (JSON.parse(f.tax_by_activity) as Record<string, unknown>)[act];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+    } catch {
+      // JSON corrupto: no rompemos la vista, caemos al impuesto general.
+    }
+  }
+  return f.tax;
+}
 const PICK_KEY = "koru_bom_facility"; // última elegida: preferencia de UI, no dato
 const OPEN_KEY = "koru_fac_open"; // registro plegado/desplegado: preferencia de UI, no dato
 /** A partir de aquí el registro se pliega solo la primera vez. «Traer de ESI» soltó 27 estructuras
@@ -271,6 +328,9 @@ function FacilityPicker({
                 {f.has_lab && (
                   <img src={typeIcon(TID_INVENTION_LAB, 32)} alt="" title={tr("Inventar")} />
                 )}
+                {f.has_reactor && (
+                  <img src={typeIcon(TID_COMPOSITE_REACTOR, 32)} alt="" title={tr("Reaccionar")} />
+                )}
               </span>
             </button>
           ))}
@@ -289,6 +349,11 @@ const INDUSTRY_SKILL = 3380;
  *  en market_types.json): 35878 Standup Manufacturing Plant I · 35886 Standup Invention Lab I. */
 const TID_MFG_PLANT = 35878;
 const TID_INVENTION_LAB = 35886;
+/** 45537 Standup Composite Reactor I — el icono del servicio de reacción. */
+const TID_COMPOSITE_REACTOR = 45537;
+/** Reactions (45746): −4 % de tiempo de reacción por nivel. Verificado contra el fixture del
+ *  Tatara — el juego enseñó «Habilidades e implantes −20,0 %», que es exactamente el nivel V. */
+const REACTIONS_SKILL = 45746;
 
 function InventionBlock({
   bpId,
@@ -825,7 +890,7 @@ function BomPanel({
   });
   /** Modo del panel (feedback de Zigor: mezclados era confuso): 🏭 fabricar o 🔬 inventar.
    *  Cada modo enseña SOLO lo suyo, incluida su lista de compra/transporte. */
-  const [mode, setMode] = useState<"build" | "invent">("build");
+  const [mode, setMode] = useState<"build" | "invent" | "react">("build");
   /** Leyenda «tus fabricantes» (petición de Zigor, gemela de la de inventores): skills de TODOS
    *  los personajes — velocidad (Industry × Advanced Industry) y si CUMPLEN las requeridas. */
   const [buildChars, setBuildChars] = useState<
@@ -920,6 +985,45 @@ function BomPanel({
     };
   }, [st, ir, sysHit, es]);
 
+  /** F-REACCIONES — bonos de reacción de la ficha para EL PRODUCTO que sale de la fórmula.
+   *
+   *  Reaccionar tiene MUCHAS menos palancas que fabricar, y esto no es una simplificación nuestra:
+   *  el SDE dice que **ninguna estructura y ningún rig dan bono de COSTE de reacción**. La única
+   *  bonificación de estructura que existe es el −25 % de TIEMPO de la Tatara; el Athanor no da
+   *  nada. Por eso aquí solo salen material y tiempo.
+   *
+   *  Ojo con dos trampas verificadas contra el juego (fixture Carbon Polymers ×100 en su Tatara):
+   *   · Los bonos de reacción viven en `react`, NO en mat/time/cost (que son los de fabricación).
+   *   · Su multiplicador de seguridad es null ×1.1 (fabricación es ×2.1). Usar el otro DUPLICA
+   *     el bono: −24 × 1,1 = −26,4 % es lo que enseña el juego; con 2,1 saldría −50,4 %.
+   *  A qué familia (Composite / Hybrid / Biochemical) aplica cada rig lo decide el mismo `aff` de
+   *  Hoboleaks que ya usamos en fabricación, por el GRUPO del producto — comprobado: las salidas
+   *  de las 120 reacciones caen todas en alguno de los 6 grupos mapeados, sin huérfanas. */
+  const reactBonos = useMemo(() => {
+    if (!st || !st.has_reactor || !ir) return null;
+    const sd = st.type_id != null ? ir.structures[String(st.type_id)] : null;
+    const band = sysHit ? secBand(sysHit.s) : "hi";
+    return (grp: number | null) => {
+      let mat = 1;
+      let time = 1;
+      const aplican: { id: number; name: string; mat: number; time: number }[] = [];
+      for (const id of st.rigs) {
+        const r = ir.rigs[String(id)];
+        if (!r?.react) continue; // no es rig de reacción: no pinta nada aquí
+        if (grp != null && r.aff && !r.aff.g.includes(grp)) continue; // otra familia
+        const secF = r.sec[band] ?? 1;
+        const m = (r.react.mat ?? 0) * secF;
+        const t = (r.react.time ?? 0) * secF;
+        mat *= 1 + m / 100;
+        time *= 1 + t / 100;
+        aplican.push({ id, name: es ? r.n.es : r.n.en, mat: m, time: t });
+      }
+      // Estructura: SOLO tiempo, y solo la Tatara. `null` = sin bono → factor 1, no cero.
+      const strTime = sd?.react?.time ?? 1;
+      return { mat, time: time * strTime, strTime, rigs: aplican, strKnown: sd != null };
+    };
+  }, [st, ir, sysHit, es]);
+
   /** Bonos del producto RAÍZ (para el coste del job, la Confianza y el desglose visible). */
   const bonos: Bonos | null = useMemo(
     () => (bonosFor ? bonosFor(prodCat, prodGrp) : null),
@@ -983,6 +1087,11 @@ function BomPanel({
 
   /** F1d — TODOS los typeIDs alcanzables desde este plano (a cualquier profundidad): el universo
    *  de materiales del árbol, para pedir precios y adjusted de una vez (lecturas locales, sin red). */
+  /** La fórmula de reacción de este «plano», si lo es. Las reacciones NO llevan ME/TE.
+   *  Se declara aquí arriba porque de ella dependen `allTids` (para pedir sus adjusted_price) y
+   *  la carga de skills. */
+  const ract = ind?.[String(bp.type_id)]?.r;
+
   const allTids = useMemo(() => {
     const s = new Set<number>();
     if (!ind) return s;
@@ -999,6 +1108,10 @@ function BomPanel({
       }
     };
     rec(String(bp.type_id));
+    // Una FÓRMULA de reacción no tiene actividad `m`, así que el recorrido de arriba salía sin
+    // añadir nada y el VEO se quedaba en 0 (no había adjusted_price de sus materiales). Sus
+    // entradas se piden aparte.
+    for (const [tid] of ind[String(bp.type_id)]?.r?.in ?? []) s.add(tid);
     return s;
   }, [ind, bp.type_id, bpByProduct]);
 
@@ -1043,14 +1156,17 @@ function BomPanel({
   // Skills de todos los personajes para la leyenda de fabricantes: las dos de velocidad + las
   // REQUERIDAS por este plano (sin ellas el juego no deja ni lanzar el job).
   useEffect(() => {
-    const reqIds = (act?.sk ?? []).map(([s]) => s);
+    // Las requeridas salen de la actividad que toque: `m` al fabricar, `r` al reaccionar. Sin
+    // pedir REACTIONS_SKILL, la duración de una reacción se calculaba con nivel 0 y salía un 25 %
+    // más larga de lo real (165h en vez de las 132h del juego).
+    const reqIds = [...(act?.sk ?? []), ...(ract?.sk ?? [])].map(([s]) => s);
     invoke<{ character_id: number; name: string; levels: Record<number, number> }[]>(
       "get_skill_levels_all",
-      { ids: [INDUSTRY_SKILL, ADV_INDUSTRY_SKILL, ...reqIds] },
+      { ids: [INDUSTRY_SKILL, ADV_INDUSTRY_SKILL, REACTIONS_SKILL, ...reqIds] },
     )
       .then(setBuildChars)
       .catch(() => setBuildChars(null));
-  }, [act]);
+  }, [act, ract]);
 
   // --- F1b: coste del trabajo, con la fórmula VERIFICADA al ISK contra el juego ---
   // El VEO usa las cantidades BASE del blueprint (NO las de tras-ME) y el `adjusted_price`.
@@ -1085,8 +1201,174 @@ function BomPanel({
     const ccs = veo * CCS_SURCHARGE;
     return { veo, faltan, index, bruto, brutoTotal, tax, ccs, total: brutoTotal + tax + ccs };
   }, [act, adj, runs, idx, bonos, (st?.tax ?? 0), st?.has_mfg]);
-  const product = act?.out?.[0]?.[0];
-  const perRun = act?.out?.[0]?.[1] ?? 1;
+  // --- F-REACCIONES --- (`ract` se declara arriba: lo necesitan allTids y la carga de skills)
+
+  /** Familia de la reacción (Composite / Hybrid / Biochemical) DEDUCIDA del dato, no de una lista
+   *  escrita a mano: se busca qué rig de reacción declara cubrir el grupo del producto, y su
+   *  `scopes` dice la familia. Así, si Fenris añade un grupo nuevo, lo hereda al regenerar. */
+  const reactFam = useMemo((): "comp" | "hyb" | "bio" | null => {
+    if (!ract || !ir) return null;
+    const grp = tree?.bp[String(bp.type_id)]?.[1] ?? null;
+    if (grp == null) return null;
+    for (const r of Object.values(ir.rigs)) {
+      if (!r.react || !r.aff || !r.aff.g.includes(grp)) continue;
+      // El L-Set lleva las tres familias: no sirve para decidir, se salta.
+      if (r.scopes.length !== 1) continue;
+      if (r.scopes[0] === "ReactionComp") return "comp";
+      if (r.scopes[0] === "ReactionHyb") return "hyb";
+      if (r.scopes[0] === "ReactionBio") return "bio";
+    }
+    return null;
+  }, [ract, ir, tree, bp.type_id]);
+
+  const reactBon = useMemo(
+    () => (reactBonos ? reactBonos(tree?.bp[String(bp.type_id)]?.[1] ?? null) : null),
+    [reactBonos, tree, bp.type_id],
+  );
+
+  /** Coste del job de reacción. Fórmula VERIFICADA AL ISK contra el juego (Carbon Polymers ×100 en
+   *  el Tatara «T2 Repro» de C-J6MT): total 1.053.491 exacto.
+   *
+   *      bruto = VEO × índice(reaction)          ← SIN bonos: no existen para reaccionar
+   *      + impuesto de centro (% DEL VEO)
+   *      + recargo CCS 4 % (DEL VEO)
+   *
+   *  Los impuestos van sobre el VEO, no sobre el bruto (1 % del bruto habrían sido 6.502 ISK, y el
+   *  juego cobró 80.667). Es la misma forma que fabricación; la rara es la invención, que mete la
+   *  capa CTB del 2 %. El VEO usa las cantidades BASE × `adjusted_price`, como siempre. */
+  /** Materiales de la reacción, que son el 90 % de lo que uno viene a mirar aquí.
+   *
+   *  Cantidad = base × runs × factor de los rigs, y **redondeando hacia ARRIBA**: verificado
+   *  contra el juego (5 × 100 × 0,9736 = 486,8 → el juego pide **487**, no 486). Sin ME/TE: en
+   *  reacciones no existen, así que el único descuento posible es el del rig de la refinería.
+   *  El «te falta» se cruza con el stock EN la instalación si se conoce, igual que en fabricación. */
+  const reactRows = useMemo(() => {
+    if (!ract) return null;
+    const f = reactBon?.mat ?? 1;
+    return ract.in.map(([tid, base]) => {
+      const need = Math.ceil(base * runs * f);
+      const have = stockUsed?.get(tid) ?? 0;
+      return { tid, base, need, have, miss: Math.max(0, need - have), price: prices.get(tid) };
+    });
+  }, [ract, reactBon, runs, stockUsed, prices]);
+
+  /** ¿DÓNDE está lo que falta? La pregunta que ninguna calculadora responde, porque ninguna sabe
+   *  dónde tienes tus cosas — Koru sí, y sin pedir nada nuevo: `stockRows` ya trae `location_id`
+   *  por stack desde F1d+.
+   *
+   *  Distingue dos cosas que no son iguales y que la lista de la compra mezclaba:
+   *    · lo que **tienes en otro sitio** → no hay que comprarlo, hay que TRAERLO (y de dónde).
+   *    · lo que no tienes en ninguna parte → eso sí es compra.
+   *  Los saltos salen del grafo real de stargates (`neweden.json`), con BFS desde el sistema de la
+   *  instalación. No cuenta los Ansiblex todavía: prefiero decir «5 saltos por puertas» a inventar
+   *  un atajo que quizá no puedas usar con un carguero. */
+  const [ne, setNe] = useState<{ systems: { id: number; n: string }[]; jumps: [number, number][] } | null>(null);
+  const [structs, setStructs] = useState<{ id: number; name: string | null; system_id: number }[]>([]);
+  useEffect(() => {
+    loadNewEden().then(setNe).catch(() => setNe(null));
+    invoke<{ id: number; name: string | null; system_id: number }[]>("get_structures")
+      .then(setStructs)
+      .catch(() => setStructs([]));
+  }, []);
+
+  const traer = useMemo(() => {
+    if (!reactRows || !stockRows || !st) return null;
+    const faltan = new Map(reactRows.filter((r) => r.miss > 0).map((r) => [r.tid, r.miss]));
+    if (faltan.size === 0) return null;
+    // Saltos desde el sistema de la instalación a todo New Eden (una sola pasada).
+    let dist = new Map<number, number>();
+    if (ne) {
+      const adj = new Map<number, number[]>();
+      for (const [a, b] of ne.jumps) {
+        (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
+        (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
+      }
+      dist = proximityBFS(adj, [st.system_id]);
+    }
+    const sysOf = new Map(structs.map((s) => [s.id, s.system_id]));
+    const nameOfStruct = new Map(structs.map((s) => [s.id, s.name]));
+    const sysName = new Map((ne?.systems ?? []).map((s) => [s.id, s.n]));
+
+    type Sitio = {
+      loc: number;
+      label: string;
+      system: number | null;
+      jumps: number | null;
+      items: { tid: number; qty: number }[];
+    };
+    const sitios = new Map<number, Sitio>();
+    for (const row of stockRows) {
+      const need = faltan.get(row.type_id);
+      if (!need || row.location_id === st.structure_id) continue; // lo que ya está allí no se trae
+      const sysId = sysOf.get(row.location_id) ?? null;
+      const s =
+        sitios.get(row.location_id) ??
+        sitios
+          .set(row.location_id, {
+            loc: row.location_id,
+            label:
+              nameOfStruct.get(row.location_id) ??
+              (sysId != null ? sysName.get(sysId) ?? `#${row.location_id}` : `#${row.location_id}`),
+            system: sysId,
+            jumps: sysId != null ? dist.get(sysId) ?? null : null,
+            items: [],
+          })
+          .get(row.location_id)!;
+      s.items.push({ tid: row.type_id, qty: row.quantity });
+    }
+    // Más cerca primero; lo que no sabemos ubicar, al final (y se dice, no se esconde).
+    return [...sitios.values()].sort(
+      (a, b) => (a.jumps ?? 9999) - (b.jumps ?? 9999) || a.label.localeCompare(b.label),
+    );
+  }, [reactRows, stockRows, st, ne, structs]);
+
+  /** Lo que falta comprar para lanzar la reacción: ISK a mercado y m³ a transportar. */
+  const reactShop = useMemo(() => {
+    if (!reactRows) return null;
+    let isk = 0;
+    let m3 = 0;
+    let types = 0;
+    let sinPrecio = 0;
+    for (const r of reactRows) {
+      if (r.miss <= 0) continue;
+      types++;
+      if (r.price == null) sinPrecio++;
+      else isk += r.miss * r.price;
+      const v = vols.get(r.tid);
+      if (v != null) m3 += r.miss * v;
+    }
+    return { types, isk, m3, sinPrecio };
+  }, [reactRows, vols]);
+
+  const reactCost = useMemo(() => {
+    if (!ract) return null;
+    let veo = 0;
+    let faltan = 0;
+    for (const [tid, base] of ract.in) {
+      const p = adj.get(tid);
+      if (p == null) faltan++;
+      veo += base * runs * (p ?? 0);
+    }
+    // La clave la pone ESI tal cual en `activity`. Hoy es `reaction`; aceptamos también el plural
+    // por si cambia de nombre en algún compatibility date, antes que enseñar un 0 sin explicación.
+    const index = st?.has_reactor ? (idx?.reaction ?? idx?.reactions ?? null) : null;
+    if (index == null) return { veo, faltan, index: null as number | null };
+    const bruto = veo * index; // sin bonificación: ninguna estructura ni rig abarata la reacción
+    const taxPct = reactFam ? taxFor(st!, `reaction_${reactFam}` as TaxAct) : st!.tax;
+    const tax = veo * ((taxPct ?? 0) / 100);
+    const ccs = veo * CCS_SURCHARGE;
+    return { veo, faltan, index, bruto, tax, ccs, taxPct, total: bruto + tax + ccs };
+  }, [ract, adj, runs, idx, st, reactFam]);
+
+  // En una fórmula de reacción el «producto» sale de `r`, no de `m`: si no, la cabecera decía
+  // «produce» y dejaba el hueco en blanco.
+  const product = act?.out?.[0]?.[0] ?? ract?.out?.[0]?.[0];
+  const perRun = act?.out?.[0]?.[1] ?? ract?.out?.[0]?.[1] ?? 1;
+  // Abrir una fórmula en modo «Fabricar» dejaría el panel mudo: el modo por defecto lo decide
+  // lo que el plano SABE hacer.
+  useEffect(() => {
+    if (ract) setMode("react");
+  }, [ract]);
   const maxRuns = bp.quantity === -1 ? 1_000_000 : Math.max(1, bp.runs);
 
   /** F1d — coste de FABRICAR una unidad de un material fabricable, para el build-vs-buy por nodo:
@@ -1148,7 +1430,9 @@ function BomPanel({
   }, [rows, open, stockUsed, prices, vols]);
 
   if (!ind) return <p className="muted small">{tr("Cargando…")}</p>;
-  if (!act)
+  // Una FÓRMULA DE REACCIÓN no tiene actividad de fabricación, y hasta aquí eso la mandaba al
+  // «este plano no fabrica nada». Sigue valiendo para lo que de verdad no produce nada.
+  if (!act && !ract)
     return (
       <div className="bom-panel">
         <div className="bom-head">
@@ -1167,7 +1451,10 @@ function BomPanel({
         <img src={bpIcon(bp.type_id, bp.quantity === -1, 32)} alt="" width={20} height={20} />
         <strong>{bp.name ?? `#${bp.type_id}`}</strong>
         <span className="muted small">
-          ME {bp.me}% · TE {bp.te}% · {tr("produce")} {fmtSp(perRun * runs)}{" "}
+          {/* Las reacciones NO llevan ME/TE: enseñar «ME 0% · TE 0%» ahí sería inventarse una
+              propiedad que la fórmula no tiene. */}
+          {!ract && `ME ${bp.me}% · TE ${bp.te}% · `}
+          {tr("produce")} {fmtSp(perRun * runs)}{" "}
           {product != null ? nameOf(product) : ""}
         </span>
         <button className="sys-close" onClick={onClose}>
@@ -1208,24 +1495,51 @@ function BomPanel({
                     ? ` · ${ir.structures[String(st.type_id)].n.en}`
                     : ""
                 }${
-                  idx?.manufacturing != null
-                    ? ` · ${tr("índice")} ${(idx.manufacturing * 100).toFixed(2)}%`
+                  // El índice que se enseña es el de LA ACTIVIDAD que estás mirando: en modo
+                  // reacción, poner el de fabricación era decir un número que no interviene.
+                  (mode === "react" ? (idx?.reaction ?? idx?.reactions) : idx?.manufacturing) != null
+                    ? ` · ${tr("índice")} ${(
+                        (mode === "react"
+                          ? (idx!.reaction ?? idx!.reactions)!
+                          : idx!.manufacturing) * 100
+                      ).toFixed(2)}%`
                     : ""
-                }${st.tax != null ? ` · ${tr("impuesto")} ${st.tax}%` : ""}`}
+                }${
+                  (mode === "react" && reactFam
+                    ? taxFor(st, `reaction_${reactFam}` as TaxAct)
+                    : st.tax) != null
+                    ? ` · ${tr("impuesto")} ${
+                        mode === "react" && reactFam
+                          ? taxFor(st, `reaction_${reactFam}` as TaxAct)
+                          : st.tax
+                      }%`
+                    : ""
+                }`}
         </span>
         {st && <Confianza f={st} bonos={bonos} />}
       </div>
 
       {/* Modo del panel: cada actividad con su espacio (regla de la casa). Solo hay pestañas si el
           plano puede inventar; si no, el modo es fabricar y no se enseña el selector. */}
-      {ind?.[String(bp.type_id)]?.i && inv && (
+      {((ind?.[String(bp.type_id)]?.i && inv) || ract) && (
         <div className="seg seg-sm" style={{ margin: "0.4rem 0" }}>
-          <button className={mode === "build" ? "active" : ""} onClick={() => setMode("build")}>
-            <img className="kind-glyph" src={typeIcon(TID_MFG_PLANT, 32)} alt="" /> {tr("Fabricar")}
-          </button>
-          <button className={mode === "invent" ? "active" : ""} onClick={() => setMode("invent")}>
-            <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" /> {tr("Inventar")}
-          </button>
+          {!ract && (
+            <button className={mode === "build" ? "active" : ""} onClick={() => setMode("build")}>
+              <img className="kind-glyph" src={typeIcon(TID_MFG_PLANT, 32)} alt="" /> {tr("Fabricar")}
+            </button>
+          )}
+          {ind?.[String(bp.type_id)]?.i && inv && (
+            <button className={mode === "invent" ? "active" : ""} onClick={() => setMode("invent")}>
+              <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" /> {tr("Inventar")}
+            </button>
+          )}
+          {/* Una fórmula de reacción NO se fabrica: no tiene sentido ofrecer «Fabricar» al lado. */}
+          {ract && (
+            <button className={mode === "react" ? "active" : ""} onClick={() => setMode("react")}>
+              <img className="kind-glyph" src={typeIcon(TID_COMPOSITE_REACTOR, 32)} alt="" />{" "}
+              {tr("Reaccionar")}
+            </button>
+          )}
         </div>
       )}
 
@@ -1271,6 +1585,232 @@ function BomPanel({
                 ))}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Leyenda «tus reaccionadores» — la tercera de la familia (inventores / fabricantes / esta).
+          La velocidad sale SOLO de la skill Reactions (−4 %/nivel, verificada con el fixture del
+          Tatara: nivel V = el «−20,0 %» que enseña el juego). Ojo, Advanced Industry NO entra aquí:
+          eso es fabricación e invención. Y ✗ si le faltan las skills que pide la fórmula: el juego
+          no le dejaría ni lanzar el job. */}
+      {mode === "react" && ract && buildChars && buildChars.length > 0 && (
+        <div className="bom-cost small">
+          <div className="bom-cost-row muted">
+            <span>{tr("Tus reaccionadores (velocidad del job)")}</span>
+            <span>
+              {buildChars
+                .map((c) => {
+                  const lvl = c.levels[REACTIONS_SKILL] ?? 0;
+                  const f = 1 - 0.04 * lvl;
+                  const missing = (ract.sk ?? []).filter(([s, l]) => (c.levels[s] ?? 0) < l);
+                  return { c, f, lvl, missing };
+                })
+                .sort((a, b) => (a.missing.length ? 1 : 0) - (b.missing.length ? 1 : 0) || a.f - b.f)
+                .map(({ c, f, lvl, missing }, i) => (
+                  <span
+                    key={c.character_id}
+                    className="pp-tag"
+                    style={{ marginLeft: "0.4rem" }}
+                    title={
+                      missing.length
+                        ? `${tr("Le falta")}: ${missing.map(([s, l]) => `${nameOf(s)} ${l}`).join(" · ")}`
+                        : `Reactions ${lvl}`
+                    }
+                  >
+                    <img
+                      className="kind-glyph"
+                      src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=32`}
+                      alt=""
+                      style={{ borderRadius: "50%", width: 16, height: 16, verticalAlign: -3 }}
+                    />{" "}
+                    {i === 0 && missing.length === 0 ? "★ " : ""}
+                    {c.name} {missing.length ? "✗" : `−${Math.round((1 - f) * 100)}%`}
+                  </span>
+                ))}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* F-REACCIONES — panel propio. Reaccionar no lleva ME/TE, no tiene bonos de coste y solo se
+          puede en lowsec/null: cada una de esas tres cosas se DICE, no se esconde. */}
+      {mode === "react" && ract && reactCost && (
+        <div className="bom-cost small">
+          {!st?.has_reactor && (
+            <div className="muted">
+              {tr("La instalación elegida no tiene reactor declarado (marca «Reactor» en su ficha).")}
+            </div>
+          )}
+          {sysHit?.s != null && secBand(sysHit.s) === "hi" && (
+            <div className="muted">
+              ⚠ {tr("Reaccionar en highsec no se puede: lo dice el propio módulo en el SDE.")}
+            </div>
+          )}
+          <div className="bom-cost-row">
+            <span>{tr("Valor estimado del objeto (VEO)")}</span>
+            <strong>{fmtIsk(reactCost.veo)}</strong>
+          </div>
+          {reactCost.total == null ? (
+            <div className="muted">
+              {tr("Sin índice de reacción: elige una instalación con reactor para calcular la tasa.")}
+            </div>
+          ) : (
+            <>
+              <div className="bom-cost-row">
+                <span
+                  title={`${tr("índice")} ${(reactCost.index * 100).toFixed(2)}% · ${tr("impuesto")} ${
+                    reactCost.taxPct ?? 0
+                  }% · CCS 4% · ${tr("reaccionar no tiene bonificación de coste: ninguna estructura ni rig la dan (SDE)")}`}
+                >
+                  {tr("Tasa del job")}
+                </span>
+                <strong>{fmtIsk(reactCost.total)}</strong>
+              </div>
+              <div className="bom-cost-row muted">
+                <span>{tr("Desglose")}</span>
+                <span>
+                  {tr("bruto")} {fmtIsk(reactCost.bruto!)} · {tr("centro")} {fmtIsk(reactCost.tax!)} ·
+                  CCS {fmtIsk(reactCost.ccs!)}
+                </span>
+              </div>
+            </>
+          )}
+          {/* ⏱ Tiempo. Los tres factores están VERIFICADOS contra el fixture del Tatara:
+              10.800 s/run × 100 × 0,80 (Reactions V) × 0,736 (rig) × 0,75 (Tatara) = 5D 12:28:48. */}
+          {reactBon && (
+            <div className="bom-cost-row">
+              <span
+                title={`${tr("base")} ${ract.t}s/run × ${runs} · ${tr("skill Reactions −4%/nivel")} · ${tr("rigs y estructura")}`}
+              >
+                ⏱ {tr("Duración")}
+              </span>
+              <span>
+                {(() => {
+                  // El MEJOR de tus personajes que además pueda lanzar el job: sin las skills
+                  // requeridas el juego no le deja, así que su velocidad no es una opción real.
+                  const aptos = (buildChars ?? []).filter((c) =>
+                    (ract.sk ?? []).every(([s, l]) => (c.levels[s] ?? 0) >= l),
+                  );
+                  const lvl = Math.max(0, ...aptos.map((c) => c.levels[REACTIONS_SKILL] ?? 0));
+                  const s = ract.t * runs * (1 - 0.04 * lvl) * reactBon.time;
+                  const h = Math.floor(s / 3600);
+                  return `${h}h ${Math.floor((s % 3600) / 60)}m${
+                    (buildChars ?? []).length ? ` · Reactions ${lvl}` : ` · ${tr("sin skills")}`
+                  }`;
+                })()}
+              </span>
+            </div>
+          )}
+          {reactBon && (
+            <div className="bom-cost-row muted">
+              <span>{tr("Bonificaciones de reacción")}</span>
+              <span
+                title={reactBon.rigs
+                  .map((r) => `${r.name}: ${r.mat.toFixed(2)}% mat · ${r.time.toFixed(1)}% tiempo`)
+                  .join(" · ")}
+              >
+                {tr("materiales")} ×{reactBon.mat.toFixed(4)} · {tr("tiempo")} ×
+                {reactBon.time.toFixed(3)}
+                {reactBon.strTime !== 1 && ` (${tr("estructura")} ×${reactBon.strTime})`}
+              </span>
+            </div>
+          )}
+          <p className="muted">
+            {tr("Las reacciones no llevan ME/TE: los materiales solo bajan con los rigs de la refinería. Y no existe bonificación de coste — ni de estructura ni de rig —, así que la tasa es índice + impuestos y nada más.")}
+          </p>
+        </div>
+      )}
+
+      {/* Los materiales de entrada: lo que de verdad se viene a mirar. Cantidades REDONDEADAS
+          HACIA ARRIBA (el juego pide 487 donde salen 486,8) y cruzadas con tu stock. */}
+      {mode === "react" && reactRows && (
+        <table className="km-table small">
+          <thead>
+            <tr>
+              <th>{tr("Material")}</th>
+              <th style={{ textAlign: "right" }}>{tr("Necesitas")}</th>
+              <th style={{ textAlign: "right" }}>
+                {inFacility ? tr("En instalación") : tr("Tienes")}
+              </th>
+              <th style={{ textAlign: "right" }}>{tr("Te falta")}</th>
+              <th style={{ textAlign: "right" }}>{tr("Comprar")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reactRows.map((r) => (
+              <tr key={r.tid}>
+                <td>
+                  <img className="kind-glyph" src={typeIcon(r.tid, 32)} alt="" /> {nameOf(r.tid)}
+                  <span className="muted small">
+                    {" "}
+                    · {tr("base")} {fmtSp(r.base)}/run
+                  </span>
+                </td>
+                <td style={{ textAlign: "right" }}>{fmtSp(r.need)}</td>
+                <td style={{ textAlign: "right" }} className="muted">
+                  {fmtSp(r.have)}
+                </td>
+                <td style={{ textAlign: "right" }} className={r.miss > 0 ? "bad" : ""}>
+                  {r.miss > 0 ? fmtSp(r.miss) : "—"}
+                </td>
+                <td style={{ textAlign: "right" }} className="muted">
+                  {r.miss > 0 && r.price != null ? fmtIsk(r.miss * r.price) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {mode === "react" && reactShop && reactShop.types > 0 && (
+        <div className="bom-cost small">
+          <div className="bom-cost-row">
+            <span>
+              {tr("Lista de la compra")}{" "}
+              <span className="muted">
+                · {reactShop.types} {tr("tipos")}
+              </span>
+            </span>
+            <strong>
+              {fmtIsk(reactShop.isk)}
+              {reactShop.sinPrecio > 0 && " *"}
+            </strong>
+          </div>
+          <div className="bom-cost-row muted">
+            <span>{tr("Volumen a transportar")}</span>
+            <span>{fmtSp(Math.round(reactShop.m3))} m³</span>
+          </div>
+        </div>
+      )}
+
+      {/* «No lo compres, tráelo»: dónde tienes ya lo que falta, y a cuántos saltos. */}
+      {mode === "react" && traer && traer.length > 0 && (
+        <div className="bom-cost small">
+          <div className="bom-cost-row">
+            <span>{tr("Ya lo tienes en otro sitio")}</span>
+            <span className="muted">
+              {traer.length} {tr("ubicaciones")}
+            </span>
+          </div>
+          {traer.slice(0, 6).map((s) => (
+            <div className="bom-cost-row muted" key={s.loc}>
+              <span>
+                {s.label}
+                {s.jumps != null ? (
+                  <span className="small"> · {s.jumps === 0 ? tr("mismo sistema") : `${s.jumps} ${tr("saltos")}`}</span>
+                ) : (
+                  <span className="small"> · {tr("sin ubicar")}</span>
+                )}
+              </span>
+              <span className="small">
+                {s.items
+                  .map((it) => `${nameOf(it.tid)} ×${fmtSp(it.qty)}`)
+                  .join(" · ")}
+              </span>
+            </div>
+          ))}
+          <p className="muted">
+            {tr("Saltos por puertas desde el sistema de la instalación. Las estructuras sin resolver salen como «sin ubicar»: preferimos decirlo a inventar una distancia.")}
+          </p>
         </div>
       )}
 
@@ -1780,7 +2320,7 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
       alert(`${tr("No se pudo borrar la ficha")}:\n\n${e}`);
     }
   };
-  const toggle = async (f: Facility, k: "eligible" | "has_mfg" | "has_lab") =>
+  const toggle = async (f: Facility, k: "eligible" | "has_mfg" | "has_lab" | "has_reactor") =>
     save({ ...f, [k]: !f[k] });
 
   /** Trae de ESI las estructuras que ya conocemos, para no empezar con la lista en blanco. Solo
@@ -1812,8 +2352,10 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
     type_id: null,
     has_mfg: true,
     has_lab: false,
+    has_reactor: false,
     rigs: [],
     tax: null, // sin declarar, que es la verdad de una ficha recién creada
+    tax_by_activity: "", // vacío = el impuesto general vale para todo
     eligible: true,
     source: "manual",
     notes: null,
@@ -1884,6 +2426,7 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
               <th>{tr("Tipo")}</th>
               <th title={tr("¿Tiene la planta de fabricación instalada? Sin ella no se puede fabricar ahí.")}>{tr("Fabrica")}</th>
               <th title={tr("¿Tiene laboratorio Standup (invención, copia, investigación ME/TE)?")}>{tr("Lab")}</th>
+              <th title={tr("¿Tiene reactor Standup? Solo cabe en refinerías (Athanor / Tatara).")}>{tr("Reactor")}</th>
               <th>{tr("Rigs")}</th>
               <th>{tr("Impuesto")}</th>
               <th>{tr("Origen")}</th>
@@ -1894,6 +2437,8 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
             {facs.map((f) => {
               const k = f.type_id != null ? ir?.kinds?.[String(f.type_id)] : null;
               const puede = !k || !ir?.mfg_groups?.length || ir.mfg_groups.includes(k.g);
+              const puedeReactF = (kk: typeof k) =>
+                !kk || !ir?.reaction_groups?.length || ir.reaction_groups.includes(kk.g);
               return (
                 <tr key={f.id} className={f.eligible ? "" : "fac-off"}>
                   <td>
@@ -1931,6 +2476,24 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
                       checked={f.has_lab}
                       onChange={() => toggle(f, "has_lab")}
                     />
+                  </td>
+                  <td>
+                    {!puedeReactF(k) ? (
+                      // Igual que con la planta: los reactores Standup declaran en el SDE que solo
+                      // encajan en refinerías. No es criterio nuestro.
+                      <span
+                        className="muted"
+                        title={tr("Este tipo no admite reactor: solo encaja en refinerías (Athanor / Tatara), y lo dice su propio módulo en el SDE.")}
+                      >
+                        {tr("no puede")}
+                      </span>
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={f.has_reactor}
+                        onChange={() => toggle(f, "has_reactor")}
+                      />
+                    )}
                   </td>
                   <td>{f.rigs.length || <span className="muted">—</span>}</td>
                   {/* `== null`, no falsy: un 0 declarado se enseña como «0 %», que es un dato. */}
@@ -1996,6 +2559,10 @@ function FacilityWizard({
   const sd = d.type_id != null ? ir.structures[String(d.type_id)] : null;
   const kind = d.type_id != null ? ir.kinds?.[String(d.type_id)] : null;
   const puede = !kind || !ir.mfg_groups?.length || ir.mfg_groups.includes(kind.g);
+  // Reaccionar: los reactores Standup solo entran en refinerías, y eso lo dicen sus propios
+  // `canFitShipGroup` en el SDE (reaction_groups = [1406]). No es una lista escrita a mano.
+  const puedeReact =
+    !kind || !ir.reaction_groups?.length || ir.reaction_groups.includes(kind.g);
   const band = sysHit ? secBand(sysHit.s) : null;
   const listos = d.name.trim() !== "" && d.system_id > 0;
 
@@ -2098,11 +2665,21 @@ function FacilityWizard({
             onChange={(e) => set({ has_lab: e.target.checked })}
           />{" "}
           {tr("tiene laboratorio (invención / copia / investigación)")}
+          {"  ·  "}
+          <input
+            type="checkbox"
+            checked={d.has_reactor}
+            disabled={!puedeReact}
+            onChange={(e) => set({ has_reactor: e.target.checked })}
+          />{" "}
+          {tr("tiene reactor (reacciones)")}
         </span>
         <em className="muted">
           {!puede
             ? tr("este tipo NO admite la planta: lo dice el propio módulo en el SDE")
-            : tr("si no la tiene, no podrás fabricar ahí y no saldrá en el desplegable")}
+            : !puedeReact
+              ? tr("el reactor solo cabe en refinerías (Athanor / Tatara): lo dice su propio módulo en el SDE")
+              : tr("si no la tiene, no podrás fabricar ahí y no saldrá en el desplegable")}
         </em>
       </label>
 
@@ -2140,11 +2717,18 @@ function FacilityWizard({
               // Rigs con ALGÚN bono real: material (fabricación) O tiempo/coste (los de
               // invención/copia/investigación dan coste-tiempo y mat 0 — antes quedaban invisibles
               // y una ficha de laboratorio no podía declararlos; lo cazó Zigor con F2).
-              .filter(([, r]) => r.scopes.length > 0 && (r.mat !== 0 || r.time !== 0 || r.cost !== 0))
+              .filter(
+                ([, r]) =>
+                  r.scopes.length > 0 &&
+                  (r.mat !== 0 || r.time !== 0 || r.cost !== 0 || r.react != null),
+              )
               // Por SERVICIO declarado (idea de Zigor): con bono de material = rig de fabricación →
               // solo si la ficha tiene planta; sin material (coste/tiempo puro) = rig de laboratorio
-              // → solo si tiene lab. Así el desplegable enseña lo que esa estructura puede montar.
-              .filter(([, r]) => (r.mat !== 0 ? d.has_mfg : d.has_lab))
+              // → solo si tiene lab. Los de REACCIÓN van por su cuenta: viven en otros atributos
+              // (`react`) y solo caben en refinerías, así que solo salen si hay reactor declarado.
+              .filter(([, r]) =>
+                r.react != null ? d.has_reactor : r.mat !== 0 ? d.has_mfg : d.has_lab,
+              )
               // Tamaño: rig y estructura comparten el atributo `rigSize` del SDE — el MISMO que usan
               // los rigs de nave, donde la regla es coincidencia EXACTA, y el devblog lo respalda
               // (al pasar de Raitaru a Sotiyo se cambian los rigs M por XL). Pero ninguna fuente

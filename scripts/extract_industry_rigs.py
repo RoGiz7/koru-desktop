@@ -32,6 +32,30 @@ RIG_ATTR = {2594: "mat", 2593: "time", 2595: "cost"}
 SEC_ATTR = {2355: "hi", 2356: "low", 2357: "null"}
 SLOTS, SIZE = 1137, 1547
 
+# ---------------------------------------------------------------------------
+# REACCIONES: atributos DISTINTOS de los de fabricación, y con menos piezas.
+# Verificado leyendo el SDE 3448696 tipo a tipo (2026-08-04):
+#
+#   Estructura → `strReactionTimeMultiplier` (2721). SOLO la Tatara lo tiene (0.75 = −25 % de
+#   TIEMPO). El Athanor NO tiene ningún bono de reacción, y NINGUNA estructura tiene bono de
+#   COSTE ni de MATERIAL para reaccionar. O sea: el −5 % de coste del Sotiyo NO existe aquí.
+#
+#   Rig → `RefRigMatBonus` (2714) y `RefRigTimeBonus` (2713). **NO HAY RIG DE COSTE**: los rigs
+#   de reacción no abaratan la tasa del job, solo materiales y tiempo.
+#
+#   Seguridad → los mismos atributos 2356/2357, pero con OTROS valores: low ×1.0 y null ×1.1
+#   (los de fabricación son ×1.0 y ×2.1). Copiar el 2.1 aquí sería inflar el bono al doble.
+#   Además llevan `disallowInHighSec` = 1: reaccionar en highsec no se puede, y es dato del SDE.
+#
+#   Familias → del nombre del efecto: rigReaction{Comp,Hyb,Bio}{Mat,Time}Bonus. El L-Set los
+#   lleva los seis (sirve para las tres familias); los M-Set, solo el suyo.
+REACT_STR_ATTR = {2721: "time"}
+REACT_RIG_ATTR = {2714: "mat", 2713: "time"}
+NO_HIGHSEC = 1970
+# Módulos de servicio de reacción. Igual que con la planta de fabricación, no suponemos dónde
+# entran: se lo preguntamos a ellos (canFitShipGroupNN) → 1406 Refinery, y solo ahí.
+REACTORS = [45537, 45538, 45539]  # Standup Composite / Hybrid / Biochemical Reactor I
+
 # ¿Dónde se puede fabricar? No lo suponemos: lo dice el propio módulo de servicio. El
 # "Standup Manufacturing Plant I" lleva en el SDE sus reglas de encaje:
 #   canFitShipGroup01 = 1657 (Citadel) · 02 = 1404 (Engineering Complex) · 03 = 1406 (Refinery)
@@ -73,6 +97,7 @@ def main() -> int:
         effects = {d["_key"]: (d.get("name") or "") for d in load(z, "dogmaEffects.jsonl")}
         structures, rigs, kinds = {}, {}, {}
         mfg_groups: list[int] = []
+        reaction_groups: set[int] = set()
         for d in load(z, "typeDogma.jsonl"):
             tid = d["_key"]
             t = types.get(tid)
@@ -85,22 +110,35 @@ def main() -> int:
             if tid == MFG_PLANT:
                 mfg_groups = sorted({int(attrs[k]) for k in CAN_FIT if k in attrs})
 
+            # --- Dónde entra un reactor: se lo preguntamos a los tres módulos de servicio ---
+            if tid in REACTORS:
+                reaction_groups |= {int(attrs[k]) for k in CAN_FIT if k in attrs}
+
             # --- Toda estructura publicada: su grupo, para poder descartar las que no fabrican ---
             g = groups.get(t.get("groupID"))
             if g and g.get("categoryID") == STRUCT_CAT and t.get("published"):
                 kinds[str(tid)] = {"n": nm(t), "g": t["groupID"], "gn": nm(g)["en"]}
 
-            # --- Estructura Upwell con bonos de industria ---
-            if any(k in attrs for k in STR_ATTR):
-                structures[str(tid)] = {
+            # --- Estructura Upwell con bonos de industria (fabricación y/o reacción) ---
+            # Entra también la que SOLO tiene bono de reacción: la Tatara, que sin esto se quedaba
+            # fuera del mapa. El Athanor NO aparece aquí y es correcto — no tiene ningún bono. Que
+            # una estructura pueda reaccionar lo decide `reaction_groups` + su grupo en `kinds`,
+            # no su presencia en este mapa (igual que el Astrahus al fabricar).
+            if any(k in attrs for k in STR_ATTR) or any(k in attrs for k in REACT_STR_ATTR):
+                ent = {
                     "n": nm(t),
                     **{v: attrs.get(k) for k, v in STR_ATTR.items()},
                     "slots": int(attrs.get(SLOTS, 0)),
                     "size": int(attrs.get(SIZE, 0)),
                 }
+                # `react` solo con lo que EXISTE de verdad: hoy únicamente tiempo, y solo la Tatara.
+                react = {v: attrs[k] for k, v in REACT_STR_ATTR.items() if k in attrs}
+                if react:
+                    ent["react"] = react
+                structures[str(tid)] = ent
 
-            # --- Rig de ingeniería ---
-            if any(k in attrs for k in RIG_ATTR):
+            # --- Rig de ingeniería o de reacción ---
+            if any(k in attrs for k in RIG_ATTR) or any(k in attrs for k in REACT_RIG_ATTR):
                 # Alcance: del nombre del EFECTO (dato del SDE), no del nombre visible.
                 #
                 # ⚠️ UN RIG PUEDE TENER VARIOS ALCANCES, y hay que quedarse con TODOS. Antes esto
@@ -113,20 +151,34 @@ def main() -> int:
                 # los 18 rigs de invención/copia/investigación (que dan coste/tiempo y mat 0)
                 # quedaban con scopes VACÍO → el desplegable de la ficha los escondía y una ficha
                 # de laboratorio no podía declararlos. Lo cazó Zigor montando F2 (2026-07-30).
+                # ⚠️ `Mat` además de `Material`: los efectos de REACCIÓN se llaman
+                # `rigReactionCompMatBonus` (abreviado), no `...MaterialBonus`. Sin esa alternativa
+                # los 6 rigs de material de reacción salían con scopes VACÍO y el desplegable de la
+                # ficha los habría escondido — exactamente el mismo agujero mudo que tuvieron los
+                # rigs de laboratorio hasta que Zigor preguntó por ellos.
                 scopes = sorted(
                     {
                         m.group(1)
                         for e in eff
-                        if (m := re.match(r"^rig(.+?)(?:Material|Time|Cost)Bonus$", e))
+                        if (m := re.match(r"^rig(.+?)(?:Material|Mat|Time|Cost)Bonus$", e))
                     }
                 )
-                rigs[str(tid)] = {
+                ent = {
                     "n": nm(t),
                     **{v: attrs.get(k, 0.0) for k, v in RIG_ATTR.items()},
                     "sec": {v: attrs.get(k) for k, v in SEC_ATTR.items() if k in attrs},
                     "size": int(attrs.get(SIZE, 0)),
                     "scopes": scopes,
                 }
+                # Bonos de REACCIÓN aparte: viven en otros atributos y su `sec` no vale lo mismo
+                # (null ×1.1 aquí, ×2.1 en fabricación). Mezclarlos en mat/time/cost habría hecho
+                # que un rig de reacción se aplicara a un job de fabricación, y al revés.
+                react = {v: attrs[k] for k, v in REACT_RIG_ATTR.items() if k in attrs}
+                if react:
+                    ent["react"] = react
+                if attrs.get(NO_HIGHSEC):
+                    ent["no_hi"] = True
+                rigs[str(tid)] = ent
 
     out = {
         "_meta": {
@@ -147,16 +199,34 @@ def main() -> int:
             "/corporations/{id}/structures/ (scope read_structures + rol Director).",
         },
         "mfg_groups": mfg_groups,
+        "reaction_groups": sorted(reaction_groups),
         "kinds": kinds,
         "structures": structures,
         "rigs": rigs,
     }
+    out["_meta"]["note3"] = (
+        "REACCIONES: `reaction_groups` = grupos donde entran los Standup Composite/Hybrid/"
+        "Biochemical Reactor I (canFitShipGroupNN de los propios modulos) -> solo Refinery. "
+        "`structures[].react.time` = strReactionTimeMultiplier (solo la Tatara, 0.75); no existe "
+        "bono de coste ni de material de reaccion en NINGUNA estructura. `rigs[].react` = "
+        "{mat: RefRigMatBonus, time: RefRigTimeBonus}; NO hay rig de coste de reaccion. Sus `sec` "
+        "valen low 1.0 / null 1.1 (los de fabricacion, 1.0 / 2.1): no intercambiarlos. `no_hi` = "
+        "disallowInHighSec: reaccionar en highsec no se puede, y es dato del SDE."
+    )
     if not mfg_groups:
         print("AVISO: no se pudo leer canFitShipGroup de la planta; no filtramos a ciegas.", file=sys.stderr)
+    if not reaction_groups:
+        print("AVISO: no se pudo leer canFitShipGroup de los reactores; sin filtro de reaccion.", file=sys.stderr)
+    n_react_rigs = sum(1 for r in rigs.values() if "react" in r)
+    n_react_str = sum(1 for s in structures.values() if "react" in s)
+    if not n_react_rigs or not n_react_str:
+        print("AVISO: 0 rigs o 0 estructuras de reaccion; revisa los atributos 2713/2714/2721.",
+              file=sys.stderr)
     dest = public / "industry_rigs.json"
     dest.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"OK -> {dest}: {len(structures)} estructuras · {len(rigs)} rigs · "
-          f"{len(kinds)} tipos · fabrica en grupos {mfg_groups}")
+    print(f"OK -> {dest}: {len(structures)} estructuras ({n_react_str} con bono de reaccion) · "
+          f"{len(rigs)} rigs ({n_react_rigs} de reaccion) · {len(kinds)} tipos · "
+          f"fabrica en grupos {mfg_groups} · reacciona en grupos {sorted(reaction_groups)}")
     return 0
 
 

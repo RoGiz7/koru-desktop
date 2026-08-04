@@ -130,6 +130,23 @@ impl Db {
             "ALTER TABLE facility ADD COLUMN has_lab INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // facility: F-REACCIONES — ¿tiene reactor? Las refinerías (Athanor/Tatara) NO fabrican, así
+        // que reusar has_mfg habría ofrecido rigs de reacción en estructuras que no los admiten.
+        let _ = conn.execute(
+            "ALTER TABLE facility ADD COLUMN has_reactor INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // facility: impuesto POR ACTIVIDAD (JSON, opcional). Descubierto en los tooltips del juego:
+        // el dueño de una Upwell configura un impuesto DISTINTO por actividad — el Weaselior de
+        // RoGiz7 cobra 1% en invención y 0% en ME/TE, y su Tatara lista TRES impuestos de reacción
+        // por separado (compuestas / bioquímicas / híbridas). Nuestro `tax` es un solo número.
+        //
+        // Vacío o NULL = se usa el `tax` de siempre, así que las fichas existentes siguen igual y
+        // nadie tiene que tocar nada. Sin subir LOGI_DATA_VERSION: es un ALTER, no un reparse.
+        let _ = conn.execute(
+            "ALTER TABLE facility ADD COLUMN tax_by_activity TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
         // personal_projects: filtro opcional (nave/mineral/sistema) añadido en 0.18.4.
@@ -2731,6 +2748,10 @@ pub struct FacilityRow {
     /// ¿Laboratorio Standup (invención/copia/investigación ME-TE)? Como has_mfg: lo declara el usuario.
     #[serde(default)]
     pub has_lab: bool,
+    /// ¿Reactor Standup (Composite/Hybrid/Biochemical)? Solo cabe en refinerías (grupo 1406, dato
+    /// del SDE), y esas no fabrican: por eso es un flag propio y no un apaño sobre has_mfg.
+    #[serde(default)]
+    pub has_reactor: bool,
     #[serde(default)]
     pub rigs: Vec<i64>,
     /// Impuesto del centro en %. `None` = NO LO HAS DECLARADO · `Some(0.0)` = declaraste que no
@@ -2739,6 +2760,15 @@ pub struct FacilityRow {
     /// impuesto» para siempre por no poder distinguir las dos cosas.
     #[serde(default)]
     pub tax: Option<f64>,
+    /// Impuesto POR ACTIVIDAD, JSON `{"invention":1.0,"reaction_comp":1.0,...}`. Cadena vacía =
+    /// no declarado → se usa `tax` para todo, que es como funcionaba hasta ahora.
+    ///
+    /// Existe porque el juego lo configura así de verdad: una misma Upwell puede cobrar 1% en
+    /// invención y 0% en ME/TE, y una refinería lista TRES impuestos de reacción por separado
+    /// (compuestas, bioquímicas, híbridas). Con un solo número acertábamos de casualidad.
+    /// Claves: mfg · invention · copy · me · te · reaction_comp · reaction_bio · reaction_hyb.
+    #[serde(default)]
+    pub tax_by_activity: String,
     #[serde(default)]
     pub eligible: bool,
     #[serde(default)]
@@ -2886,8 +2916,10 @@ impl Db {
     pub fn facility_list(&self) -> AppResult<Vec<FacilityRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
+            // Las columnas nuevas se añaden SIEMPRE AL FINAL del SELECT: así los índices de las
+            // anteriores no se mueven y no hay que reindexar el mapeo de abajo.
             "SELECT id, structure_id, name, system_id, type_id, has_mfg, rigs, tax, eligible,
-                    source, notes, has_lab
+                    source, notes, has_lab, has_reactor, tax_by_activity
              FROM facility ORDER BY eligible DESC, name",
         )?;
         let rows = stmt
@@ -2905,6 +2937,8 @@ impl Db {
                     source: r.get(9)?,
                     notes: r.get(10)?,
                     has_lab: r.get::<_, i64>(11)? != 0,
+                    has_reactor: r.get::<_, i64>(12)? != 0,
+                    tax_by_activity: r.get(13)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -2920,11 +2954,12 @@ impl Db {
             conn.execute(
                 "UPDATE facility SET structure_id=?2, name=?3, system_id=?4, type_id=?5,
                         has_mfg=?6, rigs=?7, tax=?8, eligible=?9, source=?10, notes=?11,
-                        updated_at=?12, has_lab=?13
+                        updated_at=?12, has_lab=?13, has_reactor=?14, tax_by_activity=?15
                  WHERE id=?1",
                 rusqlite::params![
                     f.id, f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs,
-                    f.tax, f.eligible as i64, f.source, f.notes, now, f.has_lab as i64
+                    f.tax, f.eligible as i64, f.source, f.notes, now, f.has_lab as i64,
+                    f.has_reactor as i64, f.tax_by_activity
                 ],
             )?;
             return Ok(f.id);
@@ -2936,14 +2971,16 @@ impl Db {
         // "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
         conn.execute(
             "INSERT INTO facility (structure_id, name, system_id, type_id, has_mfg, rigs, tax,
-                                   eligible, source, notes, updated_at, has_lab)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                                   eligible, source, notes, updated_at, has_lab, has_reactor,
+                                   tax_by_activity)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
              ON CONFLICT(structure_id) WHERE structure_id IS NOT NULL DO UPDATE SET
                 name=excluded.name, system_id=excluded.system_id, type_id=excluded.type_id,
                 updated_at=excluded.updated_at",
             rusqlite::params![
                 f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs, f.tax,
-                f.eligible as i64, f.source, f.notes, now, f.has_lab as i64
+                f.eligible as i64, f.source, f.notes, now, f.has_lab as i64, f.has_reactor as i64,
+                f.tax_by_activity
             ],
         )?;
         Ok(conn.last_insert_rowid())

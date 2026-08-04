@@ -984,8 +984,10 @@ pub async fn facility_seed_from_esi(state: State<'_, AppState>) -> AppResult<usi
             type_id: s.type_id,
             has_mfg: false,
             has_lab: false, // como has_mfg: ESI no ve los servicios, lo declara el usuario
+            has_reactor: false, // ídem: ESI no ve si tiene reactor montado
             rigs: Vec::new(),
             tax: None, // ESI no sabe el impuesto: sin declarar, no un 0 que parecería un dato
+            tax_by_activity: String::new(), // vacío = usa `tax` para todo (comportamiento de siempre)
 
             eligible: false,
             source: "esi".into(),

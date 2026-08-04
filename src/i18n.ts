@@ -1818,6 +1818,43 @@ const EN: Record<string, string> = {
     "has a laboratory (invention / copying / research)",
   "¿Tiene laboratorio Standup (invención, copia, investigación ME/TE)?":
     "Does it have a Standup laboratory (invention, copying, ME/TE research)?",
+  // F-REACCIONES — panel «Reaccionar»
+  Reaccionar: "React",
+  "Lista de la compra": "Shopping list",
+  "Volumen a transportar": "Volume to haul",
+  "Ya lo tienes en otro sitio": "You already have it elsewhere",
+  ubicaciones: "locations",
+  "mismo sistema": "same system",
+  "sin ubicar": "location unknown",
+  "Saltos por puertas desde el sistema de la instalación. Las estructuras sin resolver salen como «sin ubicar»: preferimos decirlo a inventar una distancia.":
+    "Gate jumps from the facility's system. Structures we couldn't resolve show as “location unknown”: we'd rather say so than make a distance up.",
+  "La instalación elegida no tiene reactor declarado (marca «Reactor» en su ficha).":
+    "The chosen facility has no reactor declared (tick “Reactor” on its card).",
+  "Reaccionar en highsec no se puede: lo dice el propio módulo en el SDE.":
+    "Reactions can't run in highsec: the module itself says so in the SDE.",
+  "Sin índice de reacción: elige una instalación con reactor para calcular la tasa.":
+    "No reaction index: pick a facility with a reactor to work out the fee.",
+  "reaccionar no tiene bonificación de coste: ninguna estructura ni rig la dan (SDE)":
+    "reactions get no cost bonus: no structure and no rig provides one (SDE)",
+  "Tasa del job": "Job fee",
+  bruto: "gross",
+  centro: "facility",
+  "sin skills": "no skills",
+  "skill Reactions −4%/nivel": "Reactions skill −4%/level",
+  "rigs y estructura": "rigs and structure",
+  "Bonificaciones de reacción": "Reaction bonuses",
+  materiales: "materials",
+  "Las reacciones no llevan ME/TE: los materiales solo bajan con los rigs de la refinería. Y no existe bonificación de coste — ni de estructura ni de rig —, así que la tasa es índice + impuestos y nada más.":
+    "Reactions have no ME/TE: materials only drop with the refinery's rigs. And there is no cost bonus at all — neither structure nor rig — so the fee is index + taxes and nothing else.",
+  // F-REACCIONES — servicio de reactor en la ficha
+  Reactor: "Reactor",
+  "tiene reactor (reacciones)": "has a reactor (reactions)",
+  "¿Tiene reactor Standup? Solo cabe en refinerías (Athanor / Tatara).":
+    "Does it have a Standup reactor? It only fits refineries (Athanor / Tatara).",
+  "el reactor solo cabe en refinerías (Athanor / Tatara): lo dice su propio módulo en el SDE":
+    "the reactor only fits refineries (Athanor / Tatara): its own module says so in the SDE",
+  "Este tipo no admite reactor: solo encaja en refinerías (Athanor / Tatara), y lo dice su propio módulo en el SDE.":
+    "This type takes no reactor: it only fits refineries (Athanor / Tatara), and its own module says so in the SDE.",
   Invención: "Invention",
   "Sin decryptor": "No decryptor",
   base: "base",
@@ -1831,6 +1868,7 @@ const EN: Record<string, string> = {
   "Datacores que faltan": "Missing datacores",
   "Tus inventores (clic = usar sus niveles)": "Your inventors (click = use their levels)",
   "Tus fabricantes (velocidad del job)": "Your builders (job speed)",
+  "Tus reaccionadores (velocidad del job)": "Your reactors (job speed)",
   "Avisos de PI": "PI alerts",
   // Campañas militares (fase 1 pública)
   Campañas: "Campaigns",
