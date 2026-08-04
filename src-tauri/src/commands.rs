@@ -1100,6 +1100,8 @@ fn scopes_for_feature(feature: &str) -> Vec<String> {
         "assets" => config::scopes::ASSETS,
         "industria" => config::scopes::INDUSTRIA,
         "location" => config::scopes::LOCATION,
+        // Campañas Militares fase 2 (contribución personal). Suelto para no exigir el set entero.
+        "actividad" => config::scopes::ACTIVIDAD,
         "core" => {
             return config::scopes::core_v1()
                 .iter()
@@ -2847,6 +2849,154 @@ pub async fn get_military_campaign_objectives(
             _ => break,
         }
     }
+    Ok(out)
+}
+
+// ---- Military Campaigns FASE 2: TU contribución (AUTENTICADO) ----
+// Scope `esi.activity.char:read` (familia NUEVA, no `esi-xxx.v1`). Verificado concedible en vivo.
+//
+// ✅ LLAMADA REAL (API Explorer, 2026-08-04, personaje sin participación):
+//    GET /characters/{id}/military-campaigns/objectives → 200 `{"objectives": []}`
+//    Con lista vacía NO viene `cursor` → cursor OPCIONAL, paginamos solo si aparece.
+//
+// ✅ NOMBRES DE CAMPO tomados del Response Example del OpenAPI (el devblog dice que la spec y el
+//    API Explorer son la fuente de verdad para nombres, scopes y cachés):
+//      { "cursor": {"after","before"},
+//        "objectives": [ { "id": UUID, "campaign_id": UUID, "contributed": 10,
+//                          "is_committed": true, "last_modified": "2025-11-01T00:00:00Z" } ] }
+//    ⚠️ Ojo a los nombres, que no son los que uno diría: `contributed` (no "contribution") e
+//    `is_committed` (no "committed"). La ruta PÚBLICA usa otra nomenclatura (`participants`).
+//
+// ✅ ESQUEMA DOCUMENTADO (Responses/200 → Body del API Explorer, leído campo a campo):
+//      objectives   array[object]        REQUIRED  "List of military campaign objectives"
+//      ├─ campaign_id   string<uuid>     REQUIRED  "Campaign's ID"
+//      ├─ id            string<uuid>     REQUIRED  "Objective's ID"
+//      ├─ contributed   integer<int64>   REQUIRED  "The character's cumulative contribution"
+//      ├─ is_committed  boolean          REQUIRED  "Whether the character is currently committed"
+//      └─ last_modified string<date-time>REQUIRED  "Moment this information was last modified"
+//      cursor       object (NO required) → confirma que sin resultados puede no venir.
+//    👉 `contributed` es un ENTERO acumulado, no un porcentaje. Se pinta CRUDO: no lo dividimos
+//    por el `target` del SDE para sacar un «llevas el X%», porque que ambos sean enteros no prueba
+//    que estén en la misma unidad. Cuando haya un pegado real se comprueba (la suma de las
+//    contribuciones debería acercarse al `progress` de la ruta pública) y entonces sí se deriva.
+//    Todo va con #[serde(default)] aunque la spec los marque requeridos: si Fenris cambia algo,
+//    preferimos degradar a 0/false antes que dejar la sección en blanco.
+//
+// Query params: `after`/`before` (excluyentes), `limit` 10..=100 (por defecto 10) → pedimos 100
+// para gastar el menor número de llamadas posible.
+// Rate limit (del API Explorer): grupo `char-military-campaign`, 150 tokens / 15 min, caché de
+// cliente 60 s. Es un límite POR GRUPO y Koru es multicuenta → UNA llamada al LISTADO por
+// personaje, nunca el detalle objetivo por objetivo en bucle.
+
+/// Una entrada del listado, tal y como la sirve ESI (nombres de la spec).
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct MyObjectiveEntry {
+    /// UUID del OBJETIVO (no de la campaña). Es la clave del join con el SDE.
+    pub id: String,
+    #[serde(default)]
+    pub campaign_id: String,
+    /// "The character's cumulative contribution" (spec). Entero acumulado, NO un porcentaje.
+    #[serde(default)]
+    pub contributed: i64,
+    /// ¿Está apuntado AHORA MISMO? (se puede renunciar y seguir contando como contributor)
+    #[serde(default)]
+    pub is_committed: bool,
+    #[serde(default)]
+    pub last_modified: Option<String>,
+}
+
+/// Lo mismo, pero con el personaje pegado: la vista es multicuenta y necesita saber de quién es
+/// cada línea para pintar el retrato.
+#[derive(Debug, Clone, Serialize)]
+pub struct MyCampaignParticipation {
+    pub character_id: i64,
+    pub objective_id: String,
+    pub campaign_id: String,
+    pub contributed: i64,
+    pub is_committed: bool,
+    pub last_modified: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MyObjectivesWrap {
+    #[serde(default)]
+    cursor: Option<CampaignCursor>,
+    #[serde(default)]
+    objectives: Vec<MyObjectiveEntry>,
+}
+
+/// Mi participación en objetivos de campañas, para VARIOS personajes.
+///
+/// Best-effort por personaje: si a uno le falta el scope (403) o falla el token, se le salta y los
+/// demás siguen. Nunca rompe la vista — la sección de Campañas tiene que seguir pintando sus datos
+/// públicos aunque nadie haya concedido nada.
+#[tauri::command]
+pub async fn get_my_campaign_participation(
+    character_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<MyCampaignParticipation>> {
+    let mut out: Vec<MyCampaignParticipation> = Vec::new();
+
+    for character_id in character_ids {
+        let Ok(valid) = state
+            .tokens
+            .access_token(state.esi.http(), character_id)
+            .await
+        else {
+            continue; // sin token utilizable: ese personaje no participa en la vista
+        };
+
+        let mut after: Option<String> = None;
+        let mut seen_cursors: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Tope de páginas: un personaje no va a estar en cientos de objetivos, y así el cursor
+        // no puede hacernos un bucle infinito contra un endpoint con rate limit.
+        for _page in 0..10 {
+            let base = format!("/characters/{character_id}/military-campaigns/objectives?limit=100");
+            let path = match &after {
+                Some(a) if a.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) => {
+                    format!("{base}&after={a}")
+                }
+                Some(_) => break, // cursor con pinta rara: cortamos (mismo criterio que la fase 1)
+                None => base,
+            };
+            let Ok(page) = state
+                .esi
+                .get_cached::<MyObjectivesWrap>(
+                    &state.db,
+                    character_id,
+                    &path,
+                    Some(&valid.access_token),
+                )
+                .await
+            else {
+                break; // 403 sin scope, token caducado, ESI de mal humor: ese pj no aporta y ya
+            };
+            if page.objectives.is_empty() {
+                break;
+            }
+
+            for it in page.objectives {
+                if it.id.is_empty() {
+                    continue; // sin UUID de objetivo no hay join posible con el SDE: se descarta
+                }
+                out.push(MyCampaignParticipation {
+                    character_id,
+                    objective_id: it.id,
+                    campaign_id: it.campaign_id,
+                    contributed: it.contributed,
+                    is_committed: it.is_committed,
+                    last_modified: it.last_modified,
+                });
+            }
+
+            // El cursor puede no venir (con lista vacía no viene). Sin cursor = una sola página.
+            match page.cursor.and_then(|c| c.after) {
+                Some(a) if seen_cursors.insert(a.clone()) => after = Some(a),
+                _ => break,
+            }
+        }
+    }
+
     Ok(out)
 }
 

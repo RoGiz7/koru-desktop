@@ -6579,12 +6579,45 @@ h4 {
 .camp-objs {
   padding: 0 0.7rem 0.6rem;
 }
+/* Chapa «Solo milicia»: el escudo de facción a 14px no se reconocía y, si el nombre del objetivo
+   llenaba la línea, caía solo a la siguiente pareciendo un icono roto. Con etiqueta y fondo se lee
+   como lo que es, y si baja de línea baja entera. */
 .camp-militia {
-  width: 14px;
-  height: 14px;
-  margin-left: 0.3rem;
-  border-radius: 2px;
-  vertical-align: -2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem 0.1rem 0.2rem;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.camp-militia img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
+/* Fase 2: retratos de MIS personajes en cada objetivo. Apagado = contribuyó pero ya no está
+   apuntado (ESI lo distingue, y la diferencia importa: el que renunció sigue contando). */
+.camp-mine {
+  width: 22px;
+  height: 22px;
+  margin-left: 0.2rem;
+  border-radius: 50%;
+  vertical-align: -6px;
+  opacity: 0.4;
+  filter: grayscale(1);
+  border: 1px solid transparent;
+}
+.camp-mine.on {
+  opacity: 1;
+  filter: none;
+  border-color: var(--ok, #3fb950);
 }
 
 /* Picker de instalación con iconos reales (los <option> nativos no admiten <img>). */

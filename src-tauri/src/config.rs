@@ -123,7 +123,25 @@ pub mod scopes {
         "esi-universe.read_structures.v1",
     ];
 
-    /// Conjunto v1 (las 4 features + ubicación + bitácora).
+    /// Campañas Militares fase 2: TU contribución personal por personaje.
+    ///
+    /// ⚠️ NOMENCLATURA NUEVA de Fenris: `esi.activity.char:read`, no `esi-xxx.v1`. Estrena una
+    /// familia entera (en el portal aparece junto a `esi.cosmetic.char:read`, aún sin documentar).
+    /// Por eso el grupo se llama ACTIVIDAD y no CAMPANAS: el scope es más ancho que la feature y
+    /// es de esperar que cuelguen más rutas de él.
+    ///
+    /// Verificado en vivo con un login solo-scope (2026-08-04): concedible. Dos trampas del camino,
+    /// por si vuelve a pasar con el siguiente scope de esta familia:
+    ///   1. Hay que MARCARLO en la aplicación del portal de desarrollador o el SSO responde
+    ///      `{"error":"invalid_scope"}` — el nombre correcto no basta.
+    ///   2. Tras guardarlo, el SSO tarda unos minutos en propagarlo. Reintentar antes de dudar.
+    /// (El `.well-known/oauth-authorization-server` NO lista `scopes_supported`: no sirve de test.)
+    ///
+    /// Va en su propio grupo para concederlo suelto desde la sección Campañas, sin arrastrar el
+    /// relogin del set entero — mismo criterio que INDUSTRIA.
+    pub const ACTIVIDAD: &[&str] = &["esi.activity.char:read"];
+
+    /// Conjunto v1 (las 4 features + ubicación + bitácora + actividad).
     pub fn core_v1() -> Vec<&'static str> {
         let mut v = Vec::new();
         v.extend_from_slice(PVP);
@@ -137,6 +155,7 @@ pub mod scopes {
         v.extend_from_slice(INDUSTRIA);
         v.extend_from_slice(LOCATION);
         v.extend_from_slice(BITACORA);
+        v.extend_from_slice(ACTIVIDAD);
         v
     }
 }

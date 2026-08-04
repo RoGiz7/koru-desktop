@@ -161,6 +161,7 @@ pub fn run() {
             commands::set_pi_alerts_on,
             commands::get_military_campaigns,
             commands::get_military_campaign_objectives,
+            commands::get_my_campaign_participation,
             commands::get_character_detail,
             commands::get_factional,
             commands::get_abyssals,

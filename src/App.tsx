@@ -2209,7 +2209,7 @@ function App() {
             <ExplorationLogView charId={isGlobal ? null : subjectId} />
           )}
           {tab === "recon" && <ReconView subject={subject} />}
-          {tab === "campanas" && <CampanasView />}
+          {tab === "campanas" && <CampanasView characters={characters} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {tab === "rateo" && (

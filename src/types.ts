@@ -183,6 +183,16 @@ export type CampaignObjective = {
   started: string | null;
   last_modified: string | null;
 };
+// Fase 2: TU participación por personaje (scope esi.activity.char:read).
+// Nombres tal cual los sirve ESI: `contributed` e `is_committed` (ojo, no "contribution"/"committed").
+export type MyCampaignParticipation = {
+  character_id: number;
+  objective_id: string;
+  campaign_id: string;
+  contributed: number;
+  is_committed: boolean;
+  last_modified: string | null;
+};
 
 // Conexión de wormhole pública de eve-scout (Thera/Turnur ↔ k-space).
 export type WhConn = {

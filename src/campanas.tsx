@@ -3,14 +3,25 @@
 // sabores); public/military_campaigns.json (SDE, mismas UUIDs) pone los textos ES/EN, recompensas
 // por intervalo, método de contribución, carrera y requisito de milicia. Una campaña puede existir
 // en ESI SIN definición aún (el SDE se exporta 1 vez/día): eso es NORMAL y se dice, no se esconde.
-// Shapes verificados contra pegados reales de las rutas (2026-08-04). Fase 2 (tu contribución,
-// scope esi.activity.char:read) pendiente de login solo-scope. RoGiz7, 2026-08-04.
+// Shapes verificados contra pegados reales de las rutas (2026-08-04).
+// FASE 2 (columna «Tú»): contribución personal multi-personaje, scope esi.activity.char:read
+// (verificado concedible con login solo-scope, 2026-08-04). Nombres de campo de la spec OpenAPI:
+// `contributed` (entero acumulado, NO un %) e `is_committed`. Se pinta crudo a propósito: no lo
+// dividimos por el target del SDE hasta comprobar con datos reales que van en la misma unidad.
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
 import { fmtSp, typeIcon } from "./format";
 import { cleanEveText } from "./freelance";
-import type { MilitaryCampaign, CampaignObjective } from "./types";
+import type {
+  MilitaryCampaign,
+  CampaignObjective,
+  MyCampaignParticipation,
+  Character,
+} from "./types";
+
+/** Scope de la fase 2. Familia NUEVA de Fenris: `esi.activity.char:read`, no `esi-xxx.v1`. */
+const SCOPE_ACTIVIDAD = "esi.activity.char:read";
 
 /** Definiciones del SDE (extract_military_campaigns.py). Claves = UUIDs de ESI. */
 type CampDefs = {
@@ -60,14 +71,24 @@ const METHOD_LABEL: Record<string, string> = {
 
 const factionLogo = (id: number) => `https://images.evetech.net/corporations/${id}/logo?size=64`;
 
-export function CampanasView() {
+export function CampanasView({ characters = [] }: { characters?: Character[] }) {
   const [defs, setDefs] = useState<CampDefs | null>(null);
   const [camps, setCamps] = useState<MilitaryCampaign[] | null>(null);
   const [objs, setObjs] = useState<Map<string, CampaignObjective[]>>(new Map());
   const [open, setOpen] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  // Fase 2: mi participación, agrupada por UUID de objetivo.
+  const [mine, setMine] = useState<Map<string, MyCampaignParticipation[]>>(new Map());
   const es = getLang() === "es";
   const txt = (d?: { es: string; en: string }) => (d ? (es ? d.es : d.en) : "");
+
+  // Personajes que han concedido el permiso nuevo. Si no hay ninguno, ni preguntamos a ESI.
+  const withScope = useMemo(
+    () => characters.filter((c) => c.scopes?.includes(SCOPE_ACTIVIDAD)),
+    [characters],
+  );
+  const nameOf = (id: number) =>
+    characters.find((c) => c.character_id === id)?.name ?? String(id);
 
   useEffect(() => {
     fetch("/military_campaigns.json").then((r) => r.json()).then(setDefs).catch(() => setDefs(null));
@@ -78,6 +99,26 @@ export function CampanasView() {
         setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
       });
   }, []);
+
+  // Contribución personal multi-personaje. Best-effort: si falla, la vista pública sigue entera.
+  useEffect(() => {
+    const ids = withScope.map((c) => c.character_id);
+    if (ids.length === 0) {
+      setMine(new Map());
+      return;
+    }
+    invoke<MyCampaignParticipation[]>("get_my_campaign_participation", { characterIds: ids })
+      .then((rows) => {
+        const m = new Map<string, MyCampaignParticipation[]>();
+        for (const r of rows) {
+          const arr = m.get(r.objective_id) ?? [];
+          arr.push(r);
+          m.set(r.objective_id, arr);
+        }
+        setMine(m);
+      })
+      .catch(() => setMine(new Map()));
+  }, [withScope]);
 
   async function toggle(id: string) {
     if (open === id) {
@@ -166,6 +207,11 @@ export function CampanasView() {
                           {tr("Participan")}
                         </th>
                         <th style={{ textAlign: "right" }} title={tr("Recompensas por intervalo de progreso")}>{tr("Recompensa")}</th>
+                        {withScope.length > 0 && (
+                          <th style={{ textAlign: "right" }} title={tr("Tus personajes apuntados y lo que llevan aportado")}>
+                            {tr("Tú")}
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -183,12 +229,15 @@ export function CampanasView() {
                               )}{" "}
                               {od ? txt(od.t) : `${o.id.slice(0, 8)}… (${tr("definición pendiente del próximo SDE")})`}
                               {od?.militia != null && (
-                                <img
+                                // Chapa, no escudo suelto: a 14px el logo no se reconocía y se
+                                // quedaba huérfano en una segunda línea (parecía un icono roto).
+                                <span
                                   className="camp-militia"
-                                  src={factionLogo(od.militia)}
-                                  alt=""
                                   title={tr("Solo milicianos de esta facción")}
-                                />
+                                >
+                                  <img src={factionLogo(od.militia)} alt="" />
+                                  {tr("Solo milicia")}
+                                </span>
                               )}
                             </td>
                             <td className="muted">
@@ -210,6 +259,25 @@ export function CampanasView() {
                               {od?.lp ? ` · ${fmtSp(od.lp)} LP` : ""}
                               {od?.standing ? ` · +${od.standing}%` : ""}
                             </td>
+                            {withScope.length > 0 && (
+                              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                                {(mine.get(o.id) ?? []).length === 0 ? (
+                                  <span className="muted">—</span>
+                                ) : (
+                                  (mine.get(o.id) ?? []).map((p) => (
+                                    <img
+                                      key={p.character_id}
+                                      className={`camp-mine${p.is_committed ? " on" : ""}`}
+                                      src={`https://images.evetech.net/characters/${p.character_id}/portrait?size=64`}
+                                      alt={nameOf(p.character_id)}
+                                      title={`${nameOf(p.character_id)} · ${
+                                        p.is_committed ? tr("apuntado ahora") : tr("ya no apuntado")
+                                      } · ${tr("aportado")}: ${fmtSp(p.contributed)}`}
+                                    />
+                                  ))
+                                )}
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -222,7 +290,12 @@ export function CampanasView() {
         );
       })}
       <p className="muted small">
-        {tr("Datos en vivo de ESI (rutas públicas, sin permisos) + definiciones del SDE. La participación enseña los comprometidos AHORA; el tooltip trae el total histórico y los que han contribuido. Tu contribución personal llegará en una fase próxima (requiere un permiso nuevo del juego).")}
+        {tr("Datos en vivo de ESI (rutas públicas, sin permisos) + definiciones del SDE. La participación enseña los comprometidos AHORA; el tooltip trae el total histórico y los que han contribuido.")}
+      </p>
+      <p className="muted small">
+        {withScope.length > 0
+          ? tr("La columna «Tú» sale de tus personajes que han concedido el permiso de campañas: retrato encendido = apuntado ahora mismo, apagado = ya no lo está pero su aportación cuenta. Pasa el ratón para ver cuánto lleva cada uno.")
+          : tr("¿Quieres ver TU aportación en cada objetivo? Vuelve a iniciar sesión eligiendo «Campañas militares» en el diálogo de permisos. Es un permiso solo de lectura y no hace falta concederlo en todos los personajes: los que no lo tengan seguirán funcionando igual.")}
       </p>
       {msg && <div className="small muted">{msg}</div>}
     </div>

@@ -188,6 +188,10 @@ export const FEATURES = [
   { key: "assets", label: "Assets / industria" },
   // R4: blueprints (ME/TE reales) + contratos. Grupo propio para concederlo suelto.
   { key: "industria", label: "Industria (blueprints y contratos)" },
+  // Campañas Militares fase 2. La clave es "actividad" (el scope `esi.activity.char:read` es más
+  // ancho que la feature), pero la etiqueta dice «Campañas militares» para no chocar con la
+  // sección Actividad, que es otra cosa (actividad diaria y horas calientes).
+  { key: "actividad", label: "Campañas militares (tu contribución)" },
   { key: "location", label: "Ubicación (sistema actual)" },
   { key: "identity", label: "Solo identidad (0 scopes)" },
 ];
@@ -221,6 +225,7 @@ export const CAPS: { label: string; scope: string }[] = [
   { label: "Lealtad / LP (misiones)", scope: "esi-characters.read_loyalty.v1" },
   { label: "Trabajos por libre", scope: "esi-characters.read_freelance_jobs.v1" },
   { label: "Proyectos de corp", scope: "esi-corporations.read_projects.v1" },
+  { label: "Campañas militares (tu contribución)", scope: "esi.activity.char:read" },
 ];
 
 export const KM_LIMIT = 50;

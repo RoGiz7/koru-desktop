@@ -1854,6 +1854,7 @@ const EN: Record<string, string> = {
   "Total apuntados": "Total signed up",
   contribuyentes: "contributors",
   "Solo milicianos de esta facción": "Militia members of this faction only",
+  "Solo milicia": "Militia only",
   Minar: "Mine ore",
   "Matar NPC": "Kill NPCs",
   "Misiones de agente": "Agent missions",
@@ -1862,8 +1863,18 @@ const EN: Record<string, string> = {
   "Matar capsuleers": "Kill capsuleers",
   "Hacer daño": "Deal damage",
   "Reparación remota": "Remote repair",
-  "Datos en vivo de ESI (rutas públicas, sin permisos) + definiciones del SDE. La participación enseña los comprometidos AHORA; el tooltip trae el total histórico y los que han contribuido. Tu contribución personal llegará en una fase próxima (requiere un permiso nuevo del juego).":
-    "Live data from ESI (public routes, no permissions) + SDE definitions. Participation shows those committed NOW; the tooltip has the historical total and actual contributors. Your personal contribution arrives in an upcoming phase (needs a new game permission).",
+  "Datos en vivo de ESI (rutas públicas, sin permisos) + definiciones del SDE. La participación enseña los comprometidos AHORA; el tooltip trae el total histórico y los que han contribuido.":
+    "Live data from ESI (public routes, no permissions) + SDE definitions. Participation shows those committed NOW; the tooltip has the historical total and actual contributors.",
+  // Fase 2 — columna «Tú». («Tú» ya existe como "You" en ~752: se reutiliza, no se duplica.)
+  "Tus personajes apuntados y lo que llevan aportado":
+    "Your characters signed up and how much they've contributed",
+  "apuntado ahora": "signed up now",
+  "ya no apuntado": "no longer signed up",
+  aportado: "contributed",
+  "La columna «Tú» sale de tus personajes que han concedido el permiso de campañas: retrato encendido = apuntado ahora mismo, apagado = ya no lo está pero su aportación cuenta. Pasa el ratón para ver cuánto lleva cada uno.":
+    "The “You” column comes from your characters that granted the campaigns permission: lit portrait = signed up right now, dimmed = no longer signed up but their contribution still counts. Hover to see how much each one has done.",
+  "¿Quieres ver TU aportación en cada objetivo? Vuelve a iniciar sesión eligiendo «Campañas militares» en el diálogo de permisos. Es un permiso solo de lectura y no hace falta concederlo en todos los personajes: los que no lo tengan seguirán funcionando igual.":
+    "Want to see YOUR contribution to each objective? Sign in again choosing “Military campaigns” in the permissions dialog. It's a read-only permission and you don't need to grant it on every character: the ones without it keep working the same.",
   "Le falta": "Missing",
   "Sin resultados… pero tienes": "No results… but you have",
   "en el buscador — bórralo para ver la pestaña completa.":
