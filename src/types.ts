@@ -168,7 +168,22 @@ export type ActivityRun = {
   loot_note: string | null;
   ship_loss_isk: number | null;
   note: string | null;
+  /** Quien REGISTRÓ la run. Con multibox ya no implica que la volara: los que vuelan van en `chars`. */
   character_id: number | null;
+  /** Coste de entrada (filamento/baliza) congelado al iniciar. `null` = no declarado. */
+  entry_cost: number | null;
+  /** Participantes (multibox). Vacío = run de un solo piloto, como toda la vida. */
+  chars: RunChar[];
+};
+
+/** Un personaje que corrió una run. El botín se reparte a partes iguales entre los participantes,
+ *  pero la nave perdida es de quien la perdió: así el alt que muere mucho sale en rojo aunque el
+ *  conjunto gane dinero — que es justo el dato que hace cambiar un fiteo. */
+export type RunChar = {
+  character_id: number;
+  outcome: string; // "ok" | "dead" | "bail"
+  ship_type_id: number | null;
+  lost_value: number;
 };
 
 // Military Campaigns (rutas públicas de ESI; IDs = UUID, por eso string). Shapes verificados

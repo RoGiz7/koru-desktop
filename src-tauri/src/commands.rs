@@ -883,6 +883,9 @@ pub fn run_start(
     system_name: String,
     ship_type_id: Option<i64>,
     character_id: Option<i64>,
+    // Coste de entrada estimado a mercado al iniciar: UN filamento o UNA baliza, siempre a cuenta
+    // de quien lanza (en el cooperativo abisal entran hasta 3 con el filamento del que activa).
+    entry_cost: Option<f64>,
 ) -> AppResult<i64> {
     state.db.run_start(
         &activity,
@@ -894,6 +897,7 @@ pub fn run_start(
         &system_name,
         ship_type_id,
         character_id,
+        entry_cost,
     )
 }
 
@@ -930,6 +934,19 @@ pub fn run_list(state: State<'_, AppState>, activity: String) -> AppResult<Vec<c
     state.db.run_list(&activity)
 }
 
+/// Declara QUIÉNES corrieron una run (multibox). Sustituye la lista entera: se edita de una vez,
+/// no fila a fila, así no quedan estados a medias si algo falla por el camino.
+///
+/// Lista vacía = run de un solo piloto, que es como se ha comportado Koru siempre.
+#[tauri::command]
+pub fn run_chars_set(
+    state: State<'_, AppState>,
+    run_id: i64,
+    chars: Vec<crate::db::RunCharRow>,
+) -> AppResult<()> {
+    state.db.run_chars_set(run_id, &chars)
+}
+
 /// Edita una run finalizada (botín / pérdida de nave / nota).
 #[tauri::command]
 pub fn run_set(
@@ -939,10 +956,18 @@ pub fn run_set(
     loot_note: Option<String>,
     ship_loss_isk: Option<f64>,
     note: Option<String>,
+    // Editable: el estimado de mercado es solo un punto de partida. Si lo compraste más barato,
+    // o te lo regalaron, o lo sacaste explorando, aquí pones lo que fue de verdad.
+    entry_cost: Option<f64>,
 ) -> AppResult<()> {
-    state
-        .db
-        .run_set(id, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())
+    state.db.run_set(
+        id,
+        loot_isk,
+        loot_note.as_deref(),
+        ship_loss_isk,
+        note.as_deref(),
+        entry_cost,
+    )
 }
 
 /// Borra una run.

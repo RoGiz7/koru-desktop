@@ -147,6 +147,34 @@ impl Db {
             "ALTER TABLE facility ADD COLUMN tax_by_activity TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // Coste de ENTRADA de la run: lo que costó el filamento o la baliza. Sin esto el P&L era
+        // optimista — una baliza CRAB ronda los 68M y no se restaba en ninguna parte.
+        //
+        // Lo paga SIEMPRE quien lanza, y es UNA sola unidad por run en las dos actividades: una
+        // baliza en CRAB, un filamento en abisales — también en el cooperativo, donde entran hasta
+        // 3 fragatas o 2 destructores con el filamento del que activa.
+        //
+        // NULL = no declarado. Las runs viejas se quedan así a propósito: valorarlas hoy sería
+        // inventar un dato que nadie dio, y el mercado de entonces no es el de ahora.
+        let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN entry_cost REAL", []);
+        // Runs MULTICUENTA (multibox): participantes de una run de abisal/CRAB. Tabla hija y no un
+        // CSV en una columna, porque todas las preguntas interesantes son POR personaje («¿cuál
+        // muere más?», «¿con cuál gano?») y un CSV no se consulta ni se indexa.
+        //
+        // SIN migración a propósito: una run sin filas aquí se comporta exactamente como hasta hoy
+        // (su `character_id` es el único participante). Rellenar el histórico viejo sería inventar
+        // un dato que nadie declaró. Idempotente, sin tocar LOGI_DATA_VERSION.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS activity_run_chars (
+                 run_id       INTEGER NOT NULL REFERENCES activity_runs(id) ON DELETE CASCADE,
+                 character_id INTEGER NOT NULL,
+                 outcome      TEXT NOT NULL DEFAULT 'ok',   -- ok | dead | bail
+                 ship_type_id INTEGER,
+                 lost_value   REAL NOT NULL DEFAULT 0,
+                 PRIMARY KEY (run_id, character_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_arc_char ON activity_run_chars(character_id);",
+        );
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
         // personal_projects: filtro opcional (nave/mineral/sistema) añadido en 0.18.4.
@@ -2695,8 +2723,35 @@ pub struct ActivityRun {
     pub ship_loss_isk: Option<f64>,
     #[serde(default)]
     pub note: Option<String>,
+    /// Quien REGISTRÓ la run. Con multibox ya no implica que la volara: los que vuelan están en
+    /// `chars`. Sin `chars`, se comporta como siempre (él es el único participante).
     #[serde(default)]
     pub character_id: Option<i64>,
+    /// Coste de entrada (filamento/baliza) congelado al iniciar. `None` = no declarado.
+    #[serde(default)]
+    pub entry_cost: Option<f64>,
+    /// Participantes de la run (multibox). Vacío = run de un solo piloto, como toda la vida.
+    #[serde(default)]
+    pub chars: Vec<RunCharRow>,
+}
+
+/// Un personaje que corrió una run. Existe porque con multibox **tiempo y personajes dejan de ser
+/// la misma dimensión**: tres alts en una run de 20 minutos son 20 minutos de reloj, no una hora.
+///
+/// La nave perdida es SUYA a propósito (su coste va a su P&L), mientras que el botín se reparte a
+/// partes iguales. Así el alt que muere mucho sale en rojo aunque el conjunto gane dinero — que es
+/// justo el dato que hace cambiar un fiteo.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RunCharRow {
+    pub character_id: i64,
+    /// `ok` salió vivo · `dead` murió · `bail` abortó. Mismos tres estados que la run de un solo
+    /// piloto: no inventamos vocabulario nuevo para lo mismo.
+    #[serde(default)]
+    pub outcome: String,
+    #[serde(default)]
+    pub ship_type_id: Option<i64>,
+    #[serde(default)]
+    pub lost_value: f64,
 }
 
 /// Un puente Ansiblex ya resuelto contra el SDE. Par CANÓNICO (a_id < b_id): el wiki lista cada
@@ -3483,17 +3538,21 @@ impl Db {
         system_name: &str,
         ship_type_id: Option<i64>,
         character_id: Option<i64>,
+        // Lo que costó entrar (filamento/baliza), estimado a mercado al iniciar y CONGELADO aquí:
+        // valorarlo luego con el precio de hoy cambiaría tu P&L del pasado cada vez que se mueve
+        // el mercado. `None` = no declarado.
+        entry_cost: Option<f64>,
     ) -> AppResult<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO activity_runs
                  (activity, variant_id, variant_name, tier, weather, system_id, system_name,
-                  ship_type_id, started_at, outcome, character_id)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10)",
+                  ship_type_id, started_at, outcome, character_id, entry_cost)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10,?11)",
             rusqlite::params![
                 activity, variant_id, variant_name, tier, weather, system_id, system_name,
-                ship_type_id, now, character_id
+                ship_type_id, now, character_id, entry_cost
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -3529,7 +3588,7 @@ impl Db {
             .query_row(
                 "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                         ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
-                        note, character_id
+                        note, character_id, entry_cost
                  FROM activity_runs
                  WHERE ended_at IS NULL AND activity = ?1
                    AND (character_id = ?2 OR (?2 IS NULL AND character_id IS NULL))
@@ -3538,7 +3597,56 @@ impl Db {
                 Self::map_activity_run,
             )
             .ok();
-        Ok(row)
+        Ok(match row {
+            Some(mut r) => {
+                r.chars = Self::run_chars_of(&conn, r.id)?;
+                Some(r)
+            }
+            None => None,
+        })
+    }
+
+    /// Participantes de UNA run. Vacío = run de un solo piloto (el `character_id` de la run).
+    fn run_chars_of(conn: &rusqlite::Connection, run_id: i64) -> AppResult<Vec<RunCharRow>> {
+        let mut stmt = conn.prepare(
+            "SELECT character_id, outcome, ship_type_id, lost_value
+             FROM activity_run_chars WHERE run_id = ?1 ORDER BY character_id",
+        )?;
+        let rows = stmt
+            .query_map([run_id], |r| {
+                Ok(RunCharRow {
+                    character_id: r.get(0)?,
+                    outcome: r.get(1)?,
+                    ship_type_id: r.get(2)?,
+                    lost_value: r.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Sustituye los participantes de una run (borrar + insertar, en transacción). Es idempotente
+    /// y no deja estados a medias: con multibox se edita la lista entera, no fila a fila.
+    pub fn run_chars_set(&self, run_id: i64, chars: &[RunCharRow]) -> AppResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM activity_run_chars WHERE run_id = ?1", [run_id])?;
+        for c in chars {
+            tx.execute(
+                "INSERT INTO activity_run_chars (run_id, character_id, outcome, ship_type_id, lost_value)
+                 VALUES (?1,?2,?3,?4,?5)",
+                rusqlite::params![
+                    run_id,
+                    c.character_id,
+                    // `&str` en las dos ramas: `&c.outcome` sería `&String` y no casa el tipo.
+                    if c.outcome.is_empty() { "ok" } else { c.outcome.as_str() },
+                    c.ship_type_id,
+                    c.lost_value
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// El HISTÓRICO de runs FINALIZADAS de UNA ACTIVIDAD (reciente→antiguo). El frontend filtra y saca
@@ -3548,13 +3656,46 @@ impl Db {
         let mut stmt = conn.prepare(
             "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                     ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
-                    note, character_id
+                    note, character_id, entry_cost
              FROM activity_runs WHERE ended_at IS NOT NULL AND activity = ?1
              ORDER BY ended_at DESC, id DESC",
         )?;
-        let rows = stmt
+        let mut rows = stmt
             .query_map([activity], Self::map_activity_run)?
             .collect::<Result<Vec<_>, _>>()?;
+        // Participantes de TODAS las runs de la actividad en UNA consulta y luego se reparten: con
+        // cientos de runs, una consulta por run sería un N+1 y el histórico ya es grande.
+        let mut byrun: std::collections::HashMap<i64, Vec<RunCharRow>> =
+            std::collections::HashMap::new();
+        {
+            let mut s2 = conn.prepare(
+                "SELECT ac.run_id, ac.character_id, ac.outcome, ac.ship_type_id, ac.lost_value
+                 FROM activity_run_chars ac
+                 JOIN activity_runs r ON r.id = ac.run_id
+                 WHERE r.activity = ?1
+                 ORDER BY ac.run_id, ac.character_id",
+            )?;
+            let it = s2.query_map([activity], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    RunCharRow {
+                        character_id: r.get(1)?,
+                        outcome: r.get(2)?,
+                        ship_type_id: r.get(3)?,
+                        lost_value: r.get(4)?,
+                    },
+                ))
+            })?;
+            for x in it {
+                let (rid, c) = x?;
+                byrun.entry(rid).or_default().push(c);
+            }
+        }
+        for r in rows.iter_mut() {
+            if let Some(v) = byrun.remove(&r.id) {
+                r.chars = v;
+            }
+        }
         Ok(rows)
     }
 
@@ -3566,12 +3707,14 @@ impl Db {
         loot_note: Option<&str>,
         ship_loss_isk: Option<f64>,
         note: Option<&str>,
+        entry_cost: Option<f64>,
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE activity_runs SET loot_isk = ?2, loot_note = ?3, ship_loss_isk = ?4, note = ?5
+            "UPDATE activity_runs SET loot_isk = ?2, loot_note = ?3, ship_loss_isk = ?4, note = ?5,
+                    entry_cost = ?6
              WHERE id = ?1",
-            rusqlite::params![id, loot_isk, loot_note, ship_loss_isk, note],
+            rusqlite::params![id, loot_isk, loot_note, ship_loss_isk, note, entry_cost],
         )?;
         Ok(())
     }
@@ -3603,6 +3746,10 @@ impl Db {
             ship_loss_isk: r.get(14)?,
             note: r.get(15)?,
             character_id: r.get(16)?,
+            entry_cost: r.get(17)?,
+            // Los participantes NO vienen en este SELECT: los rellenan run_active/run_list, que
+            // los piden aparte para no repetir la fila de la run por cada piloto.
+            chars: Vec::new(),
         })
     }
 

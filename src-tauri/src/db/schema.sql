@@ -640,8 +640,29 @@ CREATE TABLE IF NOT EXISTS activity_runs (
     loot_note     TEXT,
     ship_loss_isk REAL,                     -- si outcome='died': valor de la nave+fit perdidos (P&L)
     note          TEXT,
-    character_id  INTEGER
+    character_id  INTEGER,          -- quien LANZA la run (multibox: los demás van en la tabla hija)
+    -- Lo que costó entrar: filamento(s) o baliza, estimado a mercado al iniciar y CONGELADO.
+    -- Congelarlo importa: valorarlo con el precio de hoy cambiaría tu P&L del pasado cada vez que
+    -- se mueve el mercado. Lo paga quien lanza, y es UNA unidad por run en las dos actividades
+    -- (en el cooperativo abisal entran hasta 3 con el filamento del que activa). NULL = no declarado.
+    entry_cost    REAL
 );
+-- Participantes de una run cuando se corre con VARIOS personajes propios (multibox).
+-- Tabla hija y no un CSV: todas las preguntas interesantes son POR personaje.
+-- Una run SIN filas aquí es una run de un solo piloto y se comporta como siempre (su
+-- `character_id` es el único participante) — por eso no hace falta migrar el histórico.
+-- El botín se reparte a partes iguales entre los participantes, pero la nave perdida es de quien
+-- la perdió: así el alt que muere mucho sale en rojo aunque el conjunto gane dinero.
+CREATE TABLE IF NOT EXISTS activity_run_chars (
+    run_id       INTEGER NOT NULL REFERENCES activity_runs(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL,
+    outcome      TEXT NOT NULL DEFAULT 'ok',  -- ok | dead | bail (los mismos de la run individual)
+    ship_type_id INTEGER,                     -- cada alt suele llevar la suya
+    lost_value   REAL NOT NULL DEFAULT 0,     -- si murió: valor de SU nave, va a SU P&L
+    PRIMARY KEY (run_id, character_id)
+);
+CREATE INDEX IF NOT EXISTS idx_arc_char ON activity_run_chars(character_id);
+
 CREATE INDEX IF NOT EXISTS idx_runs_activity ON activity_runs(activity);
 CREATE INDEX IF NOT EXISTS idx_runs_ended    ON activity_runs(ended_at);
 CREATE INDEX IF NOT EXISTS idx_runs_char     ON activity_runs(character_id);

@@ -1115,6 +1115,107 @@ select,
   font-size: 0.72rem;
   color: var(--fg-muted, #9aa4b2);
 }
+/* Chapa SELECCIONABLE (elegir quién corre una run multibox). Sin esto, pulsar solo cambiaba la
+   opacidad del retrato y la chapa se veía idéntica: no parecía que se pudiera elegir. */
+button.pp-tag {
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+button.pp-tag:hover {
+  border-color: var(--border, #30363d);
+  color: var(--fg, #e6edf3);
+}
+/* AZUL = participa. VERDE = lanza la run (en CRAB, quien enlaza la baliza y abre su bodega).
+   Dos roles distintos merecen dos colores distintos, no dos intensidades del mismo. */
+button.pp-tag.on {
+  background: color-mix(in srgb, var(--accent, #58a6ff) 18%, transparent);
+  border-color: var(--accent, #58a6ff);
+  color: var(--fg, #e6edf3);
+}
+button.pp-tag.launcher {
+  background: color-mix(in srgb, var(--ok, #3fb950) 22%, transparent);
+  border-color: var(--ok, #3fb950);
+  color: var(--fg, #e6edf3);
+}
+/* Histórico de runs: tripulación, resultado y nave.
+   Los retratos van SOLAPADOS para que una tripulación de cinco no ensanche la columna, y el que
+   murió lleva anillo rojo — así se ve de un vistazo en qué runs cayó alguien. */
+.run-crew {
+  display: inline-flex;
+  align-items: center;
+}
+.run-crew img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #30363d);
+  background: var(--bg, #0d1117);
+  margin-left: -6px;
+}
+.run-crew img:first-child {
+  margin-left: 0;
+}
+.run-crew img.dead {
+  border-color: var(--bad, #f85149);
+  filter: grayscale(0.6);
+}
+/* Quien lanzó la run: va primero y con anillo verde, como en el selector. */
+.run-crew img.launcher {
+  border-color: var(--ok, #3fb950);
+  border-width: 2px;
+}
+/* Resultado como chapa: el texto suelto se perdía entre columnas. */
+.run-chip {
+  display: inline-block;
+  padding: 0.02rem 0.4rem;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+/* La nave de la run, más pequeña que el icono del filamento/beacon: es un dato secundario y
+   al mismo tamaño competía con él. */
+.run-ship {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  margin-left: 0.35rem;
+  vertical-align: -4px;
+  opacity: 0.85;
+}
+/* Celda «icono + nombre»: centrada verticalmente. Alineadas a la línea base, un icono más alto que
+   el texto deja la palabra colgando abajo y la fila se ve descuadrada. */
+.cell-icon {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+/* Fila «etiqueta + chapas»: la etiqueta va fija a la izquierda y las chapas en su propia columna,
+   así al envolver la segunda línea cae DEBAJO de la primera chapa y no contra el margen. */
+.run-pickrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+.run-pickrow > .run-pickrow-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  line-height: 1.5rem;
+}
+.run-pickrow > .run-pickrow-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Dentro de la rejilla manda el `gap`: el margen suelto descuadraba la primera de cada línea. */
+.run-pickrow-items .pp-tag {
+  margin-left: 0;
+}
 /* Control de escaneo de gamelogs (logi) */
 .gl-scan {
   display: flex;

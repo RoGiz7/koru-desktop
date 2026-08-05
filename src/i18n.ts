@@ -1788,6 +1788,45 @@ const EN: Record<string, string> = {
   "Nave (opcional)": "Ship (optional)",
   "Nave de la run": "Run ship",
   "Por nave": "By ship",
+  // Runs multicuenta (multibox) en abisales y CRAB
+  // («Pilotos» ya existe más arriba: se reutiliza, no se duplica — TS1117.)
+  "Por piloto": "By pilot",
+  "Las que más usas": "The ones you fly most",
+  "la tienes": "you own it",
+  runs: "runs",
+  bajas: "losses",
+  "Runs con bajas": "Runs with losses",
+  "¿Quién corre esta run?": "Who's running this?",
+  "pilotos: el botín se repartirá a partes iguales":
+    "pilots: loot will be split equally",
+  "pulsa para añadir; con uno solo se guarda como siempre":
+    "click to add; with just one it saves as always",
+  Entrada: "Entry",
+  "Estimado a precio de mercado y congelado al iniciar. Editable después.":
+    "Estimated at market price and frozen when you start. Editable afterwards.",
+  "Filamento(s) o baliza. Lo paga quien lanza; en blanco en las runs de antes de que Koru lo guardara.":
+    "Filament(s) or beacon. Paid by whoever launches; blank on runs from before Koru recorded it.",
+  "lanza la run": "launches the run",
+  "participa. Pulsa para que sea quien lanza": "takes part. Click to make him the launcher",
+  "lanzó la run": "launched the run",
+  "verde = lanza la run · azul = participa · pulsa uno azul para ascenderlo":
+    "green = launches the run · blue = takes part · click a blue one to promote it",
+  "Una run abortada no tiene botín que corregir. Si te equivocaste al cerrarla, bórrala y vuelve a registrarla.":
+    "A bailed run has no loot to fix. If you closed it by mistake, delete it and log it again.",
+  "Salió vivo": "Survived",
+  Murió: "Died",
+  Abortó: "Bailed",
+  "Su nave (ISK)": "His ship (ISK)",
+  "La nave perdida se apunta a quien la perdió; el botín se reparte a partes iguales.":
+    "A lost ship goes against whoever lost it; loot is split equally.",
+  "Sus muertes entre las runs en que participó. Distinto de «runs con bajas», que mide el riesgo de la actividad.":
+    "His deaths across the runs he joined. Different from “runs with losses”, which measures the activity's risk.",
+  "Su parte del botín (a partes iguales) menos las naves que perdió él.":
+    "His share of the loot (split equally) minus the ships he lost.",
+  "Su P&L entre la duración REAL de las runs: el tiempo no se reparte, los 20 minutos los vivisteis todos.":
+    "His P&L over the REAL run duration: time isn't split — all of you lived those 20 minutes.",
+  "Botín a partes iguales; la nave perdida es de quien la perdió. Por eso un piloto puede salir en rojo aunque el conjunto gane: ahí es donde toca mirar el fiteo.":
+    "Loot split equally; a lost ship belongs to whoever lost it. That's why one pilot can show red while the group profits — that's where to look at the fit.",
   "Mejor día": "Best day",
   // Rastreador: catálogo de tipos de WH
   "código (K162…) o nombre…": "code (K162…) or name…",
