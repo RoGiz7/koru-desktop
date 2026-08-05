@@ -6,6 +6,30 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.39.0",
+    date: "2026-08-05",
+    es: [
+      "🎖️ Cada medalla estrena ficha propia. Púlsala y se abre una ventana con su historia entera: barras de lo que hiciste cada mes, la línea de tu acumulado, y marcado con su fecha el momento exacto en que cruzaste bronce, plata y oro. Con filtros de 6 meses a todo el histórico, tabla mes a mes y un resumen en cristiano: tu mejor mes, cuántos llevas seguidos y cuándo llegarías al siguiente nivel a tu ritmo actual. Antes solo se veía una curva acumulada, y una curva que solo sube no cuenta ninguna historia: el ritmo está en el mes, no en el total.",
+      "📈 Y ahora la tienen LAS 36 medallas. Antes solo 11 tenían evolución; las otras 25 se abrían para decirte «sin datos». Exploración, abismo, logística, mando de flota, minería, viaje… todas con su historia mes a mes.",
+      "🏅 13 medallas nuevas. Nueve de exploración (reliquias, datos, gas, agujeros de gusano, sitios totales, botín, tu mejor sitio, sistemas distintos y maratón de sondeo) y cuatro de abismo y CRAB (runs completadas, tu récord de ISK/hora, racha sin perder una nave y la dificultad más alta superada con vida). Se calculan desde que usas Koru, no antes: preferimos un número corto y verdadero.",
+      "👥 Runs a varias cuentas, por fin bien contadas. Apunta quién entró en cada run: el botín se reparte a partes iguales, cada piloto lleva su desenlace y su nave, y el coste de entrada se le cobra solo a quien lanzó. Tabla nueva «Por piloto» y dos métricas de bajas que no son la misma (runs con bajas ≠ bajas por piloto). Clave: con varias cuentas el ISK/hora usa la MISMA duración para todos — repartir el tiempo entre pilotos lo inflaría.",
+      "📔 La Bitácora, ordenada. Todo por pestañas —retos, progresando, completados y cada dominio— con una franja de estado arriba que reúne puntuación, medallas de oro, empezadas y la última conseguida, más una barra donde cada segmento es una medalla teñida por su nivel: de un vistazo ves cuánto llevas.",
+      "📅 El Diario, por años. Una pestaña por año, del más reciente al más antiguo. Y las condecoraciones de corporación se mudan aquí, que es su sitio: tienen fecha y son parte de tu historia, no de tu progreso.",
+      "🎨 Iconografía del juego por todas partes. El menú, las pestañas y la franja de actividad cambian los emoji por iconos reales de objetos de EVE. La franja además se amplía: ahora también cuenta lo que exploras, lo que minas y tus runs.",
+      "🐛 Arreglado: las ventanas emergentes se quedaban por debajo de los controles del mapa con la app maximizada.",
+    ],
+    en: [
+      "🎖️ Every medal gets its own detail window. Click one and you'll see its whole history: bars for what you did each month, the line of your running total, and the exact moment you crossed bronze, silver and gold, each marked with its date. With filters from 6 months to your full history, a month-by-month table and a plain-language summary: your best month, how many months you're on, and when you'd reach the next tier at your current pace. Before there was only a cumulative curve, and a curve that only goes up tells no story: the rhythm lives in the month, not in the total.",
+      "📈 And now ALL 36 medals have one. Only 11 used to have a history; the other 25 opened just to say “no data”. Exploration, abyss, logistics, fleet command, mining, travel — every one of them, month by month.",
+      "🏅 13 new medals. Nine for exploration (relics, data, gas, wormholes, total sites, loot, your best single site, distinct systems and a scanning marathon) and four for abyss and CRAB (runs completed, your ISK/hour record, streak without losing a ship, and the highest difficulty you've come out of alive). They count from when you started using Koru, not before: we'd rather show a short true number.",
+      "👥 Multi-account runs, finally counted right. Log who came along on each run: loot splits evenly, each pilot carries their own outcome and ship, and the entry cost is charged only to whoever launched it. New “Per pilot” table and two loss metrics that aren't the same thing (runs with losses ≠ losses per pilot). Key point: with several accounts, ISK/hour uses the SAME duration for everyone — splitting the time between pilots would inflate it.",
+      "📔 The Logbook, tidied up. Everything in tabs — challenges, in progress, completed and each domain — with a status band up top gathering score, gold medals, medals started and your latest one, plus a bar where each segment is a medal tinted by its tier: one glance tells you how far you've come.",
+      "📅 The Diary, by year. One tab per year, most recent first. And corporation decorations move here, where they belong: they have a date and they're part of your story, not your progress.",
+      "🎨 Game iconography everywhere. The menu, the tabs and the activity ticker swap emoji for real EVE item icons. The ticker also grows: it now covers what you explore, what you mine and your runs.",
+      "🐛 Fixed: pop-up windows sat underneath the map controls when the app was maximised.",
+    ],
+  },
+  {
     version: "0.38.0",
     date: "2026-08-05",
     es: [
