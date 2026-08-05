@@ -10,7 +10,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { MedalArt } from "./medalArt";
-import type { Bitacora, AchievementState, Medal, SeriesPoint, CharacterDetail, CorpProject } from "./types";
+import type { Bitacora, AchievementState, Medal, AchSeries, CharacterDetail } from "./types";
+import { MedalDetail } from "./medalDetail";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
 // inmersión — el mismo image server que ya usa toda la app (retratos, naves, logos). `tid` es un
@@ -46,7 +47,30 @@ export const ACH_UI: Record<string, { icon: string; label: string; desc: string;
   wrecks_dados: { icon: "💢", label: "Demoledor", desc: "Golpes wrecking asestados (Destruye)", tid: 2478 }, // Berserker II
   dano_total: { icon: "💣", label: "Artillero", desc: "Daño total infligido (del gamelog, con o sin muerte detrás)", tid: 645 }, // Dominix
   sistemas_mineria: { icon: "🧭", label: "Prospector", desc: "Sistemas distintos donde has minado (del gamelog + chatlog)", tid: 32880 }, // Venture
+  // --- Exploración (del Histórico de exploración propio; el gamelog NO registra hackeos) ---
+  relic_hechos: { icon: "🏺", label: "Arqueólogo", desc: "Yacimientos de reliquias completados", tid: 22177 }, // Relic Analyzer I
+  data_hechos: { icon: "💾", label: "Descifrador", desc: "Sitios de datos completados", tid: 22175 }, // Data Analyzer I
+  gas_hechos: { icon: "☁️", label: "Nube y beneficio", desc: "Nubes de gas trabajadas", tid: 60313 }, // Gas Cloud Harvester I
+  wh_anotados: { icon: "🕳️", label: "Umbral tras umbral", desc: "Agujeros de gusano anotados en tu histórico", tid: 30488 }, // Sisters Core Scanner Probe
+  sitios_totales: { icon: "📡", label: "Sondas fuera", desc: "Sitios de exploración completados", tid: 30488 },
+  sistemas_explorados: { icon: "🗺️", label: "Cartógrafo", desc: "Sistemas distintos donde has explorado", tid: 33468 }, // Astero
+  botin_explorado: { icon: "💎", label: "Fiebre del tesoro", desc: "Botín total sacado explorando", tid: 44992 }, // PLEX
+  mejor_sitio: { icon: "🎁", label: "El premio gordo", desc: "El sitio más rentable de tu histórico", tid: 44992 },
+  maraton_sondeo: { icon: "🌙", label: "Maratón de sondeo", desc: "Más sitios completados en un solo día", tid: 30488 },
+  // --- Abismo y CRAB (de tus runs cronometradas) ---
+  runs_hechas: { icon: "🌀", label: "Buceador", desc: "Runs abisales y CRAB completadas", tid: 47894 }, // Raging Dark Filament
+  iskh_record: { icon: "⚡", label: "Racha dorada", desc: "Tu mejor ISK/hora en una run", tid: 17715 }, // Gila
+  racha_sin_morir: { icon: "🍀", label: "Piel dura", desc: "Runs seguidas sin perder una nave", tid: 2048 }, // Damage Control II
+  abismo_dificultad: { icon: "☠️", label: "Sin retorno", desc: "Dificultad más alta superada con vida (Furioso / Caótico / Cataclísmico)", tid: 56140 }, // Cataclysmic Dark Filament
 };
+
+/** Iconos EVE de la propia sección (regla de la casa: nada de emoji donde hay un ítem que lo diga).
+ *  Los tres primeros son del MISMO set —la Prueba de Leyendas— y eso es a propósito: Intermediate
+ *  y Legends son dos grados de la misma medalla, igual que «progresando» y «completado» son dos
+ *  grados de lo mismo. El Target Painter para los retos, porque un reto es un objetivo marcado. */
+const TID_TARGET = 21540; // 'Inception' Target Painter
+const TID_MEDAL_MID = 16713; // Intermediate Medal
+const TID_MEDAL_TOP = 16714; // Legends Medal
 
 // Dominios (como las facciones de EVE, pero propios): color + emblema (typeID real) + qué agrupan.
 type Cat = { key: string; label: string; color: string; tid: number; ids: string[] };
@@ -78,6 +102,20 @@ const CATS: Cat[] = [
     color: "#3fa66a",
     tid: 34, // Tritanium
     ids: ["mineria_total", "boost_capataz", "mineria_crit", "salvage_total", "sistemas_mineria"],
+  },
+  {
+    key: "exploracion",
+    label: "Exploración",
+    color: "#7f5af0", // violeta de sonda
+    tid: 30488, // Sisters Core Scanner Probe
+    ids: ["relic_hechos", "data_hechos", "gas_hechos", "wh_anotados", "sitios_totales", "sistemas_explorados", "botin_explorado", "mejor_sitio", "maraton_sondeo"],
+  },
+  {
+    key: "abismo",
+    label: "Abismo",
+    color: "#c94f7c", // el rosa-rojo de los filamentos
+    tid: 47894, // Raging Dark Filament
+    ids: ["runs_hechas", "iskh_record", "racha_sin_morir", "abismo_dificultad"],
   },
   {
     key: "apoyo",
@@ -160,46 +198,15 @@ function Pips({ level }: { level: number }) {
   );
 }
 
-// ---- Mini-gráfico de evolución de un logro: área + curva + líneas de bronce/plata/oro. ----
-const TIER_LINE = ["", "#cd7f32", "#c9d1d9", "#e8be3f"];
-function MiniChart({ points, thresholds }: { points: SeriesPoint[]; thresholds: [number, number, number] }) {
-  if (!points || points.length === 0)
-    return <div className="muted small ach-chart-empty">{tr("Sin datos de evolución todavía.")}</div>;
-  const W = 300;
-  const H = 92;
-  const pad = 5;
-  const last = points[points.length - 1].value;
-  const maxV = Math.max(last, thresholds[2], 1);
-  const n = points.length;
-  const x = (i: number) => pad + (n === 1 ? (W - 2 * pad) / 2 : (i / (n - 1)) * (W - 2 * pad));
-  const y = (v: number) => H - pad - Math.min(1, v / maxV) * (H - 2 * pad);
-  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(n - 1).toFixed(1)},${(H - pad).toFixed(1)} L${x(0).toFixed(1)},${(H - pad).toFixed(1)} Z`;
-  return (
-    <svg className="ach-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
-      {[0, 1, 2].map((t) => {
-        const v = thresholds[t];
-        if (v <= 0 || v > maxV) return null;
-        const yy = y(v);
-        return (
-          <line key={t} x1={pad} y1={yy} x2={W - pad} y2={yy} stroke={TIER_LINE[t + 1]} strokeWidth={0.7} strokeDasharray="3 3" opacity={0.75} />
-        );
-      })}
-      <path d={area} fill="var(--accent)" fillOpacity={0.14} />
-      <path d={line} fill="none" stroke="var(--accent)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 // ---- Tarjeta de medalla (usada en la home y en las rejillas por dominio). Clicable → evolución. ----
 function MedalCard({
   a,
-  series,
   open,
   onToggle,
 }: {
   a: AchievementState;
-  series?: SeriesPoint[];
+  /** Abre la ficha de medalla (medalDetail.tsx). La gráfica ya no vive dentro de la tarjeta:
+   *  no cabía y, sobre todo, el acumulado solo sabía subir. Ver el porqué en ese fichero. */
   open?: boolean;
   onToggle?: () => void;
 }) {
@@ -238,7 +245,6 @@ function MedalCard({
           </span>
         </div>
       </div>
-      {open && <MiniChart points={series ?? []} thresholds={a.thresholds} />}
     </div>
   );
 }
@@ -248,7 +254,7 @@ function MedalCard({
 // dibujo REAL componiendo las capas de ESI; si no, el marco genérico de siempre.
 // `grants` = TODAS las entregas de la misma medalla (la corp puede otorgarla varias veces,
 // p.ej. reenviarla con el motivo corregido): una tarjeta, badge ×N y cada fecha con su motivo.
-function OfficialMedal({ grants }: { grants: Medal[] }) {
+export function OfficialMedal({ grants }: { grants: Medal[] }) {
   const m = grants[0]; // título/corp/descripción/dibujo son de la medalla; lo que varía es la entrega
   return (
     <div className="medal official">
@@ -299,41 +305,7 @@ export function BitacoraView({
   /// refrescan solas (un logro desbloqueado en el sync aparece sin cambiar de vista).
   syncTick?: number;
 }) {
-  // Medallas in-game (condecoraciones de corp): por personaje, best-effort (scope read_medals).
-  const [medals, setMedals] = useState<Medal[]>([]);
-  useEffect(() => {
-    if (typeof subject !== "number") {
-      setMedals([]);
-      return;
-    }
-    let alive = true;
-    invoke<Medal[]>("get_medals", { characterId: subject })
-      .then((m) => alive && setMedals(m))
-      .catch(() => alive && setMedals([]));
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subject, syncTick]);
-
-  // Retos de corporación: los proyectos de corp (ESI read_projects, lo concede el propio miembro)
-  // como retos de la Bitácora — el objetivo lo pone tu corp, la aportación es tuya. Best-effort:
-  // sin scope o en Global, el bloque no aparece. Los detalles finos viven en Trabajos y proyectos.
-  const [corpProjects, setCorpProjects] = useState<CorpProject[]>([]);
-  useEffect(() => {
-    if (typeof subject !== "number") {
-      setCorpProjects([]);
-      return;
-    }
-    let alive = true;
-    invoke<CorpProject[]>("get_corp_projects", { characterId: subject })
-      .then((p) => alive && setCorpProjects(p))
-      .catch(() => alive && setCorpProjects([]));
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subject, syncTick]);
+  // (Las condecoraciones in-game se cargan ahora en el Diario, que es donde se pintan.)
 
   // Puntuación de logros OFICIAL de EVE (Cradle of War) + título oficial equipado (novedad ESI
   // 2026): por personaje, best-effort. El catálogo de títulos es SDE local (character_titles.json).
@@ -374,11 +346,15 @@ export function BitacoraView({
     : "";
 
   // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
-  const [series, setSeries] = useState<Record<string, SeriesPoint[]>>({});
+  const [series, setSeries] = useState<Record<string, AchSeries>>({});
   const [openMedal, setOpenMedal] = useState<string | null>(null);
+  /** Pestaña de la Bitácora. `retos` · `progreso` · `oro` · o la clave de un dominio.
+   *  Todo en pestañas (decisión de Zigor): la sección había crecido tanto que lo importante
+   *  quedaba enterrado bajo scroll. Preferencia de UI, no dato: no se persiste. */
+  const [tab, setTab] = useState<string>("retos");
   useEffect(() => {
     let alive = true;
-    invoke<Record<string, SeriesPoint[]>>("get_achievement_series", {
+    invoke<Record<string, AchSeries>>("get_achievement_series", {
       characterId: typeof subject === "number" ? subject : null,
     })
       .then((s) => alive && setSeries(s))
@@ -408,34 +384,84 @@ export function BitacoraView({
       return progressTo(y).pct - progressTo(x).pct; // si empatan, el más cerca del siguiente
     })
     .slice(0, 6);
+  /** Resumen fino de arriba: cuántas de oro llevas y cuál fue la última. Se calcula sobre TODAS
+   *  las medallas, no sobre las 6 que se enseñan en la pestaña. */
+  const oroCount = data.achievements.filter((a) => a.level >= 3).length;
+  const ultimoOro = [...data.achievements]
+    .filter((a) => a.level >= 3 && a.unlocked_at[2])
+    .sort((x, y) => (y.unlocked_at[2] ?? "").localeCompare(x.unlocked_at[2] ?? ""))[0];
   const completados = data.achievements
     .filter((a) => a.level >= 3)
     .sort((x, y) => (y.unlocked_at[2] ?? "").localeCompare(x.unlocked_at[2] ?? ""))
     .slice(0, 6);
+  /** Barra del medallero: un segmento por medalla, ORDENADOS de más a menos avanzada. Ordenar por
+   *  tier (y dentro del tier, por lo cerca que estás del siguiente) hace que la barra se lea sola
+   *  como «cuánto llevas»: se llena por la izquierda. En orden de dominio sería un código de barras
+   *  bonito pero mudo. */
+  const barra = [...data.achievements].sort(
+    (x, y) => y.level - x.level || progressTo(y).pct - progressTo(x).pct,
+  );
 
   return (
     <>
-      {/* Cabecera: puntuación agregada (como "Puntuación del logro" de EVE) */}
-      <div className="bit-topbar">
-        <div className="bit-title">
-          📖 <strong>{tr("Bitácora")}</strong>
-          <span className="muted small">{tr("generada de tu propia historia")}</span>
-        </div>
-        <div className="bit-score" title={tr("Suma de puntos por medalla (bronce 1 · plata 3 · oro 8)")}>
-          <span className="bit-score-num">{score}</span>
-          <span className="muted small">
-            {tr("Puntuación")} · {unlockedCount}/{total} {tr("medallas")}
-          </span>
+      {/* Cabecera: solo la puntuación agregada (como "Puntuación del logro" de EVE). El título de la
+          sección ya lo pone la cabecera común de arriba —repetirlo aquí era decir dos veces lo mismo. */}
+      {/* ---- Franja de estado del medallero ----
+          Antes esto era una cifra sola arriba a la derecha con un «Puntuación · 22/36» minúsculo
+          debajo, y una segunda línea suelta con «2 de oro · 22/36 empezadas · la última…» que
+          REPETÍA el mismo 22/36. Quedaba pobre y decía dos veces lo mismo en dos sitios.
+          Ahora es una sola franja a todo el ancho: cada dato en su celda, con su número grande y su
+          etiqueta debajo, y de remate la barra del medallero entero. Idea de Zigor. */}
+      <div className="bit-hero">
+        <div className="bit-hero-stats">
+          <div className="bhs" title={tr("Suma de puntos por medalla (bronce 1 · plata 3 · oro 8)")}>
+            <span className="bhs-num">{score}</span>
+            <span className="bhs-lbl">{tr("Puntuación")}</span>
+            <span className="bhs-sub muted">{tr("bronce 1 · plata 3 · oro 8")}</span>
+          </div>
+          <div className="bhs" title={tr("Medallas llevadas hasta el nivel máximo")}>
+            <span className="bhs-num gold">{oroCount}</span>
+            <span className="bhs-lbl">{tr("De oro")}</span>
+            <span className="bhs-sub muted">
+              {tr("de")} {total}
+            </span>
+          </div>
+          <div className="bhs" title={tr("Medallas con al menos el bronce conseguido")}>
+            <span className="bhs-num">
+              {unlockedCount}
+              <small>/{total}</small>
+            </span>
+            <span className="bhs-lbl">{tr("Empezadas")}</span>
+            <span className="bhs-sub muted">
+              {Math.round((unlockedCount / Math.max(1, total)) * 100)}% {tr("del medallero")}
+            </span>
+          </div>
+          {ultimoOro && (
+            <div className="bhs bhs-wide">
+              <span className="bhs-num-txt">{tr(ACH_UI[ultimoOro.id]?.label ?? ultimoOro.id)}</span>
+              <span className="bhs-lbl">{tr("Último oro")}</span>
+              <span className="bhs-sub muted">{ultimoOro.unlocked_at[2]?.slice(0, 10)}</span>
+            </div>
+          )}
           {officialScore != null && officialScore > 0 && (
-            <span className="bit-score-eve" title={tr("Puntuación de logros oficial de EVE (Cradle of War)")}>
-              🏆 {officialScore.toLocaleString()} <span className="muted small">{tr("logros EVE")}</span>
-            </span>
+            <div className="bhs" title={tr("Puntuación de logros oficial de EVE (Cradle of War)")}>
+              <span className="bhs-num">{officialScore.toLocaleString()}</span>
+              <span className="bhs-lbl">{tr("Logros EVE")}</span>
+              <span className="bhs-sub muted">{officialTitleLabel || tr("del juego")}</span>
+            </div>
           )}
-          {officialTitleLabel && (
-            <span className="bit-score-eve" title={tr("Título oficial equipado (Cradle of War)")}>
-              👑 {officialTitleLabel}
-            </span>
-          )}
+        </div>
+
+        {/* Un segmento por medalla. Es la lectura de un vistazo que antes no existía: cuánto del
+            medallero está hecho y con qué reparto de metales. */}
+        <div className="bit-hero-bar" title={tr("Cada segmento es una medalla, teñida por su nivel")}>
+          {barra.map((a) => (
+            <i
+              key={a.id}
+              className={`bhb l${a.level}`}
+              title={`${tr(ACH_UI[a.id]?.label ?? a.id)} — ${a.level > 0 ? tr(LEVEL_NAME[a.level]) : tr("sin empezar")}`}
+            />
+          ))}
         </div>
       </div>
 
@@ -462,9 +488,53 @@ export function BitacoraView({
         </div>
       )}
 
+      {/* El resumen fino de «2 de oro · 22/36 empezadas · la última…» que vivía aquí se ha fundido
+          con la franja de arriba: eran los MISMOS datos escritos dos veces con distinto formato. */}
+
+      {/* ---- TODO en pestañas (decisión de Zigor): retos primero, luego lo que está en marcha,
+              después el oro, y al final los dominios. Antes era un scroll larguísimo donde lo
+              accionable —los retos, que caducan a fin de mes— quedaba arriba pero enterrado en
+              cuanto crecía el medallero. ---- */}
+      <div className="bit-cat-tabs">
+        <button className={tab === "retos" ? "active" : ""} onClick={() => setTab("retos")}>
+          <img className="bit-cat-img" src={typeIcon(TID_TARGET, 32)} alt="" loading="lazy" />{" "}
+          {tr("Retos del mes")}
+        </button>
+        <button className={tab === "progreso" ? "active" : ""} onClick={() => setTab("progreso")}>
+          <img className="bit-cat-img" src={typeIcon(TID_MEDAL_MID, 32)} alt="" loading="lazy" />{" "}
+          {tr("Progresando")} <span className="muted">({progresando.length})</span>
+        </button>
+        <button className={tab === "oro" ? "active" : ""} onClick={() => setTab("oro")}>
+          <img className="bit-cat-img" src={typeIcon(TID_MEDAL_TOP, 32)} alt="" loading="lazy" />{" "}
+          {tr("Completados")} <span className="muted">({oroCount})</span>
+        </button>
+        {CATS.map((cat) => {
+          const ms = cat.ids.map((id) => byId.get(id)).filter((a): a is AchievementState => !!a);
+          if (ms.length === 0) return null;
+          const got = ms.filter((a) => a.level > 0).length;
+          const on = tab === cat.key;
+          return (
+            <button
+              key={cat.key}
+              className={on ? "active" : ""}
+              onClick={() => setTab(cat.key)}
+              style={on ? { borderColor: cat.color, color: cat.color } : undefined}
+              title={`${tr(cat.label)} · ${got}/${ms.length}`}
+            >
+              <img className="bit-cat-img" src={typeIcon(cat.tid, 32)} alt="" loading="lazy" />{" "}
+              {tr(cat.label)} <span className="muted">({got}/{ms.length})</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* ---- Retos del mes: tú contra tu yo del mes pasado ---- */}
+      {tab === "retos" && (<>
       <div className="bit-head">
-        <h4>🎯 {tr("Retos del mes")}</h4>
+        <h4>
+          <img className="bit-cat-img" src={typeIcon(TID_TARGET, 32)} alt="" loading="lazy" />{" "}
+          {tr("Retos del mes")}
+        </h4>
         <span className="muted small">
           {tr("Tu mes anterior marca el listón · quedan")} {daysLeft()} {tr("días")}
         </span>
@@ -508,146 +578,74 @@ export function BitacoraView({
         </div>
       )}
 
-      {/* ---- Retos de corporación: los objetivos de tu corp como retos, con TU aportación. ----
-           Mismas cartas que los retos del mes; el detalle fino (método, entrega, recompensa)
-           sigue viviendo en Trabajos y proyectos — aquí solo el reto y cuánto has puesto tú. */}
-      {(() => {
-        const active = corpProjects.filter((p) => p.state === "Active" && p.progress_desired > 0);
-        if (active.length === 0) return null;
-        return (
-          <>
-            <div className="bit-head">
-              <h4>🏢 {tr("Retos de corporación")}</h4>
-              <span className="muted small">
-                {tr("El objetivo lo pone tu corp; la aportación es tuya")}
-              </span>
-            </div>
-            <div className="bit-challenges">
-              {active.map((p) => {
-                const pct = Math.min(100, (p.progress_current / p.progress_desired) * 100);
-                const done = p.progress_current >= p.progress_desired;
-                return (
-                  <div key={p.id} className={`bit-card ${done ? "done" : ""}`}>
-                    <div className="bit-card-head">
-                      {p.icon_type_id ? (
-                        <img className="bit-icon-img" src={typeIcon(p.icon_type_id, 32)} alt="" loading="lazy" />
-                      ) : (
-                        <span className="bit-icon">🏢</span>
-                      )}
-                      <strong>{p.name || tr("Proyecto")}</strong>
-                      {done && <span className="bit-done">✔ {tr("¡Conseguido!")}</span>}
-                    </div>
-                    <div className="bit-bar">
-                      <div className="bit-bar-fill" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="bit-card-nums">
-                      <span className="bit-cur">{fmtSp(p.progress_current)}</span>
-                      <span className="muted small">
-                        {tr("objetivo")} {fmtSp(p.progress_desired)}
-                        {p.contributed > 0 && (
-                          <>
-                            {" "}
-                            · {tr("tu aportación")} {fmtSp(p.contributed)}
-                          </>
-                        )}
-                      </span>
-                      <span className={`bit-pct ${done ? "tk-up" : ""}`}>{pct.toFixed(0)}%</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        );
-      })()}
+      {/* Los RETOS DE CORPORACIÓN ya no están aquí: los proyectos de corp se pintan en «Trabajos
+          y proyectos» (freelance.tsx), que es su sitio. Tenerlos en dos secciones era duplicar la
+          misma información y obligaba a mantenerla dos veces. */}
 
-      {/* ---- Home: progresando + completados recientemente (inspirado en la home de Logros) ---- */}
-      {progresando.length > 0 && (
+      </>)}
+
+      {/* ---- Progresando: lo que está en marcha ---- */}
+      {tab === "progreso" && progresando.length > 0 && (
         <>
           <div className="bit-head">
-            <h4>📈 {tr("Progresando")}</h4>
+            <h4>
+              <img className="bit-cat-img" src={typeIcon(TID_MEDAL_MID, 32)} alt="" loading="lazy" />{" "}
+              {tr("Progresando")}
+            </h4>
             <span className="muted small">{tr("logros en marcha, lo más reciente primero")}</span>
           </div>
           <div className="medal-grid">
             {progresando.map((a) => (
-              <MedalCard key={a.id} a={a} series={series[a.id]} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
+              <MedalCard key={a.id} a={a} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
             ))}
           </div>
         </>
       )}
-      {completados.length > 0 && (
+      {tab === "oro" && completados.length > 0 && (
         <>
           <div className="bit-head">
-            <h4>🏆 {tr("Completados")}</h4>
+            <h4>
+              <img className="bit-cat-img" src={typeIcon(TID_MEDAL_TOP, 32)} alt="" loading="lazy" />{" "}
+              {tr("Completados")}
+            </h4>
             <span className="muted small">{tr("medallas de oro conseguidas")}</span>
           </div>
           <div className="medal-grid">
             {completados.map((a) => (
-              <MedalCard key={a.id} a={a} series={series[a.id]} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
+              <MedalCard key={a.id} a={a} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
             ))}
           </div>
         </>
       )}
 
-      {/* ---- Medallero completo por dominio ---- */}
-      <div className="bit-head">
-        <h4>🏅 {tr("Medallero")}</h4>
-        <span className="muted small">{tr("por dominio · generado de tu propia historia")}</span>
-      </div>
-      {CATS.map((cat) => {
+      {/* ---- Dominio elegido: solo su rejilla (la barra de pestañas vive arriba) ---- */}
+      {CATS.filter((c) => c.key === tab).map((cat) => {
         const medals = cat.ids.map((id) => byId.get(id)).filter((a): a is AchievementState => !!a);
         if (medals.length === 0) return null;
-        const got = medals.filter((a) => a.level > 0).length;
         return (
           <div key={cat.key} className="bit-cat" style={{ borderLeftColor: cat.color }}>
-            <div className="bit-cat-head">
-              <span className="bit-cat-emblem" style={{ borderColor: cat.color, background: `${cat.color}2b` }}>
-                <img className="bit-cat-img" src={typeIcon(cat.tid, 32)} alt="" loading="lazy" />
-              </span>
-              <strong style={{ color: cat.color }}>{tr(cat.label)}</strong>
-              <span className="muted small">
-                {got}/{medals.length}
-              </span>
-            </div>
             <div className="medal-grid">
               {medals.map((a) => (
-                <MedalCard key={a.id} a={a} series={series[a.id]} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
+                <MedalCard key={a.id} a={a} open={openMedal === a.id} onToggle={() => toggle(a.id)} />
               ))}
             </div>
           </div>
         );
       })}
 
-      {/* ---- Condecoraciones oficiales (medallas in-game de corp) → medallero MIXTO ----
-          Agrupadas por medalla (corp+medal_id): la misma puede otorgarse varias veces
-          (2× Hero of M2-XFE: reenviada con el motivo corregido) → una tarjeta con ×N.
-          Las entregas vienen ya ordenadas por fecha desc desde el backend. */}
-      {medals.length > 0 && (() => {
-        const groups = new Map<string, Medal[]>();
-        for (const m of medals) {
-          const k = `${m.corporation_id}-${m.medal_id}`;
-          const g = groups.get(k);
-          if (g) g.push(m);
-          else groups.set(k, [m]);
-        }
-        const cards = [...groups.values()];
-        return (
-          <>
-            <div className="bit-head">
-              <h4>🎖️ {tr("Condecoraciones")}</h4>
-              <span className="muted small">
-                {cards.length} {tr("medallas in-game de corporación")}
-                {medals.length > cards.length && ` · ${medals.length} ${tr("entregas")}`}
-              </span>
-            </div>
-            <div className="medal-grid">
-              {cards.map((g) => (
-                <OfficialMedal key={`${g[0].corporation_id}-${g[0].medal_id}`} grants={g} />
-              ))}
-            </div>
-          </>
-        );
-      })()}
+      {/* Las CONDECORACIONES (medallas in-game de corp) ya no viven aquí: se fueron al Diario,
+          que es donde encajan —tienen fecha y son parte de tu historia, no de tu progreso—. Allí
+          van replegadas y se despliegan si te interesan. Decisión de Zigor, 2026-08-05. */}
+
+      {/* Ficha de la medalla abierta. Se monta UNA sola vez fuera de las rejillas, no una por
+          tarjeta: es un modal, y tenerlo dentro del grid lo dejaría atrapado en su overflow. */}
+      {openMedal &&
+        (() => {
+          const a = byId.get(openMedal);
+          if (!a) return null;
+          const ui = ACH_UI[a.id] ?? { icon: "🏅", label: a.id, desc: "" };
+          return <MedalDetail a={a} ui={ui} series={series[a.id]} onClose={() => setOpenMedal(null)} />;
+        })()}
 
       <p className="muted small bit-foot">
         {tr("Logros y retos generados por Koru desde tu histórico local — FC no expone esto por ESI: es tuyo y de nadie más.")}

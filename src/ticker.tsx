@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
-import { fmtIsk, fmtSp } from "./format";
+import { fmtIsk, fmtSp, typeIcon } from "./format";
 import type { PvpStats, ServerStatus, TickerData } from "./types";
 
 /** Flecha de variación estilo bolsa: verde sube, rojo baja. `pct` = mostrar en %. */
@@ -24,7 +24,11 @@ function Delta({ cur, prev, pct = false }: { cur: number; prev: number; pct?: bo
   );
 }
 
-type Item = { icon: string; label: string; value: string; extra?: ReactNode };
+/** Iconografía EVE primero (regla de la casa): `tid` = typeID real del Image Server, y el emoji
+ *  queda SOLO de reserva por si un icono no carga. Los typeIDs van verificados contra
+ *  market_types.json y reutilizan el vocabulario del medallero, para que un mismo concepto se vea
+ *  igual en toda la app (Megathron = kills, PLEX = patrimonio, Accounting = balance…). */
+type Item = { icon: string; tid?: number; label: string; value: string; extra?: ReactNode };
 
 export function Ticker({
   subject,
@@ -55,29 +59,33 @@ export function Ticker({
   if (stats) {
     items.push({
       icon: "⚔️",
+      tid: 641, // Megathron
       label: "Kills",
       value: fmtSp(stats.kills),
       extra: data ? <Delta cur={data.kills_week} prev={data.kills_prev_week} /> : null,
     });
-    items.push({ icon: "☠️", label: "Losses", value: fmtSp(stats.losses) });
+    items.push({ icon: "☠️", tid: 3467, label: "Losses", value: fmtSp(stats.losses) }); // contenedor: lo que queda
     items.push({
       icon: "🎯",
+      tid: 2048, // Damage Control II
       label: tr("Eficacia"),
       value: `${stats.efficiency.toFixed(1)}%`,
     });
-    items.push({ icon: "💥", label: tr("ISK destruido"), value: fmtIsk(stats.isk_destroyed) });
-    items.push({ icon: "🕳️", label: tr("ISK perdido"), value: fmtIsk(stats.isk_lost) });
+    items.push({ icon: "💥", tid: 2961, label: tr("ISK destruido"), value: fmtIsk(stats.isk_destroyed) }); // 1400mm Howitzer II
+    items.push({ icon: "🕳️", tid: 30836, label: tr("ISK perdido"), value: fmtIsk(stats.isk_lost) }); // Salvager II
   }
   if (data) {
     if (data.kills_week > 0)
       items.push({
         icon: "📅",
+        tid: 3699, // Quafe
         label: tr("Esta semana"),
         value: `${fmtSp(data.kills_week)} kills · ${fmtIsk(data.isk_destroyed_week)}`,
       });
     if (data.networth != null)
       items.push({
         icon: "💰",
+        tid: 44992, // PLEX
         label: tr("Patrimonio"),
         value: fmtIsk(data.networth),
         extra:
@@ -88,6 +96,7 @@ export function Ticker({
     if (data.month_net != null)
       items.push({
         icon: "📊",
+        tid: 16622, // Accounting (skillbook)
         label: tr("Balance del mes"),
         value: fmtIsk(data.month_net),
         extra:
@@ -95,12 +104,41 @@ export function Ticker({
             <Delta cur={data.month_net} prev={data.prev_month_net} pct />
           ) : null,
       });
+    // --- Lo que la franja se había perdido mientras la app crecía ---
+    if (data.explo_month > 0)
+      items.push({
+        icon: "📡",
+        tid: 30488, // Sisters Core Scanner Probe
+        label: tr("Exploración del mes"),
+        value:
+          data.explo_loot_month != null && data.explo_loot_month > 0
+            ? `${fmtSp(data.explo_month)} ${tr("sitios")} · ${fmtIsk(data.explo_loot_month)}`
+            : `${fmtSp(data.explo_month)} ${tr("sitios")}`,
+      });
+    if (data.runs_month > 0)
+      items.push({
+        icon: "🌀",
+        tid: 47894, // Raging Dark Filament
+        label: tr("Runs del mes"),
+        value:
+          data.runs_best_iskh != null && data.runs_best_iskh > 0
+            ? `${fmtSp(data.runs_month)} · ${tr("récord")} ${fmtIsk(data.runs_best_iskh)}/h`
+            : fmtSp(data.runs_month),
+      });
+    if (data.mining_month != null && data.mining_month > 0)
+      items.push({
+        icon: "⛏️",
+        tid: 22, // Arkonor
+        label: tr("Minería del mes"),
+        value: `${fmtSp(Math.round(data.mining_month))} ${tr("unidades")}`,
+      });
     if (data.plex_price != null)
-      items.push({ icon: "💎", label: "PLEX", value: fmtIsk(data.plex_price) });
+      items.push({ icon: "💎", tid: 44992, label: "PLEX", value: fmtIsk(data.plex_price) });
   }
   if (server)
     items.push({
       icon: "🛰️",
+      tid: 35840, // Pharolux Cyno Beacon: el faro, para el estado del servidor
       label: "Tranquility",
       value: `${fmtSp(server.players)} ${tr("pilotos")}`,
     });
@@ -113,7 +151,11 @@ export function Ticker({
     <div className="ticker-group" aria-hidden={k === "b"} key={k}>
       {items.map((it, i) => (
         <span className="ticker-item" key={`${k}${i}`}>
-          <span className="tk-icon">{it.icon}</span>
+          {it.tid ? (
+            <img className="tk-icon-img" src={typeIcon(it.tid, 32)} alt="" loading="lazy" />
+          ) : (
+            <span className="tk-icon">{it.icon}</span>
+          )}
           <span className="tk-label">{it.label}</span>
           <span className="tk-value">{it.value}</span>
           {it.extra}

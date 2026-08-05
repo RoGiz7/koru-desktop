@@ -571,6 +571,163 @@ impl Db {
             ach.push(ef.state("meses_eficaces", "count"));
         }
 
+        // ==================== EXPLORACIÓN ====================
+        // Salen del Histórico de exploración propio, no del gamelog: se verificó sobre ~1.800
+        // gamelogs reales que el cliente NO registra los hackeos (ni la activación con éxito del
+        // analizador, ni el resultado del minijuego, ni el contenedor). Vía muerta, no reintentar.
+        //
+        // OJO con la honestidad de estas medallas: el `exploration_log` existe desde la v0.31.0,
+        // así que NO hay retroactividad profunda como en killmails. Miden «desde que usas Koru»,
+        // y eso hay que decirlo en la UI en vez de dejar que parezca el histórico de tu vida.
+        {
+            // Sitios por tipo. Cada fila del log es un sitio TERMINADO (done_at no es nulo nunca).
+            for (kind, id, th) in [
+                ("relic", "relic_hechos", [25.0, 100.0, 500.0]),
+                ("data", "data_hechos", [25.0, 100.0, 500.0]),
+                ("gas", "gas_hechos", [10.0, 50.0, 250.0]),
+                ("wormhole", "wh_anotados", [10.0, 50.0, 200.0]),
+            ] {
+                let mut m = Cross::new(th);
+                let sql = format!(
+                    "SELECT substr(done_at,1,10) FROM exploration_log
+                     WHERE kind = ?1 {who} ORDER BY done_at ASC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map([kind], |r| r.get::<_, String>(0))?;
+                for date in rows.flatten() {
+                    m.add(&date, 1.0);
+                }
+                ach.push(m.state(id, "count"));
+            }
+        }
+        {
+            let mut total = Cross::new([50.0, 250.0, 1000.0]);
+            let mut botin = Cross::new([1e9, 10e9, 100e9]);
+            let mut gordo = Cross::new([100e6, 500e6, 2e9]);
+            let mut carto = Cross::new([10.0, 50.0, 150.0]);
+            let mut vistos: std::collections::HashSet<i64> = Default::default();
+            let sql = format!(
+                "SELECT substr(done_at,1,10), system_id, COALESCE(loot_isk,0)
+                 FROM exploration_log WHERE 1=1 {who} ORDER BY done_at ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, f64>(2)?))
+            })?;
+            for (date, sys, loot) in rows.flatten() {
+                total.add(&date, 1.0);
+                botin.add(&date, loot);
+                gordo.peak(&date, loot);
+                if vistos.insert(sys) {
+                    carto.add(&date, 1.0);
+                }
+            }
+            ach.push(total.state("sitios_totales", "count"));
+            ach.push(botin.state("botin_explorado", "isk"));
+            ach.push(gordo.state("mejor_sitio", "isk"));
+            ach.push(carto.state("sistemas_explorados", "count"));
+        }
+        {
+            // Maratón: el día que más sitios hiciste. `peak` sobre el recuento diario.
+            let mut mara = Cross::new([5.0, 15.0, 30.0]);
+            let sql = format!(
+                "SELECT substr(done_at,1,10) d, COUNT(*) FROM exploration_log
+                 WHERE 1=1 {who} GROUP BY d ORDER BY d ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for (date, n) in rows.flatten() {
+                mara.peak(&date, n as f64);
+            }
+            ach.push(mara.state("maraton_sondeo", "count"));
+        }
+
+        // ==================== RUNS ABISALES / CRAB ====================
+        // Sobre `activity_runs` + sus participantes. Se usa la MISMA CTE que las estadísticas de la
+        // sección para que los números no puedan divergir: si la run tiene participantes mandan
+        // ellos, y si no, se sintetiza uno con los datos de la propia run.
+        {
+            let who_p = character_id
+                .map(|c| format!("AND p.character_id = {c}"))
+                .unwrap_or_default();
+            // El P&L de cada piloto: su parte del botín (a partes iguales) menos SU nave perdida y,
+            // si además lanzó, el coste de entrada. Igual que en la vista.
+            let part_cte = "
+              WITH part AS (
+                SELECT r.id run_id, r.character_id owner_id, r.started_at, r.ended_at, r.loot_isk,
+                       r.entry_cost, r.tier,
+                       COALESCE(ac.character_id, r.character_id) character_id,
+                       COALESCE(ac.outcome, CASE r.outcome WHEN 'died' THEN 'dead'
+                                                           WHEN 'aborted' THEN 'bail'
+                                                           ELSE 'ok' END) outcome,
+                       COALESCE(ac.lost_value, COALESCE(r.ship_loss_isk,0)) lost_value
+                FROM activity_runs r
+                LEFT JOIN activity_run_chars ac ON ac.run_id = r.id
+                WHERE r.ended_at IS NOT NULL AND r.outcome <> 'aborted'
+              ), n AS (SELECT run_id, COUNT(*) n FROM part GROUP BY run_id)";
+
+            let mut hechas = Cross::new([25.0, 100.0, 500.0]);
+            let mut record = Cross::new([100e6, 300e6, 800e6]);
+            let mut racha = Cross::new([10.0, 30.0, 100.0]);
+            let mut curr_racha = 0.0;
+            let sql = format!(
+                "{part_cte}
+                 SELECT substr(p.ended_at,1,10) d, p.outcome,
+                        (COALESCE(p.loot_isk,0)/n.n - p.lost_value
+                          - CASE WHEN p.character_id = p.owner_id THEN COALESCE(p.entry_cost,0)
+                                 ELSE 0 END)
+                        / MAX((julianday(p.ended_at)-julianday(p.started_at))*24, 0.0001) iskh
+                 FROM part p JOIN n ON n.run_id = p.run_id
+                 WHERE 1=1 {who_p}
+                 ORDER BY p.ended_at ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<f64>>(2)?,
+                ))
+            })?;
+            for (date, outcome, iskh) in rows.flatten() {
+                hechas.add(&date, 1.0);
+                record.peak(&date, iskh.unwrap_or(0.0));
+                // Racha: se rompe al morir. `peak` guarda la mejor marca histórica.
+                curr_racha = if outcome == "dead" { 0.0 } else { curr_racha + 1.0 };
+                racha.peak(&date, curr_racha);
+            }
+            ach.push(hechas.state("runs_hechas", "count"));
+            ach.push(record.state("iskh_record", "isk"));
+            ach.push(racha.state("racha_sin_morir", "count"));
+
+            // Dificultad máxima SUPERADA (salió vivo). Los tiers abisales van 1..6; el CRAB no
+            // tiene tier y no puntúa aquí. Umbrales en Raging / Chaotic / Cataclysmic.
+            let mut dific = Cross::new([4.0, 5.0, 6.0]);
+            let sql = format!(
+                "{part_cte}
+                 SELECT substr(p.ended_at,1,10) d, p.tier FROM part p
+                 WHERE p.outcome = 'ok' AND p.tier IS NOT NULL {who_p}
+                 ORDER BY p.ended_at ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for (date, tier) in rows.flatten() {
+                let n = match tier.as_str() {
+                    "Calm" => 1.0,
+                    "Agitated" => 2.0,
+                    "Fierce" => 3.0,
+                    "Raging" => 4.0,
+                    "Chaotic" => 5.0,
+                    "Cataclysmic" => 6.0,
+                    _ => 0.0,
+                };
+                dific.peak(&date, n);
+            }
+            ach.push(dific.state("abismo_dificultad", "count"));
+        }
+
         // ---------- Persistir desbloqueos y marcar los nuevos (✨) ----------
         let now = chrono::Utc::now().to_rfc3339();
         for a in ach.iter_mut() {
@@ -601,34 +758,75 @@ impl Db {
     }
 }
 
-/// Un punto de la evolución de un logro: mes (YYYY-MM) + valor acumulado hasta ese mes.
+/// Un punto de la evolución de un logro. Lleva las DOS lecturas del mismo mes porque cuentan
+/// historias distintas y la gráfica pinta ambas:
+///   - `delta`: lo que hiciste ESE mes. Es donde vive el ritmo (los meses flojos, los picos,
+///     el mes que lo dejaste). En una serie acumulada esto es justo lo que la suma corrida borra.
+///   - `value`: el acumulado (o el récord, en las series `max`) hasta ese mes. Es el que cruza
+///     los umbrales de bronce/plata/oro y el que coincide con el número de la medalla.
 #[derive(Debug, Clone, Serialize)]
 pub struct SeriesPoint {
     pub month: String,
     pub value: f64,
+    pub delta: f64,
+}
+
+/// Una serie completa: sus puntos + de qué tipo es, porque se leen distinto.
+///   - `cum`: métricas que SUMAN (kills, ISK, saltos). `delta` = lo del mes, `value` = total.
+///   - `max`: métricas de MEJOR MARCA (patrimonio, killmail más caro, ISK/h récord). Aquí
+///     `delta` = el valor real de ese mes (que sube y baja: eso es la fluctuación de verdad)
+///     y `value` = el récord vigente, que dibuja una escalera que nunca baja.
+#[derive(Debug, Clone, Serialize)]
+pub struct AchSeries {
+    pub kind: &'static str,
+    pub points: Vec<SeriesPoint>,
+}
+
+/// Anota `v` en el mes `month` de una lista ya ordenada, quedándose con el MÁXIMO si el mes se
+/// repite. La usan las series de racha, que hay que caminar en vez de agrupar.
+///
+/// ⚠️ Está escrita en dos pasos (`last()` inmutable para comprobar, `last_mut()` después) y no con
+/// un `match per_month.last_mut() { … _ => push(…) }`, que es lo natural: ese `match` NO COMPILA.
+/// El préstamo mutable del `last_mut()` vive durante todo el `match`, así que el `push` de la otra
+/// rama choca con él (E0499). Es el caso 3 de NLL, que el borrow checker actual todavía rechaza.
+fn push_mes(per_month: &mut Vec<(String, f64)>, month: String, v: f64) {
+    if matches!(per_month.last(), Some((mm, _)) if *mm == month) {
+        let last = per_month.last_mut().expect("acabamos de comprobar que hay último");
+        last.1 = last.1.max(v);
+    } else {
+        per_month.push((month, v));
+    }
 }
 
 /// Serie acumulada (suma corrida) a partir de deltas mensuales.
-fn cumulative(rows: Vec<(String, f64)>) -> Vec<SeriesPoint> {
+fn cumulative(rows: Vec<(String, f64)>) -> AchSeries {
     let mut acc = 0.0;
-    rows.into_iter()
-        .map(|(m, d)| {
-            acc += d;
-            SeriesPoint { month: m, value: acc }
-        })
-        .collect()
+    AchSeries {
+        kind: "cum",
+        points: rows
+            .into_iter()
+            .map(|(m, d)| {
+                acc += d;
+                SeriesPoint { month: m, value: acc, delta: d }
+            })
+            .collect(),
+    }
 }
 /// Serie de "mejor marca" (máximo corrido) a partir de valores mensuales (para métricas peak).
-fn running_max(rows: Vec<(String, f64)>) -> Vec<SeriesPoint> {
+fn running_max(rows: Vec<(String, f64)>) -> AchSeries {
     let mut mx = 0.0;
-    rows.into_iter()
-        .map(|(m, v)| {
-            if v > mx {
-                mx = v;
-            }
-            SeriesPoint { month: m, value: mx }
-        })
-        .collect()
+    AchSeries {
+        kind: "max",
+        points: rows
+            .into_iter()
+            .map(|(m, v)| {
+                if v > mx {
+                    mx = v;
+                }
+                SeriesPoint { month: m, value: mx, delta: v }
+            })
+            .collect(),
+    }
 }
 
 impl Db {
@@ -637,7 +835,7 @@ impl Db {
     pub fn bitacora_series(
         &self,
         character_id: Option<i64>,
-    ) -> AppResult<std::collections::HashMap<String, Vec<SeriesPoint>>> {
+    ) -> AppResult<std::collections::HashMap<String, AchSeries>> {
         let who = character_id
             .map(|c| format!("AND character_id = {c}"))
             .unwrap_or_default();
@@ -656,7 +854,7 @@ impl Db {
             }
             out
         };
-        let mut m: std::collections::HashMap<String, Vec<SeriesPoint>> =
+        let mut m: std::collections::HashMap<String, AchSeries> =
             std::collections::HashMap::new();
 
         m.insert("kills_totales".into(), cumulative(q(&format!(
@@ -681,6 +879,143 @@ impl Db {
             "SELECT m2, CASE WHEN net>0 THEN 1.0 ELSE 0.0 END FROM (SELECT substr(date,1,7) m2, SUM(amount) net FROM wallet_journal WHERE date IS NOT NULL {who} GROUP BY m2 HAVING m2 < strftime('%Y-%m','now')) ORDER BY m2"))));
         m.insert("meses_eficaces".into(), cumulative(q(&format!(
             "SELECT m2, CASE WHEN kills>=10 AND (d+l)>0 AND d/(d+l)>=0.9 THEN 1.0 ELSE 0.0 END FROM (SELECT substr(killed_at,1,7) m2, SUM(CASE WHEN is_loss=0 THEN 1 ELSE 0 END) kills, SUM(CASE WHEN is_loss=0 THEN COALESCE(isk_value,0) ELSE 0 END) d, SUM(CASE WHEN is_loss=1 THEN COALESCE(isk_value,0) ELSE 0 END) l FROM killmails WHERE killed_at IS NOT NULL {who} GROUP BY m2 HAVING m2 < strftime('%Y-%m','now')) ORDER BY m2"))));
+
+        // ---------------------------------------------------------------------------------
+        // Series del GAMELOG. Todas estas tablas guardan un día por fila (`date` = YYYY-MM-DD),
+        // así que el mes sale con substr(...,1,7) igual que arriba. El SQL de cada una es el
+        // hermano agregado del bucle que ya calcula la medalla: si uno cambia, el otro también.
+        // ---------------------------------------------------------------------------------
+        for (id, kind) in [("logi_shield", "shield"), ("logi_armor", "armor"), ("logi_hull", "hull")] {
+            m.insert(id.into(), cumulative(q(&format!(
+                "SELECT substr(date,1,7), SUM(hp) FROM logi_ledger WHERE direction='given' AND kind='{kind}' {who} GROUP BY 1 ORDER BY 1"))));
+        }
+        // Capataz: el módulo puede venir localizado en logs viejos, igual que en el motor. Mismo
+        // criterio ES+EN aquí, o la gráfica contaría menos pulsos que la propia medalla.
+        m.insert("boost_capataz".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(pulses) FROM gamelog_boosts WHERE (lower(module) LIKE '%mining foreman%' OR lower(module) LIKE '%capataz minero%') {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("boost_miembros".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(members) FROM gamelog_boosts WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("mineria_crit".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(crit) FROM gamelog_mining WHERE crit > 0 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("salvage_total".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(salvaged) FROM gamelog_salvage WHERE salvaged > 0 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("saltos_total".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(jumps) FROM gamelog_jumps WHERE jumps > 0 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("wrecks_dados".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(done) FROM gamelog_quality WHERE quality = 6 AND done > 0 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("dano_total".into(), cumulative(q(&format!(
+            "SELECT substr(date,1,7), SUM(dmg_done) FROM gamelog_combat WHERE dmg_done > 0 {who} GROUP BY 1 ORDER BY 1"))));
+        // "Sistemas distintos": el delta del mes es cuántos sistemas NUEVOS descubriste ese mes,
+        // por eso se agrupa por el PRIMER mes de cada sistema (mismo truco que sistemas_pvp).
+        m.insert("sistemas_mineria".into(), cumulative(q(&format!(
+            "SELECT fm, COUNT(*) FROM (SELECT system, MIN(substr(date,1,7)) fm FROM gamelog_mining_sys WHERE 1=1 {who} GROUP BY system) GROUP BY fm ORDER BY fm"))));
+
+        // ---------------------------------------------------------------------------------
+        // Series de EXPLORACIÓN (exploration_log). OJO con la honestidad: esta tabla existe desde
+        // la v0.31.0, así que la serie empieza ahí y no antes. La UI lo dice.
+        // ---------------------------------------------------------------------------------
+        for (id, kind) in [
+            ("relic_hechos", "relic"),
+            ("data_hechos", "data"),
+            ("gas_hechos", "gas"),
+            ("wh_anotados", "wormhole"),
+        ] {
+            m.insert(id.into(), cumulative(q(&format!(
+                "SELECT substr(done_at,1,7), COUNT(*) FROM exploration_log WHERE kind='{kind}' {who} GROUP BY 1 ORDER BY 1"))));
+        }
+        m.insert("sitios_totales".into(), cumulative(q(&format!(
+            "SELECT substr(done_at,1,7), COUNT(*) FROM exploration_log WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("botin_explorado".into(), cumulative(q(&format!(
+            "SELECT substr(done_at,1,7), SUM(COALESCE(loot_isk,0)) FROM exploration_log WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("sistemas_explorados".into(), cumulative(q(&format!(
+            "SELECT fm, COUNT(*) FROM (SELECT system_id, MIN(substr(done_at,1,7)) fm FROM exploration_log WHERE 1=1 {who} GROUP BY system_id) GROUP BY fm ORDER BY fm"))));
+        m.insert("mejor_sitio".into(), running_max(q(&format!(
+            "SELECT substr(done_at,1,7), MAX(COALESCE(loot_isk,0)) FROM exploration_log WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("maraton_sondeo".into(), running_max(q(&format!(
+            "SELECT substr(d,1,7), MAX(n) FROM (SELECT substr(done_at,1,10) d, COUNT(*) n FROM exploration_log WHERE 1=1 {who} GROUP BY 1) GROUP BY 1 ORDER BY 1"))));
+
+        // ---------------------------------------------------------------------------------
+        // Series de ABISMO / CRAB. Reutilizan LITERALMENTE la misma CTE de participantes que el
+        // motor de medallas y que la sección: si la run tiene participantes mandan ellos, y si no,
+        // se sintetiza uno con los datos de la run. Copiarla mal aquí haría que la gráfica y la
+        // medalla contaran runs distintas, que es exactamente el bug que la CTE compartida evita.
+        // ---------------------------------------------------------------------------------
+        {
+            let who_p = character_id
+                .map(|c| format!("AND p.character_id = {c}"))
+                .unwrap_or_default();
+            let part_cte = "
+              WITH part AS (
+                SELECT r.id run_id, r.character_id owner_id, r.started_at, r.ended_at, r.loot_isk,
+                       r.entry_cost, r.tier,
+                       COALESCE(ac.character_id, r.character_id) character_id,
+                       COALESCE(ac.outcome, CASE r.outcome WHEN 'died' THEN 'dead'
+                                                           WHEN 'aborted' THEN 'bail'
+                                                           ELSE 'ok' END) outcome,
+                       COALESCE(ac.lost_value, COALESCE(r.ship_loss_isk,0)) lost_value
+                FROM activity_runs r
+                LEFT JOIN activity_run_chars ac ON ac.run_id = r.id
+                WHERE r.ended_at IS NOT NULL AND r.outcome <> 'aborted'
+              ), n AS (SELECT run_id, COUNT(*) n FROM part GROUP BY run_id)";
+            m.insert("runs_hechas".into(), cumulative(q(&format!(
+                "{part_cte} SELECT substr(p.ended_at,1,7), COUNT(*) FROM part p WHERE 1=1 {who_p} GROUP BY 1 ORDER BY 1"))));
+            m.insert("iskh_record".into(), running_max(q(&format!(
+                "{part_cte}
+                 SELECT substr(p.ended_at,1,7), MAX(
+                   (COALESCE(p.loot_isk,0)/n.n - p.lost_value
+                     - CASE WHEN p.character_id = p.owner_id THEN COALESCE(p.entry_cost,0) ELSE 0 END)
+                   / MAX((julianday(p.ended_at)-julianday(p.started_at))*24, 0.0001))
+                 FROM part p JOIN n ON n.run_id = p.run_id WHERE 1=1 {who_p} GROUP BY 1 ORDER BY 1"))));
+            m.insert("abismo_dificultad".into(), running_max(q(&format!(
+                "{part_cte}
+                 SELECT substr(p.ended_at,1,7), MAX(CASE p.tier
+                   WHEN 'Calm' THEN 1 WHEN 'Agitated' THEN 2 WHEN 'Fierce' THEN 3
+                   WHEN 'Raging' THEN 4 WHEN 'Chaotic' THEN 5 WHEN 'Cataclysmic' THEN 6 ELSE 0 END)
+                 FROM part p WHERE p.outcome='ok' AND p.tier IS NOT NULL {who_p} GROUP BY 1 ORDER BY 1"))));
+
+            // Racha sin morir: una racha no se puede agregar con GROUP BY —hay que RECORRER las runs
+            // en orden, porque cada una depende de la anterior. Se camina igual que en el motor y se
+            // anota, por mes, la mejor racha viva en ese mes.
+            let rows = q(&format!(
+                "{part_cte} SELECT substr(p.ended_at,1,7), CASE p.outcome WHEN 'dead' THEN 1 ELSE 0 END
+                 FROM part p WHERE 1=1 {who_p} ORDER BY p.ended_at ASC"
+            ));
+            let mut streak = 0.0;
+            let mut per_month: Vec<(String, f64)> = Vec::new();
+            for (month, murio) in rows {
+                streak = if murio > 0.5 { 0.0 } else { streak + 1.0 };
+                push_mes(&mut per_month, month, streak);
+            }
+            m.insert("racha_sin_morir".into(), running_max(per_month));
+        }
+
+        // Racha de semanas con PvP: mismo caso que la anterior —se camina, no se agrupa.
+        {
+            // El `q` de arriba lee SIEMPRE dos columnas (texto + número): la segunda va de relleno
+            // porque aquí solo interesa la fecha. Devolver una sola columna haría que query_map
+            // fallara en silencio y la serie saliera vacía.
+            let rows = q(&format!(
+                "SELECT substr(killed_at,1,10), 1 FROM killmails
+                 WHERE is_loss=0 AND killed_at IS NOT NULL {who} ORDER BY killed_at ASC"
+            ));
+            let mut streak = 0.0;
+            let mut last_week: Option<i64> = None;
+            let mut per_month: Vec<(String, f64)> = Vec::new();
+            for (date, _) in rows {
+                let Some(w) = week_idx(&date) else { continue };
+                match last_week {
+                    Some(lw) if w == lw => {}
+                    Some(lw) if w == lw + 1 => streak += 1.0,
+                    _ => streak = 1.0,
+                }
+                last_week = Some(w);
+                // `7.min(len)` se escribe así y no como `7.min(...)`: el literal pegado al punto
+                // es una trampa clásica del parser (lo lee como float). Con la variable, ni duda.
+                let cut = std::cmp::min(7usize, date.len());
+                push_mes(&mut per_month, date[..cut].to_string(), streak);
+            }
+            m.insert("racha_semanas".into(), running_max(per_month));
+        }
 
         Ok(m)
     }

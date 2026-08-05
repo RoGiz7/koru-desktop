@@ -2382,13 +2382,13 @@ pub async fn get_bitacora(
     state.db.bitacora(character_id)
 }
 
-/// Evolución mensual de cada logro (derivada del histórico local; cero storage nuevo). Para el
-/// mini-gráfico de "cómo evoluciona cada logro en el tiempo" con las líneas de bronce/plata/oro.
+/// Evolución mensual de cada logro (derivada del histórico local; cero storage nuevo). Alimenta la
+/// ficha de medalla: barras del mes, línea de acumulado y los hitos de bronce/plata/oro.
 #[tauri::command]
 pub async fn get_achievement_series(
     character_id: Option<i64>,
     state: State<'_, AppState>,
-) -> AppResult<std::collections::HashMap<String, Vec<crate::db::bitacora::SeriesPoint>>> {
+) -> AppResult<std::collections::HashMap<String, crate::db::bitacora::AchSeries>> {
     state.db.bitacora_series(character_id)
 }
 

@@ -423,14 +423,330 @@ select,
 .medal:hover {
   transform: translateY(-1px);
 }
-/* Mini-gráfico de evolución del logro (SVG). */
-.ach-chart {
-  width: 100%;
-  height: 92px;
-  display: block;
+/* ---------------------------------------------------------------------------------------------
+   FRANJA DE ESTADO DE LA BITÁCORA (.bit-hero). Sustituye a la cifra suelta arriba a la derecha
+   (.bit-topbar/.bit-score) y a la línea fina de resumen (.bit-summary), que además REPETÍAN el
+   mismo 22/36 en dos sitios distintos. Ahora: celdas a todo el ancho, número grande + etiqueta,
+   y la barra del medallero de remate. Petición de Zigor, 2026-08-05.
+   --------------------------------------------------------------------------------------------- */
+.bit-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.2rem 0 0.8rem;
+  padding: 0.75rem 0.9rem 0.65rem;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 10px;
+  /* Lavado del acento por la izquierda, como las tarjetas de la Agencia: da presencia sin gritar. */
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--accent) 9%, transparent) 0%, transparent 55%),
+    rgba(255, 255, 255, 0.015);
 }
-.ach-chart-empty {
-  padding: 0.3rem 0;
+.bit-hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.2rem 0;
+}
+/* Cada dato, su celda: número grande / etiqueta / matiz. Reparten el ancho a partes iguales, que es
+   lo que llena el hueco que dejó la cifra suelta. */
+.bhs {
+  flex: 1 1 8rem;
+  min-width: 7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.15rem 0.8rem;
+  text-align: center;
+  border-left: 1px solid var(--border, #30363d);
+}
+.bhs:first-child {
+  border-left: none;
+}
+.bhs-wide {
+  flex: 1.6 1 11rem;
+}
+.bhs-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2rem;
+  line-height: 1.05;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+/* El denominador, más pequeño y apagado: el que importa es el numerador. */
+.bhs-num small {
+  font-size: 0.95rem;
+  font-weight: 600;
+  opacity: 0.55;
+}
+.bhs-num.gold {
+  color: #e8be3f;
+}
+/* Variante de texto (el nombre de la última medalla): mismo hueco, cuerpo menor para que quepa. */
+.bhs-num-txt {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1rem;
+  line-height: 1.15;
+  color: #e8be3f;
+}
+.bhs-lbl {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-dim, #b6bdc9);
+}
+.bhs-sub {
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+/* Barra del medallero: un segmento por medalla, ordenados de más a menos avanzada. Se lee sola
+   como «cuánto llevas» y con qué reparto de metales. */
+.bit-hero-bar {
+  display: flex;
+  gap: 2px;
+  height: 7px;
+}
+.bhb {
+  flex: 1 1 0;
+  border-radius: 1px;
+  background: var(--border, #30363d);
+  opacity: 0.5;
+  transition:
+    opacity 0.12s,
+    transform 0.12s;
+}
+.bhb.l1 {
+  background: #cd7f32;
+  opacity: 1;
+}
+.bhb.l2 {
+  background: #c9d1d9;
+  opacity: 1;
+}
+.bhb.l3 {
+  background: #e8be3f;
+  opacity: 1;
+  box-shadow: 0 0 5px #e8be3f66;
+}
+.bhb:hover {
+  opacity: 1;
+  transform: scaleY(1.6);
+}
+@media (max-width: 780px) {
+  /* En estrecho las celdas se apilan de dos en dos y el separador vertical estorba. */
+  .bhs {
+    flex: 1 1 45%;
+    border-left: none;
+  }
+}
+/* ---------------------------------------------------------------------------------------------
+   FICHA DE MEDALLA (medalDetail.tsx). Sustituye al mini-gráfico que vivía dentro de la tarjeta:
+   no cabía y, peor, pintaba solo el acumulado —una curva que por construcción nunca baja y por
+   tanto no cuenta ninguna historia—. Aquí caben las barras del mes, la línea, los hitos y la tabla.
+   --------------------------------------------------------------------------------------------- */
+.md-modal {
+  width: min(880px, 95vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, #12171f);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+}
+.md-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.md-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+.md-title .small {
+  font-family: var(--font-body, inherit);
+  font-size: 0.8rem;
+}
+/* Estado: la cifra grande a la izquierda y los tres tiers con su fecha al lado. */
+.md-tiers {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.md-now {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 8rem;
+  padding: 0.4rem 0.7rem 0.4rem 0;
+  border-right: 1px solid var(--border);
+}
+.md-now-val {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+.md-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 6.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* Sin conseguir: se ve, pero apagado. Con el color puesto en línea desde el componente,
+     bastan la opacidad y el borde para distinguir "hecho" de "pendiente". */
+  opacity: 0.42;
+  filter: grayscale(1);
+}
+.md-tier.on {
+  opacity: 1;
+  filter: none;
+  border-color: currentColor;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.md-tier-name {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.md-tier-th {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--fg, #e6edf3);
+}
+.md-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.md-ranges {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.md-chartwrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem 0.2rem;
+  background: rgba(255, 255, 255, 0.015);
+}
+.md-chart {
+  width: 100%;
+  height: 260px;
+  display: block;
+  overflow: visible;
+}
+.md-bar {
+  fill: var(--accent);
+  fill-opacity: 0.42;
+  transition: fill-opacity 0.12s;
+}
+.md-bar.hot {
+  fill-opacity: 0.95;
+}
+.md-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.md-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.md-cursor {
+  stroke: var(--fg, #e6edf3);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.md-xlabel,
+.md-thlabel {
+  font-size: 11px;
+  fill: var(--muted, #8b949e);
+}
+/* Caja de lectura del mes bajo el cursor. Alto fijo para que la gráfica no dé saltos al
+   entrar y salir el ratón. */
+.md-hoverbox {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-height: 1.6rem;
+  padding: 0.15rem 0.1rem 0.35rem;
+  font-size: 0.85rem;
+}
+.md-legend {
+  display: flex;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.md-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.md-key-bar,
+.md-key-line,
+.md-key-dot {
+  display: inline-block;
+  background: var(--accent);
+}
+.md-key-bar {
+  width: 8px;
+  height: 12px;
+  opacity: 0.42;
+  border-radius: 1px;
+}
+.md-key-line {
+  width: 16px;
+  height: 2px;
+}
+.md-key-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e8be3f;
+}
+/* El resumen en cristiano: lo que la gráfica enseña pero no dice. */
+.md-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 0.9rem;
+}
+.md-table summary {
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+.md-table .tbl {
+  margin-top: 0.3rem;
+}
+.md-empty {
+  padding: 1.6rem 0.5rem;
+  text-align: center;
 }
 
 .medal-coin {
@@ -528,39 +844,12 @@ select,
 }
 
 /* ----- Bitácora: cabecera con puntuación agregada ----- */
-.bit-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.6rem;
-}
 .bit-title {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
   font-family: var(--font-display);
   font-size: 1.05rem;
-}
-.bit-score {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.1;
-}
-.bit-score-num {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.6rem;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
-/* Puntuación de logros oficial de EVE, junto al Koru-score */
-.bit-score-eve {
-  margin-top: 0.2rem;
-  font-weight: 600;
-  color: #e0a458;
-  font-variant-numeric: tabular-nums;
 }
 /* Título equipado en la ficha del personaje */
 .ch-title {
@@ -1183,6 +1472,99 @@ button.pp-tag.launcher {
   margin-left: 0.35rem;
   vertical-align: -4px;
   opacity: 0.85;
+}
+/* Condecoraciones dentro del Diario: cabecera plegable discreta, que son consulta y no
+   seguimiento diario. */
+.dia-medals {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--border, #30363d);
+  padding-top: 0.5rem;
+}
+.dia-medals-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  text-align: left;
+}
+.dia-medals-head:hover strong {
+  color: var(--accent, #58a6ff);
+}
+/* Iconos EVE en la franja: baldosa común como en el menú, para que renders muy distintos
+   (una nave, un skillbook, un PLEX) se lean como una familia y no como un collage. */
+.tk-icon-img {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  vertical-align: -3px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  object-fit: cover;
+}
+/* Pestañas de la Bitácora. Mismo LENGUAJE que la navegación general (subrayado de acento, iconos
+   desaturados que reviven al pasar el ratón) pero a menor escala: dentro de una sección no puede
+   pesar como el menú principal. Antes eran pastillas dentro de una caja y cantaban demasiado. */
+.bit-cat-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem;
+  row-gap: 0.1rem;
+  margin: 0.2rem 0 0.7rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border, #30363d);
+}
+.bit-cat-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  margin-bottom: -1px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg-dim, #b6bdc9);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.bit-cat-tabs button:hover {
+  color: var(--text, #e6e6e6);
+  background: rgba(255, 255, 255, 0.04);
+}
+.bit-cat-tabs button.active {
+  background: linear-gradient(180deg, transparent, rgba(122, 162, 247, 0.14));
+  border-bottom-color: currentColor;
+  border-bottom-width: 3px;
+}
+/* Baldosa común, como en el menú general: renders muy distintos leídos como una familia. */
+.bit-cat-tabs .bit-cat-img {
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  object-fit: cover;
+  filter: saturate(0.55);
+  opacity: 0.9;
+  transition: filter 0.12s, opacity 0.12s;
+}
+.bit-cat-tabs button .muted {
+  font-weight: 400;
+  font-size: 0.92em;
+}
+.bit-cat-tabs button:hover .bit-cat-img,
+.bit-cat-tabs button.active .bit-cat-img {
+  filter: none;
+  opacity: 1;
 }
 /* Celda «icono + nombre»: centrada verticalmente. Alineadas a la línea base, un icono más alto que
    el texto deja la palabra colgando abajo y la fila se ve descuadrada. */
@@ -2097,28 +2479,49 @@ tr.job-ready td:first-child {
   box-shadow: inset 3px 0 0 #3fb950;
 }
 
+/* Barra de SECCIÓN (Logros · Diario · Trabajos…). Antes eran pastillas con fondo propio y no se
+   parecían en nada a la navegación de arriba: tres estilos distintos en la misma pantalla. Ahora
+   toda la app usa el MISMO lenguaje —subrayado de acento— y solo cambia la escala según el nivel. */
 .tabs {
   display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.9rem;
+  gap: 0.1rem;
+  row-gap: 0.1rem;
+  margin-bottom: 0.8rem;
   flex-wrap: wrap;
+  border-bottom: 1px solid var(--border, #30363d);
 }
 
 .tab {
-  background: #242424;
-  border: 1px solid #333;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  margin-bottom: -1px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-dim, #b6bdc9);
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
-
+.tab:hover:not(:disabled) {
+  color: var(--text, #e6e6e6);
+  background: rgba(255, 255, 255, 0.04);
+}
 .tab.active {
-  background: #34507a;
-  border-color: #4f9cff;
-  color: #fff;
+  background: linear-gradient(180deg, transparent, rgba(122, 162, 247, 0.14));
+  border-bottom-color: var(--accent, #7aa2f7);
+  border-bottom-width: 3px;
+  color: var(--accent, #7aa2f7);
+}
+.tab:disabled {
+  opacity: 0.45;
 }
 
 /* ===== Navegación en grupos: barra de tabs (nivel primario) ===== */
 .nav-groups {
   display: flex;
   gap: 0.15rem;
+  row-gap: 0.1rem; /* al envolver, la 2ª línea no se pega a la 1ª */
   flex-wrap: wrap;
   margin-bottom: 0.9rem;
   border-bottom: 1px solid var(--border);
@@ -2133,8 +2536,10 @@ tr.job-ready td:first-child {
   border-bottom: 2px solid transparent;
   border-radius: 8px 8px 0 0;
   font-weight: 600;
-  color: var(--muted, #8a91a0);
-  padding: 0.5rem 0.9rem;
+  /* Antes iba en `--muted`, el mismo gris que las notas al pie: la navegación principal no puede
+     pesar lo mismo que un pie de tabla. Sube a un gris legible y el acento marca el activo. */
+  color: var(--fg-dim, #b6bdc9);
+  padding: 0.45rem 0.85rem;
   margin-bottom: -1px; /* solapa el borde inferior de la barra */
   cursor: pointer;
   transition: color 0.12s, background 0.12s, border-color 0.12s;
@@ -2148,7 +2553,9 @@ tr.job-ready td:first-child {
 .navg.active {
   color: var(--accent, #7aa2f7);
   border-bottom-color: var(--accent, #7aa2f7);
-  background: rgba(122, 162, 247, 0.08);
+  /* Degradado hacia arriba en vez de un bloque plano: la pestaña «nace» de su subrayado. */
+  background: linear-gradient(180deg, transparent, rgba(122, 162, 247, 0.14));
+  border-bottom-width: 3px;
 }
 
 .navg-ico {
@@ -2159,22 +2566,38 @@ tr.job-ready td:first-child {
 .navg-img {
   width: 22px;
   height: 22px;
-  border-radius: 4px;
+  border-radius: 5px;
   vertical-align: middle;
-  opacity: 0.7;
-  transition: opacity 0.12s;
+  /* CLAVE DE COHERENCIA: los iconos del menú son cosas muy distintas —un libro, un render de nave,
+     un retrato— y sueltos no se leen como una familia. Una baldosa oscura común les da un mismo
+     suelo. Y en vez de bajar la opacidad al 70% (que era lo que hacía que el menú se viera
+     «apagado»), se desatura: se apagan sin ensuciarse. */
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  object-fit: cover;
+  filter: saturate(0.55);
+  opacity: 0.9;
+  transition: filter 0.12s, opacity 0.12s, box-shadow 0.12s;
 }
 
 .navg:hover .navg-img,
 .navg.active .navg-img {
+  filter: none;
   opacity: 1;
 }
+.navg.active .navg-img {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #7aa2f7) 55%, transparent);
+}
 
-/* Retrato B&W del grupo Personaje */
+/* Retrato del grupo Personaje: redondo, pero sigue las mismas reglas de saturación que el resto
+   para que no cante al lado de los renders de nave. */
 .navg-bw {
   border-radius: 50%;
-  filter: grayscale(1) contrast(1.05);
-  object-fit: cover;
+  filter: grayscale(1) contrast(1.05) saturate(0);
+}
+.navg:hover .navg-bw,
+.navg.active .navg-bw {
+  filter: grayscale(0.15) contrast(1.05);
 }
 .navg.active .navg-bw {
   filter: grayscale(0) contrast(1.05);
@@ -4723,10 +5146,14 @@ h4 {
   border-color: var(--err, #e5534b);
 }
 /* ---- Modal flotante de botín ---- */
+/* Los modales que usan esto se montan por PORTAL en <body> (ver medalDetail.tsx): dentro de una
+   sección quedarían presos del contexto de apilamiento de `.panel-art-wrap`. Escala de la app:
+   contenido < 60 · modales 800 · «novedades» 1000 · alerta de intel 9999 (esa SÍ debe tapar al
+   modal: si hay hostiles en local, eso manda por encima de cualquier ventana). */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 800;
   display: flex;
   align-items: center;
   justify-content: center;

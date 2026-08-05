@@ -43,6 +43,10 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
   {
     group: "Bitácora",
     icon: "📖",
+    // «Chronologically Curious Blue Diary»: un diario de papel con cubierta azul. Es la traducción
+    // literal de «Bitácora» y lo más parecido al 📖 que había antes, así que el cambio no
+    // desorienta a quien ya conoce la app. Verificado publicado en el SDE 3457062.
+    typeId: 62049,
     subs: [
       // Sin scopes: se genera del histórico local que Koru ya acumula. Es la landing por defecto.
       { key: "bitacora", label: "Logros" },
@@ -76,7 +80,10 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
   {
     group: "Comercio",
     icon: "📈",
-    typeId: 2833, // 1000 Aurum Token (monedas / "billetes")
+    // Antes iba el 1000 Aurum Token: Aurum es la moneda de la tienda NEX, no el mercado, y en el
+    // juego nadie lo asocia a comerciar. El skillbook de Trade es la habilidad base de todo el que
+    // compra y vende.
+    typeId: 3443, // Trade (skillbook)
     subs: [
       { key: "comercio", label: "Órdenes", scopes: ["esi-markets.read_character_orders.v1"] },
       { key: "comercio_pnl", label: "Rentabilidad", scopes: ["esi-markets.read_character_orders.v1"] },

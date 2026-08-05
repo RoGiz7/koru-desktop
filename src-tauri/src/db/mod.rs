@@ -982,6 +982,20 @@ pub struct TickerData {
     pub month_net: Option<f64>,
     pub prev_month_net: Option<f64>,
     pub plex_price: Option<f64>,
+    // ---- Ampliación 2026-08-05: la franja se había quedado en PvP + patrimonio mientras la app
+    // crecía por todas partes. Todo lo de abajo sale de tablas que YA existen; ningún ESI nuevo.
+    /// Sitios de exploración completados este mes y su botín.
+    pub explo_month: i64,
+    pub explo_loot_month: Option<f64>,
+    /// Runs (abisales + CRAB) cerradas este mes y tu mejor ISK/hora histórico.
+    pub runs_month: i64,
+    pub runs_best_iskh: Option<f64>,
+    /// Minería del mes (unidades del gamelog, base + crítico).
+    pub mining_month: Option<f64>,
+    //
+    // NO están aquí los trabajos de industria ni los extractores de PI, y no es un olvido: esos
+    // datos NO se persisten —se piden a ESI en vivo cada vez— así que una consulta local no puede
+    // darlos. Para meterlos en la franja habría que guardarlos en cada sync primero. Anotado.
 }
 
 /// Punto de serie semanal por entidad (nave/sistema) para las líneas de "tops" de PvP.
@@ -1637,6 +1651,37 @@ impl Db {
             "SELECT average_price FROM market_prices WHERE type_id = 44992",
         );
 
+        // ---- Exploración del mes (Histórico propio) ----
+        let explo_month = count(&format!(
+            "SELECT COUNT(*) FROM exploration_log
+             WHERE substr(done_at,1,7) = strftime('%Y-%m','now') {who}"
+        ));
+        let explo_loot_month = fsum(&format!(
+            "SELECT SUM(loot_isk) FROM exploration_log
+             WHERE substr(done_at,1,7) = strftime('%Y-%m','now') {who}"
+        ));
+
+        // ---- Runs abisales + CRAB ----
+        // Las abortadas no cuentan (no son una carrera hecha), igual que en las estadísticas de la
+        // sección. El récord de ISK/h es histórico, no del mes: es una marca personal.
+        let runs_month = count(&format!(
+            "SELECT COUNT(*) FROM activity_runs
+             WHERE ended_at IS NOT NULL AND outcome <> 'aborted'
+               AND substr(ended_at,1,7) = strftime('%Y-%m','now') {who}"
+        ));
+        let runs_best_iskh = fsum(&format!(
+            "SELECT MAX((COALESCE(loot_isk,0) - COALESCE(ship_loss_isk,0) - COALESCE(entry_cost,0))
+                        / MAX((julianday(ended_at)-julianday(started_at))*24, 0.0001))
+             FROM activity_runs
+             WHERE ended_at IS NOT NULL AND outcome <> 'aborted' {who}"
+        ));
+
+        // ---- Minería del mes (gamelog: base + crítico) ----
+        let mining_month = fsum(&format!(
+            "SELECT SUM(units + crit) FROM gamelog_mining
+             WHERE substr(date,1,7) = strftime('%Y-%m','now') {who}"
+        ));
+
         Ok(TickerData {
             kills_week,
             kills_prev_week,
@@ -1646,6 +1691,11 @@ impl Db {
             month_net,
             prev_month_net,
             plex_price,
+            explo_month,
+            explo_loot_month,
+            runs_month,
+            runs_best_iskh,
+            mining_month,
         })
     }
 

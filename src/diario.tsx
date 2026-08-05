@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { typeIcon, fmtIsk, fmtSp } from "./format";
-import { ACH_UI } from "./bitacora";
+import { ACH_UI, OfficialMedal } from "./bitacora";
 import type { Bitacora, DiaryCorp, Medal } from "./types";
 
 type Ev = {
@@ -96,6 +96,10 @@ export function DiarioView({ subject }: { subject: number | "global" }) {
   const [bit, setBit] = useState<Bitacora | null>(null);
   const [corps, setCorps] = useState<DiaryCorp[]>([]);
   const [medals, setMedals] = useState<Medal[]>([]);
+  /** Las condecoraciones van plegadas: son consulta, no seguimiento. */
+  const [medalsOpen, setMedalsOpen] = useState(false);
+  /** Año que se está mirando. `null` = el más reciente, que es el primero de la lista. */
+  const [yearTab, setYearTab] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
 
   useEffect(() => {
@@ -205,18 +209,70 @@ export function DiarioView({ subject }: { subject: number | "global" }) {
           {tr("Vista global: hitos de todos tus personajes. Elige un personaje para ver también su trayectoria de corporaciones.")}
         </p>
       )}
+      {/* ---- Un AÑO por pestaña (decisión de Zigor) ----
+          El timeline entero era un scroll infinito según crecía la biografía. `years` ya viene
+          ordenado de reciente a antiguo, así que el año en curso es el primero y el que se abre
+          por defecto: es el que interesa. */}
+      {years.length > 1 && (
+        <div className="bit-cat-tabs">
+          {years.map((g) => (
+            <button
+              key={g.year}
+              className={(yearTab ?? years[0].year) === g.year ? "active" : ""}
+              onClick={() => setYearTab(g.year)}
+            >
+              {g.year} <span className="muted">({g.items.length})</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="diary">
-        {years.map((g) => (
-          <div key={g.year} className="dia-year">
-            <div className="dia-year-head">{g.year}</div>
-            <div className="dia-list">
-              {g.items.map((e, i) => (
-                <DiaryRow key={`${e.date}-${e.kind}-${i}`} e={e} />
-              ))}
+        {years
+          .filter((g) => g.year === (yearTab ?? years[0].year))
+          .map((g) => (
+            <div key={g.year} className="dia-year">
+              <div className="dia-list">
+                {g.items.map((e, i) => (
+                  <DiaryRow key={`${e.date}-${e.kind}-${i}`} e={e} />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
       </div>
+      {/* ---- Condecoraciones in-game de corporación ----
+          Vivían en la Bitácora, entre las medallas que Koru se inventa, y no era su sitio: éstas
+          no son progreso tuyo, son parte de tu HISTORIA y las otorga otro. Aquí encajan, y van
+          REPLEGADAS porque son un dato de consulta, no algo que mires a diario. */}
+      {medals.length > 0 && (() => {
+        const groups = new Map<string, Medal[]>();
+        for (const m of medals) {
+          const k = `${m.corporation_id}-${m.medal_id}`;
+          const g = groups.get(k);
+          if (g) g.push(m);
+          else groups.set(k, [m]);
+        }
+        const cards = [...groups.values()];
+        return (
+          <div className="dia-medals">
+            <button className="dia-medals-head" onClick={() => setMedalsOpen((o) => !o)}>
+              <span className="bom-exp">{medalsOpen ? "▾" : "▸"}</span> 🎖️{" "}
+              <strong>{tr("Condecoraciones")}</strong>{" "}
+              <span className="muted small">
+                {cards.length} {tr("medallas in-game de corporación")}
+                {medals.length > cards.length && ` · ${medals.length} ${tr("entregas")}`}
+              </span>
+            </button>
+            {medalsOpen && (
+              <div className="medal-grid">
+                {cards.map((g) => (
+                  <OfficialMedal key={`${g[0].corporation_id}-${g[0].medal_id}`} grants={g} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <p className="muted small bit-foot">
         {tr("Tu biografía en New Eden, tejida por Koru desde tu histórico local y tu corporationhistory pública.")}
       </p>

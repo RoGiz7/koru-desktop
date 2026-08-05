@@ -5,6 +5,7 @@
 // puede saber exacto, pero el conjunto es fiel). Ver `lootPaste.ts` (parser, validado con pegados
 // reales) y el diseño en documentacion/koru-desktop-EXPLORACION_HISTORICO_diseno.md.
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk } from "./format";
@@ -76,7 +77,10 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
   const perSite = total != null && siteCount > 1 ? total / siteCount : total;
   const unresolved = parse ? parse.items.filter((i) => i.iskFromPaste == null && i.typeId == null).length : 0;
 
-  return (
+  // Portal al body por el mismo motivo que la ficha de medalla: las secciones van dentro de
+  // `.panel-art-wrap`, que con `isolation: isolate` crea un contexto de apilamiento y deja al
+  // modal preso —los controles del mapa se le pintaban encima—. Ver medalDetail.tsx.
+  return createPortal(
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal loot-modal" onClick={(e) => e.stopPropagation()}>
         <div className="loot-modal-head">
@@ -181,6 +185,7 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

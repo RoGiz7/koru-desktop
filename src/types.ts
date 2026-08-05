@@ -774,7 +774,12 @@ export type Bitacora = {
   was_seeded: boolean;
 };
 // Evolución de un logro: valor acumulado por mes (para el mini-gráfico con líneas de tier).
-export type SeriesPoint = { month: string; value: number };
+/** Un mes de la evolución de un logro. `delta` = lo de ESE mes (donde está el ritmo);
+ *  `value` = el acumulado o el récord vigente (el que cruza bronce/plata/oro). */
+export type SeriesPoint = { month: string; value: number; delta: number };
+/** `cum` = métrica que suma (delta = lo del mes). `max` = mejor marca (delta = valor real del mes,
+ *  que sube y baja; value = récord, que nunca baja). */
+export type AchSeries = { kind: "cum" | "max"; points: SeriesPoint[] };
 // Evento "bitacora-unlock": logros nuevos detectados en auto_sync (nombres los pone el front).
 export type BitacoraUnlock = { id: string; level: number };
 export type BitacoraUnlockEvent = { unlocks: BitacoraUnlock[] };
@@ -949,6 +954,14 @@ export type TickerData = {
   month_net: number | null;
   prev_month_net: number | null;
   plex_price: number | null;
+  /** Exploración del mes (sitios completados y botín). */
+  explo_month: number;
+  explo_loot_month: number | null;
+  /** Runs abisales + CRAB del mes, y tu MEJOR ISK/hora histórico (marca personal). */
+  runs_month: number;
+  runs_best_iskh: number | null;
+  /** Minería del mes (unidades del gamelog, base + crítico). */
+  mining_month: number | null;
 };
 
 export type ServerStatus = {
