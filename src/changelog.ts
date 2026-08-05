@@ -6,6 +6,30 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.38.0",
+    date: "2026-08-05",
+    es: [
+      "🧪 Las reacciones, cuadradas al ISK y al segundo. Las fórmulas estrenan pestaña «Reaccionar»: materiales exactos con el descuento de los rigs de tu refinería, tasa del job desglosada, duración con tu skill Reactions, lista de la compra y m³ a transportar. Verificado contra la ventana de industria del juego, coste al ISK y tiempo al segundo. Y encadena: si un material sale a su vez de otra reacción, lo despliegas y baja de nivel — lo desplegado se reacciona, lo demás se compra.",
+      "🏭 Tus fichas de instalación aprenden el reactor. Márcalo y aparecen los rigs de reacción de las tres familias. Un aviso honesto que nos costó descubrir: reaccionar NO tiene ninguna bonificación de coste — ni de estructura ni de rigs. La única que existe es el −25% de tiempo de la Tatara. Así que la tasa es índice del sistema + impuestos, y nada más.",
+      "📋 Copiar, con las cuentas claras. Cualquier plano con actividad de copia estrena su pestaña: dices cuántas copias y de cuántas runs, y Koru te da coste y duración. Comparte fórmula con la invención, y el tiempo está verificado al segundo contra dos trabajos reales.",
+      "🔗 «¿Cuántas copias necesito?» — la pregunta que faltaba. En el panel de invención escribes cuántas unidades T2 quieres y Koru te devuelve la cadena entera hacia atrás: BPCs necesarios, intentos esperados con TUS skills, y las runs de BPC T1 que hay que copiar antes. Un plan T2 completo, de la copia al producto.",
+      "💰 El impuesto, por actividad. Las estructuras cobran distinto según lo que hagas —una puede pedirte 1% inventando y 0% copiando, y una refinería cobra las tres reacciones por separado—. Ahora puedes declararlo así en la ficha; lo que dejes en blanco usa el impuesto general de siempre.",
+      "🧭 «No lo compres, tráelo». Cuando falta un material para una reacción, Koru mira si ya lo tienes en otro sitio y te dice dónde y a cuántos saltos, ordenado por cercanía.",
+      "🙋 Tu contribución en las Campañas Militares. Con el permiso nuevo de campañas, cada objetivo enseña cuáles de tus personajes están apuntados ahora mismo y cuánto lleva aportado cada uno. Es opcional y solo de lectura: los personajes que no lo concedan siguen funcionando igual.",
+      "🐛 Y un arreglo silencioso que importa: había planos en nuestro catálogo que no existen en el juego, y uno de ellos daba números falsos del mismo producto que la fórmula buena. Ya no pueden colarse en el árbol.",
+    ],
+    en: [
+      "🧪 Reactions, matched to the ISK and to the second. Formulas get a “React” tab: exact materials with your refinery rigs' discount, a broken-down job fee, duration from your Reactions skill, shopping list and m³ to haul. Verified against the game's industry window — cost to the ISK, time to the second. And it chains: if a material comes from another reaction, expand it and the tree goes deeper — what you expand gets reacted, the rest gets bought.",
+      "🏭 Facility cards learn the reactor. Tick it and the reaction rigs for all three families show up. One honest warning that took some digging: reactions get NO cost bonus at all — not from structures, not from rigs. The only one that exists is the Tatara's −25% time. So the fee is system index + taxes, and nothing else.",
+      "📋 Copying, with honest numbers. Any blueprint with a copy activity gets its tab: you say how many copies and how many runs each, and Koru gives you cost and duration. It shares the invention formula, and the time is verified to the second against two real jobs.",
+      "🔗 “How many copies do I need?” — the missing question. In the invention panel you type how many T2 units you want and Koru gives you the whole chain backwards: BPCs needed, expected attempts with YOUR skills, and the T1 BPC runs you must copy first. A complete T2 plan, from the copy to the product.",
+      "💰 Tax, per activity. Structures charge differently depending on what you do — one may ask 1% to invent and 0% to copy, and a refinery bills the three reaction types separately. Now you can declare it that way on the card; anything left blank uses the general tax as before.",
+      "🧭 “Don't buy it, haul it.” When a reaction is missing a material, Koru checks whether you already have it elsewhere and tells you where and how many jumps away, closest first.",
+      "🙋 Your contribution in Military Campaigns. With the new campaigns permission, each objective shows which of your characters are signed up right now and how much each has contributed. It's optional and read-only: characters without it keep working the same.",
+      "🐛 And a quiet fix that matters: our catalogue held blueprints that don't exist in the game, and one of them gave fake numbers for the same product as the real formula. They can't slip into the tree any more.",
+    ],
+  },
+  {
     version: "0.37.0",
     date: "2026-08-04",
     es: [
