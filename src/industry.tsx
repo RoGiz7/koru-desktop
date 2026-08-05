@@ -26,7 +26,22 @@ type BpTree = {
 /** public/bp_industry.json (R3): actividad → tiempo, insumos [[tid,qty]], producto, skills.
  *  En invención (`i`) el out lleva [bpT2, runs, probabilidad] y `sk` las skills [[id, nivel]]. */
 type BpAct = { t: number; in: [number, number][]; out: number[][]; sk?: [number, number][] };
-type BpIndustry = Record<string, { m?: BpAct; i?: BpAct; r?: BpAct; c?: number; max?: number }>;
+type BpIndustry = Record<
+  string,
+  {
+    m?: BpAct;
+    i?: BpAct;
+    r?: BpAct;
+    c?: number;
+    max?: number;
+    /** `1` = plano NO publicado en el SDE: existe en los datos pero no en el juego. Se conserva
+     *  para que la biblioteca resuelva el tuyo si lo tienes (hay 204 objetos publicados cuya única
+     *  receta es un plano así), pero NUNCA entra en los índices producto→plano del árbol: uno de
+     *  ellos, el «Test Reaction Blueprint», traía números falsos del mismo producto que la fórmula
+     *  buena y habría envenenado una cadena entera sin dar error. */
+    np?: number;
+  }
+>;
 /** Catálogo de nombres (public/market_types.json). Los ítems se muestran en INGLÉS a propósito. */
 type MType = { i: number; n: string; g: number };
 
@@ -351,6 +366,10 @@ const TID_MFG_PLANT = 35878;
 const TID_INVENTION_LAB = 35886;
 /** 45537 Standup Composite Reactor I — el icono del servicio de reacción. */
 const TID_COMPOSITE_REACTOR = 45537;
+/** Science (−5 % de tiempo por nivel en los trabajos de ciencia: copia e investigación).
+ *  Verificado con el fixture del Apostle: Science V × Advanced Industry V = 0,75 × 0,85 = 0,6375,
+ *  que es el «−36,3 %» que enseñó el juego. */
+const SCIENCE_SKILL = 3402;
 /** Reactions (45746): −4 % de tiempo de reacción por nivel. Verificado contra el fixture del
  *  Tatara — el juego enseñó «Habilidades e implantes −20,0 %», que es exactamente el nivel V. */
 const REACTIONS_SKILL = 45746;
@@ -395,6 +414,8 @@ function InventionBlock({
   // F2b — el laboratorio viene del desplegable ÚNICO de arriba (prop `lab`). De él salen índice
   // del sistema, banda de seguridad (multiplicador de los rigs de lab), bonos e impuesto.
   const [labIdx, setLabIdx] = useState<Record<string, number> | null>(null);
+  /** Cuántas unidades T2 quieres: la entrada de la cadena hacia atrás (BPCs → intentos → copias). */
+  const [want, setWant] = useState(1);
   // Leyenda «¿quién es tu mejor inventor?» (idea de Zigor): skills de TODOS los personajes para
   // esta invención. Clic en un chip → carga sus niveles en el simulador.
   const [allChars, setAllChars] = useState<
@@ -480,7 +501,9 @@ function InventionBlock({
     }
     const sd = lab.type_id != null ? ir.structures[String(lab.type_id)] : null;
     const brutoTotal = ctb * labIdx.invention * f * (sd?.cost ?? 1);
-    const taxes = ctb * ((lab.tax ?? 0) / 100 + CCS_SURCHARGE);
+    // Impuesto de INVENCIÓN: el fixture de RoGiz7 destapó que su Weaselior cobra 1 % inventando y
+    // 0 % en ME/TE, así que el general no siempre vale. `taxFor` cae al general si no se declaró.
+    const taxes = ctb * ((taxFor(lab, "invention") ?? 0) / 100 + CCS_SURCHARGE);
     // Desglose para el tooltip: espejo del tooltip del juego, para cazar desviaciones al vuelo.
     return {
       total: brutoTotal + taxes,
@@ -529,6 +552,7 @@ function InventionBlock({
     return p > 0 && runs > 0 ? attempt / (p * runs) : Infinity;
   };
   const best = decRows.reduce((a, b) => (costPerRun(b) < costPerRun(a) ? b : a), decRows[0]);
+  /** Cuántas unidades T2 quieres: la entrada de la cadena hacia atrás. */
   const fmtTry = (s: number) => {
     const m = Math.round(s / 60);
     return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
@@ -546,6 +570,43 @@ function InventionBlock({
         </span>
         <span className="muted">{tr("base")} {(baseProb * 100).toFixed(0)}%</span>
       </div>
+
+      {/* CADENA HACIA ATRÁS: «quiero N unidades T2» → BPCs → intentos → RUNS DE BPC T1 A COPIAR.
+          El eslabón de la copia es el que faltaba para que un plan T2 fuera completo. La regla la
+          fija la documentación oficial: «se utilizará UNA iteración de producción con licencia por
+          cada iteración de invención, independientemente de si el trabajo tiene éxito o no» → un
+          intento = una RUN del BPC T1 (no la copia entera), y se gasta aunque falle.
+          Todo esto es ESPERANZA, no promesa: con un 44 % puedes tener suerte o no tenerla. */}
+      {(() => {
+        const p = inventionProb(baseProb, encLvl, sciSum, best.prob);
+        const runsPorBpc = baseRuns + best.runs;
+        const porRun = t2bp != null ? ind[String(t2bp)]?.m?.out?.[0]?.[1] ?? 1 : 1;
+        const porBpc = runsPorBpc * porRun;
+        if (!(p > 0) || porBpc <= 0) return null;
+        const bpcs = Math.ceil(want / porBpc);
+        const intentos = Math.ceil(bpcs / p);
+        return (
+          <div className="bom-cost-row">
+            <span>
+              {tr("Para")}{" "}
+              <input
+                type="number"
+                min="1"
+                value={want}
+                onChange={(e) => setWant(Math.max(1, Number(e.target.value) || 1))}
+                style={{ width: "5rem", textAlign: "right" }}
+              />{" "}
+              {t2prod != null ? nameOf(t2prod) : tr("unidades")}
+            </span>
+            <span
+              title={`${tr("Con la mejor fila")} (${best.n}): ${(p * 100).toFixed(1)}% · ${runsPorBpc} runs/BPC × ${porRun} ${tr("por run")}`}
+            >
+              {fmtSp(bpcs)} {tr("BPC T2")} · <strong>{fmtSp(intentos)}</strong> {tr("intentos")} ·{" "}
+              <strong>{fmtSp(intentos)}</strong> {tr("runs de BPC T1 a copiar")}
+            </span>
+          </div>
+        );
+      })()}
       <div className="bom-cost-row muted">
         <span>{(act.in ?? []).map(([tid, q]) => `${q}× ${nameOf(tid)}`).join(" + ")}</span>
         <span>{fmtIsk(attemptBase)}</span>
@@ -890,7 +951,10 @@ function BomPanel({
   });
   /** Modo del panel (feedback de Zigor: mezclados era confuso): 🏭 fabricar o 🔬 inventar.
    *  Cada modo enseña SOLO lo suyo, incluida su lista de compra/transporte. */
-  const [mode, setMode] = useState<"build" | "invent" | "react">("build");
+  const [mode, setMode] = useState<"build" | "invent" | "react" | "copy">("build");
+  /** Nodos desplegados del árbol de REACCIONES (clave de ruta, para distinguir el mismo material
+   *  colgando de dos ramas distintas). Lo desplegado se reacciona; lo que queda de hoja, se compra. */
+  const [openReact, setOpenReact] = useState<Set<string>>(new Set());
   /** Leyenda «tus fabricantes» (petición de Zigor, gemela de la de inventores): skills de TODOS
    *  los personajes — velocidad (Industry × Advanced Industry) y si CUMPLEN las requeridas. */
   const [buildChars, setBuildChars] = useState<
@@ -1067,6 +1131,11 @@ function BomPanel({
   const bpByProduct = useMemo(() => {
     const m = new Map<number, string>();
     for (const [bid, v] of Object.entries(ind ?? {})) {
+      // Los planos sin publicar (`np`) siguen en el catálogo para que la biblioteca resuelva el
+      // tuyo si lo tienes, pero NO pueden ser una rama del árbol: no existen en el juego, y uno
+      // de ellos traía números falsos. Que un material salga «fabricable» por un plano que nadie
+      // puede conseguir es peor que decir «cómpralo».
+      if (v.np) continue;
       const out = v.m?.out?.[0]?.[0];
       if (out != null) m.set(out, bid);
     }
@@ -1155,6 +1224,9 @@ function BomPanel({
 
   // Skills de todos los personajes para la leyenda de fabricantes: las dos de velocidad + las
   // REQUERIDAS por este plano (sin ellas el juego no deja ni lanzar el job).
+  /** Índice de COPIA del sistema de la instalación. ESI lo llama `copying`. */
+  const labIdxCopy = idx?.copying ?? null;
+
   useEffect(() => {
     // Las requeridas salen de la actividad que toque: `m` al fabricar, `r` al reaccionar. Sin
     // pedir REACTIONS_SKILL, la duración de una reacción se calculaba con nivel 0 y salía un 25 %
@@ -1162,7 +1234,7 @@ function BomPanel({
     const reqIds = [...(act?.sk ?? []), ...(ract?.sk ?? [])].map(([s]) => s);
     invoke<{ character_id: number; name: string; levels: Record<number, number> }[]>(
       "get_skill_levels_all",
-      { ids: [INDUSTRY_SKILL, ADV_INDUSTRY_SKILL, REACTIONS_SKILL, ...reqIds] },
+      { ids: [INDUSTRY_SKILL, ADV_INDUSTRY_SKILL, REACTIONS_SKILL, SCIENCE_SKILL, ...reqIds] },
     )
       .then(setBuildChars)
       .catch(() => setBuildChars(null));
@@ -1197,10 +1269,13 @@ function BomPanel({
     const bruto = veo * index;
     // La bonificación de coste de la estructura sale del SDE (Sotiyo 0.95) y va sobre el BRUTO.
     const brutoTotal = bruto * (bonos?.strCost ?? 1);
-    const tax = veo * ((st?.tax ?? 0) / 100); // el impuesto lo pone el dueño: ni ESI ni SDE lo saben
+    // El impuesto lo pone el dueño: ni ESI ni SDE lo saben. Se pide el de FABRICACIÓN, que puede
+    // ser distinto del general (el juego lo configura por actividad); si no está declarado aparte,
+    // `taxFor` cae al general y todo sigue como siempre.
+    const tax = veo * ((st ? taxFor(st, "mfg") ?? 0 : 0) / 100);
     const ccs = veo * CCS_SURCHARGE;
     return { veo, faltan, index, bruto, brutoTotal, tax, ccs, total: brutoTotal + tax + ccs };
-  }, [act, adj, runs, idx, bonos, (st?.tax ?? 0), st?.has_mfg]);
+  }, [act, adj, runs, idx, bonos, st, st?.has_mfg]);
   // --- F-REACCIONES --- (`ract` se declara arriba: lo necesitan allTids y la carga de skills)
 
   /** Familia de la reacción (Composite / Hybrid / Biochemical) DEDUCIDA del dato, no de una lista
@@ -1242,15 +1317,80 @@ function BomPanel({
    *  contra el juego (5 × 100 × 0,9736 = 486,8 → el juego pide **487**, no 486). Sin ME/TE: en
    *  reacciones no existen, así que el único descuento posible es el del rig de la refinería.
    *  El «te falta» se cruza con el stock EN la instalación si se conoce, igual que en fabricación. */
+  /** Producto → fórmula que lo hace. Sin ambigüedad desde que el extractor descarta los planos sin
+   *  publicar (el «Test Reaction Blueprint» producía el mismo Tungsten Carbide con datos falsos). */
+  const reactByProduct = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const [k, v] of Object.entries(ind ?? {})) {
+      if (v.np) continue; // sin publicar: no existe en el juego, no puede ser una rama del árbol
+      for (const o of v.r?.out ?? []) m.set(o[0], k);
+    }
+    return m;
+  }, [ind]);
+
   const reactRows = useMemo(() => {
     if (!ract) return null;
-    const f = reactBon?.mat ?? 1;
-    return ract.in.map(([tid, base]) => {
-      const need = Math.ceil(base * runs * f);
-      const have = stockUsed?.get(tid) ?? 0;
-      return { tid, base, need, have, miss: Math.max(0, need - have), price: prices.get(tid) };
-    });
-  }, [ract, reactBon, runs, stockUsed, prices]);
+    type RRow = {
+      key: string;
+      tid: number;
+      base: number;
+      need: number;
+      have: number;
+      miss: number;
+      price: number | undefined;
+      depth: number;
+      /** Fórmula que lo produce, si es a su vez una reacción (35 de las 119 encadenan). */
+      sub: string | null;
+      /** Cuántas veces habría que correr esa sub-reacción para cubrir lo que falta. */
+      subRuns: number;
+    };
+    const out: RRow[] = [];
+    // Cada nivel se juzga con la familia de SU producto: el rig de compuestas no abarata una
+    // bioquímica. Mismo criterio que el walk() por nodo de F1d en fabricación.
+    const walk = (formula: string, mult: number, depth: number, path: string) => {
+      const r = ind?.[formula]?.r;
+      if (!r || depth > 4) return; // 4 niveles sobran: la cadena más larga del juego tiene 3
+      const grp = tree?.bp[formula]?.[1] ?? null;
+      const f = reactBonos ? reactBonos(grp).mat : 1;
+      for (const [tid, base] of r.in) {
+        const need = Math.ceil(base * mult * f);
+        const have = stockUsed?.get(tid) ?? 0;
+        const miss = Math.max(0, need - have);
+        const sub = reactByProduct.get(tid) ?? null;
+        const perRun = sub ? (ind?.[sub]?.r?.out?.[0]?.[1] ?? 1) : 1;
+        const key = `${path}/${tid}`;
+        out.push({
+          key,
+          tid,
+          base,
+          need,
+          have,
+          miss,
+          price: prices.get(tid),
+          depth,
+          sub,
+          subRuns: sub && miss > 0 ? Math.ceil(miss / perRun) : 0,
+        });
+        // Solo se baja por lo que TÚ has desplegado: lo desplegado se reacciona, lo demás se compra.
+        if (sub && openReact.has(key) && miss > 0) {
+          walk(sub, Math.ceil(miss / perRun), depth + 1, key);
+        }
+      }
+    };
+    walk(String(bp.type_id), runs, 0, "r");
+    return out;
+  }, [ract, ind, tree, reactBonos, runs, stockUsed, prices, reactByProduct, openReact, bp.type_id]);
+
+  /** Lo que hay que CONSEGUIR de fuera: solo las HOJAS. Un nodo desplegado lo reaccionas tú, así
+   *  que sale de la lista y entran sus materiales — contar los dos sería duplicar. Mismo criterio
+   *  que la lista de la compra de fabricación.
+   *  ⚠️ Va declarado ANTES de `traer` y `reactShop` a propósito: los useMemo se evalúan en orden
+   *  durante el render, y usarlo antes daba un ReferenceError que `tsc` no ve (el callback lo
+   *  oculta). */
+  const reactLeaves = useMemo(
+    () => (reactRows ?? []).filter((r) => !(r.sub && openReact.has(r.key))),
+    [reactRows, openReact],
+  );
 
   /** ¿DÓNDE está lo que falta? La pregunta que ninguna calculadora responde, porque ninguna sabe
    *  dónde tienes tus cosas — Koru sí, y sin pedir nada nuevo: `stockRows` ya trae `location_id`
@@ -1273,7 +1413,8 @@ function BomPanel({
 
   const traer = useMemo(() => {
     if (!reactRows || !stockRows || !st) return null;
-    const faltan = new Map(reactRows.filter((r) => r.miss > 0).map((r) => [r.tid, r.miss]));
+    // Solo las hojas: lo que se reacciona no se trae, se hace allí.
+    const faltan = new Map(reactLeaves.filter((r) => r.miss > 0).map((r) => [r.tid, r.miss]));
     if (faltan.size === 0) return null;
     // Saltos desde el sistema de la instalación a todo New Eden (una sola pasada).
     let dist = new Map<number, number>();
@@ -1320,16 +1461,15 @@ function BomPanel({
     return [...sitios.values()].sort(
       (a, b) => (a.jumps ?? 9999) - (b.jumps ?? 9999) || a.label.localeCompare(b.label),
     );
-  }, [reactRows, stockRows, st, ne, structs]);
+  }, [reactRows, reactLeaves, stockRows, st, ne, structs]);
 
-  /** Lo que falta comprar para lanzar la reacción: ISK a mercado y m³ a transportar. */
   const reactShop = useMemo(() => {
     if (!reactRows) return null;
     let isk = 0;
     let m3 = 0;
     let types = 0;
     let sinPrecio = 0;
-    for (const r of reactRows) {
+    for (const r of reactLeaves) {
       if (r.miss <= 0) continue;
       types++;
       if (r.price == null) sinPrecio++;
@@ -1338,7 +1478,7 @@ function BomPanel({
       if (v != null) m3 += r.miss * v;
     }
     return { types, isk, m3, sinPrecio };
-  }, [reactRows, vols]);
+  }, [reactRows, reactLeaves, vols]);
 
   const reactCost = useMemo(() => {
     if (!ract) return null;
@@ -1354,7 +1494,7 @@ function BomPanel({
     const index = st?.has_reactor ? (idx?.reaction ?? idx?.reactions ?? null) : null;
     if (index == null) return { veo, faltan, index: null as number | null };
     const bruto = veo * index; // sin bonificación: ninguna estructura ni rig abarata la reacción
-    const taxPct = reactFam ? taxFor(st!, `reaction_${reactFam}` as TaxAct) : st!.tax;
+    const taxPct = !st ? null : reactFam ? taxFor(st, `reaction_${reactFam}` as TaxAct) : st.tax;
     const tax = veo * ((taxPct ?? 0) / 100);
     const ccs = veo * CCS_SURCHARGE;
     return { veo, faltan, index, bruto, tax, ccs, taxPct, total: bruto + tax + ccs };
@@ -1362,13 +1502,82 @@ function BomPanel({
 
   // En una fórmula de reacción el «producto» sale de `r`, no de `m`: si no, la cabecera decía
   // «produce» y dejaba el hueco en blanco.
+  // --- F2c: COPIA ---
+  /** Tiempo base de copia POR RUN copiada (el `c` del SDE). Verificado con el fixture del Apostle:
+   *  1 copia × 1 run usó exactamente los 1.600.000 s del SDE. La documentación lo confirma —
+   *  «la duración se calcula en función del número TOTAL de producciones con licencia». */
+  const copyT = ind?.[String(bp.type_id)]?.c ?? 0;
+  const [copies, setCopies] = useState(1);
+  const [runsPerCopy, setRunsPerCopy] = useState(1);
+  const maxPerCopy = ind?.[String(bp.type_id)]?.max ?? 1;
+
+  /** Coste y tiempo del trabajo de COPIA.
+   *
+   *  ⚠️ La copia NO usa la fórmula de fabricación: es un «trabajo de ciencia» y comparte fórmula
+   *  con la INVENCIÓN — con su capa CTB del 2 %. VERIFICADO AL ISK contra el juego (Apostle
+   *  Blueprint, 1 copia × 1 run, Sotiyo «Weaselior University T2 Lab» en null):
+   *
+   *      VEO 2.853.005.600 → CTB 2 % = 57.060.112
+   *      bruto = CTB × índice(copying) 14,0107 % = 7.994.500
+   *      × rig 0,748 × estructura 0,95 = 5.680.891   (el juego TRUNCA, no redondea)
+   *      + CCS 4 % DEL CTB = 2.282.404
+   *      = 7.963.295  ✓ clavado
+   *
+   *  El impuesto de centro ni salía en su tooltip porque ese lab cobra 0 % en copia — la prueba en
+   *  vivo de que el impuesto por actividad hacía falta.
+   *
+   *  El VEO es un CANDIDATO (materiales de 1 run del propio plano a `adjusted`), igual que lo fue
+   *  el de invención hasta que se contrastó: se enseña para compararlo con el tooltip. Y su escala
+   *  con varias copias/runs está SIN verificar — el fixture era de 1×1. */
+  const copyJob = useMemo(() => {
+    if (!copyT || !act) return null;
+    const totalRuns = Math.max(1, copies) * Math.max(1, runsPerCopy);
+    // VEO por run con licencia, y el total escalado por ellas. La escala con las runs es la
+    // hipótesis coherente con lo ÚNICO verificado: el TIEMPO escala exactamente con las runs
+    // totales (fixture Antimatter Charge L: 1×1 = 459 s, 10×10 = 45.900 s, ×100 clavado). El
+    // coste con varias runs sigue sin contrastar — el fixture del Apostle era de 1×1.
+    const veoRun = act.in.reduce((a, [tid, q]) => a + q * (adj.get(tid) ?? 0), 0);
+    const veo = veoRun * totalRuns;
+    const lvls = new Map<number, number>();
+    for (const c of buildChars ?? [])
+      for (const [k, v] of Object.entries(c.levels))
+        lvls.set(Number(k), Math.max(lvls.get(Number(k)) ?? 0, v));
+    // Skills de copia: Science −5 %/nivel × Advanced Industry −3 %/nivel (0,75 × 0,85 = el
+    // «−36,3 %» que enseñó el juego con ambas a V).
+    const skillF =
+      (1 - 0.05 * (lvls.get(SCIENCE_SKILL) ?? 0)) * (1 - 0.03 * (lvls.get(ADV_INDUSTRY_SKILL) ?? 0));
+    const sd = st?.type_id != null ? ir?.structures[String(st.type_id)] : null;
+    const band = sysHit ? secBand(sysHit.s) : "hi";
+    let rigCost = 1;
+    let rigTime = 1;
+    for (const id of st?.rigs ?? []) {
+      const r = ir?.rigs[String(id)];
+      // Rigs de LABORATORIO: los que no tocan material (mat 0) y sí coste o tiempo. Aplican sin
+      // filtro de producto, igual que en invención.
+      if (!r || r.mat !== 0) continue;
+      if (r.cost !== 0) rigCost *= 1 + (r.cost * (r.sec[band] ?? 1)) / 100;
+      if (r.time !== 0) rigTime *= 1 + (r.time * (r.sec[band] ?? 1)) / 100;
+    }
+    const time = copyT * totalRuns * skillF * rigTime * (sd?.time ?? 1);
+    const index = st?.has_lab ? (labIdxCopy ?? null) : null;
+    if (index == null) return { veo, totalRuns, time, index: null as number | null };
+    const ctb = veo * 0.02;
+    const bruto = Math.trunc(ctb * index * rigCost * (sd?.cost ?? 1));
+    const tax = ctb * ((taxFor(st!, "copy") ?? 0) / 100);
+    const ccs = ctb * CCS_SURCHARGE;
+    return { veo, totalRuns, time, index, ctb, bruto, tax, ccs, total: bruto + tax + ccs };
+  }, [copyT, act, adj, copies, runsPerCopy, buildChars, st, ir, sysHit, labIdxCopy]);
+
   const product = act?.out?.[0]?.[0] ?? ract?.out?.[0]?.[0];
   const perRun = act?.out?.[0]?.[1] ?? ract?.out?.[0]?.[1] ?? 1;
-  // Abrir una fórmula en modo «Fabricar» dejaría el panel mudo: el modo por defecto lo decide
-  // lo que el plano SABE hacer.
+  // El modo por defecto lo decide lo que el plano SABE hacer, y se RECALCULA al cambiar de plano.
+  // Antes solo forzaba «react» al abrir una fórmula y nunca volvía atrás: al pasar de una fórmula a
+  // un plano normal el modo se quedaba pegado en Reaccionar y el panel salía MUDO (lo cazó Zigor
+  // con el Helium Fuel Block). Depende del plano, no del modo, así que no pisa tu elección manual
+  // entre Fabricar e Inventar mientras sigas en el mismo plano.
   useEffect(() => {
-    if (ract) setMode("react");
-  }, [ract]);
+    setMode(ract ? "react" : "build");
+  }, [ract, bp.type_id]);
   const maxRuns = bp.quantity === -1 ? 1_000_000 : Math.max(1, bp.runs);
 
   /** F1d — coste de FABRICAR una unidad de un material fabricable, para el build-vs-buy por nodo:
@@ -1521,7 +1730,7 @@ function BomPanel({
 
       {/* Modo del panel: cada actividad con su espacio (regla de la casa). Solo hay pestañas si el
           plano puede inventar; si no, el modo es fabricar y no se enseña el selector. */}
-      {((ind?.[String(bp.type_id)]?.i && inv) || ract) && (
+      {((ind?.[String(bp.type_id)]?.i && inv) || ract || copyT > 0) && (
         <div className="seg seg-sm" style={{ margin: "0.4rem 0" }}>
           {!ract && (
             <button className={mode === "build" ? "active" : ""} onClick={() => setMode("build")}>
@@ -1531,6 +1740,15 @@ function BomPanel({
           {ind?.[String(bp.type_id)]?.i && inv && (
             <button className={mode === "invent" ? "active" : ""} onClick={() => setMode("invent")}>
               <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" /> {tr("Inventar")}
+            </button>
+          )}
+          {/* Copiar: cualquier plano con actividad de copia (4.340 de los 5.082). Es el eslabón que
+              faltaba de la cadena T2 — la invención consume RUNS de un BPC T1, y esas runs salen
+              de aquí. */}
+          {copyT > 0 && !ract && (
+            <button className={mode === "copy" ? "active" : ""} onClick={() => setMode("copy")}>
+              <img className="kind-glyph" src={typeIcon(TID_INVENTION_LAB, 32)} alt="" />{" "}
+              {tr("Copiar")}
             </button>
           )}
           {/* Una fórmula de reacción NO se fabrica: no tiene sentido ofrecer «Fabricar» al lado. */}
@@ -1629,6 +1847,86 @@ function BomPanel({
                 ))}
             </span>
           </div>
+        </div>
+      )}
+
+      {/* F2c — COPIA. Comparte fórmula con la invención («trabajos de ciencia»), con su capa CTB
+          del 2 %. Verificada al ISK contra el fixture del Apostle. */}
+      {mode === "copy" && copyJob && (
+        <div className="bom-cost small">
+          {!st?.has_lab && (
+            <div className="muted">
+              {tr("La instalación elegida no tiene laboratorio declarado (marca 🔬 «Lab» en su ficha).")}
+            </div>
+          )}
+          <div className="bom-cost-row">
+            <span>{tr("Copias")}</span>
+            <span>
+              <input
+                type="number"
+                min="1"
+                value={copies}
+                onChange={(e) => setCopies(Math.max(1, Number(e.target.value) || 1))}
+                style={{ width: "4.5rem", textAlign: "right" }}
+              />{" "}
+              × {tr("runs por copia")}{" "}
+              <input
+                type="number"
+                min="1"
+                max={maxPerCopy}
+                value={runsPerCopy}
+                onChange={(e) =>
+                  setRunsPerCopy(Math.min(maxPerCopy, Math.max(1, Number(e.target.value) || 1)))
+                }
+                style={{ width: "4.5rem", textAlign: "right" }}
+                title={`${tr("máximo por copia según el plano")}: ${fmtSp(maxPerCopy)}`}
+              />
+              <span className="muted small">
+                {" "}
+                = {fmtSp(copyJob.totalRuns)} {tr("runs con licencia")}
+              </span>
+            </span>
+          </div>
+          <div className="bom-cost-row">
+            <span title={tr("Candidato: materiales de 1 run del plano a adjusted, × las runs con licencia. El tiempo SÍ escala así (verificado); el coste con varias runs está sin contrastar — compáralo con el tooltip del juego.")}>
+              {tr("Valor estimado del objeto (VEO)")}
+            </span>
+            <strong>{fmtIsk(copyJob.veo)}</strong>
+          </div>
+          {copyJob.total == null ? (
+            <div className="muted">
+              {tr("Sin índice de copia: elige una instalación con laboratorio para calcular la tasa.")}
+            </div>
+          ) : (
+            <>
+              <div className="bom-cost-row">
+                <span
+                  title={`CTB (2% VEO): ${fmtIsk(copyJob.ctb!)} · ${tr("índice")} ${(copyJob.index! * 100).toFixed(2)}% ${tr("sobre el CTB")} · ${tr("impuesto")} ${taxFor(st!, "copy") ?? 0}% · CCS 4%`}
+                >
+                  {tr("Tasa del job")}
+                </span>
+                <strong>{fmtIsk(copyJob.total)}</strong>
+              </div>
+              <div className="bom-cost-row muted">
+                <span>{tr("Desglose")}</span>
+                <span>
+                  {tr("bruto")} {fmtIsk(copyJob.bruto!)} · {tr("centro")} {fmtIsk(copyJob.tax!)} · CCS{" "}
+                  {fmtIsk(copyJob.ccs!)}
+                </span>
+              </div>
+            </>
+          )}
+          <div className="bom-cost-row">
+            <span title={`${tr("base")} ${fmtSp(copyT)}s/run · Science −5%/${tr("nivel")} × Advanced Industry −3%/${tr("nivel")} · ${tr("rigs y estructura")}`}>
+              ⏱ {tr("Duración")}
+            </span>
+            <span>
+              {Math.floor(copyJob.time / 3600)}h {Math.floor((copyJob.time % 3600) / 60)}m
+            </span>
+          </div>
+          <p className="muted">
+            {tr("Copiar es un «trabajo de ciencia»: comparte fórmula con la invención (capa CTB del 2 %) y compite por las mismas ranuras que copiar, investigar e inventar. Un BPO T1 no pide materiales; un BPO T2 sí (hojas de datos y BDI), y eso todavía no se cuenta aquí.")}
+          </p>
         </div>
       )}
 
@@ -1738,12 +2036,43 @@ function BomPanel({
           </thead>
           <tbody>
             {reactRows.map((r) => (
-              <tr key={r.tid}>
-                <td>
+              <tr key={r.key}>
+                <td style={{ paddingLeft: `${r.depth * 1.2}rem` }}>
+                  {/* Desplegable solo si ese material sale a su vez de otra reacción. */}
+                  {r.sub ? (
+                    <button
+                      className="bom-exp"
+                      title={
+                        openReact.has(r.key)
+                          ? tr("plegar: volver a comprarlo")
+                          : tr("desplegar: reaccionarlo tú")
+                      }
+                      onClick={() =>
+                        setOpenReact((prev) => {
+                          const n = new Set(prev);
+                          if (n.has(r.key)) n.delete(r.key);
+                          else n.add(r.key);
+                          return n;
+                        })
+                      }
+                    >
+                      {openReact.has(r.key) ? "▾" : "▸"}
+                    </button>
+                  ) : (
+                    <span className="bom-exp" style={{ visibility: "hidden" }}>
+                      ▸
+                    </span>
+                  )}{" "}
                   <img className="kind-glyph" src={typeIcon(r.tid, 32)} alt="" /> {nameOf(r.tid)}
                   <span className="muted small">
                     {" "}
                     · {tr("base")} {fmtSp(r.base)}/run
+                    {r.sub && r.subRuns > 0 && (
+                      <>
+                        {" "}
+                        · {r.subRuns} {tr("runs de su reacción")}
+                      </>
+                    )}
                   </span>
                 </td>
                 <td style={{ textAlign: "right" }}>{fmtSp(r.need)}</td>
@@ -2822,6 +3151,50 @@ function FacilityWizard({
         <div className="fac-tax-foot muted">
           {tr("Escribe solo el número, sin el %. Si tu estructura no cobra nada, deja 0 — es un dato válido, no un hueco.")}
         </div>
+      </div>
+
+      {/* Impuesto POR ACTIVIDAD. No es un lujo: el juego lo configura así de verdad, y lo vimos en
+       *  los tooltips de RoGiz7 — su Weaselior cobra 1 % inventando y 0 % en ME/TE, y su Tatara
+       *  lista TRES impuestos de reacción por separado. Con un solo número acertábamos de casualidad.
+       *  Todo vacío = hereda el general, que es como funcionaba hasta ahora: nadie tiene que tocar
+       *  nada si su estructura cobra lo mismo para todo. */}
+      <div className="fac-f">
+        <span>7 · {tr("Impuesto por actividad")}</span>
+        <span className="fac-tax-acts">
+          {(() => {
+            let cur: Record<string, number> = {};
+            try {
+              cur = d.tax_by_activity ? JSON.parse(d.tax_by_activity) : {};
+            } catch {
+              cur = {}; // JSON corrupto: empezamos limpios en vez de romper el asistente
+            }
+            const setAct = (k: string, v: string) => {
+              const next = { ...cur };
+              if (v.trim() === "") delete next[k];
+              else next[k] = Number(v);
+              // Sin nada declarado guardamos cadena vacía, no "{}": así `tax_by_activity` sigue
+              // significando exactamente «no declarado» y el fallback al general es inequívoco.
+              set({ tax_by_activity: Object.keys(next).length ? JSON.stringify(next) : "" });
+            };
+            return TAX_ACTS.map(({ k, label }) => (
+              <label key={k} className="fac-tax-act">
+                <span>{tr(label)}</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder={d.tax != null ? `${d.tax}` : tr("general")}
+                  value={cur[k] ?? ""}
+                  onChange={(e) => setAct(k, e.target.value)}
+                />
+                <span className="muted">%</span>
+              </label>
+            ));
+          })()}
+        </span>
+        <em className="muted">
+          {tr("Opcional. Lo que dejes en blanco usa el impuesto general de arriba (sale de fondo en el hueco). Rellena solo las actividades que tu estructura cobre distinto — las refinerías cobran las tres reacciones por separado.")}
+        </em>
       </div>
 
       <div className="fac-wiz-foot">

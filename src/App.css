@@ -6602,6 +6602,28 @@ h4 {
   border-radius: 50%;
 }
 
+/* Impuesto por actividad: rejilla compacta de 8 campos. El placeholder enseña el impuesto general
+   en gris, así se ve de un vistazo qué está heredando y qué has declarado aparte. */
+.fac-tax-acts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.25rem 0.8rem;
+}
+.fac-tax-act {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+.fac-tax-act > span:first-child {
+  flex: 1;
+  color: var(--muted, #8b949e);
+}
+.fac-tax-act input {
+  width: 4.5rem;
+  text-align: right;
+}
+
 /* Fase 2: retratos de MIS personajes en cada objetivo. Apagado = contribuyó pero ya no está
    apuntado (ESI lo distingue, y la diferencia importa: el que renunció sigue contando). */
 .camp-mine {

@@ -42,6 +42,33 @@ def main() -> int:
     bps: dict = {}
     pis: dict = {}
     with zipfile.ZipFile(zpath) as z:
+        # ⚠️ MARCA DE «SIN PUBLICAR» (`np`), que NO es lo mismo que descartar.
+        #
+        # El problema: `blueprints.jsonl` trae planos que no existen en el juego, y uno hace daño
+        # de verdad — el **45732 «Test Reaction Blueprint»** produce el MISMO Tungsten Carbide
+        # (16672) que la fórmula real 46207, pero con números de juguete (360 s en vez de 10.800,
+        # salida 20 en vez de 10.000, sin bloque de combustible). Al encadenar reacciones, un
+        # índice producto→fórmula puede quedarse con el test y calcular una cadena entera con
+        # datos falsos SIN dar ningún error.
+        #
+        # La primera versión los DESCARTABA, y estaba mal: 905 planos fuera dejaban **204 objetos
+        # PUBLICADOS sin ninguna receta** (módulos de facción como el Republic Fleet Carbonized
+        # Lead o el Caldari Navy Medium Shield Extender). Si alguien tiene uno de esos BPC, su
+        # biblioteca diría «este plano no fabrica nada» — cambiar una mentira por otra.
+        #
+        # Así que se quedan TODOS, con `np: 1` si no están publicados. La app decide: la biblioteca
+        # los resuelve igual (tienes el plano, es tuyo), pero los índices producto→fórmula del
+        # árbol los saltan, que es donde estaba el veneno.
+        published = set()
+        with z.open("types.jsonl") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                t = json.loads(line)
+                if t.get("published"):
+                    published.add(t["_key"])
+        n_np = 0
         with z.open("blueprints.jsonl") as f:
             for line in f:
                 row = json.loads(line)
@@ -59,6 +86,9 @@ def main() -> int:
                     entry["max"] = row["maxProductionLimit"]
                 # Solo blueprints con alguna actividad útil (los hay vacíos/legacy).
                 if entry:
+                    if published and row["blueprintTypeID"] not in published:
+                        entry["np"] = 1  # no publicado: no debe entrar en los índices del árbol
+                        n_np += 1
                     bps[str(row["blueprintTypeID"])] = entry
         with z.open("planetSchematics.jsonl") as f:
             for line in f:
@@ -81,7 +111,13 @@ def main() -> int:
     pi_path = public / "pi_schematics.json"
     bp_path.write_text(json.dumps(bps, separators=(",", ":")), encoding="utf-8")
     pi_path.write_text(json.dumps(pis, separators=(",", ":")), encoding="utf-8")
-    print(f"bp_industry.json: {len(bps)} blueprints · {bp_path.stat().st_size / 1e6:.2f} MB")
+    print(f"bp_industry.json: {len(bps)} blueprints · {bp_path.stat().st_size / 1e6:.2f} MB "
+          f"· {n_np} marcados sin publicar (np)")
+    # Guarda: el plano de prueba DEBE seguir estando (para no romper a quien lo tenga) pero
+    # SIEMPRE marcado, que es lo que impide que envenene el árbol de reacciones.
+    if bps.get("45732") and not bps["45732"].get("np"):
+        print("AVISO: el Test Reaction Blueprint (45732) NO está marcado `np`: revisa el filtro.",
+              file=sys.stderr)
     print(f"pi_schematics.json: {len(pis)} esquemas · {pi_path.stat().st_size / 1e3:.1f} KB")
     return 0
 

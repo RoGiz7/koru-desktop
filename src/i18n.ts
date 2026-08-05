@@ -1818,10 +1818,46 @@ const EN: Record<string, string> = {
     "has a laboratory (invention / copying / research)",
   "¿Tiene laboratorio Standup (invención, copia, investigación ME/TE)?":
     "Does it have a Standup laboratory (invention, copying, ME/TE research)?",
+  // F2c — modo Copiar y cadena hacia atrás de la invención
+  Copiar: "Copy",
+  "runs por copia": "runs per copy",
+  "máximo por copia según el plano": "max per copy, from the blueprint",
+  "runs con licencia": "licensed runs",
+  "Candidato: materiales de 1 run del plano a adjusted, × las runs con licencia. El tiempo SÍ escala así (verificado); el coste con varias runs está sin contrastar — compáralo con el tooltip del juego.":
+    "Candidate: materials for 1 run of the blueprint at adjusted price, × the licensed runs. Time does scale this way (verified); cost with several runs is unconfirmed — compare it with the game's tooltip.",
+  "Sin índice de copia: elige una instalación con laboratorio para calcular la tasa.":
+    "No copying index: pick a facility with a laboratory to work out the fee.",
+  "sobre el CTB": "on the CTB",
+  "La instalación elegida no tiene laboratorio declarado (marca 🔬 «Lab» en su ficha).":
+    "The chosen facility has no laboratory declared (tick 🔬 “Lab” on its card).",
+  "Copiar es un «trabajo de ciencia»: comparte fórmula con la invención (capa CTB del 2 %) y compite por las mismas ranuras que copiar, investigar e inventar. Un BPO T1 no pide materiales; un BPO T2 sí (hojas de datos y BDI), y eso todavía no se cuenta aquí.":
+    "Copying is a “science job”: it shares the invention formula (the 2% CTB layer) and competes for the same slots as copying, research and invention. A T1 BPO needs no materials; a T2 BPO does (datasheets and R.Db's), and that isn't counted here yet.",
+  Para: "For",
+  unidades: "units",
+  "BPC T2": "T2 BPCs",
+  intentos: "attempts",
+  "runs de BPC T1 a copiar": "T1 BPC runs to copy",
+  "Con la mejor fila": "With the best row",
+  "por run": "per run",
+  // Impuesto por actividad en la ficha (las 8 claves del juego)
+  "Impuesto por actividad": "Tax per activity",
+  Fabricación: "Manufacturing",
+  Copia: "Copying",
+  "Investigación ME": "ME research",
+  "Investigación TE": "TE research",
+  "Reacciones compuestas": "Composite reactions",
+  "Reacciones bioquímicas": "Biochemical reactions",
+  "Reacciones híbridas": "Hybrid reactions",
+  general: "general",
+  "Opcional. Lo que dejes en blanco usa el impuesto general de arriba (sale de fondo en el hueco). Rellena solo las actividades que tu estructura cobre distinto — las refinerías cobran las tres reacciones por separado.":
+    "Optional. Anything left blank uses the general tax above (shown greyed in the box). Only fill the activities your structure charges differently — refineries bill the three reaction types separately.",
   // F-REACCIONES — panel «Reaccionar»
   Reaccionar: "React",
   "Lista de la compra": "Shopping list",
   "Volumen a transportar": "Volume to haul",
+  "runs de su reacción": "runs of its own reaction",
+  "plegar: volver a comprarlo": "collapse: buy it instead",
+  "desplegar: reaccionarlo tú": "expand: react it yourself",
   "Ya lo tienes en otro sitio": "You already have it elsewhere",
   ubicaciones: "locations",
   "mismo sistema": "same system",
