@@ -66,6 +66,47 @@
   --z-statusbar: 50;
   /* Altura de la barra de estado (para reservar espacio abajo) */
   --statusbar-h: 34px;
+
+  /* Le dice al navegador que la app es OSCURA. Sin esto, Chromium pinta en claro todo lo que
+     dibuja él: barras de scroll, desplegables de <select>, calendarios de <input type=date> y los
+     resaltados de autocompletado. Es el motivo real de que la barra del feed de intel saliera
+     blanca y gorda encima del mapa. */
+  color-scheme: dark;
+}
+
+/* ----- Barras de desplazamiento -----
+   Van GLOBALES a propósito. No había ninguna regla de scrollbar en todo el proyecto: los ~20
+   paneles con overflow usaban la barra nativa, que sobre un fondo oscuro canta y encima cambia de
+   aspecto según el sistema. Estilarla en un sitio suelto habría dejado la app con dos barras
+   distintas, que es peor que tener una fea.
+   Fina, sin flechas y sin fondo: sobre el mapa y sobre los paneles tiene que estorbar lo mínimo.
+   Firefox no entiende ::-webkit-*, así que lleva además las dos propiedades estándar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-accent-2) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-accent-2);
+  border-radius: 999px;
+  /* El borde transparente + background-clip adelgaza el pulgar sin encoger la zona de agarre:
+     se ve de 4 px y se pincha en 8. */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-border);
+  background-clip: content-box;
+}
+/* La esquina donde se cruzan las dos barras: sin esto queda un cuadrado claro. */
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .container {
