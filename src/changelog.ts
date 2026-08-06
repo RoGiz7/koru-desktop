@@ -6,6 +6,28 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.40.0",
+    date: "2026-08-06",
+    es: [
+      "🔔 Los avisos de intel, encima del juego. Una ventanita sin bordes en la esquina que elijas, en el monitor que elijas, con el aviso completo: quién viene, en qué nave, a cuántos saltos y de cuál de tus pilotos. Púlsala y Koru se pone delante con el mapa abierto en ese sistema y la ficha del aviso lista para trazar ruta. Viene apagada de fábrica y se enciende en Ajustes: un aviso que aparece sin que nadie lo haya pedido es motivo de desinstalación. Idea de un jugador que se instaló la app y contó que la notificación de Windows no le servía volando.",
+      "📍 Tus pilotos ya no se quedan congelados. Hasta ahora Koru preguntaba dónde estaban tus personajes al arrancar y nunca más: si llevabas dos horas volando, los saltos del intel se medían desde donde estabas al abrir la app. No daba error — daba un número creíble, que es peor. Ahora se refresca cada 30 segundos, y solo de los que están conectados.",
+      "🧭 Y de paso, tu recorrido. Capa nueva en el mapa con por dónde has pasado de verdad: cada parada con el tiempo que estuviste allí, en ventanas de 1 hora a 7 días. Los tramos que Koru no llegó a ver se dibujan distintos y con leyenda, porque un rastro pintado como continuo afirmaría rutas que nadie presenció.",
+      "👁️ Nombres en la capa de intel. Tus pilotos ya no son circulitos mudos: llevan su nombre al lado, apagado para no competir con los avisos. Con varios repartidos, tener que pasar el ratón uno por uno era justo lo que no se puede hacer con prisa.",
+      "⚙️ El panel de intel del mapa, a dieta. Lo que se configura una vez —carpeta de logs, canales, recencia, rastro y sonido— se muda a Ajustes → Intel, donde hay sitio y los canales se ven todos a la vez. En el mapa se queda solo lo que se toca volando: el umbral de saltos, qué pilotos cuentan y tus anclas.",
+      "🔌 La lista de pilotos del intel enseña solo los conectados, con un enlace para ver todos. Un personaje desconectado no cuenta para nada, así que ocupaba sitio sin decir nada.",
+      "🐛 Arreglado: cerrar la app ahora la cierra de verdad. La ventana de avisos mantenía el proceso vivo por detrás.",
+    ],
+    en: [
+      "🔔 Intel alerts, on top of the game. A small borderless window in the corner you pick, on the monitor you pick, with the whole alert: who's coming, in what ship, how many jumps out and from which of your pilots. Click it and Koru comes to the front with the map open on that system and the alert card ready to plot a route. It ships switched off and you turn it on in Settings: an alert that shows up unasked is a reason to uninstall. Suggested by a player who installed the app and said the Windows notification was no use to him while flying.",
+      "📍 Your pilots don't freeze in place any more. Until now Koru asked where your characters were at startup and never again: two hours into a session, intel jumps were measured from wherever you were when you opened the app. It didn't throw an error — it gave a believable number, which is worse. Now it refreshes every 30 seconds, and only for those who are online.",
+      "🧭 And with it, your route. New map layer showing where you've actually been: every stop with how long you were there, in windows from 1 hour to 7 days. Stretches Koru never saw are drawn differently and labelled, because a trail painted as continuous would claim routes nobody witnessed.",
+      "👁️ Names on the intel layer. Your pilots are no longer mute little circles: their name sits beside them, dimmed so it doesn't compete with the alerts. With several spread out, having to hover them one by one was exactly what you can't do in a hurry.",
+      "⚙️ The map's intel panel goes on a diet. Everything you set once — log folder, channels, recency, trail and sound — moves to Settings → Intel, where there's room and every channel is visible at once. The map keeps only what you touch while flying: the jump threshold, which pilots count, and your anchors.",
+      "🔌 The intel pilot list now shows only those online, with a link to see everyone. An offline character counts for nothing, so it was taking up space without saying anything.",
+      "🐛 Fixed: closing the app now actually closes it. The alert window was keeping the process alive in the background.",
+    ],
+  },
+  {
     version: "0.39.0",
     date: "2026-08-05",
     es: [
