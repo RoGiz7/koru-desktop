@@ -42,7 +42,18 @@ import "./overlay.css";
 
 /** Un piloto tuyo y su proximidad al sistema del aviso. Lo calcula Rust con un BFS desde el
  *  sistema hostil, así que es distancia REAL de saltos, no una estimación. */
-type PilotProximity = { name: string; jumps: number; ship: string | null; ship_type_id: number | null };
+type PilotProximity = {
+  name: string;
+  jumps: number;
+  ship: string | null;
+  ship_type_id: number | null;
+  system_id: number;
+  system: string | null;
+};
+
+/** El ancla más cercana al sistema del aviso. Sin esto, cuando no hay ningún piloto tuyo en el
+ *  grafo el aviso enseñaba el número a secas — «4 saltos» de nada. */
+type Ancla = { name: string; system_id: number; jumps: number };
 
 /** Quien viene. `character_id` solo si Koru ya le había visto antes (tabla de avistamientos), y
  *  entonces se puede pintar su retrato sin llamar a ESI. */
@@ -59,6 +70,7 @@ type IntelAlert = {
   message: string;
   ts_ms: number;
   pilots?: PilotProximity[];
+  anchor?: Ancla | null;
   parse?: IntelParse;
 };
 
@@ -84,10 +96,66 @@ function edad(ms: number): string {
   return getLang() === "en" ? `${cant} ago` : `hace ${cant}`;
 }
 
-/** Saltos al piloto tuyo más cercano; si no hay pilotos, la distancia a los orígenes. */
+/** El «de» del aviso, resuelto a mano y NO con `tr("de")`.
+ *
+ *  La clave "de" ya está cogida: en assets, pvp y bitácora significa «X de Y» → *of*. Aquí hace
+ *  falta *from* («a 5 saltos DE SieteHierros»), y meter las dos acepciones en la misma clave
+ *  rompería una de las dos. Mismo motivo por el que `edad()` tampoco pasa por `tr`.
+ *  (De paso arregla que hasta hoy el overlay en inglés escribía «de» tal cual.) */
+function preposicionDe(): string {
+  return getLang() === "en" ? "from" : "de";
+}
+
+/** Saltos al piloto tuyo más cercano; si no hay pilotos, al ancla; si tampoco, a los orígenes.
+ *
+ *  Este número manda SIEMPRE en el color de la tarjeta, aunque algún día la etiqueta prefiera
+ *  nombrar otra cosa: el color mide peligro y el peligro no se configura. */
 function saltosDe(a: IntelAlert): number {
   const c = (a.pilots ?? []).slice().sort((x, y) => x.jumps - y.jumps)[0];
-  return c ? c.jumps : a.jumps;
+  if (c) return c.jumps;
+  return a.anchor ? a.anchor.jumps : a.jumps;
+}
+
+/** De QUIÉN son esos saltos, en una línea y sin mentir.
+ *
+ *  Tres casos, y el orden importa:
+ *   1. Hay pilotos → manda el más cercano. Se agrupan los que estén a ESA MISMA distancia, porque
+ *      tres pilotos a 5 saltos no son tres avisos, son uno. De los que están más lejos no se dice
+ *      nada: no se ganan el sitio.
+ *   2. Los agrupados comparten sistema → se nombra el sistema. Ver el nombre significa «están
+ *      JUNTOS», que es lo que decide si te pueden apoyar; desperdigados, no se pinta.
+ *   3. No hay pilotos → manda el ancla, CON SU NOMBRE. Este era el agujero: el número salía solo.
+ *
+ *  El detalle (quién, en qué nave, desde dónde) va al `title`. Es gratis en píxeles y el overlay
+ *  no puede permitirse una línea más: cuatro avisos ya son ~150 px sobre el juego.
+ */
+function referencia(a: IntelAlert): { texto: string; titulo: string } | null {
+  const pilotos = (a.pilots ?? []).slice().sort((x, y) => x.jumps - y.jumps);
+  if (pilotos.length > 0) {
+    const min = pilotos[0].jumps;
+    const grupo = pilotos.filter((p) => p.jumps === min);
+    const mismoSistema =
+      grupo.length > 1 && grupo.every((p) => p.system_id === grupo[0].system_id);
+    // Un solo piloto también enseña su sistema si resulta ser un ancla tuya: saber que el que
+    // está más cerca es justo el que guarda tus cosas cambia la decisión.
+    const enAncla = a.anchor != null && grupo[0].system_id === a.anchor.system_id;
+    const sistema = mismoSistema || enAncla ? grupo[0].system ?? a.anchor?.name ?? null : null;
+    const texto =
+      `${preposicionDe()} ${grupo[0].name}` +
+      (grupo.length > 1 ? ` +${grupo.length - 1}` : "") +
+      (sistema ? ` · ${sistema}` : "");
+    const titulo = grupo
+      .map((p) => [p.name, p.ship, p.system].filter(Boolean).join(" · "))
+      .join("\n");
+    return { texto, titulo };
+  }
+  if (a.anchor) {
+    return {
+      texto: `${preposicionDe()} ${a.anchor.name}`,
+      titulo: `${a.anchor.name} · ${getLang() === "en" ? "anchor" : "ancla"}`,
+    };
+  }
+  return null;
 }
 
 export function Overlay() {
@@ -210,7 +278,7 @@ export function Overlay() {
   const resto = orden.filter((a) => a.key !== abierta.key);
 
   const tarjeta = (a: Aviso) => {
-    const cerca = (a.pilots ?? []).slice().sort((x, y) => x.jumps - y.jumps)[0];
+    const ref = referencia(a);
     const saltos = saltosDe(a);
     const nivel = saltos <= 0 ? "aqui" : saltos <= 2 ? "cerca" : "lejos";
     const restante = a.expira - Date.now();
@@ -250,9 +318,9 @@ export function Overlay() {
             {/* DE QUIÉN son esos saltos, pegado al número. Antes iba en una línea propia abajo, y
                 era la que menos peso tenía de las tres: aquí ocupa cero y se lee mejor, porque el
                 número y el nombre van juntos. Mi nave se queda en el tooltip — ya me la sé. */}
-            {cerca && (
-              <span className="ov-de" title={cerca.ship ? `${cerca.name} · ${cerca.ship}` : cerca.name}>
-                {tr("de")} {cerca.name}
+            {ref && (
+              <span className="ov-de" title={ref.titulo}>
+                {ref.texto}
               </span>
             )}
             <button

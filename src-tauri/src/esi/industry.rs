@@ -8,23 +8,64 @@ use std::collections::HashMap;
 
 /* ---------- Industry jobs ---------- */
 
+/// Un trabajo de industria tal como lo da ESI.
+///
+/// Hasta hoy solo se leían siete campos porque la vista era «qué tengo en el horno» y nada más.
+/// Los que faltaban son justo los del DINERO: `cost` (lo que costó instalarlo), `successful_runs`
+/// (cuántas salieron bien en una invención) y `probability`. Sin ellos se puede decir que
+/// fabricaste algo, pero no si te salió a cuenta — que es todo F3.
 #[derive(Debug, Clone, Deserialize)]
 pub struct JobRaw {
     pub job_id: i64,
     #[serde(default)]
+    pub installer_id: Option<i64>,
+    #[serde(default)]
+    pub facility_id: Option<i64>,
+    #[serde(default)]
+    pub station_id: Option<i64>,
+    #[serde(default)]
     pub activity_id: i64,
     #[serde(default)]
+    pub blueprint_id: Option<i64>,
+    #[serde(default)]
     pub blueprint_type_id: i64,
+    #[serde(default)]
+    pub blueprint_location_id: Option<i64>,
+    #[serde(default)]
+    pub output_location_id: Option<i64>,
     #[serde(default)]
     pub product_type_id: Option<i64>,
     #[serde(default)]
     pub runs: i64,
     #[serde(default)]
+    pub licensed_runs: Option<i64>,
+    #[serde(default)]
+    pub successful_runs: Option<i64>,
+    #[serde(default)]
+    pub probability: Option<f64>,
+    #[serde(default)]
+    pub cost: Option<f64>,
+    #[serde(default)]
     pub status: Option<String>,
+    #[serde(default)]
+    pub duration: Option<i64>,
     #[serde(default)]
     pub start_date: Option<String>,
     #[serde(default)]
     pub end_date: Option<String>,
+    #[serde(default)]
+    pub pause_date: Option<String>,
+    #[serde(default)]
+    pub completed_date: Option<String>,
+    #[serde(default)]
+    pub completed_character_id: Option<i64>,
+}
+
+/// Un trabajo se considera TERMINADO cuando ya no puede dar más producto.
+/// `ready` NO entra: el job acabó su tiempo pero el producto sigue sin entregar, y en la vista
+/// «qué tengo en el horno» es precisamente lo que hay que ir a recoger.
+pub fn job_is_finished(status: Option<&str>) -> bool {
+    matches!(status, Some("delivered") | Some("cancelled") | Some("reverted"))
 }
 
 /// Nombre legible de la actividad de industria.
@@ -41,21 +82,58 @@ pub fn activity_name(id: i64) -> &'static str {
     }
 }
 
-pub async fn fetch_jobs(
+/// Descarga los trabajos de industria **incluyendo los completados** y los GUARDA.
+///
+/// ⚠️ `include_completed=true` no es un detalle: con `false` ESI solo devuelve los activos, que es
+/// lo que se pedía hasta hoy, y así el histórico era imposible. Con `true` ESI mira **90 días
+/// atrás y ni uno más**, así que todo lo que no se guarde en esa ventana se pierde para siempre
+/// — de ahí que esto viva en el `auto_sync` y no solo al abrir la sección.
+///
+/// Devuelve la lista completa (activos y terminados) para que quien la llame filtre lo que
+/// quiera enseñar; los `delivered` que ya estaban guardados se reescriben iguales, que es gratis.
+pub async fn sync_jobs(
     esi: &EsiClient,
     db: &Db,
     character_id: i64,
     token: &str,
 ) -> AppResult<Vec<JobRaw>> {
-    let path = format!("/characters/{character_id}/industry/jobs/?include_completed=false");
-    match esi
+    let path = format!("/characters/{character_id}/industry/jobs/?include_completed=true");
+    let jobs = match esi
         .get_cached::<Vec<JobRaw>>(db, character_id, &path, Some(token))
         .await
     {
-        Ok(v) => Ok(v),
-        Err(AppError::NotFound) => Ok(Vec::new()),
-        Err(e) => Err(e),
+        Ok(v) => v,
+        Err(AppError::NotFound) => Vec::new(),
+        Err(e) => return Err(e),
+    };
+    for j in &jobs {
+        db.upsert_industry_job(
+            character_id,
+            j.job_id,
+            j.installer_id,
+            j.facility_id,
+            j.station_id,
+            j.activity_id,
+            j.blueprint_id,
+            j.blueprint_type_id,
+            j.blueprint_location_id,
+            j.output_location_id,
+            j.product_type_id,
+            j.runs,
+            j.licensed_runs,
+            j.successful_runs,
+            j.probability,
+            j.cost,
+            j.status.as_deref(),
+            j.duration,
+            j.start_date.as_deref(),
+            j.end_date.as_deref(),
+            j.pause_date.as_deref(),
+            j.completed_date.as_deref(),
+            j.completed_character_id,
+        )?;
     }
+    Ok(jobs)
 }
 
 /* ---------- Índices de coste de industria (F1b: el dinero) ---------- */

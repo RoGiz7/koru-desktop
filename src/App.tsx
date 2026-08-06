@@ -94,6 +94,7 @@ import type {
   WhConn,
   IntelLine,
   IntelConfig,
+  MutedSystem,
   PositionUpdate,
 } from "./types";
 
@@ -598,6 +599,17 @@ function App() {
       return [];
     }
   });
+  // Sistemas silenciados. Se limpian los ya caducados AL CARGAR: si no, la lista de Ajustes se
+  // llenaría de silencios muertos que confunden («¿por qué sale ahí si ya no calla?»).
+  const [intelMuted, setIntelMuted] = useState<MutedSystem[]>(() => {
+    try {
+      const raw: MutedSystem[] = JSON.parse(localStorage.getItem("koru-intel-muted") || "[]");
+      const now = Date.now();
+      return raw.filter((m) => m.until_ms == null || m.until_ms > now);
+    } catch {
+      return [];
+    }
+  });
   const [intelOnlyRange, setIntelOnlyRange] = useState<boolean>(() => localStorage.getItem("koru-intel-onlyrange") === "1");
   // Minutos que vive un avistamiento en el RASTRO del mapa. Separado de `recency` (que gradúa la
   // opacidad de los avisos) porque son dos preguntas distintas: cuánto tiempo un aviso sigue siendo
@@ -812,6 +824,7 @@ function App() {
     sound?: boolean;
     folder?: string;
     anchors?: number[];
+    muted?: MutedSystem[];
     onlyRange?: boolean;
     trailMin?: number;
     soundChoice?: string;
@@ -840,6 +853,10 @@ function App() {
     if (patch.anchors !== undefined) {
       setIntelAnchors(patch.anchors);
       localStorage.setItem("koru-intel-anchors", JSON.stringify(patch.anchors));
+    }
+    if (patch.muted !== undefined) {
+      setIntelMuted(patch.muted);
+      localStorage.setItem("koru-intel-muted", JSON.stringify(patch.muted));
     }
     if (patch.onlyRange !== undefined) {
       setIntelOnlyRange(patch.onlyRange);
@@ -1318,6 +1335,8 @@ function App() {
         mining: number;
         prices: number;
         snapshots: number;
+        jobs: number;
+        pi_programs: number;
         errors?: string[];
       }>("auto_sync");
       // Errores parciales (antes se tragaban): visibles en consola para diagnóstico.
@@ -1598,6 +1617,7 @@ function App() {
     alertJumps: intelAlertJumps,
     sound: intelSound,
     anchors: intelAnchors,
+    muted: intelMuted,
     onlyRange: intelOnlyRange,
     trailMin: intelTrailMin,
     soundChoice: intelSoundChoice,

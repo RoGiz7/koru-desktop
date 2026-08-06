@@ -14,7 +14,7 @@ use crate::esi::skills::SkillsSummary;
 use crate::esi::{assets, industry, killmails, market, skills, wallet, EsiClient};
 use crate::sso::{self, LoginOutcome, TokenManager};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 // `Manager` entra con el overlay: es el trait que trae `get_webview_window`.
 use tauri::{Emitter, Manager, State, Window};
 
@@ -190,6 +190,11 @@ pub struct AutoSyncResult {
     pub mining: usize,
     pub prices: usize,
     pub snapshots: usize,
+    /// Trabajos de industria vistos y guardados en esta pasada (activos + completados).
+    pub jobs: i64,
+    /// Programas de extracción de PI registrados por PRIMERA vez en esta pasada. No es
+    /// «extractores que tienes», es «programas nuevos»: si no reprogramaste nada, es 0.
+    pub pi_programs: i64,
     /// Errores por personaje/paso. Antes se tragaban en silencio y un fallo persistente
     /// (token caducado, scope revocado, 4xx de ESI) podía dejar una sección congelada
     /// días sin que nadie lo viera (p. ej. killmails parados desde el 26-06).
@@ -222,6 +227,8 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         mining: 0,
         prices: 0,
         snapshots: 0,
+        jobs: 0,
+        pi_programs: 0,
         errors: Vec::new(),
     };
 
@@ -326,6 +333,21 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                 res.mining += n;
             }
         }
+        // Trabajos de industria: se guardan AQUÍ y no solo al abrir la sección, porque la ventana
+        // de ESI son 90 días. Quien no entre a Industria en tres meses perdería el trimestre
+        // entero, y justo el que más fabrica es el que menos mira la lista.
+        if has("esi-industry.read_character_jobs.v1") {
+            match industry::sync_jobs(&state.esi, &state.db, c.character_id, &valid.access_token)
+                .await
+            {
+                Ok(v) => res.jobs += v.len() as i64,
+                Err(e) => {
+                    let msg = format!("{}: jobs: {e}", c.name);
+                    eprintln!("auto_sync {msg}");
+                    res.errors.push(msg);
+                }
+            }
+        }
 
         // ---- R1a Planetología: vigilancia de extractores (SPEC_PLANETOLOGIA.md §3) ----
         // El dolor nº1 de PI es "se me paró el extractor y no me enteré". Con el ciclo normal
@@ -361,7 +383,43 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                     else {
                         continue;
                     };
+                    // Existencias de ESTA colonia, sumadas entre todos sus pins (ver abajo).
+                    let mut pi_storage: HashMap<i64, i64> = HashMap::new();
                     for pin in &detail.pins {
+                        // ---- Persistencia: la PI no tiene log de eventos, la película la
+                        // construye Koru. Va ANTES del interruptor de avisos a propósito: a quien
+                        // tiene las alarmas en OFF también hay que guardarle el histórico, si no
+                        // silenciar los toasts le borraría los datos sin que nadie se lo dijera.
+                        //
+                        // Un programa de extracción se identifica por (planeta, pin, install_time):
+                        // la BD ignora el duplicado, así que sondear no escribe. Sin `install_time`
+                        // no hay evento que registrar (fábricas, almacenes, centro de mando).
+                        if let (Some(ex), Some(install)) = (&pin.extractor, &pin.install_time) {
+                            match state.db.insert_pi_program(
+                                cid,
+                                pid,
+                                pin.pin_id,
+                                p.solar_system_id,
+                                Some(p.planet_type.as_str()),
+                                ex.product_type_id,
+                                ex.qty_per_cycle,
+                                ex.cycle_time,
+                                install,
+                                pin.expiry_time.as_deref(),
+                            ) {
+                                Ok(true) => res.pi_programs += 1,
+                                Ok(false) => {}
+                                Err(e) => eprintln!("auto_sync pi_program {pid}: {e}"),
+                            }
+                        }
+                        // Existencias: se ACUMULAN por colonia aquí y se escriben al salir del
+                        // bucle. Escribirlas pin a pin sería un bug silencioso: dos launchpads con
+                        // el mismo producto comparten clave (colonia, día, tipo) y el segundo
+                        // upsert PISA al primero, así que la colonia declararía la mitad.
+                        for c_item in &pin.contents {
+                            *pi_storage.entry(c_item.type_id).or_insert(0) += c_item.amount;
+                        }
+
                         // Interruptor maestro en OFF: ni siquiera los «PARADOS» (dead se empuja
                         // fuera de los umbrales, así que vaciar pi_thresholds NO bastaba).
                         if !pi_alerts_on {
@@ -395,6 +453,14 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                             format!("{pid}:{}:{expiry}:{stage}", pin.pin_id),
                             expiry.clone(),
                         ));
+                    }
+                    // Foto del día ya sumada entre todos los pins de la colonia. Se escribe una
+                    // vez por colonia y pasada; el upsert pisa la lectura anterior del mismo día,
+                    // así que el tamaño está acotado por colonias × tipos × días.
+                    for (type_id, qty) in pi_storage {
+                        if let Err(e) = state.db.upsert_pi_storage(cid, pid, &today, type_id, qty) {
+                            eprintln!("auto_sync pi_storage {pid}: {e}");
+                        }
                     }
                 }
             }
@@ -6116,6 +6182,26 @@ pub struct IntelWatchCfg {
     pub recency_min: i64,
     /// Orígenes de proximidad: sistema del personaje + puntos de ancla elegidos.
     pub origins: Vec<i64>,
+    /// Sistemas SILENCIADOS: no disparan alarma (ni notificación, ni sonido, ni overlay).
+    ///
+    /// Es el ancla al revés. El caso real: un vecino de tu staging por el que pasa medio New Eden
+    /// —o el sistema donde estás rateando y el intel canta cada dos minutos— acaba enseñándote a
+    /// ignorar TODAS las alarmas, incluida la que importaba. Callar una es lo que mantiene vivas
+    /// las demás.
+    ///
+    /// ⚠️ Silencia la ALARMA, nunca el dato. El feed y la capa del mapa siguen enseñando el
+    /// reporte, y eso no es un extra: un sistema callado por silencio es idéntico a un sistema sin
+    /// intel, así que si además lo escondiéramos, el silencio sería una trampa que te pones tú y
+    /// se te olvida. Que se vea es lo que lo hace seguro.
+    ///
+    /// `until_ms` = hasta cuándo (epoch ms). `None` = para siempre, hasta que lo quites.
+    pub muted: Vec<MutedSystem>,
+    /// SOLO las anclas, aparte de `origins` (que las lleva mezcladas con los pilotos).
+    ///
+    /// Hacen falta sueltas para poder DECIR de qué ancla se está midiendo. Hasta ahora, cuando no
+    /// había ningún piloto cerca, el aviso enseñaba un número sin dueño: «4 saltos» de nada. El
+    /// número desnudo es peor que no decirlo, porque parece que sabes de qué habla.
+    pub anchors: Vec<i64>,
     /// Tus pilotos conectados y dónde están, para el CONTEXTO del aviso. Lo pone el frontend con
     /// lo que ya tiene de `get_character_cards`; aquí solo se usa para medir saltos.
     ///
@@ -6193,8 +6279,21 @@ pub struct IntelAlertEvent {
     /// Tus pilotos ordenados por cercanía AL SISTEMA DEL AVISO (no a los orígenes). El overlay
     /// enseña el primero. Vacío si el frontend no mandó pilotos o ninguno está en el mapa.
     pub pilots: Vec<PilotProximity>,
+    /// El ancla más cercana, con nombre. `None` = no hay anclas puestas.
+    pub anchor: Option<AnchorProximity>,
     /// QUIÉN viene y en qué. Es el protagonista del aviso: lo que decide si huyes o peleas.
     pub parse: IntelParse,
+}
+
+/// Un sistema silenciado. `until_ms` nulo = indefinido; con valor, caduca solo.
+///
+/// El silencio temporal existe porque el motivo casi siempre es temporal («esta noche rateo
+/// aquí»). Uno indefinido que se te olvida quitar es justo el que te mata tres semanas después.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct MutedSystem {
+    pub system_id: i64,
+    #[serde(default)]
+    pub until_ms: Option<i64>,
 }
 
 /// Dónde está uno de tus pilotos y en qué vuela. Lo manda el frontend en la config del vigilante.
@@ -6385,12 +6484,31 @@ fn analizar_intel(mensaje: &str, sistemas: &std::collections::HashMap<String, i6
 }
 
 /// Un piloto tuyo con su distancia REAL en saltos al sistema del aviso.
+///
+/// `system_id`/`system` entran para poder AGRUPAR en el overlay: tres pilotos a la misma distancia
+/// pueden estar juntos en un sistema (una flota) o desperdigados en tres (nadie apoya a nadie), y
+/// son dos situaciones muy distintas. El overlay no puede deducirlo solo, porque no tiene el mapa:
+/// cargar `neweden.json` (5.485 sistemas) en esa ventanita para resolver un nombre sería absurdo.
 #[derive(Clone, Debug, Serialize)]
 pub struct PilotProximity {
     pub name: String,
     pub jumps: i64,
     pub ship: Option<String>,
     pub ship_type_id: Option<i64>,
+    pub system_id: i64,
+    pub system: Option<String>,
+}
+
+/// El ancla más cercana al sistema del aviso, CON NOMBRE.
+///
+/// Es la pieza que faltaba para que el número nunca salga huérfano. Si no hay ningún piloto tuyo
+/// en el grafo (todos atracados en otra región, desconectados, o en un agujero), la referencia
+/// pasa a ser el ancla — y entonces hay que poder decir «a 4 saltos de 88a-ra» en vez de «4».
+#[derive(Clone, Debug, Serialize)]
+pub struct AnchorProximity {
+    pub name: String,
+    pub system_id: i64,
+    pub jumps: i64,
 }
 
 /// Distancia de cada piloto AL SISTEMA DEL AVISO, ordenados de más cerca a más lejos.
@@ -6399,13 +6517,17 @@ pub struct PilotProximity {
 /// mapa), y eso puede ser un sitio donde no hay nadie. Lo que decide si te afecta es dónde están
 /// TUS pilotos, así que aquí se hace un BFS nuevo desde el sistema hostil. Es un BFS sobre ~5.500
 /// nodos y solo corre cuando salta una alerta (raro), así que el coste es irrelevante.
-fn pilotos_cerca(
+/// Un solo BFS desde el sistema hostil para las DOS referencias: tus pilotos y tus anclas.
+/// Van juntas porque comparten el recorrido; separarlas costaría un segundo BFS para nada.
+fn contexto_cerca(
     adj: &std::collections::HashMap<i64, Vec<i64>>,
+    id_to_name: &std::collections::HashMap<i64, String>,
     pilots: &[PilotLoc],
+    anchors: &[i64],
     sistema: i64,
-) -> Vec<PilotProximity> {
-    if pilots.is_empty() {
-        return Vec::new();
+) -> (Vec<PilotProximity>, Option<AnchorProximity>) {
+    if pilots.is_empty() && anchors.is_empty() {
+        return (Vec::new(), None);
     }
     let dist = intel_bfs(adj, &[sistema]);
     let mut out: Vec<PilotProximity> = pilots
@@ -6418,11 +6540,27 @@ fn pilotos_cerca(
                 jumps: d,
                 ship: p.ship.clone(),
                 ship_type_id: p.ship_type_id,
+                system_id: p.system_id,
+                system: id_to_name.get(&p.system_id).cloned(),
             })
         })
         .collect();
     out.sort_by_key(|p| p.jumps);
-    out
+
+    // El ancla MÁS CERCANA. Misma regla que arriba: la que no esté en el grafo no existe.
+    let ancla = anchors
+        .iter()
+        .filter_map(|a| dist.get(a).map(|&d| (*a, d)))
+        .min_by_key(|(_, d)| *d)
+        .map(|(sid, d)| AnchorProximity {
+            name: id_to_name
+                .get(&sid)
+                .cloned()
+                .unwrap_or_else(|| sid.to_string()),
+            system_id: sid,
+            jumps: d,
+        });
+    (out, ancla)
 }
 
 /// Analiza la línea y, además, intenta poner CARA a los hostiles.
@@ -6524,6 +6662,8 @@ pub fn start_intel_watch(
     // Opcionales para no romper a quien llame sin ellos (y para que el frontend pueda ir por fases).
     pilots: Option<Vec<PilotLoc>>,
     overlay_enabled: Option<bool>,
+    anchors: Option<Vec<i64>>,
+    muted: Option<Vec<MutedSystem>>,
 ) -> AppResult<()> {
     if let Ok(mut c) = state.intel.cfg.lock() {
         *c = Some(IntelWatchCfg {
@@ -6531,6 +6671,8 @@ pub fn start_intel_watch(
             channels,
             recency_min: recency_minutes,
             origins,
+            anchors: anchors.unwrap_or_default(),
+            muted: muted.unwrap_or_default(),
             pilots: pilots.unwrap_or_default(),
             overlay_enabled: overlay_enabled.unwrap_or(false),
             alert_jumps,
@@ -6699,7 +6841,19 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                     // reactivar las alertas no se dispara de golpe todo lo que pasó
                                     // mientras estaban apagadas. La ALERTA en sí (notificación +
                                     // evento) solo sale si el interruptor maestro está ON.
-                                    if is_new && cfg.alerts_enabled {
+                                    //
+                                    // SILENCIO POR SISTEMA. Va aquí dentro y no antes justamente
+                                    // para que se beneficie de lo de arriba: el reporte queda
+                                    // marcado como visto aunque no suene, así que quitar el
+                                    // silencio no te vacía encima toda la noche de golpe.
+                                    // El silencio caducado no silencia: se compara con el reloj,
+                                    // no hace falta que nadie lo limpie.
+                                    let ahora_ms = chrono::Utc::now().timestamp_millis();
+                                    let silenciado = cfg.muted.iter().any(|m| {
+                                        m.system_id == *sid
+                                            && m.until_ms.map(|u| u > ahora_ms).unwrap_or(true)
+                                    });
+                                    if is_new && cfg.alerts_enabled && !silenciado {
                                         let system = g
                                             .id_to_name
                                             .get(sid)
@@ -6713,6 +6867,18 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                             .title(format!("⚠ Intel a {d} salto(s): {system}"))
                                             .body(format!("{author}: {message}"))
                                             .show();
+                                        // Sin anclas puestas se cae a los ORÍGENES (tu propio
+                                        // sistema). Parece un detalle y es el último agujero por
+                                        // el que el número salía sin dueño: quien no usa anclas y
+                                        // tiene los pilotos fuera del grafo veía «4 saltos» a
+                                        // secas. Nombrar el origen cuesta un `get` en el mapa.
+                                        let refs: &[i64] = if cfg.anchors.is_empty() {
+                                            &cfg.origins
+                                        } else {
+                                            &cfg.anchors
+                                        };
+                                        let (pilots, anchor) =
+                                            contexto_cerca(&g.adj, &g.id_to_name, &cfg.pilots, refs, *sid);
                                         let _ = app.emit(
                                             "intel-alert",
                                             IntelAlertEvent {
@@ -6722,7 +6888,8 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                                 author: author.clone(),
                                                 message: message.clone(),
                                                 ts_ms: *ts,
-                                                pilots: pilotos_cerca(&g.adj, &cfg.pilots, *sid),
+                                                pilots,
+                                                anchor,
                                                 parse: hostiles_de(&app, &g.name_to_id, message),
                                             },
                                         );
@@ -8495,8 +8662,14 @@ pub async fn get_industry(
         "Assets / industria",
     )
     .await?;
-    let jobs: Vec<JobRaw> =
-        industry::fetch_jobs(&state.esi, &state.db, character_id, &token).await?;
+    // `sync_jobs` pide TAMBIÉN los completados y los guarda (ESI solo mira 90 días atrás: lo que
+    // no se guarde hoy no vuelve). La sección sigue enseñando lo mismo que siempre, así que aquí
+    // se filtra lo terminado; el histórico se consulta con `get_industry_history`.
+    let jobs: Vec<JobRaw> = industry::sync_jobs(&state.esi, &state.db, character_id, &token)
+        .await?
+        .into_iter()
+        .filter(|j| !industry::job_is_finished(j.status.as_deref()))
+        .collect();
 
     // IDs a resolver: blueprints y productos.
     let mut ids: HashSet<i64> = HashSet::new();
@@ -8710,9 +8883,12 @@ pub async fn get_industry_global(state: State<'_, AppState>) -> AppResult<Vec<Jo
             Err(_) => continue,
         };
         if let Ok(jobs) =
-            industry::fetch_jobs(&state.esi, &state.db, c.character_id, &valid.access_token).await
+            industry::sync_jobs(&state.esi, &state.db, c.character_id, &valid.access_token).await
         {
             for j in jobs {
+                if industry::job_is_finished(j.status.as_deref()) {
+                    continue; // la vista global es «qué tengo en el horno», como siempre
+                }
                 ids.insert(j.blueprint_type_id);
                 if let Some(p) = j.product_type_id {
                     ids.insert(p);
@@ -8741,6 +8917,116 @@ pub async fn get_industry_global(state: State<'_, AppState>) -> AppResult<Vec<Jo
         })
         .collect();
     Ok(views)
+}
+
+/* ---- Histórico de industria y de planetaria (lo que ESI ya no te devuelve) ---- */
+
+/// Un trabajo del histórico, con nombres resueltos y la economía que ESI solo enseña una vez.
+#[derive(Debug, Serialize)]
+pub struct JobHistoryRow {
+    pub job_id: i64,
+    pub character_id: i64,
+    pub activity: String,
+    pub runs: i64,
+    pub successful_runs: Option<i64>,
+    pub probability: Option<f64>,
+    pub cost: Option<f64>,
+    pub status: Option<String>,
+    pub blueprint_name: Option<String>,
+    pub product_name: Option<String>,
+    pub product_type_id: Option<i64>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub completed_date: Option<String>,
+}
+
+/// Histórico de industria + DESDE CUÁNDO lo tenemos.
+///
+/// `since` no es decorativo: antes de esa fecha no es que no fabricaras nada, es que Koru no
+/// miraba. Cualquier gráfica que arranque en cero antes de `since` está mintiendo, así que el
+/// dato viaja con los datos y no en un comentario del frontend.
+#[derive(Debug, Serialize)]
+pub struct JobHistory {
+    pub jobs: Vec<JobHistoryRow>,
+    pub total: i64,
+    pub since: Option<String>,
+}
+
+/// Trabajos de industria guardados (activos y terminados). Lee de la BD, NO de ESI: el histórico
+/// existe precisamente porque ESI ya no lo tiene.
+#[tauri::command]
+pub async fn get_industry_history(
+    character_id: Option<i64>,
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<JobHistory> {
+    let rows = state
+        .db
+        .industry_jobs(character_id, false, limit.unwrap_or(2000))?;
+    let (total, since) = state.db.industry_history_span(character_id)?;
+
+    let mut ids: HashSet<i64> = HashSet::new();
+    for r in &rows {
+        ids.insert(r.blueprint_type_id);
+        if let Some(p) = r.product_type_id {
+            ids.insert(p);
+        }
+    }
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+
+    let jobs = rows
+        .into_iter()
+        .map(|r| JobHistoryRow {
+            job_id: r.job_id,
+            character_id: r.character_id,
+            activity: industry::activity_name(r.activity_id).to_string(),
+            runs: r.runs,
+            successful_runs: r.successful_runs,
+            probability: r.probability,
+            cost: r.cost,
+            status: r.status,
+            blueprint_name: names.get(&r.blueprint_type_id).cloned(),
+            product_name: r.product_type_id.and_then(|p| names.get(&p).cloned()),
+            product_type_id: r.product_type_id,
+            start_date: r.start_date,
+            end_date: r.end_date,
+            completed_date: r.completed_date,
+        })
+        .collect();
+    Ok(JobHistory { jobs, total, since })
+}
+
+/// Histórico de planetaria: programas de extracción (eventos) + existencias por día (niveles).
+/// Las dos series tienen granularidades distintas a propósito; ver el porqué en `db::open`.
+#[derive(Debug, Serialize)]
+pub struct PiHistory {
+    pub programs: Vec<crate::db::PiProgramRow>,
+    /// (día, type_id, unidades) — la curva de lo que había en las colonias.
+    pub storage: Vec<(String, i64, i64)>,
+    pub total_programs: i64,
+    /// Igual que en industria: desde cuándo hay datos. Antes de esto es CEGUERA, no un cero.
+    pub since: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_pi_history(
+    character_id: Option<i64>,
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<PiHistory> {
+    let programs = state.db.pi_programs(character_id, limit.unwrap_or(1000))?;
+    let storage = state.db.pi_storage_series(character_id)?;
+    let (total_programs, since) = state.db.pi_history_span(character_id)?;
+    Ok(PiHistory {
+        programs,
+        storage,
+        total_programs,
+        since,
+    })
 }
 
 /// Un blueprint tuyo con su nombre resuelto y sus ME/TE REALES (F1a).
@@ -9399,11 +9685,45 @@ pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
         IntelAlertEvent {
             sys_id: 30000142,
             system: "Jita".into(),
-            jumps: 2,
+            jumps: 1,
             author: "Koru".into(),
             message: "Aviso de prueba: así se verá el intel sobre el juego.".into(),
             ts_ms: chrono::Utc::now().timestamp_millis(),
-            pilots: Vec::new(),
+            // DOS pilotos en el MISMO sistema, y ese sistema es además el ancla. Es el caso que
+            // ejerce de una vez las tres cosas nuevas del renglón: agrupar («+1»), nombrar el
+            // sistema cuando están juntos, y cruzar piloto con ancla. Un tercero más lejos
+            // comprueba lo contrario — que a los de atrás no se les da sitio.
+            pilots: vec![
+                PilotProximity {
+                    name: "Zigor77 Amatin".into(),
+                    jumps: 1,
+                    ship: Some("Ishtar".into()),
+                    ship_type_id: Some(12005),
+                    system_id: 30000144,
+                    system: Some("Perimeter".into()),
+                },
+                PilotProximity {
+                    name: "RoGiz7".into(),
+                    jumps: 1,
+                    ship: Some("Loki".into()),
+                    ship_type_id: Some(29990),
+                    system_id: 30000144,
+                    system: Some("Perimeter".into()),
+                },
+                PilotProximity {
+                    name: "Dana-FeSe".into(),
+                    jumps: 6,
+                    ship: Some("Venture".into()),
+                    ship_type_id: Some(32880),
+                    system_id: 30000180,
+                    system: Some("Sobaseki".into()),
+                },
+            ],
+            anchor: Some(AnchorProximity {
+                name: "Perimeter".into(),
+                system_id: 30000144,
+                jumps: 1,
+            }),
             // Con hostil y nave: un test que no ejerza la parte NUEVA de la tarjeta no prueba nada.
             // Sin `character_id`, así que además se ve el caso «no le conocemos» (círculo con «?»).
             parse: IntelParse {

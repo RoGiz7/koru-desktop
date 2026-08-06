@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
@@ -1341,6 +1341,67 @@ export function MapView(props: {
     });
   }, [geo, overlay, intel?.anchors, view.z]);
 
+  /** ¿Está este sistema silenciado AHORA? Se compara con el reloj en vez de limpiar la lista:
+   *  un silencio de una hora tiene que dejar de callar solo, sin que nadie pase a barrer. */
+  const estaSilenciado = useCallback(
+    (sid: number) => {
+      const now = Date.now();
+      return (intel?.muted ?? []).some((m) => m.system_id === sid && (m.until_ms == null || m.until_ms > now));
+    },
+    [intel?.muted],
+  );
+
+  /** Silencia / desilencia un sistema. `horas` undefined = indefinido. */
+  const alternarSilencio = useCallback(
+    (sid: number, horas?: number) => {
+      if (!intel) return;
+      const now = Date.now();
+      const vivos = (intel.muted ?? []).filter((m) => m.until_ms == null || m.until_ms > now);
+      const ya = vivos.some((m) => m.system_id === sid);
+      intel.onConfig({
+        muted: ya
+          ? vivos.filter((m) => m.system_id !== sid)
+          : [...vivos, { system_id: sid, until_ms: horas ? now + horas * 3600_000 : null }],
+      });
+    },
+    [intel],
+  );
+
+  // --- Intel: marcadores de los sistemas SILENCIADOS ---
+  //
+  // Existe por seguridad, no por adorno. Un sistema callado por silencio es indistinguible de uno
+  // sin intel: sin esta marca, el silencio es una trampa que te pones tú y se te olvida. Va en la
+  // capa de intel, junto a las anclas, y en ámbar apagado para no competir con los avisos.
+  const intelMutedMarkers = useMemo(() => {
+    if (!geo || overlay !== "intel") return null;
+    const z = view.z;
+    const now = Date.now();
+    return (intel?.muted ?? [])
+      .filter((m) => m.until_ms == null || m.until_ms > now)
+      .map((m) => {
+        const s = geo.idx.get(m.system_id);
+        if (!s) return null;
+        const p = geo.proj(s);
+        // Desplazado a la derecha porque el ⚓ del ancla se pinta en el MISMO punto: un sistema
+        // anclado y silenciado a la vez —que es un caso muy normal, tu staging— dibujaba los dos
+        // emojis encima y no se leía ninguno.
+        const dx = (intel?.anchors ?? []).includes(m.system_id) ? 2.6 / z : 0;
+        return (
+          <g key={`muted-${m.system_id}`} pointerEvents="none">
+            <text
+              x={p.px + dx}
+              y={p.py + 0.9 / z}
+              textAnchor="middle"
+              style={{ fontSize: `${2.6 / z}px`, opacity: 0.75 }}
+              fill="#d8a03a"
+            >
+              🔇
+            </text>
+          </g>
+        );
+      });
+  }, [geo, overlay, intel?.muted, intel?.anchors, view.z]);
+
   // --- Intel: tarjeta de detalle (piloto/nave/ruta/zKill) ---
   const [intelDetail, setIntelDetail] = useState<{
     sysId: number | null;
@@ -2636,6 +2697,7 @@ export function MapView(props: {
             {sigCircles}
             {/* overlay Intel en vivo (memorizado) */}
             {intelAnchorMarkers}
+            {intelMutedMarkers}
             {intelTrackLine}
             {huntTrackLine}
             {intelCircles}
@@ -3388,6 +3450,20 @@ export function MapView(props: {
                     {intel.anchors.includes(selected) ? `⚓ ${tr("Quitar ancla")}` : `⚓ ${tr("Anclar aquí")}`}
                   </button>
                 )}
+                {overlay === "intel" && intel && (
+                  <button
+                    className="sys-assets-btn"
+                    title={tr("Calla la alarma de este sistema. El aviso SIGUE saliendo en el feed y en el mapa.")}
+                    onClick={(e) => {
+                      // Con Alt = silencio de 1 hora. El motivo para callar un sistema casi siempre
+                      // es temporal («esta noche rateo aquí»), y un silencio indefinido que se te
+                      // olvida quitar es justo el que te mata tres semanas después.
+                      alternarSilencio(selected, e.altKey ? 1 : undefined);
+                    }}
+                  >
+                    {estaSilenciado(selected) ? `🔔 ${tr("Volver a avisar")}` : `🔇 ${tr("Silenciar aquí")}`}
+                  </button>
+                )}
               </div>
             );
           })()}
@@ -4054,6 +4130,15 @@ export function MapView(props: {
                     }}
                   >
                     {intel.anchors.includes(intelDetail.sysId) ? `⚓ ${tr("Quitar ancla")}` : `⚓ ${tr("Anclar aquí")}`}
+                  </button>
+                )}
+                {intel && (
+                  <button
+                    className="sys-assets-btn"
+                    title={tr("Calla la alarma de este sistema. El aviso SIGUE saliendo en el feed y en el mapa.")}
+                    onClick={(e) => alternarSilencio(intelDetail.sysId!, e.altKey ? 1 : undefined)}
+                  >
+                    {estaSilenciado(intelDetail.sysId!) ? `🔔 ${tr("Volver a avisar")}` : `🔇 ${tr("Silenciar aquí")}`}
                   </button>
                 )}
                 <div className="sys-links">

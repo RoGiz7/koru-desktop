@@ -275,6 +275,8 @@ pub fn run() {
             commands::get_skills_global,
             commands::get_assets_global,
             commands::get_industry_global,
+            commands::get_industry_history,
+            commands::get_pi_history,
             commands::get_mining_global,
             commands::get_pvp_map,
             commands::get_pvp_map_global,

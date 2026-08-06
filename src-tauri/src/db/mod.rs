@@ -188,6 +188,97 @@ impl Db {
              CREATE INDEX IF NOT EXISTS location_track_char
                  ON location_track(character_id, entered_ms);",
         );
+        // TRABAJOS DE INDUSTRIA: la segunda excepción al principio de la casa, junto con la PI.
+        //
+        // ESI devuelve los completados de los ULTIMOS 90 DIAS y ni un día más. Todo lo que no
+        // guardemos hoy se pierde para siempre, y hasta ahora no guardábamos nada: la sección
+        // pedía los activos en vivo y los tiraba. Sin esto no hay histórico de producción ni F3
+        // («jobs con economía»), porque `cost` solo existe mientras el job está en la respuesta.
+        //
+        // PK = job_id, que es único en todo EVE. El mismo trabajo pasa de `active` a `ready` y a
+        // `delivered`: hay que ACTUALIZAR su fila, no acumular tres. Por eso es un upsert y no un
+        // insert, y por eso `first_seen` se conserva (COALESCE) mientras `updated_at` se pisa.
+        //
+        // `cost`, `successful_runs` y `probability` son lo que hace útil a F3: sin ellos solo
+        // sabes que fabricaste algo, no si te salió a cuenta. Nunca se pidieron hasta hoy.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS industry_job (
+                 job_id                 INTEGER PRIMARY KEY,
+                 character_id           INTEGER NOT NULL,   -- de QUIEN lo sincronizamos
+                 installer_id           INTEGER,            -- quien lo instalo (corp: puede no ser el mismo)
+                 facility_id            INTEGER,
+                 station_id             INTEGER,
+                 activity_id            INTEGER NOT NULL DEFAULT 0,
+                 blueprint_id           INTEGER,
+                 blueprint_type_id      INTEGER NOT NULL DEFAULT 0,
+                 blueprint_location_id  INTEGER,
+                 output_location_id     INTEGER,
+                 product_type_id        INTEGER,
+                 runs                   INTEGER NOT NULL DEFAULT 0,
+                 licensed_runs          INTEGER,            -- copias: carreras de la BPC resultante
+                 successful_runs        INTEGER,            -- invencion: cuantas salieron bien
+                 probability            REAL,               -- invencion: la que ESI declaro al instalar
+                 cost                   REAL,               -- ISK de instalacion: el dinero de F3
+                 status                 TEXT,               -- active|paused|ready|delivered|cancelled|reverted
+                 duration               INTEGER,            -- segundos
+                 start_date             TEXT,
+                 end_date               TEXT,
+                 pause_date             TEXT,
+                 completed_date         TEXT,
+                 completed_character_id INTEGER,
+                 first_seen             TEXT NOT NULL,      -- cuando lo vio Koru por primera vez
+                 updated_at             TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_ij_char   ON industry_job(character_id);
+             CREATE INDEX IF NOT EXISTS idx_ij_end    ON industry_job(end_date);
+             CREATE INDEX IF NOT EXISTS idx_ij_act    ON industry_job(activity_id);
+             CREATE INDEX IF NOT EXISTS idx_ij_status ON industry_job(status);",
+        );
+        // PLANETARIA: la PI NO TIENE LOG DE EVENTOS. ESI solo dice cómo está la colonia AHORA, así
+        // que la película hay que construirla a base de fotos — y ahí está la trampa: el auto_sync
+        // pasa cada pocos minutos y el almacén cambia en cada ciclo, así que guardar cada sondeo
+        // serían miles de filas al día para dibujar exactamente la misma curva. Se guarda SOLO EL
+        // CAMBIO, y para eso hay dos tablas con dos granularidades distintas:
+        //
+        // 1) `pi_program` — un programa de extracción es un EVENTO con principio y fin. La PK
+        //    (planet_id, pin_id, install_time) hace el dedup sola: sondear mil veces el mismo
+        //    programa no añade una fila, y reprogramar el extractor cambia `install_time` → fila
+        //    nueva. Tabla diminuta (unas pocas filas por colonia y semana) y es el histórico REAL
+        //    de qué extraías, a qué ritmo y durante cuánto.
+        // 2) `pi_storage_daily` — las existencias no son un evento sino un nivel, y para dibujar
+        //    producción basta una foto AL DÍA. La PK incluye el día → el sondeo de las 23:00 pisa
+        //    al de las 09:00 y el tamaño queda acotado por colonias × tipos × días.
+        //
+        // Ojo al leerlo: como en `location_track`, el hueco con Koru cerrado es CEGUERA. Un día sin
+        // fila no significa «almacén vacío», significa «no miré», y las vistas deben decirlo.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS pi_program (
+                 planet_id       INTEGER NOT NULL,
+                 pin_id          INTEGER NOT NULL,
+                 install_time    TEXT NOT NULL,   -- parte de la PK: reprogramar = programa NUEVO
+                 character_id    INTEGER NOT NULL,
+                 system_id       INTEGER NOT NULL DEFAULT 0,
+                 planet_type     TEXT,
+                 product_type_id INTEGER,
+                 qty_per_cycle   INTEGER,
+                 cycle_time      INTEGER,         -- segundos
+                 expiry_time     TEXT,
+                 seen_at         TEXT NOT NULL,   -- cuando lo vio Koru (no cuando ocurrio)
+                 PRIMARY KEY (planet_id, pin_id, install_time)
+             );
+             CREATE INDEX IF NOT EXISTS idx_pip_char    ON pi_program(character_id);
+             CREATE INDEX IF NOT EXISTS idx_pip_install ON pi_program(install_time);
+             CREATE TABLE IF NOT EXISTS pi_storage_daily (
+                 character_id INTEGER NOT NULL,
+                 planet_id    INTEGER NOT NULL,
+                 day          TEXT NOT NULL,      -- YYYY-MM-DD: una foto al dia, no por sondeo
+                 type_id      INTEGER NOT NULL,
+                 quantity     INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (character_id, planet_id, day, type_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_pisd_day  ON pi_storage_daily(day);
+             CREATE INDEX IF NOT EXISTS idx_pisd_char ON pi_storage_daily(character_id);",
+        );
         // Runs MULTICUENTA (multibox): participantes de una run de abisal/CRAB. Tabla hija y no un
         // CSV en una columna, porque todas las preguntas interesantes son POR personaje («¿cuál
         // muere más?», «¿con cuál gano?») y un CSV no se consulta ni se indexa.
@@ -700,6 +791,347 @@ impl Db {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+}
+
+// --- Trabajos de industria acumulados (ver el porqué del esquema en `open`) ---
+
+/// Una fila de `industry_job` tal cual, para que los comandos la vistan con nombres.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IndustryJobRow {
+    pub job_id: i64,
+    pub character_id: i64,
+    pub activity_id: i64,
+    pub blueprint_type_id: i64,
+    pub product_type_id: Option<i64>,
+    pub runs: i64,
+    pub successful_runs: Option<i64>,
+    pub probability: Option<f64>,
+    pub cost: Option<f64>,
+    pub status: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub completed_date: Option<String>,
+}
+
+impl Db {
+    /// Guarda (o actualiza) un trabajo de industria. Los campos van sueltos a propósito: `db` no
+    /// conoce los tipos de `esi`, y así el upsert vale igual para jobs de personaje y de corp.
+    ///
+    /// `first_seen` se CONSERVA con COALESCE sobre el valor ya guardado: es la primera vez que Koru
+    /// vio el trabajo, no la última. Pisarlo convertiría el histórico en «todo pasó hoy».
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_industry_job(
+        &self,
+        character_id: i64,
+        job_id: i64,
+        installer_id: Option<i64>,
+        facility_id: Option<i64>,
+        station_id: Option<i64>,
+        activity_id: i64,
+        blueprint_id: Option<i64>,
+        blueprint_type_id: i64,
+        blueprint_location_id: Option<i64>,
+        output_location_id: Option<i64>,
+        product_type_id: Option<i64>,
+        runs: i64,
+        licensed_runs: Option<i64>,
+        successful_runs: Option<i64>,
+        probability: Option<f64>,
+        cost: Option<f64>,
+        status: Option<&str>,
+        duration: Option<i64>,
+        start_date: Option<&str>,
+        end_date: Option<&str>,
+        pause_date: Option<&str>,
+        completed_date: Option<&str>,
+        completed_character_id: Option<i64>,
+    ) -> AppResult<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO industry_job (
+                 job_id, character_id, installer_id, facility_id, station_id, activity_id,
+                 blueprint_id, blueprint_type_id, blueprint_location_id, output_location_id,
+                 product_type_id, runs, licensed_runs, successful_runs, probability, cost,
+                 status, duration, start_date, end_date, pause_date, completed_date,
+                 completed_character_id, first_seen, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                     ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?24)
+             ON CONFLICT(job_id) DO UPDATE SET
+                 character_id           = excluded.character_id,
+                 installer_id           = excluded.installer_id,
+                 facility_id            = excluded.facility_id,
+                 station_id             = excluded.station_id,
+                 activity_id            = excluded.activity_id,
+                 blueprint_id           = excluded.blueprint_id,
+                 blueprint_type_id      = excluded.blueprint_type_id,
+                 blueprint_location_id  = excluded.blueprint_location_id,
+                 output_location_id     = excluded.output_location_id,
+                 product_type_id        = excluded.product_type_id,
+                 runs                   = excluded.runs,
+                 licensed_runs          = excluded.licensed_runs,
+                 successful_runs        = excluded.successful_runs,
+                 probability            = excluded.probability,
+                 cost                   = excluded.cost,
+                 status                 = excluded.status,
+                 duration               = excluded.duration,
+                 start_date             = excluded.start_date,
+                 end_date               = excluded.end_date,
+                 pause_date             = excluded.pause_date,
+                 completed_date         = excluded.completed_date,
+                 completed_character_id = excluded.completed_character_id,
+                 first_seen             = COALESCE(industry_job.first_seen, excluded.first_seen),
+                 updated_at             = excluded.updated_at",
+            rusqlite::params![
+                job_id,
+                character_id,
+                installer_id,
+                facility_id,
+                station_id,
+                activity_id,
+                blueprint_id,
+                blueprint_type_id,
+                blueprint_location_id,
+                output_location_id,
+                product_type_id,
+                runs,
+                licensed_runs,
+                successful_runs,
+                probability,
+                cost,
+                status,
+                duration,
+                start_date,
+                end_date,
+                pause_date,
+                completed_date,
+                completed_character_id,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Trabajos guardados, del más reciente al más viejo. `character_id` None = todos.
+    /// `only_open` deja fuera lo terminado (`delivered`/`cancelled`/`reverted`), que es la vista
+    /// «qué tengo en el horno» de siempre; con `false` sale el histórico completo.
+    pub fn industry_jobs(
+        &self,
+        character_id: Option<i64>,
+        only_open: bool,
+        limit: i64,
+    ) -> AppResult<Vec<IndustryJobRow>> {
+        let conn = self.conn.lock().unwrap();
+        let open_filter = if only_open {
+            "AND (status IS NULL OR status NOT IN ('delivered','cancelled','reverted'))"
+        } else {
+            ""
+        };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT job_id, character_id, activity_id, blueprint_type_id, product_type_id, runs,
+                    successful_runs, probability, cost, status, start_date, end_date, completed_date
+               FROM industry_job
+              WHERE (?1 IS NULL OR character_id = ?1) {open_filter}
+              ORDER BY COALESCE(end_date, start_date) DESC
+              LIMIT ?2"
+        ))?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id, limit], |r| {
+                Ok(IndustryJobRow {
+                    job_id: r.get(0)?,
+                    character_id: r.get(1)?,
+                    activity_id: r.get(2)?,
+                    blueprint_type_id: r.get(3)?,
+                    product_type_id: r.get(4)?,
+                    runs: r.get(5)?,
+                    successful_runs: r.get(6)?,
+                    probability: r.get(7)?,
+                    cost: r.get(8)?,
+                    status: r.get(9)?,
+                    start_date: r.get(10)?,
+                    end_date: r.get(11)?,
+                    completed_date: r.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (nº de trabajos guardados, fecha del más antiguo). La fecha es lo que permite escribir
+    /// «histórico desde el 6 de agosto» en vez de dibujar una gráfica que insinúa que antes no
+    /// fabricabas nada: antes de esa fecha no es que no hubiera trabajos, es que no mirábamos.
+    pub fn industry_history_span(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<(i64, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        let r = conn.query_row(
+            "SELECT COUNT(*), MIN(COALESCE(start_date, first_seen)) FROM industry_job
+              WHERE (?1 IS NULL OR character_id = ?1)",
+            rusqlite::params![character_id],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),
+        )?;
+        Ok(r)
+    }
+}
+
+// --- Planetaria acumulada: programas de extracción + existencias diarias ---
+
+/// Un programa de extracción tal como se guardó (un evento, no un sondeo).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PiProgramRow {
+    pub character_id: i64,
+    pub planet_id: i64,
+    pub system_id: i64,
+    pub planet_type: Option<String>,
+    pub product_type_id: Option<i64>,
+    pub qty_per_cycle: Option<i64>,
+    pub cycle_time: Option<i64>,
+    pub install_time: String,
+    pub expiry_time: Option<String>,
+}
+
+impl Db {
+    /// Registra un programa de extracción. INSERT OR IGNORE a propósito: la PK
+    /// (planet_id, pin_id, install_time) ya hace el dedup, así que sondear el mismo programa
+    /// mil veces no escribe nada. Devuelve true solo si la fila es NUEVA (sirve para contar
+    /// «programas nuevos» en el resultado del sync sin volver a consultar).
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_pi_program(
+        &self,
+        character_id: i64,
+        planet_id: i64,
+        pin_id: i64,
+        system_id: i64,
+        planet_type: Option<&str>,
+        product_type_id: Option<i64>,
+        qty_per_cycle: Option<i64>,
+        cycle_time: Option<i64>,
+        install_time: &str,
+        expiry_time: Option<&str>,
+    ) -> AppResult<bool> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "INSERT OR IGNORE INTO pi_program (
+                 planet_id, pin_id, install_time, character_id, system_id, planet_type,
+                 product_type_id, qty_per_cycle, cycle_time, expiry_time, seen_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                planet_id,
+                pin_id,
+                install_time,
+                character_id,
+                system_id,
+                planet_type,
+                product_type_id,
+                qty_per_cycle,
+                cycle_time,
+                expiry_time,
+                now,
+            ],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Foto de existencias de una colonia para un día. El upsert PISA el valor del día: nos
+    /// quedamos con la última lectura de la jornada, no con la suma de todas (sumar sondeos
+    /// contaría el mismo mineral una vez por sondeo).
+    pub fn upsert_pi_storage(
+        &self,
+        character_id: i64,
+        planet_id: i64,
+        day: &str,
+        type_id: i64,
+        quantity: i64,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO pi_storage_daily (character_id, planet_id, day, type_id, quantity)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(character_id, planet_id, day, type_id)
+             DO UPDATE SET quantity = excluded.quantity",
+            rusqlite::params![character_id, planet_id, day, type_id, quantity],
+        )?;
+        Ok(())
+    }
+
+    /// Programas de extracción guardados, del más reciente al más viejo.
+    pub fn pi_programs(
+        &self,
+        character_id: Option<i64>,
+        limit: i64,
+    ) -> AppResult<Vec<PiProgramRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT character_id, planet_id, system_id, planet_type, product_type_id,
+                    qty_per_cycle, cycle_time, install_time, expiry_time
+               FROM pi_program
+              WHERE (?1 IS NULL OR character_id = ?1)
+              ORDER BY install_time DESC
+              LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id, limit], |r| {
+                Ok(PiProgramRow {
+                    character_id: r.get(0)?,
+                    planet_id: r.get(1)?,
+                    system_id: r.get(2)?,
+                    planet_type: r.get(3)?,
+                    product_type_id: r.get(4)?,
+                    qty_per_cycle: r.get(5)?,
+                    cycle_time: r.get(6)?,
+                    install_time: r.get(7)?,
+                    expiry_time: r.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (día, type_id, unidades) de existencias, para la curva de producción.
+    pub fn pi_storage_series(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<Vec<(String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT day, type_id, SUM(quantity) q FROM pi_storage_daily
+              WHERE (?1 IS NULL OR character_id = ?1)
+              GROUP BY day, type_id ORDER BY day ASC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (nº de programas, día más antiguo con existencias). Mismo papel que
+    /// `industry_history_span`: declarar desde cuándo hay datos en vez de fingir un cero.
+    pub fn pi_history_span(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<(i64, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        let programs = conn.query_row(
+            "SELECT COUNT(*) FROM pi_program WHERE (?1 IS NULL OR character_id = ?1)",
+            rusqlite::params![character_id],
+            |r| r.get::<_, i64>(0),
+        )?;
+        let since = conn.query_row(
+            "SELECT MIN(d) FROM (
+                 SELECT MIN(day) d FROM pi_storage_daily WHERE (?1 IS NULL OR character_id = ?1)
+                 UNION ALL
+                 SELECT MIN(substr(install_time,1,10)) d FROM pi_program
+                  WHERE (?1 IS NULL OR character_id = ?1)
+             )",
+            rusqlite::params![character_id],
+            |r| r.get::<_, Option<String>>(0),
+        )?;
+        Ok((programs, since))
     }
 }
 

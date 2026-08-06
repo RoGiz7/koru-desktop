@@ -950,6 +950,10 @@ const EN: Record<string, string> = {
   "Naves citadas": "Ships mentioned",
   "Anclar aquí": "Anchor here",
   "Quitar ancla": "Remove anchor",
+  "Silenciar aquí": "Mute here",
+  "Volver a avisar": "Alert again",
+  "Calla la alarma de este sistema. El aviso SIGUE saliendo en el feed y en el mapa.":
+    "Mutes the alarm for this system. The report STILL shows in the feed and on the map.",
   "zKill sistema": "zKill system",
   "Mis assets": "My assets",
   "Mis assets aquí": "My assets here",

@@ -1017,6 +1017,10 @@ export type RouteStop = {
 };
 
 // Config + callbacks de la capa de Intel en vivo (props de MapView, compartida con useIntel).
+/** Un sistema silenciado: no dispara alarma, pero SIGUE saliendo en el feed y en el mapa.
+ *  `until_ms` nulo = indefinido; con valor, caduca solo (se compara con el reloj, nadie limpia). */
+export type MutedSystem = { system_id: number; until_ms: number | null };
+
 export type IntelConfig = {
   lines: IntelLine[];
   availChannels: string[];
@@ -1026,6 +1030,8 @@ export type IntelConfig = {
   alertJumps: number;
   sound: boolean;
   anchors: number[];
+  /** El ancla al revés: sistemas cuya alarma se calla. Ver `MutedSystem`. */
+  muted: MutedSystem[];
   onlyRange: boolean;
   /** Minutos que vive un avistamiento en el rastro del mapa. 0 = sin caducidad. */
   trailMin: number;
@@ -1045,6 +1051,7 @@ export type IntelConfig = {
     sound?: boolean;
     folder?: string;
     anchors?: number[];
+    muted?: MutedSystem[];
     onlyRange?: boolean;
     trailMin?: number;
     soundChoice?: string;

@@ -164,7 +164,15 @@ export function useIntel({
   // Enviar el grafo (nombres↔id + aristas) a Rust una vez, en cuanto haya datos del mapa.
   useEffect(() => {
     if (!geo || !ne) return;
-    const names: [string, number][] = [...geo.nameIdx.entries()].map(([n, s]) => [n, s.id]);
+    // Se manda el nombre BIEN ESCRITO (`s.n`), no la clave de `nameIdx`, que está en minúsculas
+    // porque su oficio es parsear el chat. Rust construye su `name_to_id` con `.to_lowercase()`,
+    // así que el matching no se entera del cambio; el que sí se entera es `id_to_name`, que es de
+    // donde salen los nombres que LEE el jugador.
+    //
+    // Llevaba mal desde siempre y no se veía: el único consumidor era el título de la tarjeta, y
+    // `.ov-sys` lo pone en mayúsculas por CSS. Salió a la luz al nombrar el ancla en el aviso
+    // («de ttp-2b») y afecta también al título de la notificación del sistema.
+    const names: [string, number][] = [...geo.nameIdx.values()].map((s) => [s.n, s.id]);
     const edges: [number, number][] = ne.jumps as [number, number][];
     invoke("set_intel_graph", { names, edges }).catch(() => {});
   }, [geo, ne]);
@@ -192,6 +200,13 @@ export function useIntel({
       channels: intel.channels,
       recencyMinutes: intel.recency,
       origins: intelOrigins,
+      // Las anclas van TAMBIÉN sueltas, aunque `origins` ya las lleve dentro: mezcladas no se
+      // pueden nombrar, y el aviso necesita poder decir «de 88a-ra» cuando no hay ningún piloto
+      // cerca. Antes en ese caso salía un número sin dueño.
+      anchors: intel.anchors,
+      // Sistemas silenciados. Rust compara `until_ms` con su propio reloj, así que un silencio
+      // temporal caduca aunque no se vuelva a reconfigurar el vigilante.
+      muted: intel.muted ?? [],
       alertJumps: intel.alertJumps,
       // ALERTAS (sonido/banner/notificación) SOLO con el interruptor maestro ON. Con OFF el vigilante
       // sigue leyendo (feed/puntos en la capa intel), pero NO alerta. Fix del "OFF sigue sonando".
@@ -211,7 +226,7 @@ export function useIntel({
       // Solo paramos al desmontar/recambiar si NO está el modo en vivo (si está ON, sigue corriendo).
       if (!intel?.live) invoke("stop_intel_watch").catch(() => {});
     };
-  }, [overlay, intel?.live, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins, charLocations, overlayOn]);
+  }, [overlay, intel?.live, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intel?.anchors, intel?.muted, intelOrigins, charLocations, overlayOn]);
 
   // Escuchar las alertas que emite el hilo de Rust → banner + sonido (la notificación nativa
   // ya la lanza Rust, así que aquí NO la repetimos).
