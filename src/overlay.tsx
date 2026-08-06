@@ -224,7 +224,18 @@ export function Overlay() {
         key={a.key}
         className={`ov ov-${nivel}`}
         onClick={() => {
-          void invoke("overlay_open_main", { sysId: a.sys_id }).catch(() => {});
+          // OJO: `overlay_open_main` pide los CINCO campos del aviso, no solo el sistema — con
+          // ellos reconstruye la ficha de detalle en el mapa. Mandando solo `sysId`, Tauri
+          // rechazaba la llamada por argumentos inválidos y el `.catch` se comía el error: el
+          // clic no hacía absolutamente nada y no había ni un fallo que mirar.
+          // Por eso este catch AVISA por consola en vez de callar.
+          void invoke("overlay_open_main", {
+            sysId: a.sys_id,
+            system: a.system,
+            tsMs: a.ts_ms,
+            author: a.author,
+            message: a.message,
+          }).catch((e) => console.error("overlay_open_main:", e));
           quitar(a.key);
         }}
         title={tr("Abrir Koru en el mapa")}

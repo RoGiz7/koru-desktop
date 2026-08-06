@@ -549,6 +549,10 @@ function App() {
   const [mapTrackReq, setMapTrackReq] = useState<{ name: string; nonce: number } | null>(null);
   /** Aviso que hay que abrir en la ficha del mapa, pedido desde el overlay. El `nonce` es lo que
    *  permite volver a pedir EL MISMO aviso: sin él, pinchar dos veces el mismo no haría nada. */
+  /** Ref a `changeTab` (definido más abajo) para el listener del aviso flotante. Se declara aquí,
+   *  antes del efecto que la usa, aunque se rellene después: el cuerpo del listener corre mucho
+   *  más tarde. Ver el porqué de la ref junto a `autoSyncRef`. */
+  const changeTabRef = useRef<(t: Tab) => void>(() => {});
   const [mapIntelReq, setMapIntelReq] = useState<{
     sysId: number;
     sysName: string;
@@ -657,6 +661,12 @@ function App() {
       author: string;
       message: string;
     }>("overlay-goto-system", (e) => {
+      // PRIMERO la pestaña, luego la capa. `handleOverlayChange` solo cambia la capa del mapa, y
+      // si estabas en Bitácora (que es la pestaña de entrada) el mapa NI SIQUIERA está montado:
+      // el scroll de abajo no encontraba `.map-wrap` y la ficha del aviso no llegaba a verse.
+      // Por la ref, porque este efecto tiene deps vacías: llamando a `changeTab` directamente se
+      // usaría el `subject` del primer render y cargaría el mapa del sujeto equivocado.
+      changeTabRef.current("mapa");
       handleOverlayChange("intel");
       setMapIntelReq({
         sysId: e.payload.sys_id,
@@ -1375,6 +1385,9 @@ function App() {
   // Ref siempre apuntando al runAutoSync actual (para que el timer use el sujeto/pestaña vigentes).
   const autoSyncRef = useRef(runAutoSync);
   autoSyncRef.current = runAutoSync;
+  // Mismo motivo para `changeTab`: lo llama el listener del aviso flotante, que se registra UNA vez
+  // (deps vacías) y si no se quedaría con el sujeto del primer render.
+  changeTabRef.current = changeTab;
 
   // Carga inicial: global por defecto + auto-sync.
   useEffect(() => {
