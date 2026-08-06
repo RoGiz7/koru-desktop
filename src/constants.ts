@@ -183,6 +183,7 @@ export type MapOverlay =
   | "corps_npc"
   | "wormholes"
   | "firmas"
+  | "recorrido"
   | "intel";
 
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
@@ -237,6 +238,9 @@ export const CAPS: { label: string; scope: string }[] = [
 
 export const KM_LIMIT = 50;
 export const AUTO_SYNC_MS = 30 * 60 * 1000; // auto-sync cada 30 min
+/** Sondeo de posición de los personajes conectados. Corto a propósito: de él dependen los saltos
+ *  del intel y el aviso flotante, y un salto deja de importar en menos de un minuto. */
+export const POSITION_POLL_MS = 30 * 1000;
 
 export const TABS: { key: Tab; label: string; enabled: (s: string[]) => boolean }[] = [
   { key: "pvp", label: "PvP", enabled: (s) => s.includes(SCOPE.pvp) },
@@ -339,6 +343,14 @@ export const POIS: Poi[] = [
 // Sub-filtros desplegables por capa (estilo mapa oficial). Solo las capas que aquí aparecen
 // muestran desplegable; el valor "all" = sin filtrar.
 export const SUBFILTERS: Partial<Record<MapOverlay, { v: string; l: string }[]>> = {
+  // Ventana del recorrido. No hay «todo»: el rastro solo existe desde que Koru sondea posiciones,
+  // y ofrecer «siempre» prometería un histórico que no tenemos.
+  recorrido: [
+    { v: "1", l: "1 h" },
+    { v: "6", l: "6 h" },
+    { v: "24", l: "24 h" },
+    { v: "168", l: "7 d" },
+  ],
   soberania: [
     { v: "all", l: "Todos" },
     { v: "alliance", l: "Alianzas" },
@@ -374,6 +386,7 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", typeId: 17366, cat: "tu" }, // Station Container
   { key: "mineria", label: "Tu minería", short: "Minería", icon: "⛏️", typeId: 1230, cat: "tu" }, // Veldspar
   { key: "pi", label: "Tu PI (colonias)", short: "PI", icon: "🪐", cat: "tu" }, // salud de extractores por sistema
+  { key: "recorrido", label: "Tu recorrido", short: "Recorrido", icon: "🧭", typeId: 21096, cat: "tu" },
   { key: "standings", label: "Standings NPC", short: "Standings", icon: "🤝", cat: "tu" },
   { key: "agentes", label: "Tus agentes", short: "Agentes", icon: "🧑‍✈️", cat: "tu" },
   { key: "corps_npc", label: "Mis corps NPC (LP)", short: "Corps NPC", icon: "🏢", cat: "tu" },

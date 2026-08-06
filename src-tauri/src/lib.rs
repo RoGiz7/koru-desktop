@@ -31,6 +31,39 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
+        // ⚠️ CERRAR LA PRINCIPAL = SALIR DE VERDAD.
+        //
+        // Tauri termina el proceso cuando se destruyen TODAS las ventanas. Al añadir el overlay,
+        // cerrar Koru dejaba viva esa segunda ventana (aunque estuviera oculta) → el proceso seguía
+        // corriendo, el vigilante de intel seguía leyendo y los avisos SEGUÍAN SALIENDO encima del
+        // juego con la app "cerrada". Lo cazó Zigor: «le di a cerrar y sigo viendo el overlay».
+        //
+        // Cerrar la ventana `main` es la forma en que la gente cierra Koru, así que eso tiene que
+        // significar salir. `exit(0)` se lleva por delante el overlay y el hilo de intel.
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app = window.app_handle().clone();
+                // 1) Cerrar el overlay a mano. Es la ventana que impedía salir, y destruirla antes
+                //    deja a Tauri sin motivos para seguir vivo.
+                if let Some(o) = app.get_webview_window("overlay") {
+                    let _ = o.close();
+                }
+                // 2) Salida ordenada: deja que Tauri haga su limpieza.
+                app.exit(0);
+                // 3) Red de seguridad. Si en 2 s el proceso sigue en pie —un hilo bloqueado, una
+                //    webview que no suelta—, se mata a lo bruto. Es aceptable porque SQLite va en
+                //    WAL y las escrituras de Koru son transacciones cerradas: lo confirmado está a
+                //    salvo. Un Koru zombi consumiendo y lanzando avisos con la app «cerrada» es
+                //    mucho peor que un cierre brusco.
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    std::process::exit(0);
+                });
+            }
+        })
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -82,6 +115,16 @@ pub fn run() {
             commands::cancel_login,
             commands::list_characters,
             commands::get_character_cards,
+            commands::poll_positions,
+            commands::get_track,
+            commands::overlay_enable,
+            commands::overlay_monitors,
+            commands::overlay_place,
+            commands::overlay_hide,
+            commands::overlay_fit,
+            commands::overlay_test,
+            commands::overlay_debug,
+            commands::overlay_open_main,
             commands::logout,
             commands::whoami,
             commands::sync_killmails,

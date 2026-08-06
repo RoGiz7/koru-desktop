@@ -2147,6 +2147,103 @@ const EN: Record<string, string> = {
   "La ruta usa wormholes tuyos: EVE tampoco los rutea, tendrás que dar el salto a mano.":
     "The route uses your wormholes: EVE won't route those either, you'll have to make the jump yourself.",
 
+  // --- Intel: pilotos que cuentan para la proximidad (map.tsx) ---
+  "Pilotos que cuentan para la proximidad": "Pilots that count for proximity",
+  "Cuenta para los saltos. Pulsa para apagarlo.": "Counts towards jumps. Click to turn it off.",
+  "Apagado: no cuenta para los saltos ni sale en los avisos.":
+    "Off: doesn't count towards jumps and won't show in alerts.",
+  "Desconectado: no cuenta aunque esté encendido (ESI devuelve su última posición conocida).":
+    "Offline: doesn't count even if enabled (ESI still reports their last known position).",
+  fuera: "away",
+  "ver todos": "show all",
+  "solo conectados": "online only",
+  // Esta ya faltaba de antes; se añade de paso.
+  "Abrir ficha del hostil en Cazador": "Open the hostile's card in Hunter",
+
+  // --- Capa RECORRIDO: por dónde has pasado de verdad (map.tsx) ---
+  "Tu recorrido": "Your route",
+  Recorrido: "Route",
+  "1 h": "1 h",
+  "6 h": "6 h",
+  "24 h": "24 h",
+  "7 d": "7 d",
+  "Salto visto": "Jump seen",
+  "Tramo no visto": "Leg not seen",
+  "Sin cobertura": "No coverage",
+  "Pasó por sistemas que Koru no llegó a ver.":
+    "Passed through systems Koru never saw.",
+  "Sin cobertura: Koru estaba cerrado o el piloto desconectado.":
+    "No coverage: Koru was closed or the pilot was offline.",
+  "Visto aquí": "Seen here",
+  "De paso": "Passing through",
+
+  // --- Ajustes → Intel: la config que se pone una vez (overlaySettings.tsx, IntelSettings) ---
+  "Lectura de los chats de intel": "Reading the intel chats",
+  "Carpeta de logs de EVE": "EVE log folder",
+  "Donde el juego escribe los chats. Sin esto el intel no puede leer nada.":
+    "Where the game writes the chat logs. Without this, intel has nothing to read.",
+  "Canales que se vigilan": "Channels being watched",
+  vigilados: "watched",
+  "Cuánto vive un avistamiento": "How long a sighting lasts",
+  "Recencia: qué se considera «pasando ahora». Rastro: cuánto queda pintado en el mapa.":
+    "Recency: what counts as happening now. Trail: how long it stays drawn on the map.",
+  "Sonido al detectar algo cerca": "Sound when something is detected nearby",
+  "Suena solo cuando el aviso entra en tu umbral de saltos.":
+    "Only sounds when the report falls inside your jump threshold.",
+  Activado: "On",
+  "Carpeta, canales y sonido…": "Folder, channels and sound…",
+  "Falta decirle a Koru dónde guarda EVE los chats.":
+    "Koru still needs to know where EVE keeps the chat logs.",
+  "Elige al menos un canal para empezar.": "Pick at least one channel to get started.",
+  "Configurar el intel": "Set up intel",
+
+  // --- Overlay de avisos sobre el juego (overlay.tsx / overlaySettings.tsx) ---
+  Avisos: "Alerts",
+  "Avisos sobre el juego": "Alerts over the game",
+  "Mostrar los avisos flotando sobre el juego": "Float alerts over the game",
+  "Una ventanita sin bordes en la esquina que elijas. Al pulsarla, Koru se pone delante y abre el mapa en ese sistema.":
+    "A small borderless window in the corner you pick. Click it and Koru comes to the front with the map on that system.",
+  "Dónde aparece": "Where it shows up",
+  "Elige un hueco que no te tape nada del juego.": "Pick a spot that doesn't cover anything you need.",
+  "Monitor principal": "Primary monitor",
+  principal: "primary",
+  "Arriba izquierda": "Top left",
+  "Arriba centro": "Top centre",
+  "Arriba derecha": "Top right",
+  "Abajo izquierda": "Bottom left",
+  "Abajo centro": "Bottom centre",
+  "Abajo derecha": "Bottom right",
+  "Ver un aviso de prueba": "Show a test alert",
+  "Lanza uno de mentira para colocarlo sin esperar a que salte de verdad.":
+    "Fires a fake one so you can position it without waiting for a real alert.",
+  "Qué avisos salen aquí": "Which alerts show up here",
+  "Intel de proximidad": "Proximity intel",
+  "De momento el único. El criterio: solo sale aquí lo que te haría actuar en los próximos segundos — lo demás (planetología, logros, trabajos) vive en la app, que son cosas de cuando atracas.":
+    "The only one for now. The rule: this space is for things you'd act on within seconds — everything else (planetology, achievements, industry jobs) lives in the app, because those are things you deal with docked.",
+  "Si juegas en pantalla completa exclusiva no se verá: EVE tapa cualquier ventana. Cambia a ventana o ventana sin bordes.":
+    "It won't show in exclusive fullscreen: EVE covers every window. Switch to windowed or borderless.",
+  "La ventana del aviso no existe. Es un problema de configuración, no de pintado.":
+    "The alert window doesn't exist. That's a config problem, not a rendering one.",
+  "La ventana existe pero está FUERA de la pantalla": "The window exists but is OFF-SCREEN",
+  "La ventana existe y está colocada, pero oculta.": "The window exists and is placed, but hidden.",
+  "La ventana está visible y en pantalla": "The window is visible and on-screen",
+  "Si aun así no la ves, el problema es el pintado (transparencia).":
+    "If you still can't see it, the problem is rendering (transparency).",
+  escala: "scale",
+  monitores: "monitors",
+  "esperando avisos": "waiting for alerts",
+  "hostil sin identificar": "unidentified hostile",
+  "Ver este aviso": "Show this alert",
+  Descartar: "Dismiss",
+  segundos: "seconds",
+  "Cuánto dura en pantalla": "How long it stays on screen",
+  "El aviso enseña siempre cuánto tiempo hace que se cantó, así que no engaña por mucho que dure.":
+    "The alert always shows how long ago it was called, so it can't mislead you no matter how long it stays.",
+  "Hasta que lo cierre o lo pulse": "Until I close it or click it",
+  "Abrir Koru en el mapa": "Open Koru on the map",
+  "EN TU SISTEMA": "IN YOUR SYSTEM",
+  salto: "jump",
+
   // --- Franja de estado de la Bitácora (.bit-hero) ---
   "De oro": "Gold",
   Empezadas: "Started",

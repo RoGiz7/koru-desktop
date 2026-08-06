@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { OverlaySettings, IntelSettings } from "./overlaySettings";
 import { loadNewEden } from "./neweden";
 import { Ticker } from "./ticker";
 import { invoke } from "@tauri-apps/api/core";
@@ -47,6 +48,7 @@ import {
   CAPS,
   KM_LIMIT,
   AUTO_SYNC_MS,
+  POSITION_POLL_MS,
   NAV,
   TAB_HEAD,
 } from "./constants";
@@ -91,6 +93,8 @@ import type {
   StandingRow,
   WhConn,
   IntelLine,
+  IntelConfig,
+  PositionUpdate,
 } from "./types";
 
 // Nave insignia de fondo por pestaña (patrón "carta de la Agencia", ver <SectionArt>). typeIDs
@@ -198,7 +202,7 @@ function App() {
   const [feature, setFeature] = useState("core");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
   const [settingsOpen, setSettingsOpen] = useState(false); // panel ⚙️ Ajustes (con pestañas)
-  const [settingsTab, setSettingsTab] = useState<"copias" | "logs" | "mapa" | "medallas">("copias");
+  const [settingsTab, setSettingsTab] = useState<"copias" | "logs" | "mapa" | "medallas" | "intel">("copias");
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
   // Importador de histórico CSV (corptools) — vive en ⚙️ Ajustes para no tenerlo siempre a mano.
@@ -543,6 +547,16 @@ function App() {
   const [cazadorPilot, setCazadorPilot] = useState<string | null>(null);
   // Petición de "pintar rastro en el mapa" desde la sección Cazador (nonce fuerza re-disparo).
   const [mapTrackReq, setMapTrackReq] = useState<{ name: string; nonce: number } | null>(null);
+  /** Aviso que hay que abrir en la ficha del mapa, pedido desde el overlay. El `nonce` es lo que
+   *  permite volver a pedir EL MISMO aviso: sin él, pinchar dos veces el mismo no haría nada. */
+  const [mapIntelReq, setMapIntelReq] = useState<{
+    sysId: number;
+    sysName: string;
+    ts: number;
+    author: string;
+    message: string;
+    nonce: number;
+  } | null>(null);
   const [contactsData, setContactsData] = useState<ContactRow[] | null>(null);
   const [standingsData, setStandingsData] = useState<StandingRow[] | null>(null);
   const [gSkills, setGSkills] = useState<GlobalSkills | null>(null); // global (otra forma)
@@ -618,6 +632,50 @@ function App() {
     if (globalAlertTimer.current) window.clearTimeout(globalAlertTimer.current);
     globalAlertTimer.current = window.setTimeout(() => setGlobalAlert(null), 12000);
   }
+  // Al ARRANCAR: crear y colocar el overlay SOLO si el jugador lo dejó encendido. La ventana ya no
+  // se declara en tauri.conf.json —un WebView2 oculto cuesta memoria igual y esto viene apagado de
+  // fábrica—, así que quien no use la función no paga por ella. Y colocarla aquí evita que quien la
+  // dejó encendida ayer se la encuentre hoy donde Tauri decida, que en una ventana sin bordes puede
+  // ser fuera de la pantalla útil.
+  useEffect(() => {
+    if (localStorage.getItem("koru-overlay") !== "1") return;
+    invoke("overlay_enable", {
+      enabled: true,
+      monitor: Number(localStorage.getItem("koru-overlay-mon") ?? 0),
+      corner: localStorage.getItem("koru-overlay-corner") ?? "tr",
+      margin: Number(localStorage.getItem("koru-overlay-margin") ?? 24),
+    }).catch(() => {});
+  }, []);
+  // Clic en el aviso FLOTANTE (ventana overlay): Rust ya ha traído esta ventana al frente, y aquí
+  // solo queda llevar al jugador donde le interesa — la capa de intel del mapa. El `sys_id` viaja
+  // en el evento por si más adelante queremos centrar el mapa en ese sistema exacto.
+  useEffect(() => {
+    const un = listen<{
+      sys_id: number;
+      system: string;
+      ts_ms: number;
+      author: string;
+      message: string;
+    }>("overlay-goto-system", (e) => {
+      handleOverlayChange("intel");
+      setMapIntelReq({
+        sysId: e.payload.sys_id,
+        sysName: e.payload.system,
+        ts: e.payload.ts_ms,
+        author: e.payload.author,
+        message: e.payload.message,
+        nonce: Date.now(),
+      });
+      window.setTimeout(
+        () => document.querySelector(".map-wrap")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        60,
+      );
+    });
+    return () => {
+      un.then((f) => f());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Sembrar carpeta por defecto la primera vez.
   useEffect(() => {
     if (!intelFolder) {
@@ -658,6 +716,52 @@ function App() {
     const t = window.setInterval(tick, 3000);
     return () => window.clearInterval(t);
   }, []);
+  // SONDEO DE POSICIÓN (cada 30 s, solo conectados).
+  //
+  // Antes de esto, `cards` solo se pedía al arrancar, al hacer login y al hacer logout: la posición
+  // de tus pilotos era una foto del momento de abrir Koru. De esa foto colgaba TODO —los puntos del
+  // mapa, los saltos del feed de intel y el contexto del aviso flotante—, así que un jugador que
+  // llevara horas volando veía distancias medidas desde donde estaba al arrancar. No daba error:
+  // daba un número creíble.
+  //
+  // 30 s porque un salto tarda menos de un minuto en importar, y la caché de `/location/` en ESI es
+  // de 5 s: el dato está fresco al otro lado. El coste lo acota Rust (mira `/online/` primero y
+  // resuelve nombres solo cuando alguien cambia de sistema).
+  useEffect(() => {
+    const sondear = () => {
+      invoke<PositionUpdate[]>("poll_positions")
+        .then((ps) => {
+          if (ps.length === 0) return;
+          setCards((prev) => {
+            const next = { ...prev };
+            for (const p of ps) {
+              const card = next[p.character_id];
+              if (!card) continue; // aún no cargado por `refresh()`: el sondeo no inventa tarjetas
+              next[p.character_id] = {
+                ...card,
+                system_id: p.system_id ?? card.system_id,
+                // Si el sistema CAMBIÓ y no pudimos resolver su nombre, se queda vacío — nunca se
+                // hereda el anterior. Etiquetar el sistema nuevo con el nombre del viejo sería un
+                // dato falso con toda la pinta de bueno; un hueco, al menos, se ve.
+                system_name:
+                  p.system_id != null && p.system_id !== card.system_id
+                    ? p.system_name
+                    : card.system_name,
+                ship_type_id: p.ship_type_id ?? card.ship_type_id,
+                ship_type_name: p.ship_type_name ?? card.ship_type_name,
+                online: p.online,
+              };
+            }
+            return next;
+          });
+        })
+        .catch(() => {});
+    };
+    sondear();
+    const t = window.setInterval(sondear, POSITION_POLL_MS);
+    return () => window.clearInterval(t);
+  }, []);
+
   // Planetología: alarma de extractores (auto_sync ya lanzó la notificación nativa; aquí el toast).
   useEffect(() => {
     const un = listen<string>("pi-alert", (e) => showGlobalAlert(`⛏️ PI: ${e.payload}`, "pi"));
@@ -1469,6 +1573,32 @@ function App() {
     statusText = tr("Listo");
   }
 
+  // La config de intel la consumen DOS sitios: el panel pequeño del mapa (lo de «ahora mismo»)
+  // y la pestaña Ajustes → Intel (lo que se pone una vez). Se arma aquí una sola vez para que
+  // no haya dos objetos que puedan divergir.
+  const intelCfg: IntelConfig = {
+    lines: intelLines,
+    availChannels: intelAvailChannels,
+    channels: intelChannels,
+    folder: intelFolder,
+    recency: intelRecency,
+    alertJumps: intelAlertJumps,
+    sound: intelSound,
+    anchors: intelAnchors,
+    onlyRange: intelOnlyRange,
+    trailMin: intelTrailMin,
+    soundChoice: intelSoundChoice,
+    soundFile: intelSoundFile,
+    live: intelLive,
+    status: intelStatus,
+    onToggleLive: () => toggleIntelLive(),
+    onIntelAlert: showGlobalAlert,
+    onClearAlert: () => setGlobalAlert(null),
+    onConfig: setIntelCfg,
+    onPickFolder: pickIntelFolder,
+    onPickSound: pickIntelSound,
+  };
+
   return (
     <main className="shell">
       {/* ----- BARRA SUPERIOR (antes rail) ----- */}
@@ -1664,6 +1794,7 @@ function App() {
                       { k: "logs", ic: "📜", label: tr("Logs de EVE") },
                       { k: "mapa", ic: "🗺️", label: tr("Mapa") },
                       { k: "medallas", ic: "🎖️", label: tr("Medallas") },
+                      { k: "intel", ic: "📡", label: tr("Intel") },
                     ] as const
                   ).map((t) => (
                     <button
@@ -1678,6 +1809,12 @@ function App() {
                 </div>
 
                 <div className="tb-settings-tabbody">
+            {settingsTab === "intel" && (
+              <>
+                <IntelSettings intel={intelCfg} />
+                <OverlaySettings />
+              </>
+            )}
             {settingsTab === "copias" && (
               <>
               <div className="tb-settings-title small muted">{tr("Datos y copia de seguridad")}</div>
@@ -1962,27 +2099,10 @@ function App() {
           onNeedThera={() => {
             if (!theraConns) loadThera();
           }}
-          intel={{
-            lines: intelLines,
-            availChannels: intelAvailChannels,
-            channels: intelChannels,
-            folder: intelFolder,
-            recency: intelRecency,
-            alertJumps: intelAlertJumps,
-            sound: intelSound,
-            anchors: intelAnchors,
-            onlyRange: intelOnlyRange,
-            trailMin: intelTrailMin,
-            soundChoice: intelSoundChoice,
-            soundFile: intelSoundFile,
-            live: intelLive,
-            status: intelStatus,
-            onToggleLive: () => toggleIntelLive(),
-            onIntelAlert: showGlobalAlert,
-            onClearAlert: () => setGlobalAlert(null),
-            onConfig: setIntelCfg,
-            onPickFolder: pickIntelFolder,
-            onPickSound: pickIntelSound,
+          intel={intelCfg}
+          onOpenIntelSettings={() => {
+            setSettingsOpen(true);
+            setSettingsTab("intel");
           }}
           onSystemAssets={(name) => {
             setAssetQuery(name);
@@ -2001,6 +2121,7 @@ function App() {
             );
           }}
           openTrack={mapTrackReq}
+          openIntelReq={mapIntelReq}
           hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}
           hereCharId={isGlobal ? null : cards[subjectId]?.character_id ?? null}
           charLocations={(isGlobal
@@ -2010,7 +2131,14 @@ function App() {
             : []
           )
             .filter((c) => c.system_id != null)
-            .map((c) => ({ id: c.character_id, name: c.name, system_id: c.system_id as number }))}
+            .map((c) => ({
+              id: c.character_id,
+              name: c.name,
+              system_id: c.system_id as number,
+              ship: c.ship_type_name ?? null,
+              ship_type_id: c.ship_type_id ?? null,
+              online: c.online ?? null,
+            }))}
           characters={characters}
         />
 

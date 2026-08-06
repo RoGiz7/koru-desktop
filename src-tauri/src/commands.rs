@@ -15,7 +15,8 @@ use crate::esi::{assets, industry, killmails, market, skills, wallet, EsiClient}
 use crate::sso::{self, LoginOutcome, TokenManager};
 use serde::Serialize;
 use std::collections::HashSet;
-use tauri::{Emitter, State, Window};
+// `Manager` entra con el overlay: es el trait que trae `get_webview_window`.
+use tauri::{Emitter, Manager, State, Window};
 
 /// Estado global de la app, gestionado por Tauri.
 pub struct AppState {
@@ -1187,6 +1188,12 @@ pub struct CharacterCard {
     pub ship_type_name: Option<String>,
     /// Nombre propio que el jugador le puso a la nave (puede ser None).
     pub ship_name: Option<String>,
+    /// ¿Está conectado AHORA? (scope esi-location.read_online.v1). `None` = no se pudo saber.
+    ///
+    /// Importa para el intel: `/location/` devuelve la ÚLTIMA posición conocida aunque el piloto
+    /// esté desconectado, así que sin esto Koru mediría distancias a un fantasma y diría «hostil a
+    /// 2 saltos de tu alt» de un personaje que lleva horas fuera.
+    pub online: Option<bool>,
     pub scopes: Vec<String>,
 }
 
@@ -1202,6 +1209,12 @@ struct PublicChar {
 struct LocationInfo {
     #[serde(default)]
     solar_system_id: Option<i64>,
+}
+
+#[derive(serde::Deserialize)]
+struct OnlineInfo {
+    #[serde(default)]
+    online: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1291,7 +1304,12 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
             .scopes
             .iter()
             .any(|s| s == "esi-location.read_ship_type.v1");
-        if has_loc || has_ship {
+        let has_online = c
+            .scopes
+            .iter()
+            .any(|s| s == "esi-location.read_online.v1");
+        let mut online = None;
+        if has_loc || has_ship || has_online {
             if let Ok(valid) = state
                 .tokens
                 .access_token(state.esi.http(), c.character_id)
@@ -1309,6 +1327,20 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
                         .await
                     {
                         system_id = loc.solar_system_id;
+                    }
+                }
+                if has_online {
+                    if let Ok(o) = state
+                        .esi
+                        .get_cached::<OnlineInfo>(
+                            &state.db,
+                            c.character_id,
+                            &format!("/characters/{}/online/", c.character_id),
+                            Some(&valid.access_token),
+                        )
+                        .await
+                    {
+                        online = o.online;
                     }
                 }
                 if has_ship {
@@ -1355,6 +1387,7 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
             ship_type_id,
             ship_type_name: None,
             ship_name,
+            online,
             scopes: c.scopes.clone(),
         });
     }
@@ -1377,6 +1410,215 @@ pub async fn get_character_cards(state: State<'_, AppState>) -> AppResult<Vec<Ch
     }
 
     Ok(cards)
+}
+
+/// Una posición fresca. Es el hermano LIGERO de `CharacterCard`: solo lo que se mueve.
+#[derive(Debug, Clone, Serialize)]
+pub struct PositionUpdate {
+    pub character_id: i64,
+    pub system_id: Option<i64>,
+    pub system_name: Option<String>,
+    pub ship_type_id: Option<i64>,
+    pub ship_type_name: Option<String>,
+    pub online: Option<bool>,
+    /// `true` si este sondeo abrió visita nueva (se movió). El front lo usa para saber que hay
+    /// novedad sin comparar estados, y evita repintar el mapa cuando no ha pasado nada.
+    pub moved: bool,
+}
+
+/// Sondeo de posición: dónde están AHORA tus personajes conectados, y anotarlo en el recorrido.
+///
+/// POR QUÉ EXISTE: `get_character_cards` es caro (info pública, corp, alianza, resolución de
+/// nombres) y solo se llamaba al arrancar, al hacer login y al hacer logout. O sea que la posición
+/// de tus pilotos era **una foto del momento de abrir la app**, y de ella colgaba todo: los puntos
+/// del mapa, los SALTOS del feed de intel y el contexto del aviso flotante. Un jugador que llevara
+/// dos horas volando veía saltos medidos desde donde estaba al arrancar: no un error, **un número
+/// creíble**, que es la peor clase de fallo.
+///
+/// TRES DECISIONES DE COSTE, en orden de importancia:
+///  1. **Solo los conectados.** `/location/` devuelve la última posición conocida aunque el piloto
+///     lleve horas fuera, así que sondear a un desconectado gasta una llamada para reafirmar un
+///     fantasma. Se mira `/online/` primero (su caché es de 60 s: preguntarlo cada 30 s sale de la
+///     caché sin tocar la red) y solo si está dentro se piden posición y nave.
+///  2. **Nombres solo cuando alguien se mueve.** `resolve_names` es una llamada a ESI; el 99% de los
+///     sondeos no cambian nada, y `track_note` ya nos dice quién abrió visita nueva. En reposo esto
+///     son cero llamadas.
+///  3. **La nave sale de `ships.json`**, que va embebido: nunca se pregunta a ESI por su nombre.
+#[tauri::command]
+pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<PositionUpdate>> {
+    // Cuánto silencio deja de significar «sigue ahí». Tres sondeos: aguanta un tirón de red o que
+    // el portátil se duerma un momento sin partir la visita en dos.
+    const CORTE_MS: i64 = 90_000;
+
+    let chars = state.db.list_characters()?;
+    let ahora = chrono::Utc::now().timestamp_millis();
+    let mut out: Vec<PositionUpdate> = Vec::new();
+    let mut por_nombrar: HashSet<i64> = HashSet::new();
+
+    for c in &chars {
+        let tiene = |s: &str| c.scopes.iter().any(|x| x == s);
+        let has_loc = tiene("esi-location.read_location.v1");
+        let has_ship = tiene("esi-location.read_ship_type.v1");
+        let has_online = tiene("esi-location.read_online.v1");
+        if !has_loc && !has_ship && !has_online {
+            continue;
+        }
+        let Ok(valid) = state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        else {
+            continue;
+        };
+
+        let mut online = None;
+        if has_online {
+            if let Ok(o) = state
+                .esi
+                .get_cached::<OnlineInfo>(
+                    &state.db,
+                    c.character_id,
+                    &format!("/characters/{}/online/", c.character_id),
+                    Some(&valid.access_token),
+                )
+                .await
+            {
+                online = o.online;
+            }
+        }
+        // Desconectado y lo sabemos con certeza → ni posición ni nave ni anotación en el recorrido.
+        // Anotarlo dibujaría a un piloto dormido "estando" en un sistema toda la noche.
+        if online == Some(false) {
+            out.push(PositionUpdate {
+                character_id: c.character_id,
+                system_id: None,
+                system_name: None,
+                ship_type_id: None,
+                ship_type_name: None,
+                online,
+                moved: false,
+            });
+            continue;
+        }
+
+        let mut system_id = None;
+        if has_loc {
+            if let Ok(loc) = state
+                .esi
+                .get_cached::<LocationInfo>(
+                    &state.db,
+                    c.character_id,
+                    &format!("/characters/{}/location/", c.character_id),
+                    Some(&valid.access_token),
+                )
+                .await
+            {
+                system_id = loc.solar_system_id;
+            }
+        }
+        let mut ship_type_id = None;
+        if has_ship {
+            if let Ok(ship) = state
+                .esi
+                .get_cached::<ShipInfo>(
+                    &state.db,
+                    c.character_id,
+                    &format!("/characters/{}/ship/", c.character_id),
+                    Some(&valid.access_token),
+                )
+                .await
+            {
+                ship_type_id = ship.ship_type_id;
+            }
+        }
+
+        let moved = match system_id {
+            Some(sid) => state
+                .db
+                .track_note(c.character_id, sid, ship_type_id, ahora, CORTE_MS),
+            None => false,
+        };
+        if moved {
+            if let Some(sid) = system_id {
+                por_nombrar.insert(sid);
+            }
+        }
+        out.push(PositionUpdate {
+            character_id: c.character_id,
+            system_id,
+            system_name: None,
+            ship_type_id,
+            ship_type_name: ship_type_id.and_then(|t| ship_name_by_id().get(&t).cloned()),
+            online,
+            moved,
+        });
+    }
+
+    // Solo se pregunta por los sistemas ESTRENADOS en este sondeo. Con todo el mundo quieto,
+    // `por_nombrar` está vacío y `resolve_names` corta antes de tocar la red.
+    if !por_nombrar.is_empty() {
+        if let Ok(names) = state
+            .esi
+            .resolve_names(&por_nombrar.into_iter().collect::<Vec<_>>())
+            .await
+        {
+            for p in out.iter_mut() {
+                p.system_name = p.system_id.and_then(|x| names.get(&x).cloned());
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Una parada del recorrido: «vi a este piloto en este sistema entre estos dos instantes».
+///
+/// OJO, NO confundir con `TrackPoint` (más abajo), que es el rastro del CAZADOR: avistamientos de
+/// un HOSTIL sacados del chat de intel. Esto es tu propia ruta, sacada de sondear ESI.
+#[derive(Debug, Clone, Serialize)]
+pub struct RouteStop {
+    pub character_id: i64,
+    pub name: String,
+    pub system_id: i64,
+    pub ship_type_id: Option<i64>,
+    pub entered_ms: i64,
+    pub seen_ms: i64,
+}
+
+/// Recorrido propio en una ventana de tiempo. `character_id = None` → todos.
+///
+/// Devuelve lo OBSERVADO y nada más. Quien pinta debe respetar dos cosas, o mentirá:
+///  · El tiempo en un sistema es `seen_ms - entered_ms`, jamás `ahora - entered_ms`. Con Koru
+///    cerrado toda la noche, lo segundo daría «10 h en Jita» de un piloto que se fue a los cinco
+///    minutos.
+///  · Entre el `seen_ms` de un tramo y el `entered_ms` del siguiente puede haber CEGUERA (la app
+///    cerrada, o el piloto desconectado). Ese hueco no es un salto: es lo que no vimos.
+#[tauri::command]
+pub fn get_track(
+    character_id: Option<i64>,
+    desde_ms: i64,
+    hasta_ms: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<RouteStop>> {
+    let nombres: std::collections::HashMap<i64, String> = state
+        .db
+        .list_characters()?
+        .into_iter()
+        .map(|c| (c.character_id, c.name))
+        .collect();
+    Ok(state
+        .db
+        .track_range(character_id, desde_ms, hasta_ms)
+        .into_iter()
+        .map(|(cid, system_id, ship_type_id, entered_ms, seen_ms)| RouteStop {
+            character_id: cid,
+            name: nombres.get(&cid).cloned().unwrap_or_default(),
+            system_id,
+            ship_type_id,
+            entered_ms,
+            seen_ms,
+        })
+        .collect())
 }
 
 /// Cierra sesión de un personaje: borra su refresh token del keyring y su fila de la BD.
@@ -5874,6 +6116,16 @@ pub struct IntelWatchCfg {
     pub recency_min: i64,
     /// Orígenes de proximidad: sistema del personaje + puntos de ancla elegidos.
     pub origins: Vec<i64>,
+    /// Tus pilotos conectados y dónde están, para el CONTEXTO del aviso. Lo pone el frontend con
+    /// lo que ya tiene de `get_character_cards`; aquí solo se usa para medir saltos.
+    ///
+    /// Es lo que separa a Koru de una app de intel: «hostil a 3 saltos» lo dice cualquiera, «a 3
+    /// saltos de Vera, que va en Venture» hace falta cruzar el chatlog con tu ubicación y tu nave.
+    /// Vacío = el aviso sale igual, solo que sin esa línea.
+    pub pilots: Vec<PilotLoc>,
+    /// ¿Sacar además el aviso FLOTANTE sobre el juego? Apagado de fábrica. Independiente de
+    /// `alerts_enabled`: puedes querer sonido y notificación sin ventanita encima, o al revés.
+    pub overlay_enabled: bool,
     pub alert_jumps: i64,
     /// ¿Sacar ALERTAS (notificación nativa + evento intel-alert → sonido/banner)? El vigilante SIGUE
     /// leyendo y emitiendo el feed (intel-lines) para los puntos del mapa aunque esto sea false: así,
@@ -5938,6 +6190,272 @@ pub struct IntelAlertEvent {
     pub author: String,
     pub message: String,
     pub ts_ms: i64,
+    /// Tus pilotos ordenados por cercanía AL SISTEMA DEL AVISO (no a los orígenes). El overlay
+    /// enseña el primero. Vacío si el frontend no mandó pilotos o ninguno está en el mapa.
+    pub pilots: Vec<PilotProximity>,
+    /// QUIÉN viene y en qué. Es el protagonista del aviso: lo que decide si huyes o peleas.
+    pub parse: IntelParse,
+}
+
+/// Dónde está uno de tus pilotos y en qué vuela. Lo manda el frontend en la config del vigilante.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct PilotLoc {
+    pub name: String,
+    pub system_id: i64,
+    pub ship: Option<String>,
+    pub ship_type_id: Option<i64>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// ANÁLISIS DEL HOSTIL. Antes el aviso flotante enseñaba MI nave grande y con icono, y a quien venía
+// a matarme lo dejaba en letra pequeña dentro del texto crudo del chat. La jerarquía estaba al
+// revés, lo cazó Zigor: «parece más importante en qué nave estoy yo que en qué nave vienen por mí».
+//
+// El análisis se hace AQUÍ y no en el overlay porque esa ventana no puede permitirse cargar
+// `neweden.json` (5.485 sistemas) solo para descartar nombres de sistema. Rust ya tiene el grafo
+// cargado para el BFS, así que le sale gratis. `ships.json` son 19 KB y va embebido.
+// Espejo de `classifyIntel` en `src/intel.ts`: si cambia uno, cambia el otro.
+// ---------------------------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct ShipRow {
+    i: i64,
+    n: String,
+}
+
+/// Nombre de nave en minúsculas → typeID. Embebido: no depende de que el front esté vivo.
+fn ship_names() -> &'static std::collections::HashMap<String, (i64, String)> {
+    // Rutas completas a propósito: este fichero solo importa `HashSet`, y el resto del código
+    // cualifica. Mantener el estilo evita un `use` que luego nadie sabe de dónde salió.
+    static S: std::sync::OnceLock<std::collections::HashMap<String, (i64, String)>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| {
+        let rows: Vec<ShipRow> = serde_json::from_str(include_str!("ships.json")).unwrap_or_default();
+        rows.into_iter()
+            .map(|r| (r.n.to_lowercase(), (r.i, r.n)))
+            .collect()
+    })
+}
+
+/// typeID → nombre de nave. El inverso de `ship_names()`, para el sondeo de posición: sin esto
+/// habría que preguntar a ESI el nombre de una nave que ya tenemos embebida en disco.
+fn ship_name_by_id() -> &'static std::collections::HashMap<i64, String> {
+    static S: std::sync::OnceLock<std::collections::HashMap<i64, String>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| {
+        let rows: Vec<ShipRow> = serde_json::from_str(include_str!("ships.json")).unwrap_or_default();
+        rows.into_iter().map(|r| (r.i, r.n)).collect()
+    })
+}
+
+/// Palabras que NO son ni piloto ni nave. Espejo de `INTEL_JARGON` en `intel.ts`.
+///
+/// La segunda fila son verbos y muletillas del chat de intel real. Se añadieron tras ver el aviso
+/// anunciar «he jump» como si fuera un hostil (la línea era «he jump to 8-WYQZ»).
+const INTEL_JARGON: &[&str] = &[
+    "nv", "neut", "neuts", "neutral", "neutrals", "red", "reds", "hostile", "hostiles", "status",
+    "gate", "gates", "stargate", "dock", "docked", "docking", "station", "pos", "cyno", "near",
+    "on", "the", "in", "at", "and", "is", "to", "a",
+    // Cómo habla la gente en un canal de intel:
+    "jump", "jumps", "jumped", "jumping", "warp", "warped", "warping", "camp", "camped", "camping",
+    "move", "moves", "moved", "moving", "coming", "came", "going", "gone", "left", "back", "out",
+    "up", "down", "here", "there", "still", "safe", "clr2", "afk", "logged", "off", "away",
+    "spotted", "seen", "sitting", "sits", "roam", "roaming", "local", "he", "she", "they", "his",
+    "her", "their", "with", "from", "for", "of", "seem", "seems", "like", "just", "was", "were",
+    "have", "has", "had", "not", "no", "yes", "now", "watch", "look", "looking", "check", "x", "o",
+];
+
+/// ¿Puede esta palabra formar parte de un nombre de piloto?
+///
+/// **Todo nombre de personaje de EVE empieza por mayúscula.** Ese único criterio quita de golpe
+/// las frases en inglés que se colaban como hostiles («he jump», «seem like hes moving») sin tener
+/// que mantener una lista infinita de palabras. Los nombres de varias palabras («Bedwin Al Ishira»,
+/// «New Clone WhoDis») pasan porque TODAS sus partes van en mayúscula.
+///
+/// Se rechazan también los que empiezan por dígito: existen, pero son rarísimos, y aquí un falso
+/// negativo («hostil sin identificar») es mucho mejor que un falso positivo — inventarle un nombre
+/// a quien viene a matarte es peor que admitir que no lo sabes.
+fn parece_nombre(palabra: &str) -> bool {
+    palabra.chars().next().is_some_and(|c| c.is_uppercase())
+}
+
+/// Un hostil citado en la línea de intel. `character_id` solo si YA lo conocíamos de avistamientos
+/// anteriores (tabla `intel_sightings`): así se puede pintar su retrato sin llamar a ESI.
+#[derive(Clone, Debug, Serialize)]
+pub struct Hostil {
+    pub name: String,
+    pub character_id: Option<i64>,
+}
+
+/// Una nave citada en la línea de intel.
+#[derive(Clone, Debug, Serialize)]
+pub struct NaveCitada {
+    pub type_id: i64,
+    pub name: String,
+}
+
+/// Lo que se ha podido sacar en limpio de la línea del chat.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct IntelParse {
+    pub hostiles: Vec<Hostil>,
+    pub ships: Vec<NaveCitada>,
+    /// Contador explícito del tipo «+4» o «14+». `None` = no lo dijeron.
+    pub count: Option<i64>,
+}
+
+/// Quita puntuación de los extremos, igual que el `clean` del frontend.
+fn limpia_token(s: &str) -> String {
+    s.trim_matches(|c: char| "*.,;:!?()[]{}".contains(c)).trim().to_string()
+}
+
+/// Analiza una línea de intel: separa pilotos, naves y el contador.
+///
+/// Los campos se parten por DOS espacios o más (así los escribe el juego al pegar), y dentro de
+/// cada campo se clasifica palabra a palabra. Lo que no es sistema, ni nave, ni jerga, ni contador,
+/// es un nombre de piloto — que es justo lo que interesa enseñar.
+fn analizar_intel(mensaje: &str, sistemas: &std::collections::HashMap<String, i64>) -> IntelParse {
+    let naves = ship_names();
+    let mut out = IntelParse::default();
+    let mut buf: Vec<String> = Vec::new();
+
+    let cerrar = |buf: &mut Vec<String>, out: &mut IntelParse| {
+        if !buf.is_empty() {
+            let nombre = buf.join(" ");
+            if !out.hostiles.iter().any(|h| h.name == nombre) {
+                out.hostiles.push(Hostil { name: nombre, character_id: None });
+            }
+            buf.clear();
+        }
+    };
+
+    for campo in mensaje.split("  ").map(str::trim).filter(|f| !f.is_empty()) {
+        for palabra in campo.split_whitespace() {
+            // Ticker de corp/alianza entre paréntesis: no es piloto ni nave, y CIERRA el nombre
+            // que venía antes (suele ir pegado detrás del piloto).
+            let bruto = palabra.trim();
+            if bruto.len() > 1
+                && (bruto.starts_with('(') || bruto.starts_with('[') || bruto.starts_with('{'))
+                && (bruto.ends_with(')') || bruto.ends_with(']') || bruto.ends_with('}'))
+            {
+                cerrar(&mut buf, &mut out);
+                continue;
+            }
+            let c = limpia_token(bruto);
+            if c.is_empty() {
+                continue;
+            }
+            let lc = c.to_lowercase();
+            if lc == "clr" || lc == "clear" || lc == "cleared" {
+                cerrar(&mut buf, &mut out);
+                continue;
+            }
+            // Contador: «+4» o «14+».
+            let n = lc.strip_prefix('+').or_else(|| lc.strip_suffix('+'));
+            if let Some(d) = n.and_then(|d| d.parse::<i64>().ok()) {
+                cerrar(&mut buf, &mut out);
+                out.count = Some(d);
+                continue;
+            }
+            if INTEL_JARGON.contains(&lc.as_str()) {
+                cerrar(&mut buf, &mut out);
+                continue;
+            }
+            if sistemas.contains_key(&lc) {
+                cerrar(&mut buf, &mut out);
+                continue;
+            }
+            if let Some((tid, nombre)) = naves.get(&lc) {
+                cerrar(&mut buf, &mut out);
+                if !out.ships.iter().any(|s| s.type_id == *tid) {
+                    out.ships.push(NaveCitada { type_id: *tid, name: nombre.clone() });
+                }
+                continue;
+            }
+            // Lo que no empieza por mayúscula no es un nombre: corta lo que hubiera y se descarta.
+            if !parece_nombre(&c) {
+                cerrar(&mut buf, &mut out);
+                continue;
+            }
+            buf.push(c);
+        }
+        cerrar(&mut buf, &mut out);
+    }
+    cerrar(&mut buf, &mut out);
+    out
+}
+
+/// Un piloto tuyo con su distancia REAL en saltos al sistema del aviso.
+#[derive(Clone, Debug, Serialize)]
+pub struct PilotProximity {
+    pub name: String,
+    pub jumps: i64,
+    pub ship: Option<String>,
+    pub ship_type_id: Option<i64>,
+}
+
+/// Distancia de cada piloto AL SISTEMA DEL AVISO, ordenados de más cerca a más lejos.
+///
+/// Ojo al matiz: el `jumps` del evento es la distancia a los ORÍGENES (que incluyen tus anclas del
+/// mapa), y eso puede ser un sitio donde no hay nadie. Lo que decide si te afecta es dónde están
+/// TUS pilotos, así que aquí se hace un BFS nuevo desde el sistema hostil. Es un BFS sobre ~5.500
+/// nodos y solo corre cuando salta una alerta (raro), así que el coste es irrelevante.
+fn pilotos_cerca(
+    adj: &std::collections::HashMap<i64, Vec<i64>>,
+    pilots: &[PilotLoc],
+    sistema: i64,
+) -> Vec<PilotProximity> {
+    if pilots.is_empty() {
+        return Vec::new();
+    }
+    let dist = intel_bfs(adj, &[sistema]);
+    let mut out: Vec<PilotProximity> = pilots
+        .iter()
+        // Sin distancia = el piloto no está en el mismo grafo alcanzable (wormhole, o sistema que
+        // el mapa no conecta). Se omite en vez de inventar un número: mentir aquí es peor que callar.
+        .filter_map(|p| {
+            dist.get(&p.system_id).map(|&d| PilotProximity {
+                name: p.name.clone(),
+                jumps: d,
+                ship: p.ship.clone(),
+                ship_type_id: p.ship_type_id,
+            })
+        })
+        .collect();
+    out.sort_by_key(|p| p.jumps);
+    out
+}
+
+/// Analiza la línea y, además, intenta poner CARA a los hostiles.
+///
+/// El `character_id` sale de `intel_sightings`, la tabla que Koru ya llena sola con los pilotos
+/// vistos en el intel (y que resuelve por ESI a los habituales). O sea: **cero llamadas de red en
+/// el camino de la alerta** — o ya lo conocemos, o el aviso sale sin retrato y no pasa nada. Meter
+/// una petición HTTP aquí retrasaría justo el aviso que más corre prisa.
+fn hostiles_de(
+    app: &tauri::AppHandle,
+    sistemas: &std::collections::HashMap<String, i64>,
+    mensaje: &str,
+) -> IntelParse {
+    let mut p = analizar_intel(mensaje, sistemas);
+    // La BD se saca del estado de la app (el vigilante no la lleva encima). Si algo falla, el aviso
+    // sale igual pero sin retratos: nunca se rompe la alerta por un adorno.
+    let st = app.state::<AppState>();
+    for h in p.hostiles.iter_mut() {
+        h.character_id = st.db.intel_char_id(&h.name.to_lowercase()).ok().flatten();
+    }
+    p
+}
+
+/// Enseña la ventana del overlay SIN robarle el foco al juego.
+///
+/// ⚠️ Aquí NO se llama a `set_focus()`, y es a propósito: robar el foco mientras alguien está en
+/// medio de un combate es peor que no avisar. `show()` sobre una ventana `alwaysOnTop` la pinta
+/// encima sin activarla. El foco solo se pide cuando el jugador HACE CLIC (ver `overlay_open_main`).
+fn mostrar_overlay(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.show();
+        let _ = w.set_always_on_top(true);
+    }
 }
 
 /// Limpia un token igual que el frontend (quita puntuación final y `[*(` iniciales) y lo pasa a minúsculas.
@@ -6003,6 +6521,9 @@ pub fn start_intel_watch(
     origins: Vec<i64>,
     alert_jumps: i64,
     alerts_enabled: bool,
+    // Opcionales para no romper a quien llame sin ellos (y para que el frontend pueda ir por fases).
+    pilots: Option<Vec<PilotLoc>>,
+    overlay_enabled: Option<bool>,
 ) -> AppResult<()> {
     if let Ok(mut c) = state.intel.cfg.lock() {
         *c = Some(IntelWatchCfg {
@@ -6010,6 +6531,8 @@ pub fn start_intel_watch(
             channels,
             recency_min: recency_minutes,
             origins,
+            pilots: pilots.unwrap_or_default(),
+            overlay_enabled: overlay_enabled.unwrap_or(false),
             alert_jumps,
             alerts_enabled,
         });
@@ -6199,8 +6722,16 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                                 author: author.clone(),
                                                 message: message.clone(),
                                                 ts_ms: *ts,
+                                                pilots: pilotos_cerca(&g.adj, &cfg.pilots, *sid),
+                                                parse: hostiles_de(&app, &g.name_to_id, message),
                                             },
                                         );
+                                        // El overlay se despierta SOLO si el jugador lo encendió.
+                                        // Apagado de fábrica: un aviso flotante que aparece sin
+                                        // que nadie lo pida es motivo de desinstalación.
+                                        if cfg.overlay_enabled {
+                                            mostrar_overlay(&app);
+                                        }
                                     }
                                 }
                             }
@@ -8617,4 +9148,311 @@ pub async fn get_mining_series_global(
     state: State<'_, AppState>,
 ) -> AppResult<MiningSeries> {
     build_mining_series(&state, None, mode.as_deref().unwrap_or("bruto")).await
+}
+
+// ============================ OVERLAY DE AVISOS (ventana flotante) ============================
+// Ver `src/overlay.tsx` para el porqué y las reglas anti-ruido. Aquí solo va la fontanería:
+// listar monitores, colocar la ventana y traer Koru al frente cuando el jugador hace clic.
+
+/// Un monitor tal y como lo ve el sistema, para que el jugador elija DÓNDE quiere el aviso.
+///
+/// Esto es lo que evita tener que rastrear la ventana de EVE. Con multibox hay varios clientes y
+/// perseguirlos es frágil (cambian de tamaño, se minimizan, cambian de monitor). Que el jugador
+/// señale un hueco libre resuelve el 90% del problema y no se rompe nunca.
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorInfo {
+    pub index: usize,
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32,
+    pub is_primary: bool,
+}
+
+/// Enciende o apaga el overlay: al encender lo coloca, al apagar lo esconde.
+///
+/// ⚠️⚠️ AQUÍ NO SE CREAN VENTANAS, Y ESO NO ES PEREZA. La ventana se declara en `tauri.conf.json`
+/// y se crea con la app.
+///
+/// Lo intenté al revés —crearla bajo demanda con `WebviewWindowBuilder` dentro de
+/// `run_on_main_thread`, para no pagar un WebView2 a quien no use la función— y **dejó Koru
+/// inservible** (2026-08-05): el hilo principal de Tauri ES el bucle de eventos, el mismo que
+/// responde a las llamadas IPC, y construir la ventana ahí durante el arranque lo bloqueaba. El
+/// síntoma era desconcertante: la interfaz pintaba bien, pero NINGÚN comando volvía nunca — sin
+/// error, porque una promesa que no se resuelve no imprime nada. La app salía con 0 personajes,
+/// «Sincronizando datos…» eterno y la consola LIMPIA. Costó una hora encontrarlo.
+///
+/// Ahorrar esa webview sigue siendo deseable, pero hay que hacerlo bien (crearla en `setup()`,
+/// que sí es el momento del hilo principal, leyendo el ajuste de la BD y no de localStorage).
+/// Está anotado en el backlog. Mientras tanto: correcto antes que óptimo.
+#[tauri::command]
+pub fn overlay_enable(
+    app: tauri::AppHandle,
+    enabled: bool,
+    monitor: usize,
+    corner: String,
+    margin: i32,
+) -> AppResult<()> {
+    if !enabled {
+        if let Some(w) = app.get_webview_window("overlay") {
+            let _ = w.hide();
+        }
+        return Ok(());
+    }
+    overlay_place(app, monitor, corner, margin)
+}
+
+#[tauri::command]
+pub fn overlay_monitors(app: tauri::AppHandle) -> AppResult<Vec<MonitorInfo>> {
+    let Some(w) = app.get_webview_window("overlay") else {
+        return Ok(Vec::new());
+    };
+    let primary = w.primary_monitor().ok().flatten();
+    let pname = primary.as_ref().and_then(|m| m.name().cloned());
+    let list = w.available_monitors().unwrap_or_default();
+    Ok(list
+        .into_iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let size = m.size();
+            let pos = m.position();
+            let name = m.name().cloned().unwrap_or_else(|| format!("Monitor {}", i + 1));
+            MonitorInfo {
+                index: i,
+                is_primary: Some(&name) == pname.as_ref(),
+                name,
+                width: size.width,
+                height: size.height,
+                x: pos.x,
+                y: pos.y,
+            }
+        })
+        .collect())
+}
+
+/// Coloca el overlay en una esquina del monitor elegido.
+///
+/// `corner`: "tl" | "tc" | "tr" | "bl" | "bc" | "br" — (arriba/abajo) × (izquierda/centro/derecha).
+/// En las centradas el margen NO se aplica en horizontal: centrado es centrado.
+/// Las coordenadas van en píxeles FÍSICOS porque `available_monitors()` los da así; mezclarlos con
+/// lógicos en un monitor con escalado deja la ventana a media pantalla de donde debería.
+#[tauri::command]
+pub fn overlay_place(
+    app: tauri::AppHandle,
+    monitor: usize,
+    corner: String,
+    margin: i32,
+) -> AppResult<()> {
+    let Some(w) = app.get_webview_window("overlay") else {
+        return Ok(());
+    };
+    let monitors = w.available_monitors().unwrap_or_default();
+    let Some(m) = monitors.get(monitor).or_else(|| monitors.first()) else {
+        return Ok(());
+    };
+    let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+    let (mx, my) = (m.position().x, m.position().y);
+    let size = w.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((460, 132));
+
+    let x = match corner.as_str() {
+        "tl" | "bl" => mx + margin,
+        "tc" | "bc" => mx + (mw - size.0) / 2,
+        _ => mx + mw - size.0 - margin,
+    };
+    let y = match corner.as_str() {
+        "tl" | "tr" | "tc" => my + margin,
+        _ => my + mh - size.1 - margin,
+    };
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    Ok(())
+}
+
+/// Ajusta el ALTO de la ventana al contenido y la vuelve a colocar.
+///
+/// Hace falta porque el overlay es una PILA de avisos que crece y mengua. Y no es cosmética: una
+/// ventana transparente sigue capturando los clics del ratón a nivel de sistema operativo, así que
+/// un hueco vacío pero sólido encima del juego se comería pulsaciones destinadas a EVE. La ventana
+/// tiene que medir exactamente lo que ocupa.
+///
+/// El `height` llega en píxeles LÓGICOS (lo que mide el DOM); `LogicalSize` se encarga del escalado.
+/// Después se recoloca: si está anclada abajo, crecer sin recolocar movería el borde inferior.
+#[tauri::command]
+pub fn overlay_fit(
+    app: tauri::AppHandle,
+    height: f64,
+    monitor: usize,
+    corner: String,
+    margin: i32,
+) -> AppResult<()> {
+    let Some(w) = app.get_webview_window("overlay") else {
+        return Ok(());
+    };
+    // Suelo y techo por seguridad: un alto de 0 (o absurdo) por un fallo de medición dejaría la
+    // ventana invisible o tapando la pantalla, y el jugador no tendría forma de arreglarlo.
+    let h = height.clamp(60.0, 900.0);
+    let ancho = 430.0;
+    let _ = w.set_size(tauri::LogicalSize::new(ancho, h));
+
+    // ⚠️ La posición se calcula con el tamaño que ACABAMOS de pedir, NO releyendo `outer_size()`.
+    // `set_size` no es instantáneo en Windows: releer justo después devuelve a menudo el tamaño
+    // VIEJO, y con la ventana anclada abajo o a la derecha eso la deja descolocada un pico cada vez
+    // que crece o mengua la pila. Por eso esto no llama a `overlay_place`.
+    let escala = w.scale_factor().unwrap_or(1.0);
+    let (pw, ph) = ((ancho * escala) as i32, (h * escala) as i32);
+    let monitors = w.available_monitors().unwrap_or_default();
+    if let Some(m) = monitors.get(monitor).or_else(|| monitors.first()) {
+        let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+        let (mx, my) = (m.position().x, m.position().y);
+        let x = match corner.as_str() {
+            "tl" | "bl" => mx + margin,
+            "tc" | "bc" => mx + (mw - pw) / 2,
+            _ => mx + mw - pw - margin,
+        };
+        let y = match corner.as_str() {
+            "tl" | "tr" | "tc" => my + margin,
+            _ => my + mh - ph - margin,
+        };
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    Ok(())
+}
+
+/// Esconde el overlay. Lo llama el propio overlay cuando se le acaba la cola.
+#[tauri::command]
+pub fn overlay_hide(app: tauri::AppHandle) -> AppResult<()> {
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.hide();
+    }
+    Ok(())
+}
+
+/// Radiografía de la ventana del overlay. Existe porque depurar una ventana **transparente y sin
+/// bordes** a ojo es imposible: si no se ve, puede ser que no exista, que esté fuera de la pantalla,
+/// que esté detrás, o que exista y sencillamente no pinte. Los cuatro casos se ven igual — nada.
+/// Esto los distingue.
+#[derive(Debug, Clone, Serialize)]
+pub struct OverlayDebug {
+    pub exists: bool,
+    pub visible: bool,
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+    pub scale: f64,
+    /// ¿Cae dentro de algún monitor? Si es `false`, la ventana está viva pero fuera de la vista.
+    pub on_screen: bool,
+    pub monitors: Vec<MonitorInfo>,
+}
+
+#[tauri::command]
+pub fn overlay_debug(app: tauri::AppHandle) -> AppResult<OverlayDebug> {
+    let monitors = overlay_monitors(app.clone())?;
+    let Some(w) = app.get_webview_window("overlay") else {
+        return Ok(OverlayDebug {
+            exists: false,
+            visible: false,
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+            scale: 1.0,
+            on_screen: false,
+            monitors,
+        });
+    };
+    let pos = w.outer_position().ok();
+    let size = w.outer_size().ok();
+    let (x, y) = pos.map(|p| (p.x, p.y)).unwrap_or((0, 0));
+    let (ww, hh) = size.map(|s| (s.width, s.height)).unwrap_or((0, 0));
+    let on_screen = monitors.iter().any(|m| {
+        x + (ww as i32) > m.x && x < m.x + m.width as i32 && y + (hh as i32) > m.y && y < m.y + m.height as i32
+    });
+    Ok(OverlayDebug {
+        exists: true,
+        visible: w.is_visible().unwrap_or(false),
+        x,
+        y,
+        w: ww,
+        h: hh,
+        scale: w.scale_factor().unwrap_or(1.0),
+        on_screen,
+        monitors,
+    })
+}
+
+/// Aviso de PRUEBA: para colocar la ventana sin tener que esperar a que aparezca un hostil.
+/// Sin esto, ajustar la posición sería imposible salvo con suerte.
+///
+/// ⚠️ Se emite con `emit` GLOBAL, igual que un aviso de intel de verdad, y no con `emit_to` a la
+/// ventana del overlay. Un test que recorre un camino distinto al de producción puede pasar con el
+/// camino real roto —o fallar con el real bien—, que es lo peor de los dos mundos.
+///
+/// Efecto secundario asumido: la ventana principal también lo recibe y saca su banner un instante,
+/// que se autocancela porque el sistema de prueba no está en los reportes de intel vivos. Ese
+/// parpadeo dentro de Koru es esperado y NO es el overlay.
+#[tauri::command]
+pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
+    mostrar_overlay(&app);
+    let _ = app.emit(
+        "intel-alert",
+        IntelAlertEvent {
+            sys_id: 30000142,
+            system: "Jita".into(),
+            jumps: 2,
+            author: "Koru".into(),
+            message: "Aviso de prueba: así se verá el intel sobre el juego.".into(),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            pilots: Vec::new(),
+            // Con hostil y nave: un test que no ejerza la parte NUEVA de la tarjeta no prueba nada.
+            // Sin `character_id`, así que además se ve el caso «no le conocemos» (círculo con «?»).
+            parse: IntelParse {
+                hostiles: vec![Hostil { name: "Piloto de prueba".into(), character_id: None }],
+                ships: vec![NaveCitada { type_id: 17715, name: "Gila".into() }],
+                count: Some(2),
+            },
+        },
+    );
+    Ok(())
+}
+
+/// Lo que necesita la ficha de aviso del mapa para abrirse tal cual. Se manda el aviso ENTERO y no
+/// solo el `sys_id`: si el frontend tuviera que reconstruirlo buscando en el feed, un aviso ya
+/// caducado o desplazado no se encontraría y el clic no haría nada.
+#[derive(Clone, Debug, Serialize)]
+pub struct OverlayGoto {
+    pub sys_id: i64,
+    pub system: String,
+    pub ts_ms: i64,
+    pub author: String,
+    pub message: String,
+}
+
+/// Clic en el aviso → traer Koru al frente y ABRIR LA FICHA de ese aviso en el mapa.
+///
+/// Las tres llamadas de ventana son las mismas que ya usa el manejador de instancia única, que es
+/// código probado en producción. Y aquí `set_focus()` SÍ es legítimo: Windows bloquea que una app
+/// en segundo plano se ponga delante sola, pero cuando el usuario hace clic le concede el foco.
+#[tauri::command]
+pub fn overlay_open_main(
+    app: tauri::AppHandle,
+    sys_id: i64,
+    system: String,
+    ts_ms: i64,
+    author: String,
+    message: String,
+) -> AppResult<()> {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit(
+        "overlay-goto-system",
+        OverlayGoto { sys_id, system, ts_ms, author, message },
+    );
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.hide();
+    }
+    Ok(())
 }

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "Permisos de la ventana del overlay de avisos. SIN ESTO NO RECIBE EVENTOS: en Tauri v2 las capacidades se conceden POR ETIQUETA DE VENTANA, y `capabilities/default.json` solo cubre `main`. `listen()` es un comando del nucleo y necesita permiso; sin el, el listener no se registra y el aviso nunca llega. Sintoma exacto que dio: la ventana se veia y pintaba (la comprobacion de etiqueta y el CSS no pasan por IPC, asi que funcionaban), pero se quedaba para siempre en 'esperando avisos'. Se le da `core:default` y nada mas: no necesita dialogos, ni proceso, ni updater, ni notificaciones.",
+  "windows": [
+    "overlay"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

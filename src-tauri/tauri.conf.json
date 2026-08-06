@@ -12,12 +12,27 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Koru Desktop",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
         "minHeight": 600,
         "center": true
+      },
+      {
+        "label": "overlay",
+        "title": "Koru — aviso",
+        "width": 430,
+        "height": 104,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false
       }
     ],
     "security": {

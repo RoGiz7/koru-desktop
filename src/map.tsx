@@ -12,7 +12,6 @@ import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
-import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
 import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
@@ -33,6 +32,7 @@ import type {
   SystemKills,
   SystemJumps,
   JumpShip,
+  RouteStop,
 } from "./types";
 
 const MAP_W = 1000;
@@ -297,6 +297,8 @@ export function MapView(props: {
   corpDetails?: Map<number, { id: number; name: string; lp: number }[]> | null;
   incursions?: Incursion[] | null;
   theraConns?: WhConn[] | null;
+  /** Abre Ajustes → Intel. La config estable ya no vive aquí, pero desde aquí se llega. */
+  onOpenIntelSettings?: () => void;
   onNeedThera?: () => void;
   intel?: IntelConfig;
   hereSystemId?: number | null;
@@ -311,6 +313,15 @@ export function MapView(props: {
    *  un callback por sección sería una prop nueva cada vez. */
   onOpenTab?: (tab: Tab) => void;
   openTrack?: { name: string; nonce: number } | null;
+  /** Aviso a abrir en la ficha, pedido desde el overlay flotante. Ver el efecto más abajo. */
+  openIntelReq?: {
+    sysId: number;
+    sysName: string;
+    ts: number;
+    author: string;
+    message: string;
+    nonce: number;
+  } | null;
 }) {
   const {
     data,
@@ -322,7 +333,9 @@ export function MapView(props: {
     onOpenMisiones,
     onOpenPi,
     onOpenTab,
+    onOpenIntelSettings,
     openTrack,
+    openIntelReq,
     assetsBySystem,
     miningBySystem,
     sovBySystem,
@@ -369,7 +382,9 @@ export function MapView(props: {
       return n;
     });
   const [subFilter, setSubFilter] = useState<string>("all"); // sub-filtro de la capa activa
-  useEffect(() => setSubFilter("all"), [overlay]); // reset al cambiar de capa
+  // Reset al cambiar de capa. El recorrido no tiene «todos» (su sub-filtro es una ventana de
+  // tiempo), así que arranca en 6 h: suficiente para ver la sesión de hoy sin cargar una semana.
+  useEffect(() => setSubFilter(overlay === "recorrido" ? "6" : "all"), [overlay]);
   const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
   const [ctxCollapsed, setCtxCollapsed] = useState(false); // panel de contexto plegado
   // Planificador de rutas: estado (modo + paradas) encapsulado en su hook.
@@ -984,13 +999,51 @@ export function MapView(props: {
     [geo, overlay, sigSummary, view.z],
   );
 
-  // Orígenes de proximidad: sistema del pj + puntos de ancla elegidos (sin duplicados).
+  // Pilotos EXCLUIDOS de la proximidad de intel. Petición de Zigor: un alt aparcado en Jita
+  // convertiría media galaxia en «cerca» y el intel cantaría sin parar. Se guardan los apagados
+  // (no los encendidos) para que un personaje NUEVO entre activo por defecto.
+  const [pilotsOff, setPilotsOff] = useState<Set<number>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("koru-intel-pilots-off") || "[]") as number[]);
+    } catch {
+      return new Set();
+    }
+  });
+  /** ¿Enseñar también los desconectados? Apagado por defecto. */
+  const [verTodosPilotos, setVerTodosPilotos] = useState(false);
+  const togglePilot = (id: number) =>
+    setPilotsOff((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      localStorage.setItem("koru-intel-pilots-off", JSON.stringify([...n]));
+      return n;
+    });
+
+  /** Tus pilotos que CUENTAN para el intel: encendidos y conectados.
+   *
+   *  Lo de «conectado» no es un adorno: `/characters/{id}/location/` devuelve la última posición
+   *  conocida aunque el piloto lleve horas desconectado. Sin filtrar, Koru mediría la distancia a
+   *  un fantasma y avisaría de un peligro que no corre nadie. Si el scope no está concedido,
+   *  `online` llega `null` y se acepta —mejor un dato de más que ninguno—. */
+  const intelPilots = useMemo(
+    () => (charLocations ?? []).filter((c) => !pilotsOff.has(c.id) && c.online !== false),
+    [charLocations, pilotsOff],
+  );
+
+  // Orígenes de proximidad: TUS PILOTOS ACTIVOS + los puntos de ancla (sin duplicados).
+  //
+  // Antes solo entraban el sistema del sujeto y las anclas, y en modo Global el sujeto es `null`:
+  // los orígenes quedaban reducidos a las anclas. Por eso el feed decía «6 saltos» (a un ancla
+  // donde no hay nadie) mientras el aviso flotante decía 5 (a un piloto de verdad). Con los pilotos
+  // dentro, las tres superficies —feed, mapa y overlay— miden por fin lo mismo.
   const intelOrigins = useMemo(() => {
     const set = new Set<number>();
     if (hereSystemId != null) set.add(hereSystemId);
+    for (const p of intelPilots) set.add(p.system_id);
     for (const a of intel?.anchors ?? []) set.add(a);
     return [...set];
-  }, [hereSystemId, intel?.anchors]);
+  }, [hereSystemId, intelPilots, intel?.anchors]);
 
   // --- Intel: proximidad (BFS multi-origen: distancia al más cercano de los orígenes) ---
   //
@@ -1060,6 +1113,77 @@ export function MapView(props: {
     const id = window.setInterval(() => setAgeTick((t) => t + 1), 15000);
     return () => window.clearInterval(id);
   }, [overlay]);
+  // ---- Capa RECORRIDO: por dónde has pasado de verdad ----
+  //
+  // Sale de `location_track`, que escribe el sondeo de posición: una fila por VISITA, con el primer
+  // y el último instante en que se te vio allí. Ojo con dos cosas al leer esto, porque son la
+  // diferencia entre informar y mentir:
+  //   · El tiempo en un sistema es `seen_ms - entered_ms` (lo observado). Nunca «hasta ahora».
+  //   · El hueco entre el `seen_ms` de un tramo y el `entered_ms` del siguiente es CEGUERA (Koru
+  //     cerrado, o el piloto desconectado), no un salto. Se dibuja distinto a propósito.
+  const [track, setTrack] = useState<RouteStop[]>([]);
+  const horasTrack = Number(subFilter) > 0 ? Number(subFilter) : 6;
+  useEffect(() => {
+    if (overlay !== "recorrido") {
+      setTrack([]);
+      return;
+    }
+    const cargar = () => {
+      const hasta = Date.now();
+      invoke<RouteStop[]>("get_track", {
+        characterId: hereCharId ?? null,
+        desdeMs: hasta - horasTrack * 3600_000,
+        hastaMs: hasta,
+      })
+        .then(setTrack)
+        .catch(() => setTrack([]));
+    };
+    cargar();
+    // Al ritmo del sondeo de posición: mirando esta capa mientras vuelas, el rastro crece solo.
+    const id = window.setInterval(cargar, 30_000);
+    return () => window.clearInterval(id);
+  }, [overlay, horasTrack, hereCharId]);
+
+  /** Tramos del recorrido, por piloto y en orden. Cada uno sabe si viene de un salto real
+   *  (sistemas vecinos en el grafo), de un tramo que no vimos entero, o de un rato ciego. */
+  const trackSegs = useMemo(() => {
+    if (!geo || overlay !== "recorrido" || track.length === 0) return null;
+    // Más de 3 sondeos sin vernos = ceguera. Mismo corte que usa `track_note` en Rust.
+    const CIEGO_MS = 90_000;
+    const porPiloto = new Map<number, RouteStop[]>();
+    for (const t of track) {
+      const arr = porPiloto.get(t.character_id) ?? [];
+      arr.push(t);
+      porPiloto.set(t.character_id, arr);
+    }
+    const segs: {
+      key: string;
+      a: number;
+      b: number;
+      kind: "salto" | "sinver" | "ciego";
+      name: string;
+    }[] = [];
+    for (const [cid, pts] of porPiloto) {
+      for (let i = 1; i < pts.length; i++) {
+        const prev = pts[i - 1];
+        const cur = pts[i];
+        const hueco = cur.entered_ms - prev.seen_ms;
+        const vecinos = (geo.adj.get(prev.system_id) ?? []).includes(cur.system_id);
+        segs.push({
+          key: `tk-${cid}-${i}`,
+          a: prev.system_id,
+          b: cur.system_id,
+          // Vecinos y sin hueco = lo vimos saltar. Vecinos con hueco, o no vecinos: pasó algo en
+          // medio que no presenciamos. Se distingue porque una línea recta entre dos sistemas
+          // lejanos, pintada igual que un salto, sería una ruta inventada.
+          kind: hueco > CIEGO_MS ? "ciego" : vecinos ? "salto" : "sinver",
+          name: cur.name,
+        });
+      }
+    }
+    return { segs, porPiloto };
+  }, [geo, overlay, track]);
+
   // Re-apuntado MANUAL: si clicas un sistema durante la interceptación, la ruta va ahí (desde tu
   // cazador) en vez de al último avistamiento. Manda sobre el seguimiento hasta que apagues o
   // cambies de objetivo. null = sin override, sigue al perseguido.
@@ -1232,8 +1356,6 @@ export function MapView(props: {
     intelEntLoading,
     intelTrackPilot,
     setIntelTrackPilot,
-    chanOpen,
-    setChanOpen,
     cfgOpen,
     setCfgOpen,
     anchorInput,
@@ -1241,7 +1363,7 @@ export function MapView(props: {
     intelDetailCount,
     intelAlert,
     setIntelAlert,
-  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, intelReports, intelOrigins });
+  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, intelReports, intelOrigins, charLocations: intelPilots });
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -1267,7 +1389,10 @@ export function MapView(props: {
     }
   }
 
-  // Genera candidatos (1-3 palabras) de un mensaje, quitando sistemas y palabras de jerga.
+  // Abre la ficha de un aviso en la tarjeta de la derecha. La tarjeta de detalle, el panel de
+  // sistema y la de habituales COMPARTEN ese sitio, así que abrir una cierra las otras dos.
+  // (Aquí había un comentario suelto sobre «generar candidatos» que describía una función ya
+  //  desaparecida; se sustituye por lo que de verdad hay debajo.)
   function openIntelDetail(r: {
     sysId: number | null;
     sysName: string | null;
@@ -1283,6 +1408,21 @@ export function MapView(props: {
     setRightTab("aviso"); // al abrir un aviso, la tarjeta salta a su pestaña
     setCardOpen(true); // y se despliega, si estaba plegada
   }
+
+  // Clic en el aviso FLOTANTE → abre aquí su ficha completa (seguir, interceptar, ficha del
+  // hostil, poner destino). El `nonce` es la dependencia y no el `sysId`: pinchar dos veces el
+  // mismo aviso tiene que volver a abrirlo, y con el id solo React no vería cambio alguno.
+  useEffect(() => {
+    if (!openIntelReq) return;
+    openIntelDetail({
+      sysId: openIntelReq.sysId,
+      sysName: openIntelReq.sysName,
+      ts: openIntelReq.ts,
+      author: openIntelReq.author,
+      message: openIntelReq.message,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openIntelReq?.nonce]);
 
 
 
@@ -2729,6 +2869,124 @@ export function MapView(props: {
                 const p = geo.proj(geo.idx.get(jumpOrigin)!);
                 return <circle cx={p.px} cy={p.py} r={6.5 / view.z} fill="#7fd8ff" stroke="#0a0d12" strokeWidth={0.8 / view.z} />;
               })()}
+            {/* Capa RECORRIDO: por dónde has pasado, con los huecos DECLARADOS.
+                Tres trazos distintos y no uno solo, porque un rastro pintado como continuo
+                afirmaría rutas que Koru no vio: continuo = salto entre vecinos observado;
+                punteado corto = pasó por sistemas intermedios que no presenciamos; punteado largo
+                y apagado = rato ciego (app cerrada o piloto desconectado). */}
+            {overlay === "recorrido" &&
+              trackSegs &&
+              trackSegs.segs.map((sg) => {
+                const a = geo.idx.get(sg.a);
+                const b = geo.idx.get(sg.b);
+                if (!a || !b) return null;
+                const pa = geo.proj(a);
+                const pb = geo.proj(b);
+                const w = 1.8 / view.z;
+                return (
+                  <line
+                    key={sg.key}
+                    x1={pa.px}
+                    y1={pa.py}
+                    x2={pb.px}
+                    y2={pb.py}
+                    stroke={sg.kind === "ciego" ? "#5a6675" : "#7fd8ff"}
+                    strokeWidth={sg.kind === "salto" ? w : w * 0.8}
+                    strokeLinecap="round"
+                    opacity={sg.kind === "ciego" ? 0.38 : sg.kind === "sinver" ? 0.6 : 0.85}
+                    strokeDasharray={
+                      sg.kind === "salto"
+                        ? undefined
+                        : sg.kind === "sinver"
+                        ? `${3 / view.z} ${3 / view.z}`
+                        : `${1.5 / view.z} ${5 / view.z}`
+                    }
+                  >
+                    <title>
+                      {sg.kind === "salto"
+                        ? `${sg.name}: ${a.n} → ${b.n}`
+                        : sg.kind === "sinver"
+                        ? `${sg.name}: ${a.n} → ${b.n}\n${tr("Pasó por sistemas que Koru no llegó a ver.")}`
+                        : `${sg.name}: ${a.n} → ${b.n}\n${tr("Sin cobertura: Koru estaba cerrado o el piloto desconectado.")}`}
+                    </title>
+                  </line>
+                );
+              })}
+            {/* Paradas: el tamaño es el tiempo OBSERVADO allí, nunca «hasta ahora». */}
+            {overlay === "recorrido" &&
+              trackSegs &&
+              [...trackSegs.porPiloto.values()].flatMap((pts) =>
+                pts.map((t, i) => {
+                  const s = geo.idx.get(t.system_id);
+                  if (!s) return null;
+                  const p = geo.proj(s);
+                  const min = (t.seen_ms - t.entered_ms) / 60000;
+                  // Raíz cuadrada: media hora parada no puede tapar medio mapa. Y un mínimo, porque
+                  // un sistema de paso (0 min observados) sigue siendo un sitio donde estuviste.
+                  const r = cappedR(2 + Math.min(6, Math.sqrt(min)), 12, view.z);
+                  const ultimo = i === pts.length - 1;
+                  return (
+                    <circle
+                      key={`tkp-${t.character_id}-${t.entered_ms}`}
+                      cx={p.px}
+                      cy={p.py}
+                      r={r}
+                      fill={ultimo ? "#7fd8ff" : "none"}
+                      stroke="#7fd8ff"
+                      strokeWidth={1.2 / view.z}
+                      opacity={ultimo ? 0.95 : 0.7}
+                    >
+                      <title>
+                        {`${t.name} · ${s.n}\n${
+                          min >= 1
+                            ? `${tr("Visto aquí")} ${fmtMin(min)}`
+                            : tr("De paso")
+                        }\n${new Date(t.entered_ms).toLocaleString()}`}
+                      </title>
+                    </circle>
+                  );
+                })
+              )}
+            {/* Capa INTEL: tus pilotos activos, en cian y SUBORDINADOS.
+                Un radar sin la marca de tu propia nave no sirve: la capa enseñaba las amenazas pero
+                no dónde estás tú, así que no podía responder «¿esto me afecta?» sin cambiar de capa.
+                Van pequeños a propósito — son referencia, no el sujeto.
+                CON NOMBRE desde que la posición se refresca de verdad (antes solo en el tooltip):
+                con varios pilotos repartidos, un círculo mudo obliga a pasar el ratón uno por uno
+                justo cuando no hay tiempo. La etiqueta va apagada y por debajo de los avisos en
+                contraste, que siguen mandando. */}
+            {overlay === "intel" &&
+              intelPilots.map((c) => {
+                const s = geo.idx.get(c.system_id);
+                if (!s) return null;
+                const p = geo.proj(s);
+                return (
+                  <g key={`ipil-${c.id}`}>
+                    <circle
+                      cx={p.px}
+                      cy={p.py}
+                      r={cappedR(3.4, 9, view.z)}
+                      fill="none"
+                      stroke="#7fd8ff"
+                      strokeWidth={1.4 / view.z}
+                      opacity={0.9}
+                    >
+                      <title>{`${c.name}${c.ship ? ` · ${c.ship}` : ""}\n${s.n}`}</title>
+                    </circle>
+                    <circle cx={p.px} cy={p.py} r={cappedR(1.2, 3, view.z)} fill="#7fd8ff" />
+                    <text
+                      x={p.px}
+                      y={p.py - cappedR(3.4, 9, view.z) - 3 / view.z}
+                      className="map-label intel-pilot-label"
+                      textAnchor="middle"
+                      style={{ fontSize: `${11 / view.z}px` }}
+                    >
+                      {c.name}
+                    </text>
+                  </g>
+                );
+              })}
+
             {/* overlay Ubicación: dónde están tus personajes (agrupados por sistema) */}
             {overlay === "ubicacion" &&
               (() => {
@@ -2896,6 +3154,21 @@ export function MapView(props: {
               : []),
             ...(overlay === "intel" && intelTrackPilot && !huntTracks.has(intelTrackPilot)
               ? [{ color: INTERCEPT, label: `${tr("Rastro")}: ${intelTrackPilot}` }]
+              : []),
+            // Recorrido: la clave NO es decorativa. Sin ella, el punteado se lee como «fui por
+            // aquí» cuando significa justo lo contrario — que Koru no lo vio.
+            ...(overlay === "recorrido" && trackSegs
+              ? [
+                  ...(trackSegs.segs.some((s) => s.kind === "salto")
+                    ? [{ color: "#7fd8ff", label: tr("Salto visto") }]
+                    : []),
+                  ...(trackSegs.segs.some((s) => s.kind === "sinver")
+                    ? [{ color: "#7fd8ff", label: tr("Tramo no visto"), dash: true }]
+                    : []),
+                  ...(trackSegs.segs.some((s) => s.kind === "ciego")
+                    ? [{ color: "#5a6675", label: tr("Sin cobertura"), dash: true }]
+                    : []),
+                ]
               : []),
             ...(routePath && routePath.length > 1 ? [{ color: "#ffd54a", label: tr("Ruta") }] : []),
             ...(ansi && useAnsiblex && (overlay === "intel" || routeActive || jumpActive)
@@ -3197,61 +3470,12 @@ export function MapView(props: {
               })()}
             {cfgOpen && (
               <div className="intel-cfg">
-                <label className="intel-folder" title={intel.folder}>
-                  <span className="muted small">{tr("Carpeta de logs")}</span>
-                  <div className="intel-folder-row">
-                    <span className="intel-folder-path">{intel.folder || tr("(sin definir)")}</span>
-                    <button onClick={intel.onPickFolder}>📁</button>
-                  </div>
-                </label>
-                <div className="intel-channels">
-                  <span className="muted small">{tr("Canales")}</span>
-                  <button
-                    type="button"
-                    className="intel-chan-btn"
-                    onClick={() => setChanOpen((v) => !v)}
-                  >
-                    <span>
-                      {intel.channels.length === 0
-                        ? tr("Seleccionar canales…")
-                        : `${intel.channels.length} ${tr("canal(es)")}`}
-                    </span>
-                    <span>{chanOpen ? "▴" : "▾"}</span>
-                  </button>
-                  {chanOpen && (
-                    <div className="intel-chan-menu">
-                      {intel.availChannels.length === 0 && (
-                        <div className="muted small">{tr("No se encontraron canales en la carpeta.")}</div>
-                      )}
-                      {intel.availChannels.map((c) => (
-                        <label key={c} className="intel-chk">
-                          <input
-                            type="checkbox"
-                            checked={intel.channels.includes(c)}
-                            onChange={(e) => {
-                              const next = e.target.checked
-                                ? [...intel.channels, c]
-                                : intel.channels.filter((x) => x !== c);
-                              intel.onConfig({ channels: next });
-                            }}
-                          />
-                          {c}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* Lo que queda aquí es SOLO lo que se toca volando. La config estable (carpeta,
+                    canales, recencia, rastro, sonido) se mudó a Ajustes → Intel: en un panel de
+                    280 px competía por sitio con esto, que es lo que de verdad cambia según lo que
+                    estés haciendo. Un umbral de 3 saltos rateando en un rincón no es el mismo que
+                    10 en roam. */}
                 <div className="intel-nums">
-                  <label>
-                    <span className="muted small">{tr("Recencia (min)")}</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={180}
-                      value={intel.recency}
-                      onChange={(e) => intel.onConfig({ recency: Math.max(1, Number(e.target.value)) })}
-                    />
-                  </label>
                   <label>
                     <span className="muted small">{tr("Alerta ≤ saltos")}</span>
                     <input
@@ -3262,64 +3486,7 @@ export function MapView(props: {
                       onChange={(e) => intel.onConfig({ alertJumps: Math.max(0, Number(e.target.value)) })}
                     />
                   </label>
-                  <label>
-                    <span className="muted small">{tr("Rastro (min)")}</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={720}
-                      value={intel.trailMin}
-                      title={tr("Antigüedad máxima de un avistamiento en el rastro. 0 = sin límite.")}
-                      onChange={(e) => intel.onConfig({ trailMin: Math.max(0, Number(e.target.value)) })}
-                    />
-                  </label>
                 </div>
-                <div className="intel-sound-row">
-                  <label className="intel-chk">
-                    <input
-                      type="checkbox"
-                      checked={intel.sound}
-                      onChange={(e) => {
-                        if (e.target.checked) beep(); // gesto del usuario → desbloquea el audio
-                        intel.onConfig({ sound: e.target.checked });
-                      }}
-                    />
-                    🔊 {tr("Sonido")}
-                  </label>
-                  <select
-                    className="intel-sound-sel"
-                    value={intel.soundChoice}
-                    disabled={!intel.sound}
-                    onChange={(e) => {
-                      if (e.target.value === "custom" && !intel.soundFile) {
-                        intel.onPickSound();
-                      } else {
-                        intel.onConfig({ soundChoice: e.target.value });
-                      }
-                    }}
-                  >
-                    {ALERT_SOUNDS.map((s) => (
-                      <option key={s.key} value={s.key}>
-                        {tr(s.label)}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="intel-test-snd"
-                    disabled={!intel.sound}
-                    onClick={() => playAlertChoice(intel.soundChoice)}
-                  >
-                    {tr("Probar")}
-                  </button>
-                </div>
-                {intel.soundChoice === "custom" && (
-                  <div className="intel-sound-custom">
-                    <span className="intel-sound-file" title={intel.soundFile}>
-                      {intel.soundFile ? intel.soundFile.split(/[\\/]/).pop() : tr("(ningún archivo)")}
-                    </span>
-                    <button onClick={intel.onPickSound}>{tr("Elegir…")}</button>
-                  </div>
-                )}
                 <label className="intel-chk">
                   <input
                     type="checkbox"
@@ -3328,6 +3495,55 @@ export function MapView(props: {
                   />
                   {tr("Mostrar solo intel en rango")} (≤ {intel.alertJumps} {tr("saltos")})
                 </label>
+                {/* Qué pilotos cuentan para la proximidad. Apagar uno lo saca de TODO: de los saltos,
+                    del aviso flotante y del mapa. El caso que lo motiva: un alt aparcado en Jita
+                    haría que medio New Eden quedara «cerca» y el intel cantaría sin parar.
+                    Los desconectados se marcan y no cuentan, porque ESI devuelve su última posición
+                    conocida como si siguieran ahí. */}
+                {(charLocations?.length ?? 0) > 0 && (
+                  <div className="intel-pilots">
+                    <span className="muted small">
+                      {tr("Pilotos que cuentan para la proximidad")}
+                      {/* Con 20 personajes la lista completa no cabe en un panel de 280 px. Y no
+                          hace falta: un piloto DESCONECTADO no cuenta para nada aquí, así que
+                          enseñarlo solo es ruido. Se ven los conectados, y quien quiera revisar los
+                          apagados de un alt que ahora no juega, despliega. */}
+                      {(charLocations ?? []).some((c) => c.online === false) && (
+                        <button className="intel-pilot-todos" onClick={() => setVerTodosPilotos((v) => !v)}>
+                          {verTodosPilotos ? tr("solo conectados") : tr("ver todos")}
+                        </button>
+                      )}
+                    </span>
+                    <div className="intel-pilot-list">
+                      {(charLocations ?? [])
+                        // `online === null` = no se pudo saber (sin scope): se enseña, porque
+                        // esconderlo dejaría al jugador sin forma de tocarlo.
+                        .filter((c) => verTodosPilotos || c.online !== false)
+                        .map((c) => {
+                        const off = pilotsOff.has(c.id);
+                        const desconectado = c.online === false;
+                        return (
+                          <button
+                            key={c.id}
+                            className={`intel-pilot${off ? " off" : ""}${desconectado ? " away" : ""}`}
+                            onClick={() => togglePilot(c.id)}
+                            title={
+                              desconectado
+                                ? tr("Desconectado: no cuenta aunque esté encendido (ESI devuelve su última posición conocida).")
+                                : off
+                                ? tr("Apagado: no cuenta para los saltos ni sale en los avisos.")
+                                : tr("Cuenta para los saltos. Pulsa para apagarlo.")
+                            }
+                          >
+                            <i className="ip-dot" />
+                            {c.name}
+                            {desconectado && <em className="ip-away">{tr("fuera")}</em>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="intel-anchors">
                   <span className="muted small">{tr("Puntos de ancla (proximidad)")}</span>
                   <div className="intel-anchor-add">
@@ -3379,11 +3595,28 @@ export function MapView(props: {
                     {tr("La alerta usa el sistema más cercano entre tu personaje y tus anclas.")}
                   </p>
                 </div>
+                {/* Puerta a lo que ya no está aquí. Sin este enlace, mudar la carpeta y los canales
+                    a Ajustes los haría invisibles: quien abre la ⚙ del mapa buscando «dónde se
+                    elige el canal» no tiene por qué adivinar que ahora está en otro sitio. */}
+                {onOpenIntelSettings && (
+                  <button className="intel-mas-ajustes" onClick={onOpenIntelSettings}>
+                    ⚙ {tr("Carpeta, canales y sonido…")}
+                  </button>
+                )}
               </div>
             )}
             <div className="intel-feed">
               {intel.channels.length === 0 && (
-                <div className="muted small">{tr("Abre la ⚙ y elige carpeta y al menos un canal para empezar.")}</div>
+                <div className="muted small intel-feed-vacio">
+                  {!intel.folder
+                    ? tr("Falta decirle a Koru dónde guarda EVE los chats.")
+                    : tr("Elige al menos un canal para empezar.")}
+                  {onOpenIntelSettings && (
+                    <button className="intel-mas-ajustes" onClick={onOpenIntelSettings}>
+                      ⚙ {tr("Configurar el intel")}
+                    </button>
+                  )}
+                </div>
               )}
               {intel.channels.length > 0 && (intelReports?.feed.length ?? 0) === 0 && (
                 <div className="muted small">{tr("Sin actividad reciente.")}</div>

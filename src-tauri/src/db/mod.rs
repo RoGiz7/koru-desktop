@@ -157,6 +157,37 @@ impl Db {
         // NULL = no declarado. Las runs viejas se quedan así a propósito: valorarlas hoy sería
         // inventar un dato que nadie dio, y el mercado de entonces no es el de ahora.
         let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN entry_cost REAL", []);
+        // RECORRIDO PROPIO: por dónde han pasado TUS personajes y cuándo.
+        //
+        // Por qué existe: hasta ahora la posición era una foto que se pedía al arrancar la app y
+        // nunca más. El principio de la casa es «ESI da una foto, Koru guarda la película», y este
+        // era el único sitio donde ni siquiera se refrescaba la foto.
+        //
+        // UNA FILA POR VISITA, NO POR SONDEO. Sondeando cada 30 s serían 2.880 filas al día por
+        // personaje (26.000 con nueve) para no decir nada: casi todas iguales. Se escribe solo
+        // cuando el sistema CAMBIA, y mientras no cambie se extiende `seen_ms`. Mismo truco que el
+        // de la PI del backlog.
+        //
+        // NO HAY COLUMNA `left_ms` A PROPÓSITO. Cuándo se fue de un sistema es INCOGNOSCIBLE: si
+        // Koru está cerrado no vemos nada. Lo único cierto es «lo vi aquí entre `entered_ms` y
+        // `seen_ms`», así que el tiempo en sistema es `seen_ms - entered_ms` (observado) y jamás
+        // `ahora - entered_ms`, que daría un número enorme y creíble tras una noche con la app
+        // cerrada. El hueco entre el `seen_ms` de una fila y el `entered_ms` de la siguiente es
+        // exactamente la ceguera, y la vista lo declara en vez de dibujar una línea continua.
+        //
+        // Idempotente, sin tocar LOGI_DATA_VERSION: es una tabla nueva, no un reparse.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS location_track (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 character_id INTEGER NOT NULL,
+                 system_id    INTEGER NOT NULL,
+                 ship_type_id INTEGER,
+                 entered_ms   INTEGER NOT NULL,   -- primer sondeo que lo vio AQUI
+                 seen_ms      INTEGER NOT NULL    -- ultimo sondeo que lo confirmo AQUI
+             );
+             CREATE INDEX IF NOT EXISTS location_track_char
+                 ON location_track(character_id, entered_ms);",
+        );
         // Runs MULTICUENTA (multibox): participantes de una run de abisal/CRAB. Tabla hija y no un
         // CSV en una columna, porque todas las preguntas interesantes son POR personaje («¿cuál
         // muere más?», «¿con cuál gano?») y un CSV no se consulta ni se indexa.
@@ -3953,6 +3984,112 @@ impl Db {
         out
     }
 
+    // ---- location_track: recorrido propio (ver el porqué del esquema en `open`) ----
+
+    /// Último sistema conocido de un personaje: `(system_id, seen_ms)`.
+    pub fn track_last(&self, character_id: i64) -> Option<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT system_id, seen_ms FROM location_track WHERE character_id = ?1
+             ORDER BY entered_ms DESC LIMIT 1",
+            rusqlite::params![character_id],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+        )
+        .ok()
+    }
+
+    /// Anota un sondeo. Devuelve `true` si abrió VISITA NUEVA (o sea: se movió, o volvimos a verle
+    /// después de un rato ciego), `false` si solo extendió la visita en curso.
+    ///
+    /// `corte_ms` es cuánto silencio convierte «sigue ahí» en «no sé qué pasó en medio». Volver al
+    /// mismo sistema tras un hueco largo abre fila nueva a propósito: es OTRA visita, y fundirla
+    /// con la anterior inventaría horas de permanencia que nadie observó.
+    pub fn track_note(
+        &self,
+        character_id: i64,
+        system_id: i64,
+        ship_type_id: Option<i64>,
+        now_ms: i64,
+        corte_ms: i64,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let ultima: Option<(i64, i64, i64)> = conn
+            .query_row(
+                "SELECT id, system_id, seen_ms FROM location_track WHERE character_id = ?1
+                 ORDER BY entered_ms DESC LIMIT 1",
+                rusqlite::params![character_id],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .ok();
+        if let Some((id, sys, seen)) = ultima {
+            if sys == system_id && now_ms - seen <= corte_ms {
+                let _ = conn.execute(
+                    "UPDATE location_track SET seen_ms = ?1, ship_type_id = ?2 WHERE id = ?3",
+                    rusqlite::params![now_ms, ship_type_id, id],
+                );
+                return false;
+            }
+        }
+        let _ = conn.execute(
+            "INSERT INTO location_track (character_id, system_id, ship_type_id, entered_ms, seen_ms)
+             VALUES (?1, ?2, ?3, ?4, ?4)",
+            rusqlite::params![character_id, system_id, ship_type_id, now_ms],
+        );
+        true
+    }
+
+    /// Recorrido de un personaje entre dos instantes, en orden cronológico.
+    /// Devuelve `(system_id, ship_type_id, entered_ms, seen_ms)` — el hueco ciego lo calcula quien
+    /// pinta, comparando el `seen_ms` de una fila con el `entered_ms` de la siguiente.
+    pub fn track_range(
+        &self,
+        character_id: Option<i64>,
+        desde_ms: i64,
+        hasta_ms: i64,
+    ) -> Vec<(i64, i64, Option<i64>, i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let (filtro, cid) = match character_id {
+            Some(id) => ("AND character_id = ?3", id),
+            None => ("", 0),
+        };
+        let sql = format!(
+            "SELECT character_id, system_id, ship_type_id, entered_ms, seen_ms FROM location_track
+             WHERE seen_ms >= ?1 AND entered_ms <= ?2 {filtro}
+             ORDER BY entered_ms ASC"
+        );
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(&sql) {
+            // Tipo de retorno ANOTADO a propósito: definido fuera de la llamada, `query_map` no le
+            // da contexto al `?` y la inferencia del error de rusqlite no sale sola.
+            let mapear = |r: &rusqlite::Row| -> rusqlite::Result<(i64, i64, Option<i64>, i64, i64)> {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            };
+            let filas = if character_id.is_some() {
+                st.query_map(rusqlite::params![desde_ms, hasta_ms, cid], mapear)
+            } else {
+                st.query_map(rusqlite::params![desde_ms, hasta_ms], mapear)
+            };
+            if let Ok(filas) = filas {
+                for x in filas.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
     /// Guarda un avistamiento persistente (modo cazador). Dedup por (nombre, sistema, ts).
     /// `ship_type_id` = nave que volaba (solo se atribuye en líneas de UN piloto; NULL si ambiguo).
     pub fn insert_sighting(
@@ -3990,6 +4127,22 @@ impl Db {
         }
         out.reverse(); // de DESC (recientes primero) a cronológico ascendente
         out
+    }
+
+    /// `character_id` de un hostil YA conocido, para poder pintar su retrato en el aviso flotante.
+    ///
+    /// Solo mira lo que ya está en la tabla: **no llama a ESI**. Va en el camino de la alerta de
+    /// intel, que es lo que más prisa corre de toda la app; meter ahí una petición de red por un
+    /// retrato sería cambiar velocidad por adorno. Si no lo conocemos, el aviso sale sin cara.
+    pub fn intel_char_id(&self, name_lower: &str) -> AppResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row(
+                "SELECT MAX(character_id) FROM intel_sightings WHERE name_lower = ?1",
+                rusqlite::params![name_lower],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .unwrap_or(None))
     }
 
     /// Ficha del hostil (modo cazador): estadísticas de sus avistamientos persistentes.

@@ -3093,6 +3093,18 @@ h4 {
   pointer-events: none;
 }
 
+/* Nombre del piloto propio en la capa de intel. Cian como su círculo, pero APAGADO: en esta capa
+   el sujeto son los hostiles, y una etiqueta a plena luz por cada alt convertiría tu propia flota
+   en el ruido que tapa el aviso. El trazo oscuro es para que se lea sobre las líneas de puertas. */
+.intel-pilot-label {
+  fill: #7fd8ff;
+  opacity: 0.62;
+  paint-order: stroke;
+  stroke: #0a0d12;
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
+
 .region-label {
   fill: #4a5666;
   font-size: 9px;
@@ -5962,41 +5974,12 @@ h4 {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-.intel-sound-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-}
-.intel-test-snd {
-  font-size: 0.76rem;
-  padding: 0.2rem 0.5rem;
-  cursor: pointer;
-}
-.intel-sound-sel {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 0.78rem;
-  padding: 0.2rem 0.3rem;
-}
-.intel-sound-custom {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.intel-sound-file {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.74rem;
-  color: var(--fg-muted-2, #9a9a9a);
-}
-.intel-sound-custom button {
-  font-size: 0.74rem;
-  padding: 0.2rem 0.5rem;
+  /* La config crece (canales, anclas y ahora la lista de pilotos) y el panel tiene `max-height`:
+     sin scroll propio, las últimas opciones quedaban CORTADAS y sin forma de llegar a ellas.
+     ⚠️ El `min-height: 0` es imprescindible y no es evidente: un hijo flex no baja de su tamaño de
+     contenido por defecto, así que sin él el `overflow-y` no llega a activarse nunca. */
+  min-height: 0;
+  overflow-y: auto;
 }
 .intel-anchors {
   display: flex;
@@ -6042,32 +6025,6 @@ h4 {
 }
 .intel-anchor-hint {
   margin: 0;
-}
-.intel-folder-row {
-  display: flex;
-  gap: 0.3rem;
-  align-items: center;
-}
-.intel-folder-path {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.74rem;
-  color: var(--fg-muted-2, #9a9a9a);
-  direction: rtl;
-  text-align: left;
-}
-.intel-folder-row button {
-  padding: 0.15rem 0.4rem;
-}
-.intel-channels {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  max-height: 120px;
-  overflow-y: auto;
 }
 .intel-chk {
   display: flex;
@@ -6171,28 +6128,6 @@ h4 {
   font-size: 0.78rem;
   opacity: 0.85;
   text-decoration: underline;
-}
-/* Desplegable de canales */
-.intel-chan-btn {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-.intel-chan-menu {
-  margin-top: 0.3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  max-height: 160px;
-  overflow-y: auto;
-  border: 1px solid #2a3340;
-  border-radius: 6px;
-  padding: 0.3rem 0.4rem;
-  background: rgba(10, 14, 20, 0.6);
 }
 /* Tarjeta de detalle */
 /* Columna apilable de las tarjetas flotantes de intel (derecha): se auto-ajustan sin solaparse
@@ -7874,4 +7809,159 @@ h4 {
   font-weight: 700;
   pointer-events: none;
   user-select: none;
+}
+
+/* Ajustes → Avisos: fila de selectores del overlay (monitor · esquina · margen). */
+.ovs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.45rem;
+}
+.ovs-row select {
+  max-width: 12rem;
+}
+/* Ajustes → Intel: lo que se mudó del panel de 280 px del mapa. Aquí hay ancho, así que los
+   canales van en lista visible en vez de escondidos tras un desplegable. */
+.ovs-path {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* una ruta larga se corta por el principio, no por el nombre del fichero */
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+.ovs-path-vacio {
+  font-style: italic;
+  opacity: 0.55;
+}
+.ovs-chans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+  margin-top: 0.45rem;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+.ovs-chan,
+.ovs-chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.ovs-num {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.ovs-num input {
+  width: 5.5rem;
+}
+/* Puerta desde el panel del mapa a la config que ya no vive allí. */
+.intel-mas-ajustes {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.35rem;
+  font-size: 0.78rem;
+  text-align: center;
+  opacity: 0.8;
+}
+.intel-mas-ajustes:hover {
+  opacity: 1;
+}
+.intel-feed-vacio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.ovs-margin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ovs-margin input {
+  width: 4.5rem;
+}
+/* Radiografía del overlay en Ajustes → Avisos. */
+.ovs-dbg {
+  padding: 0.5rem 0.7rem;
+  margin: 0.2rem 0 0.5rem;
+  border-left: 3px solid var(--border-2);
+  background: rgba(255, 255, 255, 0.02);
+  line-height: 1.5;
+}
+
+/* --- Intel: qué pilotos cuentan para la proximidad (config del mapa) --- */
+.intel-pilots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.5rem 0 0.2rem;
+}
+.intel-pilot-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.intel-pilot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid #2f5a6b;
+  border-radius: 999px;
+  background: #16222a;
+  color: #cfe6f2;
+  font-size: 12px;
+  cursor: pointer;
+}
+.intel-pilot .ip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7fd8ff;
+}
+/* Apagado: se ve, pero apagado. Ocultarlo haría imposible volver a encenderlo. */
+.intel-pilot.off {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--fg-muted);
+  text-decoration: line-through;
+}
+.intel-pilot.off .ip-dot {
+  background: #3a3a3a;
+}
+/* Desconectado: no cuenta aunque esté encendido. ESI da su última posición como si siguiera ahí. */
+.intel-pilot.away {
+  opacity: 0.6;
+}
+.intel-pilot.away .ip-dot {
+  background: transparent;
+  border: 1px solid #6e7681;
+}
+.ip-away {
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+/* Enlace «ver todos / solo conectados» de la lista de pilotos del intel. */
+.intel-pilot-todos {
+  margin-left: 0.4rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-text);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
 }

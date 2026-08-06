@@ -13,7 +13,7 @@ import { classifyIntel } from "./intel";
 import type { IntelRep, IntelFeedRow } from "./intel";
 import type { Geo } from "./mapOverlays";
 import type { MapOverlay } from "./constants";
-import type { IntelConfig, NewEden } from "./types";
+import type { IntelConfig, NewEden, CharLoc } from "./types";
 
 export type IntelDetail = {
   sysId: number | null;
@@ -34,6 +34,7 @@ export function useIntel({
   shipNames,
   intelReports,
   intelOrigins,
+  charLocations,
 }: {
   geo: Geo | null;
   ne: NewEden | null;
@@ -43,6 +44,9 @@ export function useIntel({
   shipNames: Map<string, number>;
   intelReports: IntelReports;
   intelOrigins: number[];
+  /** Dónde está y en qué vuela cada personaje tuyo. Se manda a Rust para que el aviso pueda decir
+   *  «a 3 saltos de Vera, en Venture» en vez de solo «a 3 saltos». Ver overlay.tsx. */
+  charLocations?: CharLoc[];
 }) {
   const [intelEntities, setIntelEntities] = useState<{
     characters: { id: number; name: string }[];
@@ -165,6 +169,16 @@ export function useIntel({
     invoke("set_intel_graph", { names, edges }).catch(() => {});
   }, [geo, ne]);
 
+  // Interruptor del aviso flotante. Se guarda en localStorage (es preferencia de UI, no dato), pero
+  // hace falta ESTADO para que el efecto de abajo se vuelva a lanzar al cambiarlo. Ver el
+  // dispatchEvent de overlaySettings.tsx.
+  const [overlayOn, setOverlayOn] = useState(() => localStorage.getItem("koru-overlay") === "1");
+  useEffect(() => {
+    const h = () => setOverlayOn(localStorage.getItem("koru-overlay") === "1");
+    window.addEventListener("koru-overlay-changed", h);
+    return () => window.removeEventListener("koru-overlay-changed", h);
+  }, []);
+
   // Arrancar / reconfigurar / detener el vigilante de Rust según la capa y la config.
   useEffect(() => {
     // Corre si el interruptor "Intel en vivo" está ON, o si estás viendo la capa intel (back-compat).
@@ -182,12 +196,22 @@ export function useIntel({
       // ALERTAS (sonido/banner/notificación) SOLO con el interruptor maestro ON. Con OFF el vigilante
       // sigue leyendo (feed/puntos en la capa intel), pero NO alerta. Fix del "OFF sigue sonando".
       alertsEnabled: intel.live,
+      // Contexto de companion para el overlay: quién tuyo está cerca y en qué nave va.
+      pilots: (charLocations ?? []).map((c) => ({
+        name: c.name,
+        system_id: c.system_id,
+        ship: c.ship ?? null,
+        ship_type_id: c.ship_type_id ?? null,
+      })),
+      // Interruptor propio del aviso flotante. Apagado de fábrica y aparte del maestro: hay quien
+      // quiere sonido sin ventanita encima del juego, y al revés.
+      overlayEnabled: overlayOn,
     }).catch(() => {});
     return () => {
       // Solo paramos al desmontar/recambiar si NO está el modo en vivo (si está ON, sigue corriendo).
       if (!intel?.live) invoke("stop_intel_watch").catch(() => {});
     };
-  }, [overlay, intel?.live, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins]);
+  }, [overlay, intel?.live, intel?.folder, intel?.channels, intel?.recency, intel?.alertJumps, intelOrigins, charLocations, overlayOn]);
 
   // Escuchar las alertas que emite el hilo de Rust → banner + sonido (la notificación nativa
   // ya la lanza Rust, así que aquí NO la repetimos).

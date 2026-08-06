@@ -5,11 +5,28 @@ import type { NeSystem, IntelLine } from "./types";
 // + jerga). Convención de la comunidad: tokens separados por DOBLE espacio (sistema/piloto/nave,
 // cualquier orden); con fallback a espacio simple. Devuelve sistemas, pilotos, naves, +N y clear.
 const INTEL_CLEAR = new Set(["clr", "clear", "cleared"]);
+// La segunda mitad son verbos y muletillas del chat de intel real. Se añadieron tras ver un aviso
+// anunciar «he jump» como si fuera un hostil (la línea era «he jump to 8-WYQZ»).
+// ⚠️ Espejo de INTEL_JARGON en commands.rs: si cambia uno, cambia el otro.
 const INTEL_JARGON = new Set([
   "nv", "neut", "neuts", "neutral", "neutrals", "red", "reds", "hostile", "hostiles",
   "status", "gate", "gates", "stargate", "dock", "docked", "docking", "station", "pos",
   "cyno", "near", "on", "the", "in", "at", "and", "is", "to", "a",
+  "jump", "jumps", "jumped", "jumping", "warp", "warped", "warping", "camp", "camped", "camping",
+  "move", "moves", "moved", "moving", "coming", "came", "going", "gone", "left", "back", "out",
+  "up", "down", "here", "there", "still", "safe", "clr2", "afk", "logged", "off", "away",
+  "spotted", "seen", "sitting", "sits", "roam", "roaming", "local", "he", "she", "they", "his",
+  "her", "their", "with", "from", "for", "of", "seem", "seems", "like", "just", "was", "were",
+  "have", "has", "had", "not", "no", "yes", "now", "watch", "look", "looking", "check", "x", "o",
 ]);
+
+/** ¿Puede esta palabra formar parte de un nombre de piloto?
+ *
+ *  **Todo nombre de personaje de EVE empieza por mayúscula.** Ese único criterio quita las frases
+ *  en inglés que se colaban como pilotos sin mantener una lista infinita. Los nombres compuestos
+ *  («Bedwin Al Ishira») pasan porque todas sus partes van en mayúscula. Un falso negativo es mucho
+ *  mejor que un falso positivo: inventarle nombre a un hostil es peor que admitir que no se sabe. */
+const pareceNombre = (s: string) => /^\p{Lu}/u.test(s);
 export type IntelParsed = {
   systems: { id: number; name: string }[];
   pilots: string[];
@@ -79,7 +96,7 @@ export function classifyIntel(
     // 'other': si es 1 palabra → piloto; si son varias (espacio simple) → separar reconocidos.
     const words = field.split(/\s+/);
     if (words.length === 1) {
-      pilots.push(whole.text!);
+      if (pareceNombre(whole.text!)) pilots.push(whole.text!);
       continue;
     }
     let buf: string[] = [];
@@ -105,6 +122,9 @@ export function classifyIntel(
         count = k.n!;
       } else if (k.kind === "jargon" || k.kind === "empty" || k.kind === "ticker") {
         // ticker de corp/alianza cierra el nombre del piloto que lo precede
+        flush();
+      } else if (!pareceNombre(k.text!)) {
+        // No empieza por mayúscula → no es nombre: cierra lo que hubiera y se descarta.
         flush();
       } else {
         buf.push(k.text!);

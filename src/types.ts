@@ -19,6 +19,8 @@ export type CharacterCard = {
   ship_type_id: number | null;
   ship_type_name: string | null;
   ship_name: string | null;
+  /** ¿Conectado AHORA? `null` = no se pudo saber (sin scope o falló). Ver commands.rs. */
+  online: boolean | null;
   scopes: string[];
 };
 
@@ -452,7 +454,16 @@ export type FwSystem = {
   victory_points: number;
   victory_points_threshold: number;
 };
-export type CharLoc = { id: number; name: string; system_id: number };
+/** Dónde está un personaje tuyo y en qué vuela. La nave es opcional: solo llega si el pj
+ *  concedió `esi-location.read_ship_type.v1`. La usa el overlay de avisos. */
+export type CharLoc = {
+  id: number;
+  name: string;
+  system_id: number;
+  ship?: string | null;
+  ship_type_id?: number | null;
+  online?: boolean | null;
+};
 export type RattingPoint = { date: string; isk: number };
 export type JournalSample = {
   ref_type: string;
@@ -979,6 +990,30 @@ export type Incursion = {
   staging_solar_system_id: number;
   state: string | null;
   kind: string | null;
+};
+
+/** Posición fresca de un personaje (comando `poll_positions`, cada 30 s).
+ *  Hermano ligero de `CharacterCard`: solo lo que se mueve, sin corp ni alianza. */
+export type PositionUpdate = {
+  character_id: number;
+  system_id: number | null;
+  system_name: string | null;
+  ship_type_id: number | null;
+  ship_type_name: string | null;
+  online: boolean | null;
+  /** `true` si en este sondeo abrió visita nueva, o sea: se ha movido. */
+  moved: boolean;
+};
+
+/** Un tramo del recorrido propio: «vi a este piloto en este sistema entre estos dos instantes».
+ *  El tiempo allí es `seen_ms - entered_ms`; el hueco hasta el siguiente tramo es ceguera. */
+export type RouteStop = {
+  character_id: number;
+  name: string;
+  system_id: number;
+  ship_type_id: number | null;
+  entered_ms: number;
+  seen_ms: number;
 };
 
 // Config + callbacks de la capa de Intel en vivo (props de MapView, compartida con useIntel).
