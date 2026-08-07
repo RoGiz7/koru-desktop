@@ -234,6 +234,54 @@ impl Db {
              CREATE INDEX IF NOT EXISTS idx_ij_act    ON industry_job(activity_id);
              CREATE INDEX IF NOT EXISTS idx_ij_status ON industry_job(status);",
         );
+        // CONTRATOS: el libro de cuentas del transportista (T1 del pilar de transporte).
+        //
+        // Se guarda ANTES de que exista ninguna pantalla que lo enseñe, y es deliberado. La ventana
+        // de ESI para contratos es **aún más corta que la de industria** (del orden de 30 días),
+        // así que el panel de estadísticas de T7 nacería vacío y con meses perdidos si esperásemos
+        // a construirlo. Misma lección que `industry_job` y la PI, aprendida el día antes.
+        //
+        // PK = contract_id + upsert: un contrato pasa de `outstanding` a `in_progress` y a
+        // `finished`, y lo que importa de él —cuánto tardó— solo se sabe al final. Hay que
+        // actualizar la fila, no acumular tres.
+        //
+        // De aquí salen, sin inventar nada, «a quién transportas más» (issuer/acceptor), el ISK por
+        // m³ (reward/volume) y la velocidad de entrega REAL (date_accepted → date_completed), que es
+        // la única honesta: la de los viajes propios habrá que deducirla de `location_track` y
+        // arrastra ceguera cuando Koru está cerrado.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS contract (
+                 contract_id       INTEGER PRIMARY KEY,
+                 character_id      INTEGER NOT NULL,   -- de quien lo sincronizamos
+                 issuer_id         INTEGER,
+                 issuer_corp_id    INTEGER,
+                 assignee_id       INTEGER,
+                 acceptor_id       INTEGER,
+                 start_location_id INTEGER,
+                 end_location_id   INTEGER,
+                 type              TEXT,               -- courier | item_exchange | auction | loan
+                 status            TEXT,               -- outstanding|in_progress|finished|failed|…
+                 title             TEXT,
+                 for_corporation   INTEGER NOT NULL DEFAULT 0,
+                 availability      TEXT,
+                 volume            REAL,               -- m3: el denominador del ISK/m3
+                 reward            REAL,               -- lo que cobras por llevarlo
+                 collateral        REAL,               -- lo que te juegas
+                 price             REAL,
+                 buyout            REAL,
+                 days_to_complete  INTEGER,
+                 date_issued       TEXT,
+                 date_expired      TEXT,
+                 date_accepted     TEXT,               -- con date_completed da la entrega REAL
+                 date_completed    TEXT,
+                 first_seen        TEXT NOT NULL,
+                 updated_at        TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_con_char   ON contract(character_id);
+             CREATE INDEX IF NOT EXISTS idx_con_type   ON contract(type);
+             CREATE INDEX IF NOT EXISTS idx_con_status ON contract(status);
+             CREATE INDEX IF NOT EXISTS idx_con_issued ON contract(date_issued);",
+        );
         // PLANETARIA: la PI NO TIENE LOG DE EVENTOS. ESI solo dice cómo está la colonia AHORA, así
         // que la película hay que construirla a base de fotos — y ahí está la trampa: el auto_sync
         // pasa cada pocos minutos y el almacén cambia en cada ciclo, así que guardar cada sondeo
@@ -968,6 +1016,162 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let r = conn.query_row(
             "SELECT COUNT(*), MIN(COALESCE(start_date, first_seen)) FROM industry_job
+              WHERE (?1 IS NULL OR character_id = ?1)",
+            rusqlite::params![character_id],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),
+        )?;
+        Ok(r)
+    }
+}
+
+// --- Contratos: el libro de viajes del transportista ---
+
+/// Una fila de `contract` lista para que el comando la vista con nombres.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ContractRow {
+    pub contract_id: i64,
+    pub character_id: i64,
+    pub issuer_id: Option<i64>,
+    pub acceptor_id: Option<i64>,
+    pub start_location_id: Option<i64>,
+    pub end_location_id: Option<i64>,
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub title: Option<String>,
+    pub volume: Option<f64>,
+    pub reward: Option<f64>,
+    pub collateral: Option<f64>,
+    pub date_issued: Option<String>,
+    pub date_accepted: Option<String>,
+    pub date_completed: Option<String>,
+}
+
+impl Db {
+    /// Guarda (o actualiza) un contrato. Toma el tipo de `esi` porque son 20 campos y pasarlos
+    /// sueltos haría la firma ilegible — aquí el acoplamiento sale más barato que la pureza.
+    pub fn upsert_contract(
+        &self,
+        character_id: i64,
+        c: &crate::esi::contracts::ContractRaw,
+    ) -> AppResult<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO contract (
+                 contract_id, character_id, issuer_id, issuer_corp_id, assignee_id, acceptor_id,
+                 start_location_id, end_location_id, type, status, title, for_corporation,
+                 availability, volume, reward, collateral, price, buyout, days_to_complete,
+                 date_issued, date_expired, date_accepted, date_completed, first_seen, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                     ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?24)
+             ON CONFLICT(contract_id) DO UPDATE SET
+                 character_id      = excluded.character_id,
+                 issuer_id         = excluded.issuer_id,
+                 issuer_corp_id    = excluded.issuer_corp_id,
+                 assignee_id       = excluded.assignee_id,
+                 acceptor_id       = excluded.acceptor_id,
+                 start_location_id = excluded.start_location_id,
+                 end_location_id   = excluded.end_location_id,
+                 type              = excluded.type,
+                 status            = excluded.status,
+                 title             = excluded.title,
+                 for_corporation   = excluded.for_corporation,
+                 availability      = excluded.availability,
+                 volume            = excluded.volume,
+                 reward            = excluded.reward,
+                 collateral        = excluded.collateral,
+                 price             = excluded.price,
+                 buyout            = excluded.buyout,
+                 days_to_complete  = excluded.days_to_complete,
+                 date_issued       = excluded.date_issued,
+                 date_expired      = excluded.date_expired,
+                 date_accepted     = excluded.date_accepted,
+                 date_completed    = excluded.date_completed,
+                 first_seen        = COALESCE(contract.first_seen, excluded.first_seen),
+                 updated_at        = excluded.updated_at",
+            rusqlite::params![
+                c.contract_id,
+                character_id,
+                c.issuer_id,
+                c.issuer_corporation_id,
+                c.assignee_id,
+                c.acceptor_id,
+                c.start_location_id,
+                c.end_location_id,
+                c.kind,
+                c.status,
+                c.title,
+                c.for_corporation as i64,
+                c.availability,
+                c.volume,
+                c.reward,
+                c.collateral,
+                c.price,
+                c.buyout,
+                c.days_to_complete,
+                c.date_issued,
+                c.date_expired,
+                c.date_accepted,
+                c.date_completed,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Contratos guardados, del más reciente al más viejo. `only_courier` deja fuera los de
+    /// intercambio y subasta: para el pilar de transporte, un item_exchange no es un viaje.
+    pub fn contracts(
+        &self,
+        character_id: Option<i64>,
+        only_courier: bool,
+        limit: i64,
+    ) -> AppResult<Vec<ContractRow>> {
+        let conn = self.conn.lock().unwrap();
+        let filtro = if only_courier { "AND type = 'courier'" } else { "" };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT contract_id, character_id, issuer_id, acceptor_id, start_location_id,
+                    end_location_id, type, status, title, volume, reward, collateral,
+                    date_issued, date_accepted, date_completed
+               FROM contract
+              WHERE (?1 IS NULL OR character_id = ?1) {filtro}
+              ORDER BY COALESCE(date_completed, date_accepted, date_issued) DESC
+              LIMIT ?2"
+        ))?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id, limit], |r| {
+                Ok(ContractRow {
+                    contract_id: r.get(0)?,
+                    character_id: r.get(1)?,
+                    issuer_id: r.get(2)?,
+                    acceptor_id: r.get(3)?,
+                    start_location_id: r.get(4)?,
+                    end_location_id: r.get(5)?,
+                    kind: r.get(6)?,
+                    status: r.get(7)?,
+                    title: r.get(8)?,
+                    volume: r.get(9)?,
+                    reward: r.get(10)?,
+                    collateral: r.get(11)?,
+                    date_issued: r.get(12)?,
+                    date_accepted: r.get(13)?,
+                    date_completed: r.get(14)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (nº guardados, fecha del más antiguo). Igual que en industria: lo que permite escribir
+    /// «histórico desde el 7 de agosto» en vez de dibujar una gráfica que insinúa que antes no
+    /// movías nada. La ventana de ESI son ~30 días; todo lo anterior es CEGUERA, no un cero.
+    pub fn contracts_span(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<(i64, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        let r = conn.query_row(
+            "SELECT COUNT(*), MIN(COALESCE(date_issued, first_seen)) FROM contract
               WHERE (?1 IS NULL OR character_id = ?1)",
             rusqlite::params![character_id],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),

@@ -74,6 +74,104 @@
   color-scheme: dark;
 }
 
+/* ----- Transporte → Tus naves ----- */
+.naves-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.naves-filtros select,
+.naves-filtros input[type="search"] {
+  background: var(--bg-control);
+  color: var(--fg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.45rem;
+}
+.naves-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  /* SIN esto, desplegar una tarjeta estira TODA la fila del grid y las vecinas se convierten en
+     cajas vacías del alto de la abierta. Con un Rorqual cargado el efecto era ridículo. */
+  align-items: start;
+}
+.nave-card {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: pointer;
+  align-items: flex-start;
+}
+.nave-card:hover { border-color: var(--accent-border); }
+/* Empaquetada = apagada. No puede llevar nada, así que no debe competir por tu atención con las
+   que sí puedes usar hoy. */
+.nave-packed { opacity: 0.55; }
+.nave-render { width: 64px; height: 64px; flex: 0 0 auto; border-radius: var(--radius-sm); }
+.nave-body { min-width: 0; flex: 1 1 auto; }
+.nave-top { display: flex; align-items: baseline; gap: var(--space-2); }
+.nave-nombre { font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; }
+.nave-badge {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  color: var(--fg-muted);
+}
+.nave-m3 { margin-top: 0.25rem; font-size: 1.1rem; }
+.nave-detalle { margin-top: var(--space-2); border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.nave-bodegas { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: var(--space-2); font-size: 0.85rem; }
+.nave-bodega { color: var(--fg-muted-2); }
+.nave-modal {
+  width: min(720px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.nave-modal-tit { display: flex; gap: var(--space-3); align-items: center; }
+.nave-modal-render { width: 128px; height: 128px; border-radius: var(--radius-md); flex: 0 0 auto; }
+.nave-uso { margin-bottom: var(--space-2); font-size: 0.95rem; }
+.nave-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: var(--space-2); }
+.nave-tab {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-2);
+  background: var(--bg-control);
+  color: var(--fg-muted-2);
+  cursor: pointer;
+}
+.nave-tab.on { border-color: var(--accent-border); color: var(--fg); }
+/* Tope de alto + scroll: la lista entera sigue ahí, pero una nave llena no estira la tarjeta hasta
+   empujar el resto fuera de la pantalla. */
+/* En la ficha hay sitio: el tope sube mucho y el propio modal ya limita a 88vh. */
+.nave-mods { display: flex; flex-wrap: wrap; gap: 0.2rem; max-height: 46vh; overflow-y: auto; }
+.nave-mod { position: relative; line-height: 0; }
+.nave-mod img { width: 32px; height: 32px; border-radius: 4px; background: var(--bg-control); }
+.nave-mod i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-style: normal;
+  font-size: 0.65rem;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 0 0.15rem;
+  border-radius: 3px;
+}
+
 /* ----- Barras de desplazamiento -----
    Van GLOBALES a propósito. No había ninguna regla de scrollbar en todo el proyecto: los ~20
    paneles con overflow usaban la barra nativa, que sobre un fondo oscuro canta y encima cambia de

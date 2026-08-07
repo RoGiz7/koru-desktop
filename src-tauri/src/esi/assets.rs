@@ -17,6 +17,16 @@ pub struct AssetItem {
     pub location_id: i64,
     #[serde(default)]
     pub location_flag: Option<String>, // "AssetSafety" = en recuperación tras destruir la estructura
+    /// `true` = el ítem está MONTADO/desapilado; `false` = empaquetado.
+    ///
+    /// Venía en la respuesta de ESI desde siempre y se tiraba. Importa para el pilar de transporte
+    /// por dos motivos: una nave EMPAQUETADA no puede llevar nada hasta que la montes, y el volumen
+    /// de lo montado no es el reempaquetado que usa `type_volumes.json` — si Koru suma el
+    /// empaquetado de algo montado, dirá que cabe cuando no cabe.
+    /// No entra en la clave de agregación a propósito: es un campo más, sin efecto en las vistas
+    /// que ya existen.
+    #[serde(default)]
+    pub is_singleton: bool,
 }
 
 /// Descarga TODOS los items de assets paginando de forma RESILIENTE: reintenta cada página
@@ -609,4 +619,112 @@ async fn resolve_location_system_light(esi: &EsiClient, db: &Db, loc_id: i64) ->
         return (geo.system_id != 0).then_some(geo.system_id);
     }
     None
+}
+
+/* ---------- Tus naves, tal como están (T2 del pilar de transporte) ---------- */
+
+/// Un módulo montado en una nave: el slot viene del `location_flag` de ESI.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ShipModuleRow {
+    pub type_id: i64,
+    /// `HiSlot0`, `MedSlot2`, `RigSlot1`, `Cargo`, `DroneBay`… Tal cual lo da ESI.
+    pub slot: String,
+    pub quantity: i64,
+    /// `true` = MONTADO. Decide qué volumen ocupa: el del SDE si está montado, el reempaquetado si
+    /// no. En una nave dentro de otra la diferencia es de trece veces (Bestower: 260.000 montado
+    /// contra 20.000 empaquetado), así que usar el que no toca no es un matiz.
+    pub assembled: bool,
+}
+
+/// Una nave TUYA, encontrada en los assets.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MyShipRow {
+    /// `item_id` de la nave. Es lo que sus módulos llevan como `location_id`, y lo que permite
+    /// distinguir dos Bestower iguales en la misma estación.
+    pub item_id: i64,
+    pub type_id: i64,
+    pub character_id: i64,
+    pub system_id: i64,
+    pub location_id: i64,
+    pub location_name: String,
+    /// `false` = EMPAQUETADA. No puede llevar nada hasta que la montes, y su volumen es otro.
+    /// Sale de `is_singleton`, que venía en la respuesta de ESI y se estaba tirando.
+    pub assembled: bool,
+    pub modules: Vec<ShipModuleRow>,
+}
+
+/// Las naves del personaje, con dónde están y qué llevan montado.
+///
+/// ⚠️ **No hace falta ningún fiteo guardado.** Los assets ya traen el `location_flag` de cada ítem
+/// (`HiSlot0`, `RigSlot1`…) y su `location_id` apunta al `item_id` de la nave que lo contiene. O
+/// sea: la nave REAL, tal como está ahora mismo. Un fiteo guardado es una intención; esto es un
+/// hecho. (Idea de Zigor, 2026-08-07.)
+///
+/// Se listan TAMBIÉN las naves vacías y las empaquetadas: partir de los módulos y subir a su
+/// contenedor habría dejado fuera justo la nave de carga vacía esperando en la estación, que es la
+/// que querrías usar para transportar.
+///
+/// `ship_type_ids` lo pone quien llama (commands.rs tiene `ships.json` embebido): así este módulo
+/// no necesita saber qué es una nave.
+pub async fn ships(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+    all_tokens: &[String],
+    ship_type_ids: &std::collections::HashSet<i64>,
+) -> AppResult<Vec<MyShipRow>> {
+    use std::collections::HashMap as Map;
+    let items = fetch_all_assets(esi, db, character_id, token).await;
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+    let item_loc: Map<i64, i64> = items.iter().map(|i| (i.item_id, i.location_id)).collect();
+
+    // Módulos agrupados por la nave que los contiene.
+    let mut por_nave: Map<i64, Vec<ShipModuleRow>> = Map::new();
+    for it in &items {
+        // Solo cuenta si su contenedor es un ítem nuestro (si no, está suelto en un hangar).
+        if !item_loc.contains_key(&it.location_id) {
+            continue;
+        }
+        por_nave
+            .entry(it.location_id)
+            .or_default()
+            .push(ShipModuleRow {
+                type_id: it.type_id,
+                slot: it.location_flag.clone().unwrap_or_default(),
+                quantity: it.quantity.max(1),
+                assembled: it.is_singleton,
+            });
+    }
+
+    let naves: Vec<&AssetItem> = items
+        .iter()
+        .filter(|i| ship_type_ids.contains(&i.type_id))
+        .collect();
+
+    // Una sola resolución por ubicación raíz: son llamadas a ESI y se repiten mucho.
+    let mut cache: Map<i64, (i64, Option<String>)> = Map::new();
+    let mut out = Vec::with_capacity(naves.len());
+    for n in naves {
+        let root = root_location(&item_loc, n.location_id);
+        if !cache.contains_key(&root) {
+            cache.insert(root, resolve_location_named(esi, db, root, all_tokens).await);
+        }
+        let (system_id, name) = cache.get(&root).cloned().unwrap_or((0, None));
+        let mut modules = por_nave.remove(&n.item_id).unwrap_or_default();
+        modules.sort_by(|a, b| a.slot.cmp(&b.slot));
+        out.push(MyShipRow {
+            item_id: n.item_id,
+            type_id: n.type_id,
+            character_id,
+            system_id,
+            location_id: root,
+            location_name: name.unwrap_or_default(),
+            assembled: n.is_singleton,
+            modules,
+        });
+    }
+    Ok(out)
 }

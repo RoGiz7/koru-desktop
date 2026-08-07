@@ -32,7 +32,8 @@ export type Tab =
   | "exploracion"
   | "exploracion_log"
   | "recon"
-  | "lealtad";
+  | "lealtad"
+  | "naves";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
@@ -135,6 +136,18 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] },
       { key: "contactos", label: "Contactos", scopes: ["esi-characters.read_contacts.v1"] },
       { key: "fiteos", label: "Fiteos" },
+    ],
+  },
+  {
+    // Transporte: su propio espacio desde el primer día. Es el «epicentro poco agradecido» —
+    // enlaza industria, planetaria, minería y contratos—, y enterrarlo como pestaña de otra cosa
+    // sería exactamente el error que la regla de la casa evita.
+    group: "Transporte",
+    icon: "🚚",
+    typeId: 20185, // Charon (freighter): nadie duda de lo que significa
+    subs: [
+      // T2: qué naves tienes, dónde están y cuánto mueven DE VERDAD (base + tus skills).
+      { key: "naves", label: "Tus naves", scopes: ["esi-assets.read_assets.v1"] },
     ],
   },
   {
@@ -303,6 +316,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   lealtad: {
     title: "Misiones",
     subtitle: "Tu LP por corporación NPC y los agentes con los que progresas (standing)",
+  },
+  naves: {
+    title: "Tus naves",
+    subtitle: "Qué naves tienes, dónde está cada una y cuánto mueve de verdad con tus skills",
   },
   comercio: { title: "Comercio", subtitle: "Tus órdenes abiertas: competencia, % vendido y vencimiento" },
   comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },

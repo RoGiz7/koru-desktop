@@ -11,7 +11,7 @@ use crate::esi::assets::AssetsSummary;
 use crate::esi::industry::{JobRaw, MiningRow, MiningSummary};
 use crate::esi::killmails::KillmailDetail;
 use crate::esi::skills::SkillsSummary;
-use crate::esi::{assets, industry, killmails, market, skills, wallet, EsiClient};
+use crate::esi::{assets, contracts, industry, killmails, market, skills, wallet, EsiClient};
 use crate::sso::{self, LoginOutcome, TokenManager};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -192,6 +192,8 @@ pub struct AutoSyncResult {
     pub snapshots: usize,
     /// Trabajos de industria vistos y guardados en esta pasada (activos + completados).
     pub jobs: i64,
+    /// Contratos vistos y guardados en esta pasada (todos los tipos, no solo courier).
+    pub contracts: i64,
     /// Programas de extracción de PI registrados por PRIMERA vez en esta pasada. No es
     /// «extractores que tienes», es «programas nuevos»: si no reprogramaste nada, es 0.
     pub pi_programs: i64,
@@ -228,6 +230,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         prices: 0,
         snapshots: 0,
         jobs: 0,
+        contracts: 0,
         pi_programs: 0,
         errors: Vec::new(),
     };
@@ -331,6 +334,22 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                     .await
             {
                 res.mining += n;
+            }
+        }
+        // Contratos: el libro de viajes del pilar de transporte (T1). Se graba desde ya aunque
+        // todavía no haya ninguna pantalla que lo enseñe — la ventana de ESI aquí es MÁS corta que
+        // la de industria (~30 días), así que esperar a construir el panel de estadísticas sería
+        // construirlo sobre nada. Ver documentacion/SPEC_TRANSPORTE.md §3bis.
+        if has("esi-contracts.read_character_contracts.v1") {
+            match contracts::sync_contracts(&state.esi, &state.db, c.character_id, &valid.access_token)
+                .await
+            {
+                Ok(n) => res.contracts += n as i64,
+                Err(e) => {
+                    let msg = format!("{}: contratos: {e}", c.name);
+                    eprintln!("auto_sync {msg}");
+                    res.errors.push(msg);
+                }
             }
         }
         // Trabajos de industria: se guardan AQUÍ y no solo al abrir la sección, porque la ventana
@@ -9025,6 +9044,231 @@ pub async fn get_pi_history(
         programs,
         storage,
         total_programs,
+        since,
+    })
+}
+
+/* ---- Tus naves: cuáles, dónde y cuánto mueven (T2 del pilar de transporte) ---- */
+
+/// Conjunto de typeIDs que son NAVES, de `ships.json` embebido. Sin esto habría que preguntarle a
+/// ESI por la categoría de cada asset, que son miles de ítems y una llamada por tipo.
+fn ship_type_ids() -> &'static std::collections::HashSet<i64> {
+    static S: std::sync::OnceLock<std::collections::HashSet<i64>> = std::sync::OnceLock::new();
+    S.get_or_init(|| {
+        let rows: Vec<ShipRow> = serde_json::from_str(include_str!("ships.json")).unwrap_or_default();
+        rows.into_iter().map(|r| r.i).collect()
+    })
+}
+
+/// Una nave tuya con el nombre resuelto, lista para la vista.
+#[derive(Debug, Serialize)]
+pub struct MyShipView {
+    pub item_id: i64,
+    pub type_id: i64,
+    pub type_name: Option<String>,
+    pub character_id: i64,
+    pub character: String,
+    pub system_id: i64,
+    pub system_name: Option<String>,
+    pub location_name: String,
+    /// `false` = empaquetada: no puede llevar nada hasta que la montes.
+    pub assembled: bool,
+    pub modules: Vec<crate::esi::assets::ShipModuleRow>,
+}
+
+/// Tus naves de TODOS los personajes: cuáles tienes, dónde están y qué llevan montado.
+///
+/// La capacidad efectiva NO se calcula aquí: el frontend la resuelve con `ship_cargo.json` (base +
+/// bonus por skill) y `get_skill_levels_all`. Así el número tiene una sola fuente y el día que
+/// entren los expansores y los rigs se toca un sitio, no dos. Ver documentacion/SPEC_TRANSPORTE.md.
+#[tauri::command]
+pub async fn get_my_ships(state: State<'_, AppState>) -> AppResult<Vec<MyShipView>> {
+    let all_tokens = structure_tokens(&state).await;
+    let ships = ship_type_ids();
+    let mut raw: Vec<(String, crate::esi::assets::MyShipRow)> = Vec::new();
+
+    for c in state.db.list_characters()? {
+        if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Un personaje que falle no puede dejar sin naves a los otros ocho.
+        match crate::esi::assets::ships(
+            &state.esi,
+            &state.db,
+            c.character_id,
+            &valid.access_token,
+            &all_tokens,
+            ships,
+        )
+        .await
+        {
+            Ok(v) => raw.extend(v.into_iter().map(|s| (c.name.clone(), s))),
+            Err(e) => eprintln!("get_my_ships {}: {e}", c.name),
+        }
+    }
+
+    // Nombres de nave y de sistema en una sola resolución.
+    let mut ids: HashSet<i64> = HashSet::new();
+    for (_, s) in &raw {
+        ids.insert(s.type_id);
+        if s.system_id != 0 {
+            ids.insert(s.system_id);
+        }
+    }
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+
+    let mut out: Vec<MyShipView> = raw
+        .into_iter()
+        .map(|(cname, s)| MyShipView {
+            item_id: s.item_id,
+            type_id: s.type_id,
+            type_name: names.get(&s.type_id).cloned(),
+            character_id: s.character_id,
+            character: cname,
+            system_id: s.system_id,
+            system_name: names.get(&s.system_id).cloned(),
+            location_name: s.location_name,
+            assembled: s.assembled,
+            modules: s.modules,
+        })
+        .collect();
+    // Montadas primero: son las que puedes usar hoy.
+    out.sort_by(|a, b| {
+        b.assembled
+            .cmp(&a.assembled)
+            .then_with(|| a.character.cmp(&b.character))
+            .then_with(|| a.type_name.cmp(&b.type_name))
+    });
+    Ok(out)
+}
+
+/* ---- Libro de viajes: contratos guardados (T1 del pilar de transporte) ---- */
+
+/// Un contrato del libro, con los nombres ya resueltos.
+#[derive(Debug, Serialize)]
+pub struct HaulRow {
+    pub contract_id: i64,
+    pub character_id: i64,
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub title: Option<String>,
+    /// Quién lo emitió y quién lo aceptó, con nombre: de aquí sale «a quién transportas más».
+    pub issuer: Option<String>,
+    pub acceptor: Option<String>,
+    pub start_location_id: Option<i64>,
+    pub end_location_id: Option<i64>,
+    pub volume: Option<f64>,
+    pub reward: Option<f64>,
+    pub collateral: Option<f64>,
+    /// ISK por m³. Es la métrica honesta más simple; la buena (por m³ y salto, con riesgo) llega
+    /// en T4, cuando se pueda medir la ruta.
+    pub isk_por_m3: Option<f64>,
+    /// Horas entre aceptar y completar. **Solo se rellena si están las DOS fechas**: es la única
+    /// velocidad de entrega medida de verdad. La de los viajes propios habrá que deducirla de
+    /// `location_track` y arrastra ceguera, así que no se mezclan.
+    pub horas_entrega: Option<f64>,
+    pub date_issued: Option<String>,
+    pub date_completed: Option<String>,
+}
+
+/// El libro de viajes + DESDE CUÁNDO lo tenemos.
+#[derive(Debug, Serialize)]
+pub struct HaulLedger {
+    pub rows: Vec<HaulRow>,
+    pub total: i64,
+    /// Antes de esta fecha no es que no movieras nada: es que Koru no miraba. La ventana de ESI
+    /// para contratos son ~30 días, así que este dato viaja CON los datos y no en un comentario.
+    pub since: Option<String>,
+}
+
+/// Contratos guardados. Lee de la BD, NO de ESI — el libro existe justamente porque ESI olvida.
+#[tauri::command]
+pub async fn get_haul_ledger(
+    character_id: Option<i64>,
+    only_courier: Option<bool>,
+    limit: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<HaulLedger> {
+    let rows = state.db.contracts(
+        character_id,
+        only_courier.unwrap_or(false),
+        limit.unwrap_or(2000),
+    )?;
+    let (total, since) = state.db.contracts_span(character_id)?;
+
+    // Nombres de emisor y aceptor en un solo /universe/names (cacheado).
+    let mut ids: HashSet<i64> = HashSet::new();
+    for r in &rows {
+        if let Some(i) = r.issuer_id {
+            ids.insert(i);
+        }
+        if let Some(a) = r.acceptor_id {
+            ids.insert(a);
+        }
+    }
+    ids.remove(&0);
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+
+    let out = rows
+        .into_iter()
+        .map(|r| {
+            // Solo se divide si el volumen es > 0: un item_exchange puede traer 0 y una división
+            // por cero pintaría «infinito ISK/m³», que es la clase de número que parece un hallazgo.
+            let isk_por_m3 = match (r.reward, r.volume) {
+                (Some(rw), Some(v)) if v > 0.0 => Some(rw / v),
+                _ => None,
+            };
+            let horas_entrega = match (&r.date_accepted, &r.date_completed) {
+                (Some(a), Some(c)) => {
+                    match (
+                        chrono::DateTime::parse_from_rfc3339(a),
+                        chrono::DateTime::parse_from_rfc3339(c),
+                    ) {
+                        (Ok(a), Ok(c)) => Some((c - a).num_minutes() as f64 / 60.0),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            HaulRow {
+                contract_id: r.contract_id,
+                character_id: r.character_id,
+                kind: r.kind,
+                status: r.status,
+                title: r.title,
+                issuer: r.issuer_id.and_then(|i| names.get(&i).cloned()),
+                acceptor: r.acceptor_id.and_then(|a| names.get(&a).cloned()),
+                start_location_id: r.start_location_id,
+                end_location_id: r.end_location_id,
+                volume: r.volume,
+                reward: r.reward,
+                collateral: r.collateral,
+                isk_por_m3,
+                horas_entrega,
+                date_issued: r.date_issued,
+                date_completed: r.date_completed,
+            }
+        })
+        .collect();
+    Ok(HaulLedger {
+        rows: out,
+        total,
         since,
     })
 }

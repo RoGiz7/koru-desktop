@@ -6,6 +6,7 @@
 
 pub mod assets;
 pub mod character;
+pub mod contracts;
 pub mod industry;
 pub mod killmails;
 pub mod market;
