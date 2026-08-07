@@ -6,6 +6,26 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.41.0",
+    date: "2026-08-07",
+    es: [
+      "📍 El aviso ya dice DE QUIÉN son esos saltos. Antes, cuando el más cercano no era un piloto tuyo sino uno de tus puntos de ancla, salía el número a secas: «4 saltos». ¿De qué? De nada. Ahora siempre hay un «de»: de tu piloto, o de tu ancla con su nombre. Y si hay varios a esa misma distancia, se agrupan («de SieteHierros +2»); si además están JUNTOS en el mismo sistema, aparece el sistema. Ver un nombre de sistema significa que pueden apoyarse entre sí; desperdigados, no se pinta.",
+      "🔇 Ya puedes callar un sistema. El vecino de tu staging por el que pasa medio New Eden, o el sistema donde estás rateando esta noche: pínchalo en el mapa → «Silenciar aquí». Con Alt, solo una hora, y se despierta solo. Se calla la ALARMA, nunca el dato: el reporte sigue saliendo en el feed y en el mapa, y el sistema silenciado lleva un 🔇 encima. Un silencio invisible sería una trampa que te pones tú y se te olvida.",
+      "🏭 Koru empieza a guardar tu industria y tu planetaria. Todavía no se ve en ninguna pantalla, y es a propósito: primero hay que grabar. El juego solo deja consultar los trabajos de los últimos 90 días, y la planetaria ni siquiera tiene historial — solo sabe decir cómo está la colonia ahora. A partir de aquí Koru va guardando en segundo plano cada trabajo con su coste real, y de cada colonia sus programas de extracción y las existencias día a día. Dentro de unos meses tendrás un histórico de producción que el juego no te puede dar.",
+      "✨ Barra de desplazamiento propia en toda la app: fina, oscura y sin fondo, en vez de la blanca del sistema. De paso, los desplegables, los calendarios y el autocompletado dejan de salir en claro sobre el tema oscuro.",
+      "🐛 Arreglado: el aviso flotante ya se abre al pulsarlo. En la v0.40.0 pinchabas y no pasaba nada.",
+      "🐛 Arreglado: los nombres de sistema salen bien escritos en el aviso flotante y en la notificación de Windows. Llevaban en minúsculas desde siempre, escondidos detrás de un estilo que los ponía en mayúsculas.",
+    ],
+    en: [
+      "📍 The alert now tells you WHO those jumps are from. Before, when the nearest thing wasn't one of your pilots but one of your anchor points, you got a bare number: “4 jumps”. From what? From nothing. Now there's always a “from”: your pilot, or your anchor by name. If several are at that same distance they group up (“from SieteHierros +2”), and if they're TOGETHER in one system, the system shows too. Seeing a system name means they can back each other up; scattered, it isn't drawn.",
+      "🔇 You can now mute a system. The neighbour of your staging that half of New Eden flies through, or the system you're ratting in tonight: click it on the map → “Mute here”. Hold Alt for one hour only, and it wakes up on its own. It mutes the ALARM, never the data: the report still shows in the feed and on the map, and a muted system carries a 🔇. An invisible silence would be a trap you set for yourself and forget.",
+      "🏭 Koru starts saving your industry and planetary history. Nothing shows on screen yet, and that's deliberate: first you record. The game only lets you query the last 90 days of jobs, and planetary interaction has no history at all — it can only tell you how the colony looks right now. From here on Koru quietly stores every job with its real cost, and for every colony its extraction programmes and daily stock. In a few months you'll have a production history the game cannot give you.",
+      "✨ A proper scrollbar across the app: thin, dark and backgroundless, instead of the system's white one. Dropdowns, date pickers and autocomplete highlights stop showing up light on the dark theme too.",
+      "🐛 Fixed: the floating alert opens when you click it. In v0.40.0 clicking did nothing.",
+      "🐛 Fixed: system names are properly cased in the floating alert and the Windows notification. They'd been lowercase all along, hidden behind a style that uppercased them.",
+    ],
+  },
+  {
     version: "0.40.0",
     date: "2026-08-06",
     es: [
