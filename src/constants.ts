@@ -33,7 +33,8 @@ export type Tab =
   | "exploracion_log"
   | "recon"
   | "lealtad"
-  | "naves";
+  | "naves"
+  | "inventario";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
@@ -148,6 +149,8 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     subs: [
       // T2: qué naves tienes, dónde están y cuánto mueven DE VERDAD (base + tus skills).
       { key: "naves", label: "Tus naves", scopes: ["esi-assets.read_assets.v1"] },
+      // T1b: la pregunta gemela — qué COSAS tienes y dónde, con sus m³. Con las dos sale T3.
+      { key: "inventario", label: "Qué tienes y dónde", scopes: ["esi-assets.read_assets.v1"] },
     ],
   },
   {
@@ -320,6 +323,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   naves: {
     title: "Tus naves",
     subtitle: "Qué naves tienes, dónde está cada una y cuánto mueve de verdad con tus skills",
+  },
+  inventario: {
+    title: "Qué tienes y dónde",
+    subtitle: "Tus cosas repartidas por New Eden, con los m³ que costaría moverlas",
   },
   comercio: { title: "Comercio", subtitle: "Tus órdenes abiertas: competencia, % vendido y vencimiento" },
   comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },

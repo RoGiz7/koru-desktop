@@ -276,6 +276,12 @@ pub struct AssetDetailRow {
     /// Slot/ubicación dentro del contenedor (location_flag: HiSlot0, MedSlot1, DroneBay, Cargo…).
     /// Vacío si está suelto en el hangar. Permite dibujar el fit de una nave.
     pub slot: String,
+    /// `true` = MONTADO (no apilable); `false` = empaquetado.
+    ///
+    /// Entra en la CLAVE de agregación, así que cinco Bestower empaquetados y uno montado en el
+    /// mismo hangar salen en dos filas. Es lo correcto: no son lo mismo y **no ocupan lo mismo**
+    /// (20.000 m³ contra 260.000). Fundirlos daría un total de transporte falso por trece veces.
+    pub assembled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -399,7 +405,8 @@ pub async fn detail(
 
     // 1) Agregar por (type_id, ubicación raíz, contenedor inmediato). El contenedor es el
     //    location_id cuando es a su vez un item propio (un contenedor/nave nuestro).
-    let mut agg: Map<(i64, i64, i64, bool, String), i64> = Map::new();
+    // La clave lleva `assembled` al final: ver el porqué en `AssetDetailRow::assembled`.
+    let mut agg: Map<(i64, i64, i64, bool, String, bool), i64> = Map::new();
     for it in &items {
         let container_id = if item_loc.contains_key(&it.location_id) {
             it.location_id
@@ -415,7 +422,7 @@ pub async fn detail(
         };
         let root = root_location(&item_loc, it.location_id);
         *agg
-            .entry((it.type_id, root, container_id, safety, slot))
+            .entry((it.type_id, root, container_id, safety, slot, it.is_singleton))
             .or_insert(0) += it.quantity.max(1);
     }
 
@@ -462,7 +469,7 @@ pub async fn detail(
     // 5) Construir filas.
     let mut rows: Vec<AssetDetailRow> = agg
         .into_iter()
-        .map(|((type_id, root, container_id, safety, slot), quantity)| {
+        .map(|((type_id, root, container_id, safety, slot, assembled), quantity)| {
             let (sys, locname) = root_info.get(&root).cloned().unwrap_or((0, None));
             let container_type_id = item_type.get(&container_id).copied().unwrap_or(0);
             let sysname = if sys != 0 { names.get(&sys).cloned() } else { None };
@@ -509,6 +516,7 @@ pub async fn detail(
                 container_id,
                 container_type_id,
                 slot,
+                assembled,
             }
         })
         .collect();
@@ -658,7 +666,7 @@ pub struct MyShipRow {
 /// ⚠️ **No hace falta ningún fiteo guardado.** Los assets ya traen el `location_flag` de cada ítem
 /// (`HiSlot0`, `RigSlot1`…) y su `location_id` apunta al `item_id` de la nave que lo contiene. O
 /// sea: la nave REAL, tal como está ahora mismo. Un fiteo guardado es una intención; esto es un
-/// hecho. (Idea de Zigor, 2026-08-07.)
+/// hecho. (Idea de RoGiz7, 2026-08-07.)
 ///
 /// Se listan TAMBIÉN las naves vacías y las empaquetadas: partir de los módulos y subir a su
 /// contenedor habría dejado fuera justo la nave de carga vacía esperando en la estación, que es la

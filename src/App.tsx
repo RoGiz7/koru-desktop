@@ -33,6 +33,7 @@ import { CampanasView } from "./campanas";
 import { FreelanceView } from "./freelance";
 import { LogisView } from "./logis";
 import { NavesView } from "./naves";
+import { InventarioView } from "./inventario";
 import { ReconView } from "./recon";
 import { GamelogControl, gamelogScan } from "./gamelogControl";
 import { MedalTexturesControl } from "./medalsControl";
@@ -2389,6 +2390,7 @@ function App() {
           {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "logis" && <LogisView subject={subject} />}
           {tab === "naves" && <NavesView subject={subject} />}
+          {tab === "inventario" && <InventarioView subject={subject} />}
           {tab === "exploracion" && (
             <ExplorationView
               hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}

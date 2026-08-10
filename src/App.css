@@ -74,6 +74,26 @@
   color-scheme: dark;
 }
 
+/* ----- Transporte → Qué tienes y dónde ----- */
+.inv-lista { display: flex; flex-direction: column; gap: 0.3rem; margin-top: var(--space-2); }
+.inv-ubi { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
+.inv-ubi-cab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+}
+.inv-ubi-cab:hover { background: var(--bg-surface-2); }
+.inv-ubi-nom { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-ubi-m3 { font-family: var(--font-display); font-size: 1.05rem; }
+.inv-filas { border-top: 1px solid var(--border); padding: 0.4rem 0.6rem; max-height: 50vh; overflow-y: auto; }
+.inv-fila { display: flex; align-items: center; gap: var(--space-2); padding: 0.12rem 0; }
+.inv-fila img { width: 24px; height: 24px; border-radius: 4px; background: var(--bg-control); }
+.inv-nom { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-m3 { flex: 0 0 auto; color: var(--fg-muted-2); font-size: 0.85rem; }
+
 /* ----- Transporte → Tus naves ----- */
 .naves-filtros {
   display: flex;
@@ -566,7 +586,7 @@ select,
    FRANJA DE ESTADO DE LA BITÁCORA (.bit-hero). Sustituye a la cifra suelta arriba a la derecha
    (.bit-topbar/.bit-score) y a la línea fina de resumen (.bit-summary), que además REPETÍAN el
    mismo 22/36 en dos sitios distintos. Ahora: celdas a todo el ancho, número grande + etiqueta,
-   y la barra del medallero de remate. Petición de Zigor, 2026-08-05.
+   y la barra del medallero de remate. Petición de RoGiz7, 2026-08-05.
    --------------------------------------------------------------------------------------------- */
 .bit-hero {
   display: flex;
@@ -7394,7 +7414,7 @@ h4 {
   border: 1px solid var(--border, #333);
   border-radius: 6px;
   background: var(--bg-surface-2, #262626);
-  /* 28rem apelotonaba el panel de invención (feedback de Zigor 2026-07-30): que respire. */
+  /* 28rem apelotonaba el panel de invención (feedback de RoGiz7 2026-07-30): que respire. */
   max-width: 62rem;
 }
 .bom-cost-row {

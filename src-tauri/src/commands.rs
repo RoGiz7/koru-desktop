@@ -255,7 +255,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| vec![8.0, 1.0]);
     pi_thresholds.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    // Interruptor MAESTRO de los avisos de PI (petición de un jugador vía Zigor: a quien no hace
+    // Interruptor MAESTRO de los avisos de PI (petición de un jugador vía RoGiz7: a quien no hace
     // planetología le saltaba «extractores PARADOS» igualmente). meta "pi_alerts_on", default ON.
     // Con OFF se vacían los umbrales (no se recolecta nada) — la SECCIÓN Planetología sigue
     // enseñando el estado igual: esto solo silencia notificaciones y toasts, como el intel en OFF.
@@ -3108,7 +3108,7 @@ pub struct DiaryCorp {
 
 /// Historia de corporación del personaje = espina biográfica del Diario. Endpoint PÚBLICO
 // ---- Military Campaigns (Cradle of War) — rutas PÚBLICAS, devblog 2026-08-04 ----
-// Shapes verificados contra pegados REALES de las rutas (curl de Zigor, 2026-08-04):
+// Shapes verificados contra pegados REALES de las rutas (curl de RoGiz7, 2026-08-04):
 //   /military-campaigns            → {"campaigns":[{id: UUID, state, progress}]}
 //   /military-campaigns/{id}       → {id, state, progress} (los tiempos NO aparecen en activas)
 //   /.../objectives                → {"cursor":{before,after}, "objectives":[{id, state, progress,
@@ -5329,6 +5329,9 @@ pub struct AssetDetailView {
     pub container_type_id: i64,
     pub slot: String,
     pub category: String,
+    /// `true` = montado; `false` = empaquetado. Decide QUÉ VOLUMEN ocupa: sin esto, el inventario
+    /// disperso sumaría el reempaquetado de cosas que están montadas y diría que caben.
+    pub assembled: bool,
 }
 
 /// Resuelve nombres de tipo/sistema y categoría (cacheada) para una lista de filas de detalle.
@@ -5373,6 +5376,7 @@ async fn resolve_asset_detail(
             container_type_id: r.container_type_id,
             slot: r.slot,
             category: cats.get(&r.type_id).cloned().unwrap_or_else(|| "Otros".to_string()),
+            assembled: r.assembled,
         })
         .collect())
 }
@@ -6170,7 +6174,7 @@ fn collect_intel_ext(
 
     // 1ª pasada: un canal de intel es el MISMO feed para todos los alts → sus logs son idénticos.
     // Con MULTIBOX hay UN fichero por cliente abierto en ese canal, todos vivos a la vez.
-    // ⚠️ BUG CAZADO (2026-07-23, Zigor con 3 clientes): antes nos quedábamos SOLO con el de eff más
+    // ⚠️ BUG CAZADO (2026-07-23, RoGiz7 con 3 clientes): antes nos quedábamos SOLO con el de eff más
     // alto y leíamos ese. Al CERRAR el cliente cuyo fichero era el más nuevo, su log quedaba MUERTO
     // pero conservaba la fecha de sesión más reciente → seguíamos leyendo el muerto (0 líneas nuevas)
     // y el intel enmudecía, aunque otro cliente siguiera recibiendo. Relogar lo curaba (fichero nuevo
@@ -6392,7 +6396,7 @@ pub struct PilotLoc {
 // ---------------------------------------------------------------------------------------------
 // ANÁLISIS DEL HOSTIL. Antes el aviso flotante enseñaba MI nave grande y con icono, y a quien venía
 // a matarme lo dejaba en letra pequeña dentro del texto crudo del chat. La jerarquía estaba al
-// revés, lo cazó Zigor: «parece más importante en qué nave estoy yo que en qué nave vienen por mí».
+// revés, lo cazó RoGiz7: «parece más importante en qué nave estoy yo que en qué nave vienen por mí».
 //
 // El análisis se hace AQUÍ y no en el overlay porque esa ventana no puede permitirse cargar
 // `neweden.json` (5.485 sistemas) solo para descartar nombres de sistema. Rust ya tiene el grafo
@@ -7390,7 +7394,9 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
     // Clave: (type, system, UBICACIÓN RAÍZ, nombre ubicación, contenedor, container_id,
     // container_type, slot). El location_id va en la clave para que dos personajes con el mismo
     // material en estructuras DISTINTAS no se fusionen (lo necesita «En instalación» en Global).
-    let mut agg: HashMap<(i64, i64, i64, String, Option<String>, i64, i64, String), i64> =
+    // `assembled` al final de la clave: montado y empaquetado no se funden, porque no ocupan lo
+    // mismo (un Bestower son 20.000 m³ empaquetado y 260.000 montado).
+    let mut agg: HashMap<(i64, i64, i64, String, Option<String>, i64, i64, String, bool), i64> =
         HashMap::new();
     for c in state.db.list_characters()? {
         if !c.scopes.iter().any(|s| s == "esi-assets.read_assets.v1") {
@@ -7419,6 +7425,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
                         r.container_id,
                         r.container_type_id,
                         r.slot,
+                        r.assembled,
                     ))
                     .or_insert(0) += r.quantity;
             }
@@ -7437,6 +7444,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
                     container_id,
                     container_type_id,
                     slot,
+                    assembled,
                 ),
                 quantity,
             )| {
@@ -7450,6 +7458,7 @@ pub async fn get_assets_detail_global(state: State<'_, AppState>) -> AppResult<V
                     container_id,
                     container_type_id,
                     slot,
+                    assembled,
                 }
             },
         )
@@ -10022,7 +10031,7 @@ pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
             // comprueba lo contrario — que a los de atrás no se les da sitio.
             pilots: vec![
                 PilotProximity {
-                    name: "Zigor77 Amatin".into(),
+                    name: "RoGiz7".into(),
                     jumps: 1,
                     ship: Some("Ishtar".into()),
                     ship_type_id: Some(12005),
@@ -10030,7 +10039,10 @@ pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
                     system: Some("Perimeter".into()),
                 },
                 PilotProximity {
-                    name: "RoGiz7".into(),
+                    // Nombre distinto del de arriba A PROPÓSITO: el test existe para enseñar la
+                    // AGRUPACIÓN («+1») de dos pilotos en el mismo sistema. Con el mismo nombre
+                    // dos veces, el caso que se quiere demostrar deja de verse.
+                    name: "Alt de prueba".into(),
                     jumps: 1,
                     ship: Some("Loki".into()),
                     ship_type_id: Some(29990),
