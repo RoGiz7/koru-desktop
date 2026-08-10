@@ -52,9 +52,13 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
+          # ⚠️ NADA de `libappindicator3-dev`: es el paquete VIEJO y declara
+          # `Conflicts: libayatana-appindicator3-dev`, que es el que usa Tauri v2. Listar los dos
+          # hace que apt aborte con «held broken packages» — pasó en el primer intento de la RC.
+          # Esta lista es la de los requisitos oficiales de Tauri v2 para Debian/Ubuntu, más
+          # `patchelf`, que hace falta para empaquetar el AppImage.
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
             librsvg2-dev \
             patchelf \
             build-essential \
