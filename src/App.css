@@ -3990,18 +3990,30 @@ h4 {
   gap: 0.35rem;
 }
 
+/* El botón de Ko-fi iba pintado como los DEMÁS elementos de la barra de estado —transparente, gris
+   y con el mismo borde—, así que no parecía un botón: parecía un dato más. Ese era el motivo real
+   de que nadie lo pulsara, más que la palabra.
+   Ahora lleva el coral de Ko-fi (#FF5E5B), que además es un color que en esta app no usa nada:
+   destaca por ser AJENO a la paleta, no por ser grande. Sigue midiendo lo mismo. */
 .sb-kofi {
-  padding: 0.05rem 0.5rem;
+  padding: 0.1rem 0.6rem;
   font-size: 0.78rem;
-  background: transparent;
-  border: 1px solid var(--border-accent-2);
-  border-radius: var(--radius-sm);
-  color: var(--fg-muted-2);
+  font-weight: 600;
+  background: #ff5e5b;
+  border: 1px solid #ff5e5b;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .sb-kofi:hover {
-  color: #fff;
-  border-color: var(--accent-border);
+  background: #ff6f6c;
+  border-color: #ff6f6c;
+  /* Un pelín más grande y con halo. Sin animación en reposo: un botón que late solo en una barra
+     de estado es publicidad, y esto tiene que poder ignorarse sin esfuerzo. */
+  transform: translateY(-1px);
+  box-shadow: 0 2px 10px rgba(255, 94, 91, 0.45);
 }
 
 .sb-dot {

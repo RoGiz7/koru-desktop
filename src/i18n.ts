@@ -114,6 +114,9 @@ const EN: Record<string, string> = {
   "Apoyar el proyecto en Ko-fi (totalmente voluntario)":
     "Support the project on Ko-fi (entirely voluntary)",
   Apoyar: "Support",
+  // Idioma propio de Ko-fi en los dos idiomas: nombra una cantidad pequeña y concreta, que es lo
+  // que hace que se decida en un segundo. «Support» a secas es abstracto y suena a compromiso.
+  "Invítame a un café": "Buy me a coffee",
   "Período": "Period",
   "Hora EVE": "EVE time",
   "Cargando…": "Loading…",

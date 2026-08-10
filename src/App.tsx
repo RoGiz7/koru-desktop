@@ -2490,7 +2490,7 @@ function App() {
             onClick={() => openUrl("https://ko-fi.com/rogiz7")}
             title={tr("Apoyar el proyecto en Ko-fi (totalmente voluntario)")}
           >
-            ☕ {tr("Apoyar")}
+            ☕ {tr("Invítame a un café")}
           </button>
         </div>
       </footer>
