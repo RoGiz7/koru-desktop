@@ -124,12 +124,12 @@ más nueva que la de la mayoría de distros.
 
 <table>
   <tr>
-    <td width="50%"><img src="branding/screenshots/map-intel-layers.png" alt="Mapa de New Eden con capas"><br><sub><b>El mapa</b> — tus capas y las del cluster, sobre el New Eden real.</sub></td>
-    <td width="50%"><img src="branding/screenshots/logbook.png" alt="Bitácora y logros"><br><sub><b>Bitácora</b> — tu historia mes a mes, con medallas e hitos.</sub></td>
+    <td width="50%"><img src="branding/screenshots/map-intel-layers.png" alt="Mapa de New Eden con capas"><br><sub><b>El mapa</b> — tus propias capas (PvP, assets, minería, tu recorrido) sobre los datos en vivo del cluster. Todas conmutables.</sub></td>
+    <td width="50%"><img src="branding/screenshots/logbook.png" alt="Bitácora y logros"><br><sub><b>Bitácora</b> — 36 medallas con su propia serie mensual, construidas con tu histórico local. Esto ESI no lo guarda; Koru sí.</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="branding/screenshots/industry-build-cost.png" alt="Coste real de un trabajo de industria"><br><sub><b>Industria</b> — lo que <i>de verdad</i> cuesta un trabajo: rigs, índices, impuestos.</sub></td>
-    <td width="50%"><img src="branding/screenshots/mining.png" alt="Minería con histórico local"><br><sub><b>Minería</b> — mineral extraído y su valor, con histórico local.</sub></td>
+    <td width="50%"><img src="branding/screenshots/industry-build-cost.png" alt="Coste real de un trabajo de industria"><br><sub><b>Industria</b> — lo que <i>de verdad</i> cuesta un trabajo: rigs, índice de coste del sistema, multiplicador de seguridad e impuestos — y lo que ya tienes.</sub></td>
+    <td width="50%"><img src="branding/screenshots/mining.png" alt="Minería con histórico local"><br><sub><b>Minería</b> — todo el mineral que has sacado, con su volumen y su valor, con meses de histórico local detrás.</sub></td>
   </tr>
 </table>
 

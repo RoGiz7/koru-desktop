@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="branding/banner.png" alt="Koru Desktop — your copilot for EVE Online" width="100%">
+  <img src="branding/banner-en.png" alt="Koru Desktop — your copilot for EVE Online" width="100%">
 </p>
 
 <p align="center">
@@ -120,12 +120,12 @@ most distros ship.
 
 <table>
   <tr>
-    <td width="50%"><img src="branding/screenshots/map-intel-layers.png" alt="New Eden map with layers"><br><sub><b>The map</b> — your layers and the cluster's, on the real New Eden.</sub></td>
-    <td width="50%"><img src="branding/screenshots/logbook.png" alt="Logbook and achievements"><br><sub><b>Logbook</b> — your history month by month, with medals and milestones.</sub></td>
+    <td width="50%"><img src="branding/screenshots/map-intel-layers-en.png" alt="New Eden map with layers"><br><sub><b>The map</b> — your own layers (PvP, assets, mining, your route) over the cluster's live data. All toggleable.</sub></td>
+    <td width="50%"><img src="branding/screenshots/logbook-en.png" alt="Logbook and achievements"><br><sub><b>Logbook</b> — 36 medals with their own monthly series, built from your local history. ESI doesn't keep this; Koru does.</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="branding/screenshots/industry-build-cost.png" alt="Real build cost of an industry job"><br><sub><b>Industry</b> — what a job <i>really</i> costs: rigs, indices, taxes.</sub></td>
-    <td width="50%"><img src="branding/screenshots/mining.png" alt="Mining with local history"><br><sub><b>Mining</b> — ore extracted and its value, with local history.</sub></td>
+    <td width="50%"><img src="branding/screenshots/industry-build-cost-en.png" alt="Real build cost of an industry job"><br><sub><b>Industry</b> — what a job <i>really</i> costs: rigs, system cost index, security multiplier and facility taxes — and what you already own.</sub></td>
+    <td width="50%"><img src="branding/screenshots/mining-en.png" alt="Mining with local history"><br><sub><b>Mining</b> — every ore you've pulled, with its volume and value, backed by months of local history.</sub></td>
   </tr>
 </table>
 
