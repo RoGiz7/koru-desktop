@@ -52,9 +52,57 @@ fn build_authorize_url(
     Ok(url.to_string())
 }
 
+/// Abre el navegador del sistema, insistiendo más que `open::that` a secas.
+///
+/// POR QUÉ EXISTE (hallazgo del tester de Linux, 2026-08-07): en su máquina saltó
+/// `Launcher "xdg-open" ... failed with ExitStatus(unix_wait_status(1024))`. Ese 1024 es un **4**
+/// (`4 << 8`), y en xdg-open el 4 significa «la acción falló» — normalmente porque no hay ningún
+/// navegador registrado como manejador de `https`, o porque la sesión no le pasa el bus de D-Bus.
+/// El crate `open` prueba un lanzador y se rinde con su código de salida; aquí se prueban los
+/// demás, que en un escritorio Linux cualquiera suele haber varios.
+///
+/// Devuelve el último error si NINGUNO funciona. Windows y macOS resuelven en el primer intento.
+fn abrir_navegador(url: &str) -> Result<(), String> {
+    if let Err(e) = open::that(url) {
+        let mut ultimo = e.to_string();
+        // Solo en Unix: en Windows `open::that` usa la API del sistema y no hay a qué caer.
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            // `$BROWSER` primero: si el usuario lo ha puesto, manda sobre cualquier heurística.
+            let navegador = std::env::var("BROWSER").unwrap_or_default();
+            let mut intentos: Vec<Vec<&str>> = Vec::new();
+            if !navegador.is_empty() {
+                intentos.push(vec![navegador.as_str()]);
+            }
+            intentos.extend([
+                vec!["gio", "open"],
+                vec!["x-www-browser"],
+                vec!["sensible-browser"],
+                vec!["firefox"],
+                vec!["chromium"],
+                vec!["google-chrome"],
+            ]);
+            for cmd in intentos {
+                let (prog, args) = cmd.split_first().expect("intento vacío");
+                match std::process::Command::new(prog).args(args).arg(url).spawn() {
+                    Ok(_) => return Ok(()),
+                    Err(e) => ultimo = format!("{prog}: {e}"),
+                }
+            }
+        }
+        return Err(ultimo);
+    }
+    Ok(())
+}
+
 /// Ejecuta el flujo completo de login para los `scopes` pedidos.
 /// Si `scopes` está vacío, hace login de solo identidad.
-pub async fn login(scopes: Vec<String>) -> AppResult<LoginOutcome> {
+///
+/// `on_manual` se llama con la URL SI no se pudo abrir ningún navegador. No es un error: el
+/// listener del callback sigue esperando, así que basta con que el usuario pegue el enlace a mano
+/// para que el login termine igual. Abortar ahí dejaba el login en un callejón sin salida — la URL
+/// se perdía y nadie escuchaba ya el callback.
+pub async fn login<F: FnOnce(&str)>(scopes: Vec<String>, on_manual: F) -> AppResult<LoginOutcome> {
     let client = http_client()?;
     let meta = metadata::get(&client).await?;
 
@@ -72,9 +120,12 @@ pub async fn login(scopes: Vec<String>) -> AppResult<LoginOutcome> {
     let callback_handle =
         tokio::task::spawn_blocking(|| callback::wait_for_callback(Duration::from_secs(180)));
 
-    // 2) Abrimos el navegador del sistema en la URL de autorización.
-    open::that(&authorize_url)
-        .map_err(|e| AppError::Other(format!("no se pudo abrir el navegador: {e}")))?;
+    // 2) Abrimos el navegador del sistema en la URL de autorización. Si no se puede, NO se aborta:
+    //    se avisa con la URL y se sigue esperando el callback, que ya está escuchando.
+    if let Err(e) = abrir_navegador(&authorize_url) {
+        eprintln!("login: no se pudo abrir el navegador ({e}); se pide abrir el enlace a mano");
+        on_manual(&authorize_url);
+    }
 
     // 3) Esperamos el callback.
     let cb = callback_handle

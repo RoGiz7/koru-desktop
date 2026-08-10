@@ -1228,14 +1228,25 @@ fn scopes_for_feature(feature: &str) -> Vec<String> {
 
 /// Inicia el flujo de login para una feature (o "identity" para 0 scopes, o "core" para el set v1).
 #[tauri::command]
-pub async fn login(feature: String, state: State<'_, AppState>) -> AppResult<LoginOutcome> {
+pub async fn login(
+    app: tauri::AppHandle,
+    feature: String,
+    state: State<'_, AppState>,
+) -> AppResult<LoginOutcome> {
     let scopes = if feature == "identity" {
         Vec::new()
     } else {
         scopes_for_feature(&feature)
     };
 
-    let outcome = sso::login(scopes).await?;
+    // Si no hay forma de abrir un navegador (pasa en Linux cuando no hay manejador de `https`
+    // registrado), se emite "sso-manual-url" con el enlace. El login NO falla: sigue esperando el
+    // callback, así que en cuanto el usuario pegue la URL en su navegador, termina igual.
+    let app2 = app.clone();
+    let outcome = sso::login(scopes, move |url| {
+        let _ = app2.emit("sso-manual-url", url.to_string());
+    })
+    .await?;
     state.db.upsert_character(
         outcome.character_id,
         &outcome.character_name,

@@ -785,6 +785,22 @@ function App() {
     return () => window.clearInterval(t);
   }, []);
 
+  // Login: Koru no ha podido abrir ningún navegador (pasa en Linux cuando no hay manejador de
+  // `https` registrado). NO es un error: el listener del callback sigue esperando, así que basta
+  // con que el usuario abra el enlace a mano y el login termina igual.
+  // Se copia al portapapeles directamente porque la URL es larguísima y seleccionarla de un cuadro
+  // es justo lo que nadie quiere hacer cuando algo ya le ha fallado.
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const un = listen<string>("sso-manual-url", (e) => {
+      setManualUrl(e.payload);
+      navigator.clipboard?.writeText(e.payload).catch(() => {});
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+
   // Planetología: alarma de extractores (auto_sync ya lanzó la notificación nativa; aquí el toast).
   useEffect(() => {
     const un = listen<string>("pi-alert", (e) => showGlobalAlert(`⛏️ PI: ${e.payload}`, "pi"));
@@ -2494,6 +2510,30 @@ function App() {
           </button>
         </div>
       </footer>
+
+      {/* Aviso de login manual. Va aquí, encima de todo, porque el login está bloqueado esperando
+          el callback y esto es lo único que puede desbloquearlo. */}
+      {manualUrl && (
+        <div className="modal-backdrop" onClick={() => setManualUrl(null)}>
+          <div className="nave-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="loot-modal-head">
+              <b>{tr("Abre este enlace para iniciar sesión")}</b>
+              <button className="loot-modal-x" onClick={() => setManualUrl(null)}>
+                ✕
+              </button>
+            </div>
+            <p className="muted small">
+              {tr(
+                "Koru no ha podido abrir tu navegador. El enlace ya está copiado: pégalo en el navegador y termina ahí la sesión — Koru sigue esperando y continuará solo.",
+              )}
+            </p>
+            <textarea className="loot-modal-paste" rows={4} readOnly value={manualUrl} />
+            <button onClick={() => navigator.clipboard?.writeText(manualUrl).catch(() => {})}>
+              {tr("Copiar otra vez")}
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

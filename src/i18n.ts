@@ -983,6 +983,10 @@ const EN: Record<string, string> = {
     "Packaged: it can't carry anything until you assemble it",
   "Ver la ficha de la nave": "Open the ship sheet",
   "La mayor mueve": "The biggest hauls",
+  "Abre este enlace para iniciar sesión": "Open this link to sign in",
+  "Koru no ha podido abrir tu navegador. El enlace ya está copiado: pégalo en el navegador y termina ahí la sesión — Koru sigue esperando y continuará solo.":
+    "Koru couldn't open your browser. The link is already copied: paste it into your browser and finish signing in there — Koru is still waiting and will carry on by itself.",
+  "Copiar otra vez": "Copy again",
   libres: "free",
   faltan: "missing",
   "El SDE no publica el volumen de estos tipos": "The SDE doesn't publish a volume for these types",
