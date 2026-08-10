@@ -1776,7 +1776,7 @@ function App() {
                         handleLogout(c.character_id);
                       }}
                     >
-                      Cerrar sesión
+                      {tr("Cerrar sesión")}
                     </button>
                   </div>
                 </div>

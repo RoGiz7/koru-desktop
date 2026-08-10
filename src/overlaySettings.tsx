@@ -341,7 +341,17 @@ export function OverlaySettings() {
               // se encola en el hilo principal, así que justo tras encender puede no existir todavía.
               // Sin esto, el primer clic al botón de prueba no haría nada y parecería roto.
               encender(true);
-              window.setTimeout(() => void invoke("overlay_test").catch(() => {}), 220);
+              // Los textos del aviso de prueba se mandan YA TRADUCIDOS: el diccionario vive aquí,
+              // en el frontend, y el Rust no tiene forma de saber en qué idioma está la app.
+              window.setTimeout(
+                () =>
+                  void invoke("overlay_test", {
+                    mensaje: tr("Aviso de prueba: así se verá el intel sobre el juego."),
+                    alt: tr("Alt de prueba"),
+                    hostil: tr("Piloto de prueba"),
+                  }).catch(() => {}),
+                220,
+              );
               // La radiografía se pide DESPUÉS de mostrar, para leer el estado real ya visible.
               window.setTimeout(() => {
                 invoke<OverlayDebug>("overlay_debug").then(setDbg).catch(() => setDbg(null));

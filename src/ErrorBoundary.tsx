@@ -9,6 +9,10 @@
 // Es el mismo remedio que aplicamos al intel en la 0.27.1: no arregla la causa, arregla la CEGUERA.
 // Un fallo que no se puede ver no se puede corregir — ni por nosotros ni por quien nos lo reporte.
 import React from "react";
+// `tr` es una función pura sobre un diccionario, sin React ni estado: se puede usar aquí sin
+// arriesgar que la propia red de seguridad falle. Si el idioma no estuviera cargado, devuelve el
+// texto original — que es exactamente el comportamiento que queremos en una pantalla de error.
+import { tr } from "./i18n";
 
 type Props = { children: React.ReactNode };
 type State = { error: Error | null; info: string | null };
@@ -46,12 +50,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
         </p>
         <div className="err-actions">
           <button onClick={() => navigator.clipboard?.writeText(dump)}>
-            Copiar el detalle
+            {tr("Copiar el detalle")}
           </button>
           <button onClick={() => this.setState({ error: null, info: null })}>
-            Reintentar
+            {tr("Reintentar")}
           </button>
-          <button onClick={() => location.reload()}>Recargar Koru</button>
+          <button onClick={() => location.reload()}>{tr("Recargar Koru")}</button>
         </div>
         <pre className="err-dump">{dump}</pre>
       </div>

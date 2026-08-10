@@ -169,8 +169,22 @@ export function Overlay() {
 
   // El idioma no viaja entre ventanas: esta webview es un proceso aparte y no ve el estado de App.
   // Se lee del mismo localStorage (compartido por origen) para que el aviso hable como la app.
+  //
+  // ⚠️ CUARTA TRAMPA DE LAS VENTANAS SECUNDARIAS (2026-08-10). Esto se leía SOLO al montar, y la
+  // ventana del overlay se crea una vez y se reutiliza: si cambiabas de idioma con la app abierta,
+  // el aviso seguía hablando en el idioma viejo hasta reiniciar Koru. Con la app en inglés salía
+  // «4 SALTOS · de … · hace 3 s» encima del juego.
+  // El evento `storage` SÍ cruza entre ventanas del mismo origen — es la única señal que tenemos,
+  // porque el estado de React de App no llega hasta aquí. Y como `setLang` solo toca una variable
+  // de módulo (no dispara render), hay que empujar el tick a mano o el cambio no se ve.
   useEffect(() => {
-    setLang((localStorage.getItem("koru-lang") as Lang) || "es");
+    const aplicar = () => {
+      setLang((localStorage.getItem("koru-lang") as Lang) || "es");
+      tick((n) => n + 1);
+    };
+    aplicar();
+    window.addEventListener("storage", aplicar);
+    return () => window.removeEventListener("storage", aplicar);
   }, []);
 
   const quitar = useCallback((key: string) => {

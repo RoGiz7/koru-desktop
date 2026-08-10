@@ -647,7 +647,7 @@ export function RateoView({
               setTo("");
             }}
           >
-            Limpiar
+            {tr("Limpiar")}
           </button>
         )}
         <div className="seg seg-sm" title={tr("Qué magnitud dibuja la gráfica")}>

@@ -10013,8 +10013,19 @@ pub fn overlay_debug(app: tauri::AppHandle) -> AppResult<OverlayDebug> {
 /// Efecto secundario asumido: la ventana principal también lo recibe y saca su banner un instante,
 /// que se autocancela porque el sistema de prueba no está en los reportes de intel vivos. Ese
 /// parpadeo dentro de Koru es esperado y NO es el overlay.
+///
+/// ⚠️ Los TEXTOS los manda el frontend ya traducidos, no se escriben aquí. Rust no tiene i18n
+/// —`tr()` y el diccionario viven en `src/i18n.ts`—, así que cualquier literal castellano metido en
+/// este fichero sale en castellano por mucho que la app esté en inglés. Pasó exactamente eso: con la
+/// interfaz en EN, el aviso de prueba enseñaba «Piloto de prueba». Lo demás que se ve en la tarjeta
+/// (Jita, Perimeter, Ishtar, Gila) son nombres de EVE y no se traducen.
 #[tauri::command]
-pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
+pub fn overlay_test(
+    app: tauri::AppHandle,
+    mensaje: String,
+    alt: String,
+    hostil: String,
+) -> AppResult<()> {
     mostrar_overlay(&app);
     let _ = app.emit(
         "intel-alert",
@@ -10023,7 +10034,7 @@ pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
             system: "Jita".into(),
             jumps: 1,
             author: "Koru".into(),
-            message: "Aviso de prueba: así se verá el intel sobre el juego.".into(),
+            message: mensaje,
             ts_ms: chrono::Utc::now().timestamp_millis(),
             // DOS pilotos en el MISMO sistema, y ese sistema es además el ancla. Es el caso que
             // ejerce de una vez las tres cosas nuevas del renglón: agrupar («+1»), nombrar el
@@ -10042,7 +10053,7 @@ pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
                     // Nombre distinto del de arriba A PROPÓSITO: el test existe para enseñar la
                     // AGRUPACIÓN («+1») de dos pilotos en el mismo sistema. Con el mismo nombre
                     // dos veces, el caso que se quiere demostrar deja de verse.
-                    name: "Alt de prueba".into(),
+                    name: alt,
                     jumps: 1,
                     ship: Some("Loki".into()),
                     ship_type_id: Some(29990),
@@ -10066,7 +10077,7 @@ pub fn overlay_test(app: tauri::AppHandle) -> AppResult<()> {
             // Con hostil y nave: un test que no ejerza la parte NUEVA de la tarjeta no prueba nada.
             // Sin `character_id`, así que además se ve el caso «no le conocemos» (círculo con «?»).
             parse: IntelParse {
-                hostiles: vec![Hostil { name: "Piloto de prueba".into(), character_id: None }],
+                hostiles: vec![Hostil { name: hostil, character_id: None }],
                 ships: vec![NaveCitada { type_id: 17715, name: "Gila".into() }],
                 count: Some(2),
             },

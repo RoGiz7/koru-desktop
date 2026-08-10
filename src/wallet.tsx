@@ -287,7 +287,7 @@ export function WalletViewC(props: {
                   setTo("");
                 }}
               >
-                Limpiar
+                {tr("Limpiar")}
               </button>
             )}
           </div>

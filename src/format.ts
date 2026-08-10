@@ -1,11 +1,20 @@
 // Formateadores y helpers de presentación (puros, sin dependencias de React).
+import { getLang } from "./i18n";
 
+/** «hace 3 min» / «3 min ago».
+ *
+ *  ⚠️ NO se resuelve con `tr()` porque el ORDEN cambia de idioma a idioma: en castellano el «hace»
+ *  va DELANTE y en inglés el «ago» va DETRÁS. Meter la frase entera en el diccionario obligaría a
+ *  una clave por cada cantidad posible, así que se compone a mano. Mismo criterio que en
+ *  `overlay.tsx`, que tiene su propia versión corta.
+ *
+ *  Estaba clavado en castellano hasta el 2026-08-10: salía «hace 8 min» en la barra de estado y en
+ *  el feed de intel aunque la app estuviera en inglés. Lo vio RoGiz7 preparando las capturas EN. */
 export function fmtAgo(ms: number): string {
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `hace ${s}s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `hace ${m} min`;
-  return `hace ${Math.floor(m / 60)}h`;
+  const cant = s < 60 ? `${s}s` : m < 60 ? `${m} min` : `${Math.floor(m / 60)}h`;
+  return getLang() === "en" ? `${cant} ago` : `hace ${cant}`;
 }
 
 export function fmtMMSS(ms: number): string {

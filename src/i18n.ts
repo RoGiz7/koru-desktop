@@ -2379,6 +2379,20 @@ const EN: Record<string, string> = {
   "Al ritmo de los últimos 3 meses llegas a": "At the last 3 months' pace you reach",
   sobre: "around",
   para: "to reach",
+
+  // --- Repesca del 2026-08-10. Salieron de auditar la app CON LA INTERFAZ EN INGLÉS delante:
+  //     unas estaban escritas a pelo sin `tr()` y otras tenían `tr()` pero sin clave aquí, que es
+  //     el fallo silencioso feo — el código parece correcto y el texto sale en castellano igual. ---
+  "Copiar el detalle": "Copy the details",
+  Reintentar: "Retry",
+  "Recargar Koru": "Reload Koru",
+  "Por categoría": "By category",
+  "sin bono de material": "no material bonus",
+  // Textos del aviso de prueba del overlay. Vivían dentro del Rust, que no tiene i18n.
+  "Aviso de prueba: así se verá el intel sobre el juego.":
+    "Test alert: this is how intel will look over the game.",
+  "Alt de prueba": "Test alt",
+  "Piloto de prueba": "Test pilot",
 };
 
 export function t(s: string, lang: Lang): string {

@@ -488,7 +488,7 @@ export function MineriaView({
               setTo("");
             }}
           >
-            Limpiar
+            {tr("Limpiar")}
           </button>
         )}
         <div className="seg seg-sm" title={tr("Cómo valorar lo minado")}>
