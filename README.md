@@ -45,7 +45,7 @@ That last one is the point. Koru has been recording **your own intel** for month
 things no killboard can, because they're built from data only you have.
 
 <p align="center">
-  <img src="branding/screenshots/intel-overlay.png" alt="Koru's alert overlay on top of the game" width="550">
+  <img src="branding/screenshots/intel-overlay-en.png" alt="Koru's alert overlay on top of the game" width="550">
 </p>
 <p align="center">
   <sub><i>The overlay, floating over the game. Not just <b>"1 jump"</b> — <b>whose</b> jump, in <b>what ship</b>,<br>
