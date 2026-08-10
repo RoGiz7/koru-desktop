@@ -5,7 +5,6 @@
 // Diseño: documentacion/koru-desktop-EXPLORACION_HISTORICO_diseno.md. RoGiz7, 2026-07-23.
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtIsk, typeRender } from "./format";
 import { KIND_META, KindGlyph, fmtDuration, BUCKETS } from "./signaturesControl";
@@ -14,6 +13,7 @@ import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import type { SigKind } from "./signatures";
 import type { ExplorationLogRow } from "./types";
+import { openExternal } from "./openExternal";
 
 type Props = {
   /** Personaje activo, o null en Global. En Global se ve TODO el histórico (todos los personajes). */
@@ -352,7 +352,7 @@ export function ExplorationLogView({ charId }: Props) {
                         <button
                           className="sig-wiki-link"
                           title={`${tr("Buscar en la wiki de EVE University")}: ${siteNameEn(r.name, dungeonIdx)}`}
-                          onClick={() => openUrl(siteWikiUrl(r.name, dungeonIdx))}
+                          onClick={() => openExternal(siteWikiUrl(r.name, dungeonIdx))}
                         >
                           ↗
                         </button>

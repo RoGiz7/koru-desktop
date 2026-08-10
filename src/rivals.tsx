@@ -1,10 +1,10 @@
 // Sección PvP · Batallas (clusters de killmails por sistema/momento) y Rivales (a quién matas /
 // quién te mata, por personaje y corp). Extraído de App.tsx. RivalList (lista rankeada) es interno.
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtIsk } from "./format";
 import { Bars } from "./charts";
 import type { Battle, Rivals, RivalEntry } from "./types";
+import { openExternal } from "./openExternal";
 
 function RivalList(props: { title: string; items: RivalEntry[]; kind: "char" | "corp" }) {
   const { title, items, kind } = props;
@@ -22,7 +22,7 @@ function RivalList(props: { title: string; items: RivalEntry[]; kind: "char" | "
       {items.length === 0 && <p className="muted small">{tr("Sin datos.")}</p>}
       <ol>
         {items.map((e) => (
-          <li key={e.id} className="rival-row" onClick={() => openUrl(url(e.id))} title={tr("Abrir en zKillboard")}>
+          <li key={e.id} className="rival-row" onClick={() => openExternal(url(e.id))} title={tr("Abrir en zKillboard")}>
             <img className="rival-img" src={img(e.id)} alt="" loading="lazy" />
             <span className="rival-name">{e.name ?? `#${e.id}`}</span>
             <span className="muted">{e.count}</span>
@@ -64,7 +64,7 @@ export function BattlesView(props: { data: Battle[] | null; busy: boolean }) {
               key={`${b.system_id}-${b.slug}`}
               className="clickable"
               title={tr("Abrir battle report en zKillboard")}
-              onClick={() => openUrl(`https://zkillboard.com/related/${b.system_id}/${b.slug}/`)}
+              onClick={() => openExternal(`https://zkillboard.com/related/${b.system_id}/${b.slug}/`)}
             >
               <td>{b.system_name ?? `#${b.system_id}`}</td>
               <td>{b.start.replace("T", " ").slice(0, 16)}</td>

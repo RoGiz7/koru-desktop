@@ -279,6 +279,7 @@ pub fn run() {
             commands::get_pi_history,
             commands::get_haul_ledger,
             commands::get_my_ships,
+            commands::open_external,
             commands::get_mining_global,
             commands::get_pvp_map,
             commands::get_pvp_map_global,

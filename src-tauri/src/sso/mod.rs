@@ -62,8 +62,12 @@ fn build_authorize_url(
 /// demás, que en un escritorio Linux cualquiera suele haber varios.
 ///
 /// Devuelve el último error si NINGUNO funciona. Windows y macOS resuelven en el primer intento.
-fn abrir_navegador(url: &str) -> Result<(), String> {
+pub fn abrir_navegador(url: &str) -> Result<(), String> {
     if let Err(e) = open::that(url) {
+        // ⚠️ El `mut` SOLO hace falta en Unix: en Windows el bloque de reserva de abajo se compila
+        // fuera y esto no se reasigna nunca, de ahí el aviso. Quitarlo para callar el warning
+        // rompería el build de Linux, así que se silencia aquí y se explica.
+        #[allow(unused_mut)]
         let mut ultimo = e.to_string();
         // Solo en Unix: en Windows `open::that` usa la API del sistema y no hay a qué caer.
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]

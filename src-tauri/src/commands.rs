@@ -9113,6 +9113,24 @@ pub async fn get_pi_history(
     })
 }
 
+/// Abre un enlace externo (zKillboard, Dotlan, Ko-fi, la web de EVE) por el MISMO camino que el
+/// login, que es el único que sabe insistir cuando `xdg-open` falla.
+///
+/// Existe porque `openUrl` del plugin no comparte esa lógica: en la máquina del tester de Linux
+/// —sin navegador por defecto— el login ya funcionaba y estos diecinueve enlaces seguían muertos.
+/// Un arreglo que solo cubre el camino que se probó no es un arreglo, es una casualidad.
+///
+/// Devuelve el error para que la UI pueda ofrecer el enlace a mano en vez de no hacer nada.
+#[tauri::command]
+pub fn open_external(url: String) -> AppResult<()> {
+    // Solo http/https: este comando lo llama el frontend, y no tiene por qué poder lanzar
+    // `file://` ni nada que ejecute algo del disco.
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(AppError::Other("enlace no permitido".into()));
+    }
+    crate::sso::abrir_navegador(&url).map_err(AppError::Other)
+}
+
 /* ---- Tus naves: cuáles, dónde y cuánto mueven (T2 del pilar de transporte) ---- */
 
 /// Conjunto de typeIDs que son NAVES, de `ships.json` embebido. Sin esto habría que preguntarle a

@@ -6,6 +6,24 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.42.0",
+    date: "2026-08-10",
+    es: [
+      "🚚 Transporte, sección nueva. Empieza por «Tus naves»: cuáles tienes, dónde está cada una y — lo que no dice ninguna otra parte — cuánto mueve DE VERDAD con tus skills. Un Bestower son 4.800 m³ en el papel y 6.000 con Amarr Industrial a V; una Epithal tiene 550 de bodega y 67.500 de planetaria, así que Koru te enseña la que importa. Filtros por categoría del juego, por sistema y por si están montadas o empaquetadas, y al pinchar una nave se abre su ficha con lo que lleva dentro repartido por compartimentos y el espacio usado de cada bodega.",
+      "🐧 Koru ya funciona en Linux. AppImage, .deb y .rpm. Probado en vivo por un jugador: inicia sesión, encuentra los logs de EVE solos (Wine, Steam/Proton y Lutris) y el aviso flotante se coloca bien incluso con dos monitores. Ojo: solo verificado en X11 — en Wayland el sistema no deja colocar ventanas donde se le pide, así que el aviso flotante puede no aparecer donde elijas. El .AppImage es el único que se actualiza solo; el .deb y el .rpm se actualizan a mano.",
+      "🔑 Arreglado un inicio de sesión que podía quedarse colgado para siempre. Si tu sistema no tiene navegador por defecto, Koru ahora prueba los demás que encuentre; y si aun así no puede abrir ninguno, te ofrece el enlace copiado al portapapeles para que lo abras tú. Koru sigue esperando, así que el login termina igual. Lo encontró el jugador que probó la versión de Linux.",
+      "🌍 18 etiquetas del menú que seguían en español con la app en inglés. Cazador, Fiteos, Misiones, los nombres de los permisos… El mismo jugador las vio a la primera.",
+      "☕ El botón de apoyo se ve. Antes era gris y transparente como el resto de la barra de estado, así que parecía un dato más y no un botón.",
+    ],
+    en: [
+      "🚚 Hauling, a new section. It starts with “Your ships”: which ones you own, where each one is and — something nowhere else tells you — how much it REALLY hauls with your skills. A Bestower is 4,800 m³ on paper and 6,000 with Amarr Industrial V; an Epithal has 550 of cargo and 67,500 of planetary hold, so Koru shows you the one that matters. Filters by the game's own category, by system and by assembled vs packaged, and clicking a ship opens its sheet with everything inside split by compartment and the used space of each hold.",
+      "🐧 Koru now runs on Linux. AppImage, .deb and .rpm. Tested live by a player: it signs in, finds your EVE logs on its own (Wine, Steam/Proton and Lutris) and the floating alert places itself correctly even with two monitors. Note: only verified on X11 — on Wayland the system doesn't let apps place windows where they ask, so the floating alert may not show up where you pick. The .AppImage is the only one that updates itself; .deb and .rpm update by hand.",
+      "🔑 Fixed a sign-in that could hang forever. If your system has no default browser, Koru now tries the others it can find; and if it still can't open one, it hands you the link copied to your clipboard so you can open it yourself. Koru keeps waiting, so the login finishes all the same. Found by the player who tested the Linux build.",
+      "🌍 18 menu labels that stayed in Spanish while the app was in English. Hunter, Fittings, Missions, the permission names… The same player spotted them straight away.",
+      "☕ The support button is actually visible now. It used to be grey and transparent like the rest of the status bar, so it looked like one more readout rather than a button.",
+    ],
+  },
+  {
     version: "0.41.0",
     date: "2026-08-07",
     es: [

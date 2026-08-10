@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
@@ -17,6 +16,7 @@ import { loadNewEden } from "./neweden";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay, Tab } from "./constants";
+import { openExternal } from "./openExternal";
 import type {
   IntelConfig,
   SysActivity,
@@ -3413,12 +3413,12 @@ export function MapView(props: {
                   </button>
                 </div>
                 <div className="sys-links">
-                  <button onClick={() => openUrl(`https://zkillboard.com/system/${selected}/`)}>
+                  <button onClick={() => openExternal(`https://zkillboard.com/system/${selected}/`)}>
                     zKillboard
                   </button>
                   <button
                     onClick={() =>
-                      openUrl(`https://evemaps.dotlan.net/system/${s.n.replace(/ /g, "_")}`)
+                      openExternal(`https://evemaps.dotlan.net/system/${s.n.replace(/ /g, "_")}`)
                     }
                   >
                     Dotlan
@@ -4005,7 +4005,7 @@ export function MapView(props: {
                         height={24}
                       />
                       <span className="intel-pilot-name">{c.name}</span>
-                      <button title="zKillboard" onClick={() => openUrl(`https://zkillboard.com/character/${c.id}/`)}>
+                      <button title="zKillboard" onClick={() => openExternal(`https://zkillboard.com/character/${c.id}/`)}>
                         zKill
                       </button>
                       {track.length > 1 && (
@@ -4087,7 +4087,7 @@ export function MapView(props: {
                       key={s.id}
                       className="intel-ship"
                       title={tr("zKillboard del tipo")}
-                      onClick={() => openUrl(`https://zkillboard.com/ship/${s.id}/`)}
+                      onClick={() => openExternal(`https://zkillboard.com/ship/${s.id}/`)}
                     >
                       <img src={typeIcon(s.id, 32)} alt="" width={22} height={22} />
                       {s.name}
@@ -4142,7 +4142,7 @@ export function MapView(props: {
                   </button>
                 )}
                 <div className="sys-links">
-                  <button onClick={() => openUrl(`https://zkillboard.com/system/${intelDetail.sysId}/`)}>
+                  <button onClick={() => openExternal(`https://zkillboard.com/system/${intelDetail.sysId}/`)}>
                     {tr("zKill sistema")}
                   </button>
                   {onSystemAssets && intelDetail.sysName && (
@@ -4214,7 +4214,7 @@ export function MapView(props: {
                     {h.character_id != null && h.character_id > 0 && (
                       <button
                         title="zKillboard"
-                        onClick={() => openUrl(`https://zkillboard.com/character/${h.character_id}/`)}
+                        onClick={() => openExternal(`https://zkillboard.com/character/${h.character_id}/`)}
                       >
                         zKill
                       </button>
@@ -4537,7 +4537,7 @@ export function MapView(props: {
                 <button
                   className="route-evescout"
                   title={tr("Abrir eve-scout (mapa de conexiones Thera/Turnur en vivo)")}
-                  onClick={() => openUrl("https://www.eve-scout.com/")}
+                  onClick={() => openExternal("https://www.eve-scout.com/")}
                 >
                   eve-scout ↗
                 </button>
@@ -4683,7 +4683,7 @@ export function MapView(props: {
                               className="route-dotlan"
                               title={tr("Abrir en Dotlan")}
                               onClick={() =>
-                                openUrl(
+                                openExternal(
                                   `https://evemaps.dotlan.net/system/${(s?.n ?? "").replace(/ /g, "_")}`
                                 )
                               }
@@ -4695,7 +4695,7 @@ export function MapView(props: {
                             <button
                               className="route-dotlan"
                               title={tr("Ver muertes registradas en zKillboard")}
-                              onClick={() => openUrl(`https://zkillboard.com/system/${sid}/`)}
+                              onClick={() => openExternal(`https://zkillboard.com/system/${sid}/`)}
                             >
                               zKill
                             </button>

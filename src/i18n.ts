@@ -983,6 +983,29 @@ const EN: Record<string, string> = {
     "Packaged: it can't carry anything until you assemble it",
   "Ver la ficha de la nave": "Open the ship sheet",
   "La mayor mueve": "The biggest hauls",
+  // --- Etiquetas del menú y de los permisos que se quedaron sin traducir ---
+  // Las destapó el tester de Linux: con la app en inglés, el menú mezclaba los dos idiomas.
+  // (`CRAB` no está aquí a propósito: es un acrónimo y se escribe igual en los dos.)
+  "Trabajos y proyectos": "Jobs and projects",
+  Cazador: "Hunter",
+  Misiones: "Missions",
+  Fiteos: "Fittings",
+  "Industria (blueprints y contratos)": "Industry (blueprints and contracts)",
+  "Campañas militares (tu contribución)": "Military campaigns (your contribution)",
+  "Blueprints (ME/TE reales)": "Blueprints (real ME/TE)",
+  "Estructuras (assets en citadels)": "Structures (assets in citadels)",
+  "Fatiga de salto": "Jump fatigue",
+  "Fittings (fiteos del juego)": "Fittings (from the game)",
+  "Medallas (Bitácora)": "Medals (Logbook)",
+  "Lealtad / LP (misiones)": "Loyalty / LP (missions)",
+  "Proyectos de corp": "Corp projects",
+  "Tu PI (colonias)": "Your PI (colonies)",
+  "Tus agentes": "Your agents",
+  "Mis corps NPC (LP)": "My NPC corps (LP)",
+  "Wormholes Thera/Turnur": "Thera/Turnur wormholes",
+
+  "No se pudo abrir el navegador. El enlace está copiado.":
+    "Couldn't open your browser. The link is copied.",
   "¿No se abre? Copiar enlace": "Not opening? Copy link",
   "Si el navegador no se ha abierto, copia el enlace y ábrelo tú":
     "If your browser didn't open, copy the link and open it yourself",

@@ -4,7 +4,9 @@ import { loadNewEden } from "./neweden";
 import { Ticker } from "./ticker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+// `revealItemInDir` se queda: abre el explorador de archivos, que es otra cosa y sí funciona.
+// Los enlaces web van por `openExternal` (ver ese fichero para el porqué).
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { save, open as openDialog, message, confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
@@ -54,6 +56,7 @@ import {
   TAB_HEAD,
 } from "./constants";
 import type { Tab, MapOverlay } from "./constants";
+import { openExternal, setOpenExternalFallback } from "./openExternal";
 import type {
   Character,
   LoginOutcome,
@@ -792,6 +795,16 @@ function App() {
   // es justo lo que nadie quiere hacer cuando algo ya le ha fallado.
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
+
+  // Si un enlace externo no se puede abrir (sin navegador en el sistema), `openExternal` ya lo ha
+  // copiado al portapapeles; aquí solo se avisa. Mismo principio que el login: nunca dejar un clic
+  // sin respuesta.
+  useEffect(() => {
+    setOpenExternalFallback(() =>
+      showGlobalAlert(tr("No se pudo abrir el navegador. El enlace está copiado."), "pi"),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     const un = listen<string>("sso-login-url", (e) => setLoginUrl(e.payload));
     return () => {
@@ -2517,7 +2530,7 @@ function App() {
           <span className="sb-sep" />
           <button
             className="sb-kofi"
-            onClick={() => openUrl("https://ko-fi.com/rogiz7")}
+            onClick={() => openExternal("https://ko-fi.com/rogiz7")}
             title={tr("Apoyar el proyecto en Ko-fi (totalmente voluntario)")}
           >
             ☕ {tr("Invítame a un café")}

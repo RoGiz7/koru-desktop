@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtAgo, fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
+import { openExternal } from "./openExternal";
 
 type Habitual = {
   name_lower: string;
@@ -210,7 +210,7 @@ export function CazadorView({
               <h3>📇 {profile.name}</h3>
               <div className="cazador-ficha-btns">
                 {profile.character_id != null && profile.character_id > 0 && (
-                  <button onClick={() => openUrl(`https://zkillboard.com/character/${profile.character_id}/`)}>
+                  <button onClick={() => openExternal(`https://zkillboard.com/character/${profile.character_id}/`)}>
                     zKill
                   </button>
                 )}
@@ -240,7 +240,7 @@ export function CazadorView({
                   </button>
                 )}
                 {profile.character_id != null && profile.character_id > 0 && (
-                  <button onClick={() => openUrl(`https://zkillboard.com/character/${profile.character_id}/`)}>
+                  <button onClick={() => openExternal(`https://zkillboard.com/character/${profile.character_id}/`)}>
                     zKill
                   </button>
                 )}

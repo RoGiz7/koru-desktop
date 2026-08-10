@@ -2,12 +2,12 @@
 // y vista tabla/gráfica. Extraído de App.tsx. TrendScrub/ViewToggle son internos de esta vista.
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, shipIcon, zkillUrl, daysAgo, weekKey } from "./format";
 import { Kpi, Bars, Th, MultiLineProgress, RangePresets } from "./charts";
 import { loadNewEden } from "./neweden";
 import type { PvpStats, PvpTrendPoint, KillmailRow, NameCount, TopSeriesPoint, GamelogPvpRow, GamelogPvpDay } from "./types";
+import { openExternal } from "./openExternal";
 
 // ---- Gráfica ÚNICA de actividad PvP ----
 // Unifica tendencia (Kills/Losses) + top naves + top sistemas en una sola multilínea.
@@ -260,7 +260,7 @@ function DotlanBtn({ system }: { system: string | null | undefined }) {
       title={`${tr("Ver")} ${system} ${tr("en Dotlan")}`}
       onClick={(e) => {
         e.stopPropagation(); // la fila abre zKill; este botón solo Dotlan
-        openUrl(`https://evemaps.dotlan.net/system/${system.replace(/ /g, "_")}`);
+        openExternal(`https://evemaps.dotlan.net/system/${system.replace(/ /g, "_")}`);
       }}
     >
       🗺
@@ -533,7 +533,7 @@ export function PvpView(props: {
                     <tr
                       key={k.killmail_id}
                       className="clickable kill"
-                      onClick={() => openUrl(zkillUrl(k.killmail_id))}
+                      onClick={() => openExternal(zkillUrl(k.killmail_id))}
                       title={tr("Abrir en zKillboard")}
                     >
                       <td className="ship-cell">
@@ -589,7 +589,7 @@ export function PvpView(props: {
             <tr
               key={k.killmail_id}
               className={`clickable ${k.is_loss ? "loss" : "kill"}`}
-              onClick={() => openUrl(zkillUrl(k.killmail_id))}
+              onClick={() => openExternal(zkillUrl(k.killmail_id))}
               title={tr("Abrir en zKillboard")}
             >
               <td>

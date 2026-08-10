@@ -6,7 +6,6 @@
 // un wormhole, sobre todo). Ver `signatures.ts` (parser) y `db/mod.rs::signatures_replace_system`.
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import { tr } from "./i18n";
 import { typeIcon, typeRender } from "./format";
@@ -16,6 +15,7 @@ import type { NeSystem } from "./types";
 import { buildLootIndex, type LootIndex } from "./lootPaste";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
+import { openExternal } from "./openExternal";
 
 /** Etiqueta e icono por tipo de sitio. `tid` = typeID real de EVE (image server) para el icono
  *  auténtico; el `icon` emoji es la reserva (y lo que se ve en los <select>, que no admiten <img>).
@@ -698,7 +698,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
                               <button
                                 className="sig-wiki-link"
                                 title={`${tr("Buscar en la wiki de EVE University")}: ${siteNameEn(r.name, dungeonIdx)}`}
-                                onClick={() => openUrl(siteWikiUrl(r.name, dungeonIdx))}
+                                onClick={() => openExternal(siteWikiUrl(r.name, dungeonIdx))}
                               >
                                 ↗
                               </button>
