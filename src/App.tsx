@@ -791,11 +791,9 @@ function App() {
   // Se copia al portapapeles directamente porque la URL es larguísima y seleccionarla de un cuadro
   // es justo lo que nadie quiere hacer cuando algo ya le ha fallado.
   const [manualUrl, setManualUrl] = useState<string | null>(null);
+  const [loginUrl, setLoginUrl] = useState<string | null>(null);
   useEffect(() => {
-    const un = listen<string>("sso-manual-url", (e) => {
-      setManualUrl(e.payload);
-      navigator.clipboard?.writeText(e.payload).catch(() => {});
-    });
+    const un = listen<string>("sso-login-url", (e) => setLoginUrl(e.payload));
     return () => {
       un.then((f) => f());
     };
@@ -2462,6 +2460,22 @@ function App() {
           {busy && (
             <button className="sb-cancel" onClick={handleCancelLogin} title={tr("Cancelar el inicio de sesión")}>
               {tr("Cancelar login")}
+            </button>
+          )}
+          {/* Salida manual, SIEMPRE visible mientras se espera. En Linux puede no haber ningún
+              navegador que Koru sepa abrir, y sin esto el login se queda colgado sin explicación.
+              El listener del callback sigue escuchando: en cuanto el usuario abra el enlace, el
+              login termina solo. */}
+          {busy && loginUrl && (
+            <button
+              className="sb-cancel"
+              onClick={() => {
+                navigator.clipboard?.writeText(loginUrl).catch(() => {});
+                setManualUrl(loginUrl);
+              }}
+              title={tr("Si el navegador no se ha abierto, copia el enlace y ábrelo tú")}
+            >
+              {tr("¿No se abre? Copiar enlace")}
             </button>
           )}
         </div>

@@ -84,9 +84,43 @@ fn abrir_navegador(url: &str) -> Result<(), String> {
             ]);
             for cmd in intentos {
                 let (prog, args) = cmd.split_first().expect("intento vacío");
-                match std::process::Command::new(prog).args(args).arg(url).spawn() {
-                    Ok(_) => return Ok(()),
-                    Err(e) => ultimo = format!("{prog}: {e}"),
+                let hijo = std::process::Command::new(prog).args(args).arg(url).spawn();
+                let mut hijo = match hijo {
+                    Ok(h) => h,
+                    Err(e) => {
+                        ultimo = format!("{prog}: {e}");
+                        continue;
+                    }
+                };
+                // ⚠️ `spawn()` SOLO falla si el binario no existe. `gio` está en casi cualquier
+                // escritorio con GNOME: lo lanzábamos, fallaba por dentro y nosotros dábamos el
+                // navegador por abierto — por eso al tester no le salía ni el aviso.
+                //
+                // Tampoco vale `status()`: los lanzadores (`gio open`, `x-www-browser`) terminan
+                // enseguida, pero un `firefox` sin instancia previa SE QUEDA como el navegador y
+                // bloquearía hasta que el usuario lo cerrase.
+                //
+                // Por eso: esperar un poco y decidir. Si sigue vivo pasado el margen, es que ES el
+                // navegador → bien. Si murió, mandan sus códigos de salida.
+                let limite = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+                loop {
+                    match hijo.try_wait() {
+                        Ok(Some(st)) if st.success() => return Ok(()),
+                        Ok(Some(st)) => {
+                            ultimo = format!("{prog}: salió con {st}");
+                            break;
+                        }
+                        Ok(None) => {
+                            if std::time::Instant::now() >= limite {
+                                return Ok(()); // sigue vivo: es el navegador
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Err(e) => {
+                            ultimo = format!("{prog}: {e}");
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -98,11 +132,13 @@ fn abrir_navegador(url: &str) -> Result<(), String> {
 /// Ejecuta el flujo completo de login para los `scopes` pedidos.
 /// Si `scopes` está vacío, hace login de solo identidad.
 ///
-/// `on_manual` se llama con la URL SI no se pudo abrir ningún navegador. No es un error: el
-/// listener del callback sigue esperando, así que basta con que el usuario pegue el enlace a mano
-/// para que el login termine igual. Abortar ahí dejaba el login en un callejón sin salida — la URL
-/// se perdía y nadie escuchaba ya el callback.
-pub async fn login<F: FnOnce(&str)>(scopes: Vec<String>, on_manual: F) -> AppResult<LoginOutcome> {
+/// `on_url` recibe la URL de autorización **SIEMPRE**, se haya podido abrir el navegador o no.
+///
+/// Es a propósito. La primera versión solo avisaba cuando detectábamos el fallo, y al tester de
+/// Linux no le salió nada: creíamos haber abierto el navegador cuando no. **Detectar el fracaso es
+/// frágil; ofrecer siempre la salida no lo es.** El coste de ofrecerla de más es un botón discreto
+/// que nadie mira; el de no ofrecerla es un login que se queda colgado para siempre.
+pub async fn login<F: FnOnce(&str)>(scopes: Vec<String>, on_url: F) -> AppResult<LoginOutcome> {
     let client = http_client()?;
     let meta = metadata::get(&client).await?;
 
@@ -120,11 +156,12 @@ pub async fn login<F: FnOnce(&str)>(scopes: Vec<String>, on_manual: F) -> AppRes
     let callback_handle =
         tokio::task::spawn_blocking(|| callback::wait_for_callback(Duration::from_secs(180)));
 
-    // 2) Abrimos el navegador del sistema en la URL de autorización. Si no se puede, NO se aborta:
-    //    se avisa con la URL y se sigue esperando el callback, que ya está escuchando.
+    // 2) La URL viaja al frontend ANTES de intentar nada, para que la salida manual esté disponible
+    //    pase lo que pase. Luego se intenta abrir el navegador; si no se puede, no se aborta: el
+    //    listener sigue escuchando y basta con que el usuario pegue el enlace.
+    on_url(&authorize_url);
     if let Err(e) = abrir_navegador(&authorize_url) {
-        eprintln!("login: no se pudo abrir el navegador ({e}); se pide abrir el enlace a mano");
-        on_manual(&authorize_url);
+        eprintln!("login: no se pudo abrir el navegador ({e}); queda el enlace manual");
     }
 
     // 3) Esperamos el callback.

@@ -1239,12 +1239,12 @@ pub async fn login(
         scopes_for_feature(&feature)
     };
 
-    // Si no hay forma de abrir un navegador (pasa en Linux cuando no hay manejador de `https`
-    // registrado), se emite "sso-manual-url" con el enlace. El login NO falla: sigue esperando el
-    // callback, así que en cuanto el usuario pegue la URL en su navegador, termina igual.
+    // El enlace de autorización se emite SIEMPRE, se abra el navegador o no: la UI ofrece copiarlo
+    // mientras espera. Detectar si el navegador abrió de verdad es frágil (ver `abrir_navegador`);
+    // tener siempre la salida a mano, no.
     let app2 = app.clone();
     let outcome = sso::login(scopes, move |url| {
-        let _ = app2.emit("sso-manual-url", url.to_string());
+        let _ = app2.emit("sso-login-url", url.to_string());
     })
     .await?;
     state.db.upsert_character(
