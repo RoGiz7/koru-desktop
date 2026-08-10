@@ -5705,22 +5705,76 @@ pub fn read_audio_file(path: String) -> AppResult<Vec<u8>> {
     std::fs::read(&path).map_err(|e| AppError::Other(format!("no se pudo leer el audio: {e}")))
 }
 
-/// Ruta por defecto de la carpeta de Chatlogs en Windows (Documents\EVE\logs\Chatlogs).
-#[tauri::command]
-pub fn default_chatlogs_dir() -> String {
-    if let Ok(up) = std::env::var("USERPROFILE") {
-        return format!("{up}\\Documents\\EVE\\logs\\Chatlogs");
+/// Dónde guarda EVE sus logs, por plataforma. Devuelve **la primera carpeta que EXISTE de verdad**;
+/// si ninguna, la canónica de la plataforma para que el campo no salga vacío en una instalación
+/// nueva donde EVE aún no ha arrancado.
+///
+/// Comprobar la existencia y no limitarse a construir la ruta es lo que hace esto útil: quien haya
+/// movido su carpeta Documents recibía antes una ruta inventada con toda la seguridad del mundo.
+///
+/// **Windows**: `%USERPROFILE%\Documents\EVE\logs\<sub>`.
+/// **macOS**: el cliente nativo escribe en `~/Documents/EVE/logs/<sub>`.
+/// **Linux**: EVE va por Wine/Proton, así que los logs viven DENTRO del prefijo y no hay una sola
+/// ruta buena — se prueban las de Wine, Steam Proton (appid 8500) y Lutris. Si no acierta ninguna,
+/// el usuario elige la carpeta a mano, que es algo que la app ya sabe hacer.
+fn eve_log_dir(sub: &str) -> String {
+    let mut cands: Vec<std::path::PathBuf> = Vec::new();
+
+    // Los `#[cfg]` van sobre un BLOQUE y no sobre el `if let`: sobre bloque es inequívoco y no
+    // depende de cómo trate rustc los atributos en expresiones. Aquí no se puede compilar Rust, así
+    // que en lo que toca a las dos plataformas se elige siempre la forma aburrida.
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(up) = std::env::var("USERPROFILE") {
+            cands.push(
+                std::path::Path::new(&up).join("Documents").join("EVE").join("logs").join(sub),
+            );
+        }
     }
-    String::new()
+
+    #[cfg(not(target_os = "windows"))]
+    {
+    if let Ok(home) = std::env::var("HOME") {
+        let home = std::path::Path::new(&home);
+        let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
+        // macOS (cliente nativo) y, de paso, cualquier enlace que alguien haya puesto ahí.
+        cands.push(home.join("Documents/EVE/logs").join(sub));
+        // Wine por defecto.
+        cands.push(home.join(".wine/drive_c/users").join(&user).join("Documents/EVE/logs").join(sub));
+        // Steam Proton: el usuario del prefijo SIEMPRE es `steamuser`, no el tuyo.
+        for base in [".steam/steam", ".local/share/Steam", ".var/app/com.valvesoftware.Steam/.local/share/Steam"] {
+            cands.push(
+                home.join(base)
+                    .join("steamapps/compatdata/8500/pfx/drive_c/users/steamuser/Documents/EVE/logs")
+                    .join(sub),
+            );
+        }
+        // Lutris, disposición habitual.
+        cands.push(home.join("Games/eve-online/drive_c/users").join(&user).join("Documents/EVE/logs").join(sub));
+    }
+    }
+
+    for c in &cands {
+        if c.is_dir() {
+            return c.to_string_lossy().into_owned();
+        }
+    }
+    cands
+        .first()
+        .map(|c| c.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
-/// Ruta por defecto de la carpeta de Gamelogs en Windows (Documents\EVE\logs\Gamelogs).
+/// Ruta por defecto de la carpeta de Chatlogs.
+#[tauri::command]
+pub fn default_chatlogs_dir() -> String {
+    eve_log_dir("Chatlogs")
+}
+
+/// Ruta por defecto de la carpeta de Gamelogs.
 #[tauri::command]
 pub fn default_gamelogs_dir() -> String {
-    if let Ok(up) = std::env::var("USERPROFILE") {
-        return format!("{up}\\Documents\\EVE\\logs\\Gamelogs");
-    }
-    String::new()
+    eve_log_dir("Gamelogs")
 }
 
 /// Resultado del escaneo de gamelogs.

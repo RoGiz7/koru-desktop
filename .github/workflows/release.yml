@@ -17,7 +17,20 @@ jobs:
   release:
     permissions:
       contents: write
-    runs-on: windows-latest
+    strategy:
+      # SIN fail-fast: si el build de Linux se rompe, el de Windows tiene que salir igual. Linux es
+      # el experimento; Windows es la plataforma de la que vive la gente.
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+          # ubuntu-22.04 A PROPÓSITO, no `ubuntu-latest`. Un AppImage arrastra la glibc de la
+          # máquina donde se construye: compilado en 24.04 no arranca en distros más viejas, y al
+          # revés sí. Construir en la más antigua soportada es lo que da compatibilidad.
+          - platform: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -33,6 +46,23 @@ jobs:
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Tauri en Linux se apoya en el WebView del sistema (WebKitGTK) en vez de traerse el suyo,
+      # así que estas librerías no son opcionales: sin ellas ni compila.
+      - name: Dependencias del sistema (solo Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl wget file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev
+
       - name: Instalar dependencias del frontend
         run: npm ci
 
@@ -47,4 +77,15 @@ jobs:
           releaseName: "Koru Desktop ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: "Instalador abajo. Si ya tienes la app, se actualizará sola."
           releaseDraft: true
-          prerelease: false
+          # Un tag con GUION (v0.42.0-rc1, v0.42.0-beta) sale como PRERELEASE automáticamente.
+          #
+          # No es cosmético: GitHub no marca una prerelease como «Latest», y el updater apunta a
+          # `/releases/latest/download/latest.json` → **una prerelease no toca el updater de nadie**.
+          # Es la forma de probar una plataforma nueva de verdad, con el instalador real y un
+          # usuario real, sin apostar el updater de los que ya tienes.
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}
+          args: ${{ matrix.args }}
+          # ⚠️ EN LINUX EL UPDATER SOLO FUNCIONA CON APPIMAGE. El .deb y el .rpm se instalan bien
+          # pero NO se actualizan solos, porque el updater de Tauri sustituye el binario y un
+          # paquete lo gestiona el gestor de paquetes de la distro, no nosotros. Se generan los
+          # tres igualmente: quien prefiera .deb sabe que actualiza a mano.
