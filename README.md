@@ -1,110 +1,191 @@
 <p align="center">
-  <img src="branding/banner.png" alt="Koru Desktop — tu copiloto para EVE Online" width="100%">
+  <img src="branding/banner.png" alt="Koru Desktop — your copilot for EVE Online" width="100%">
 </p>
 
 <p align="center">
-  App de escritorio <b>local-first</b> y <b>open source</b> para <b>EVE Online</b>: tus estadísticas
-  y un <b>mapa de New Eden con intel en vivo</b>, hablando directamente con la API oficial (ESI).
+  <b>🇬🇧 English</b> · <a href="README.es.md">🇪🇸 Español</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/RoGiz7/koru-desktop/releases/latest"><b>⬇️ Descargar última versión</b></a> ·
-  <a href="https://github.com/RoGiz7/koru-desktop/releases">Todas las releases</a> ·
-  <a href="https://ko-fi.com/rogiz7">☕ Apoyar</a>
+  A <b>local-first</b>, <b>open source</b> desktop app for <b>EVE Online</b>: your stats, your history,
+  and a <b>New Eden map with live intel</b> — talking straight to the official API (ESI).
 </p>
 
 <p align="center">
-  <a href="https://github.com/RoGiz7/koru-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/RoGiz7/koru-desktop?label=versi%C3%B3n&color=4f9cff" alt="Última versión"></a>
-  <img src="https://img.shields.io/badge/plataforma-Windows-555" alt="Windows">
-  <img src="https://img.shields.io/badge/licencia-MIT-green" alt="MIT">
-  <img src="https://img.shields.io/badge/se%20actualiza%20sola-✓-7fd8ff" alt="Auto-update">
+  <a href="https://github.com/RoGiz7/koru-desktop/releases/latest"><b>⬇️ Download latest</b></a> ·
+  <a href="https://github.com/RoGiz7/koru-desktop/releases">All releases</a> ·
+  <a href="https://ko-fi.com/rogiz7">☕ Buy me a coffee</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/RoGiz7/koru-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/RoGiz7/koru-desktop?label=version&color=4f9cff" alt="Latest version"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-555" alt="Windows and Linux">
+  <img src="https://img.shields.io/badge/UI-English%20%7C%20Espa%C3%B1ol-9b8cff" alt="English and Spanish">
+  <img src="https://img.shields.io/badge/licence-MIT-green" alt="MIT">
+  <img src="https://img.shields.io/badge/self--updating-✓-7fd8ff" alt="Auto-update">
 </p>
 
 ---
 
-Hecha con cariño para la comunidad: **gratis, sin ánimo de lucro y sin competir con nadie**. El mapa es
-el corazón — tus datos (PvP, assets, minería, ubicación) y los datos públicos del cluster (soberanía,
-guerra de facciones, incursiones, wormholes…) se superponen como capas sobre el New Eden real.
+Built for the community: **free, non-commercial, and not trying to compete with anyone.**
 
-## ⬇️ Descargar
+Koru runs on **Windows and Linux**, and the whole interface is available in **English and Spanish** —
+switch language from the top bar, no restart needed.
 
-Coge el instalador de la **[última release](https://github.com/RoGiz7/koru-desktop/releases/latest)**
-(`.msi` o `setup.exe`) y ejecútalo. Una vez instalada, **se actualiza sola**: cuando publico una versión
-nueva, la app te avisa y se actualiza al reiniciar.
+## 🎯 What makes it different
 
-> **Aviso de SmartScreen:** la app aún no está firmada con certificado, así que Windows mostrará
-> "Windows protegió tu PC". Pulsa **Más información → Ejecutar de todas formas**. Es normal en apps indie
-> y el aviso se suaviza según más gente la descarga.
+Most EVE tools show you **a snapshot**: what ESI returns right now. ESI forgets — industry jobs vanish
+after 90 days, contracts after 30, and your assets have no history at all.
 
-## ✨ Qué tiene
+**Koru keeps the film.** It stores your data locally, day after day, so it can answer questions ESI
+simply cannot: what you were building three months ago, how your wealth actually moved, which systems
+light up on your route and at what time of night.
 
-- 🚨 **Intel en vivo (lo más nuevo)** — lee tus canales de intel del log de chat del juego (solo lectura,
-  seguro para los TOS) y **pinta los hostiles en el mapa en tiempo real**. Alertas de **proximidad** desde
-  tu personaje **y puntos de ancla** (staging, chokepoints…), con **notificación nativa aunque la app esté
-  minimizada** (detección en un hilo en segundo plano, no se ralentiza), **sonido configurable** (varios
-  presets o tu propio archivo), enlace del hostil a **zKillboard** y su **trayectoria** según los reportes.
-- 🗺️ **Mapa de New Eden** con capas conmutables agrupadas por categorías: Ubicación, Lugares/POI, Seguridad,
-  Soberanía, Guerra de facciones, Incursiones, Kills/Jumps de la última hora, **wormholes Thera/Turnur**
-  (vía eve-scout) y tus capas personales (PvP, assets, minería).
-- 🧭 **Navegación** — planificador de **rutas** (stargates) y de **saltos** de capital con **rango,
-  combustible y fatiga** calculados según tu nave y tus skills.
-- ⚔️ **PvP** — killmails (ESI + zKillboard), eficacia ISK, top de naves y sistemas, rivales, batallas y
-  actividad por día/hora.
-- 💰 **Patrimonio y finanzas** — valor de tus assets (precios públicos de mercado) con **snapshots locales
-  y gráfico de evolución**, wallet, **rateo** con histórico local, minería, comercio (órdenes) y
-  planetología (PI).
-- 🚀 **Assets y Fiteos** — assets con ubicación/contenedor y *drill-down*; **gestor de fiteos** (importa
-  desde EFT o desde el propio juego) con **visor circular** y **chequeo de skills** del personaje.
-- 🧑‍🚀 **Personaje** — ficha completa (atributos, implantes, clones), skills y colas. Todo **por personaje**
-  y en **vista global** multi-cuenta.
-- 💾 **Copias de seguridad** — backup y restauración de tu histórico local, con copias automáticas.
+That last one is the point. Koru has been recording **your own intel** for months — so it can tell you
+things no killboard can, because they're built from data only you have.
 
-## 🔒 Privacidad
+<p align="center">
+  <img src="branding/screenshots/intel-overlay.png" alt="Koru's alert overlay on top of the game" width="550">
+</p>
+<p align="center">
+  <sub><i>The overlay, floating over the game. Not just <b>"1 jump"</b> — <b>whose</b> jump, in <b>what ship</b>,<br>
+  and how long ago. That context doesn't exist anywhere else.</i></sub>
+</p>
 
-Todo es **local y privado**. La app habla solo con ESI y zKillboard usando **tus** propios tokens:
+## ⬇️ Download
 
-- Autenticación **OAuth2 PKCE** (sin client secret).
-- Los *refresh tokens* se guardan en el **keychain del sistema operativo**, nunca en disco plano ni en el
-  repositorio.
-- **No hay servidor propio ni telemetría**: tus datos no salen de tu máquina salvo las llamadas a ESI/zKill.
-- Solo se piden los **scopes** de cada sección, de forma granular.
+Grab the installer from the **[latest release](https://github.com/RoGiz7/koru-desktop/releases/latest)**.
 
-Al ser **open source**, puedes verificar tú mismo todo lo anterior antes de iniciar sesión.
+### Windows
 
-## 🛠️ Compilar desde el código
+Download the `.msi` or `setup.exe` and run it. Once installed it **updates itself**: when a new version
+ships, the app tells you and updates on restart.
 
-Requisitos: [Node.js](https://nodejs.org/) y [Rust](https://www.rust-lang.org/tools/install) +
-[prerrequisitos de Tauri](https://v2.tauri.app/start/prerequisites/).
+> **SmartScreen warning:** the app isn't signed with a certificate yet, so Windows will show
+> *"Windows protected your PC"*. Click **More info → Run anyway**. This is normal for indie apps and the
+> warning fades as more people download it.
+
+### Linux
+
+Three formats are published — pick the one that fits your distro:
+
+| Format | Install | Auto-update |
+|---|---|---|
+| **`.AppImage`** | `chmod +x` and run it | ✅ **yes** |
+| **`.deb`** | Debian, Ubuntu, Mint… | ❌ manual |
+| **`.rpm`** | Fedora, openSUSE… | ❌ manual |
+
+> ⚠️ **On Linux the updater only works with the AppImage.** The `.deb` and `.rpm` install fine and run
+> exactly the same, but they can't replace themselves — with those you download the new version by hand.
+> If you want the app to keep itself up to date, take the AppImage.
+
+Tested on X11 and built on Ubuntu 22.04 on purpose, so the AppImage doesn't drag in a glibc newer than
+most distros ship.
+
+## ✨ What's in it
+
+- 🚨 **Live intel + the alert overlay** — reads your intel channels from the game's chat log
+  (**read-only, TOS-safe**) and paints hostiles on the map in real time. Proximity alerts from **your
+  pilot** *and* from **anchor points** (staging, chokepoints…), with **native notifications even when
+  minimised**, configurable sound, a zKillboard link for the hostile and their reported trajectory.
+  The **floating overlay sits on top of the game** and adds the part nobody else can give you: not just
+  *"5 jumps"*, but **whose** 5 jumps they are. You can also **mute a system** when a channel gets noisy —
+  it silences the alarm, never the data, and the map shows you it's muted.
+- 🗺️ **New Eden map** with toggleable layers grouped by category: your location and route, POIs, security,
+  sovereignty, faction warfare, incursions, kills and jumps in the last hour, **Thera/Turnur wormholes**
+  (via eve-scout) and your personal layers (PvP, assets, mining).
+- 🧭 **Navigation** — **route planner** (stargates, with your declared Ansiblex network) and **capital jump
+  planner** with range, fuel and fatigue worked out from your ship and your skills. Send any route to the
+  game in one click.
+- ⚔️ **PvP** — killmails (ESI + zKillboard), ISK efficiency, top ships and systems, rivals, battles,
+  activity by day and hour, and a **hunter** view.
+- 🏭 **Industry** — the full pillar: **manufacturing, invention, copying and reactions**, with the real
+  cost of a job (rigs, system cost index, security multiplier, facility taxes) and **build-vs-buy**.
+  Bill of materials with volumes, blueprint library and military campaign contribution.
+- 🚚 **Transport** — **what you own and where**, split into cargo and assembled fleet, with the **real
+  cargo capacity of your ships** (including specialised holds: ore, fleet, planetary) and a **courier
+  contract ledger** that starts recording from day one.
+- 📖 **Logbook and medals** — your history month by month: 36 medals with their own series, milestones
+  with dates, a diary by year, and abyssal/CRAB runs across multiple accounts.
+- 📡 **Exploration** — signature tracker with local history.
+- 💰 **Wealth and finances** — asset value from public market prices with **local snapshots and an
+  evolution chart**, wallet, ratting with history, mining, trading (orders) and planetary industry (PI).
+- 🚀 **Assets and fits** — assets by location and container with drill-down; **fit manager** (import from
+  EFT or from the game itself) with a circular viewer and a **skill check**.
+- 🧑‍🚀 **Character** — full sheet (attributes, implants, clones), skills and queues. Everything **per
+  character** and in a **global multi-account view**.
+- 💾 **Backups** — back up and restore your local history, with automatic copies.
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="branding/screenshots/map-intel-layers.png" alt="New Eden map with layers"><br><sub><b>The map</b> — your layers and the cluster's, on the real New Eden.</sub></td>
+    <td width="50%"><img src="branding/screenshots/logbook.png" alt="Logbook and achievements"><br><sub><b>Logbook</b> — your history month by month, with medals and milestones.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="branding/screenshots/industry-build-cost.png" alt="Real build cost of an industry job"><br><sub><b>Industry</b> — what a job <i>really</i> costs: rigs, indices, taxes.</sub></td>
+    <td width="50%"><img src="branding/screenshots/mining.png" alt="Mining with local history"><br><sub><b>Mining</b> — ore extracted and its value, with local history.</sub></td>
+  </tr>
+</table>
+
+More in the **[Ko-fi gallery](https://ko-fi.com/album/Koru--Descktop-Y1T622A8LH)**.
+
+## 🔒 Privacy
+
+Everything is **local and private**. The app talks only to ESI and zKillboard, using **your** own tokens:
+
+- **OAuth2 PKCE** authentication (no client secret).
+- Refresh tokens live in the **operating system keychain**, never in a plain file or in this repository.
+- **No server of mine and no telemetry**: your data never leaves your machine beyond the ESI/zKill calls.
+- Only the **scopes** each section needs are requested, granularly.
+
+Being open source, you can check all of the above yourself before you log in.
+
+## 🛠️ Build from source
+
+Requirements: [Node.js](https://nodejs.org/) and [Rust](https://www.rust-lang.org/tools/install) +
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 npm install
-npm run tauri dev     # desarrollo
-npm run tauri build   # genera el instalador en src-tauri/target/release/bundle/
+npm run tauri dev     # development
+npm run tauri build   # installer lands in src-tauri/target/release/bundle/
 ```
 
-Para usar tu propia app registrada en CCP, pon tu `client_id` en `src-tauri/src/config.rs`
-(ver `docs/REGISTRO_APP.md`). En PKCE el `client_id` no es secreto.
+On **Debian/Ubuntu** you also need the system libraries:
 
-## ☕ Apoyar el proyecto
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev patchelf \
+  build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev
+```
 
-Si te resulta útil y quieres invitar a un café, se agradece — pero **es del todo voluntario**: la app es y
-será igual de completa para todo el mundo, dones o no.
+> ⚠️ Install `libayatana-appindicator3-dev`, **not** the old `libappindicator3-dev` — they conflict, and
+> listing both makes apt abort.
+
+To use your own registered application, put your `client_id` in `src-tauri/src/config.rs`
+(see [`docs/REGISTRO_APP.md`](docs/REGISTRO_APP.md)). With PKCE the `client_id` isn't a secret.
+
+## ☕ Support the project
+
+If you find it useful and want to buy me a coffee, it's appreciated — but **entirely optional**: the app
+is and will stay just as complete for everyone, donations or not.
 
 **[ko-fi.com/rogiz7](https://ko-fi.com/rogiz7)**
 
-## 🙌 Créditos y agradecimientos
+## 🙌 Credits
 
-- **Fenris Creations** (antes CCP Games) por EVE Online, la API ESI y el Static Data Export.
-- La **comunidad de desarrolladores de EVE**, de la que esta herramienta aprende y a la que quiere devolver
-  algo. Inspiración (solo inspiración, sin copiar código) en herramientas de la comunidad.
-- Construida con **Tauri**, **Rust** y **React**.
+- **Fenris Creations** (formerly CCP Games) for EVE Online, the ESI API and the Static Data Export.
+- The **EVE developer community**, which this tool learns from and wants to give something back to.
+  Inspiration only — no code copied.
+- Built with **Tauri**, **Rust** and **React**.
 
-## 📄 Licencia
+## 📄 Licence
 
-[MIT](LICENSE). Úsala, modifícala y compártela libremente.
+[MIT](LICENSE). Use it, modify it and share it freely.
 
 ---
 
-EVE Online y el logo de EVE son marcas registradas de Fenris Creations (anteriormente CCP Games / CCP hf.).
-Esta es una herramienta de **terceros**, **no afiliada ni respaldada por Fenris Creations**. Todo el
-material relacionado con EVE Online es propiedad de sus respectivos titulares.
+EVE Online and the EVE logo are registered trademarks of Fenris Creations (formerly CCP Games / CCP hf.).
+This is a **third-party** tool, **not affiliated with or endorsed by Fenris Creations**. All EVE Online
+related material is the property of its respective owners.
