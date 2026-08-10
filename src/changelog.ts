@@ -6,6 +6,18 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.43.0",
+    date: "2026-08-10",
+    es: [
+      "📦 «Qué tienes y dónde», dentro de Transporte. Todo tu material agrupado por ubicación, con los m³ y las pilas de cada una, y un buscador para encontrar un objeto sin saber dónde lo dejaste. Lo importante es que separa dos cosas que el juego mezcla: lo que es CARGA y lo que es FLOTA MONTADA. Una nave montada no se transporta, se vuela o se reempaqueta, así que sumarla a los m³ de un viaje te haría creer que cabe cuando no cabe. Cada línea dice en qué estado está, y cuando el SDE no publica el volumen de un tipo, Koru lo dice en vez de contarlo como cero.",
+      "🌍 Koru ya habla inglés hasta el final. Con la app en inglés seguían saliendo cosas en castellano, y algunas en el peor sitio posible: el aviso flotante sobre el juego se quedaba en el idioma que tuviera al abrirse, así que si cambiabas a inglés con Koru abierto seguías leyendo «4 SALTOS» encima de la partida hasta reiniciar. También la barra de estado y el feed de intel decían «hace 8 min» en vez de «8 min ago», el aviso de prueba salía con nombres en castellano, y quedaban seis botones sueltos sin traducir. Cuatro fallos distintos, todos con el mismo síntoma.",
+    ],
+    en: [
+      "📦 “What you own and where”, inside Hauling. Everything you have grouped by location, with the m³ and stack count of each one, and a search box for finding an item when you can't remember where you left it. The point is that it separates two things the game lumps together: what is CARGO and what is ASSEMBLED FLEET. An assembled ship isn't hauled, it's flown or repackaged, so adding it to a trip's m³ would tell you it fits when it doesn't. Every line states which it is, and when the SDE doesn't publish a type's volume, Koru says so instead of counting it as zero.",
+      "🌍 Koru now speaks English all the way through. With the app in English, some things stayed in Spanish — and one of them in the worst possible place: the floating alert over the game kept whatever language it had when it opened, so switching to English with Koru running left you reading “4 SALTOS” over your session until you restarted. The status bar and intel feed also said “hace 8 min” instead of “8 min ago”, the test alert came through with Spanish names, and six stray buttons were never translated. Four separate bugs, one symptom.",
+    ],
+  },
+  {
     version: "0.42.0",
     date: "2026-08-10",
     es: [
