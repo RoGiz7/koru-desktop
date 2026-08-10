@@ -150,12 +150,12 @@ def main() -> int:
                 # Alcances de TODOS los tipos de bono (Material|Time|Cost). Antes solo Material:
                 # los 18 rigs de invención/copia/investigación (que dan coste/tiempo y mat 0)
                 # quedaban con scopes VACÍO → el desplegable de la ficha los escondía y una ficha
-                # de laboratorio no podía declararlos. Lo cazó Zigor montando F2 (2026-07-30).
+                # de laboratorio no podía declararlos. Lo cazó RoGiz7 montando F2 (2026-07-30).
                 # ⚠️ `Mat` además de `Material`: los efectos de REACCIÓN se llaman
                 # `rigReactionCompMatBonus` (abreviado), no `...MaterialBonus`. Sin esa alternativa
                 # los 6 rigs de material de reacción salían con scopes VACÍO y el desplegable de la
                 # ficha los habría escondido — exactamente el mismo agujero mudo que tuvieron los
-                # rigs de laboratorio hasta que Zigor preguntó por ellos.
+                # rigs de laboratorio hasta que RoGiz7 preguntó por ellos.
                 scopes = sorted(
                     {
                         m.group(1)

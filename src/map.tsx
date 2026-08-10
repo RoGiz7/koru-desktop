@@ -999,7 +999,7 @@ export function MapView(props: {
     [geo, overlay, sigSummary, view.z],
   );
 
-  // Pilotos EXCLUIDOS de la proximidad de intel. Petición de Zigor: un alt aparcado en Jita
+  // Pilotos EXCLUIDOS de la proximidad de intel. Petición de RoGiz7: un alt aparcado en Jita
   // convertiría media galaxia en «cerca» y el intel cantaría sin parar. Se guardan los apagados
   // (no los encendidos) para que un personaje NUEVO entre activo por defecto.
   const [pilotsOff, setPilotsOff] = useState<Set<number>>(() => {

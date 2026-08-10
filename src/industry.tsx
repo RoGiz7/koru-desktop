@@ -285,7 +285,7 @@ function inventionProb(base: number, enc: number, sciSum: number, decMult: numbe
  *  la tabla por decryptor con probabilidad, BPC resultante (runs/ME/TE) y coste por intento /
  *  por ÉXITO / por run. HONESTIDAD: sin la tasa del job (pendiente de calibrar con un job real)
  *  y sin el coste de la copia del T1. */
-/** Desplegable de instalación CON ICONOS REALES (petición de Zigor: el tipo de estructura).
+/** Desplegable de instalación CON ICONOS REALES (petición de RoGiz7: el tipo de estructura).
  *  Un <select> nativo no admite <img> (limitación documentada), así que es un picker propio con
  *  el patrón del autocompletar del Watchlist: botón + panel. Icono = el TIPO de la estructura
  *  (Sotiyo/Raitaru/…) del Image Server; sin tipo declarado, un interrogante honesto. */
@@ -416,7 +416,7 @@ function InventionBlock({
   const [labIdx, setLabIdx] = useState<Record<string, number> | null>(null);
   /** Cuántas unidades T2 quieres: la entrada de la cadena hacia atrás (BPCs → intentos → copias). */
   const [want, setWant] = useState(1);
-  // Leyenda «¿quién es tu mejor inventor?» (idea de Zigor): skills de TODOS los personajes para
+  // Leyenda «¿quién es tu mejor inventor?» (idea de RoGiz7): skills de TODOS los personajes para
   // esta invención. Clic en un chip → carga sus niveles en el simulador.
   const [allChars, setAllChars] = useState<
     { character_id: number; name: string; levels: Record<number, number> }[] | null
@@ -949,13 +949,13 @@ function BomPanel({
     const v = Number(localStorage.getItem(PICK_KEY)); // solo la ÚLTIMA elegida: preferencia, no dato
     return v > 0 ? v : null;
   });
-  /** Modo del panel (feedback de Zigor: mezclados era confuso): 🏭 fabricar o 🔬 inventar.
+  /** Modo del panel (feedback de RoGiz7: mezclados era confuso): 🏭 fabricar o 🔬 inventar.
    *  Cada modo enseña SOLO lo suyo, incluida su lista de compra/transporte. */
   const [mode, setMode] = useState<"build" | "invent" | "react" | "copy">("build");
   /** Nodos desplegados del árbol de REACCIONES (clave de ruta, para distinguir el mismo material
    *  colgando de dos ramas distintas). Lo desplegado se reacciona; lo que queda de hoja, se compra. */
   const [openReact, setOpenReact] = useState<Set<string>>(new Set());
-  /** Leyenda «tus fabricantes» (petición de Zigor, gemela de la de inventores): skills de TODOS
+  /** Leyenda «tus fabricantes» (petición de RoGiz7, gemela de la de inventores): skills de TODOS
    *  los personajes — velocidad (Industry × Advanced Industry) y si CUMPLEN las requeridas. */
   const [buildChars, setBuildChars] = useState<
     { character_id: number; name: string; levels: Record<number, number> }[] | null
@@ -984,7 +984,7 @@ function BomPanel({
   }, [facsVersion]);
 
   /** Elegibles: las fichas que TÚ has marcado. UN solo desplegable para todo el panel (decisión de
-   *  Zigor 2026-07-30: dos selectores mezclaban la vista): la FABRICACIÓN usa la ficha si tiene
+   *  RoGiz7 2026-07-30: dos selectores mezclaban la vista): la FABRICACIÓN usa la ficha si tiene
    *  planta (🏭) y la INVENCIÓN si tiene laboratorio (🔬). Cada bloque avisa si le falta su servicio. */
   const usable = useMemo(() => (facs ?? []).filter((f) => f.eligible), [facs]);
   const st = useMemo(() => usable.find((f) => f.id === pick) ?? null, [usable, pick]);
@@ -1572,7 +1572,7 @@ function BomPanel({
   const perRun = act?.out?.[0]?.[1] ?? ract?.out?.[0]?.[1] ?? 1;
   // El modo por defecto lo decide lo que el plano SABE hacer, y se RECALCULA al cambiar de plano.
   // Antes solo forzaba «react» al abrir una fórmula y nunca volvía atrás: al pasar de una fórmula a
-  // un plano normal el modo se quedaba pegado en Reaccionar y el panel salía MUDO (lo cazó Zigor
+  // un plano normal el modo se quedaba pegado en Reaccionar y el panel salía MUDO (lo cazó RoGiz7
   // con el Helium Fuel Block). Depende del plano, no del modo, así que no pisa tu elección manual
   // entre Fabricar e Inventar mientras sigas en el mismo plano.
   useEffect(() => {
@@ -2224,7 +2224,7 @@ function BomPanel({
           <div className="bom-cost-row">
             <span>
               {/* PLEX (44992) = comprar, Badger (648) = transportar: los mismos iconos reales del
-                  Image Server que usa el resto de la app (elección de Zigor). */}
+                  Image Server que usa el resto de la app (elección de RoGiz7). */}
               <img className="kind-glyph" src={typeIcon(44992, 32)} alt="" />{" "}
               {inFacility
                 ? tr("Qué comprar (descontado lo que ya hay EN la instalación)")
@@ -2568,7 +2568,7 @@ function BlueprintLibrary({
           {tr("afina con las pestañas o el buscador.")}
         </p>
       )}
-      {/* 0 resultados con texto en el buscador: decirlo. (Zigor perdió 10 min por un filtro
+      {/* 0 resultados con texto en el buscador: decirlo. (RoGiz7 perdió 10 min por un filtro
           fantasma — el buscador tenía texto y las pestañas parecían rotas.) */}
       {shown.length === 0 && ql !== "" && (
         <p className="muted small">
@@ -3045,13 +3045,13 @@ function FacilityWizard({
             {Object.entries(ir.rigs)
               // Rigs con ALGÚN bono real: material (fabricación) O tiempo/coste (los de
               // invención/copia/investigación dan coste-tiempo y mat 0 — antes quedaban invisibles
-              // y una ficha de laboratorio no podía declararlos; lo cazó Zigor con F2).
+              // y una ficha de laboratorio no podía declararlos; lo cazó RoGiz7 con F2).
               .filter(
                 ([, r]) =>
                   r.scopes.length > 0 &&
                   (r.mat !== 0 || r.time !== 0 || r.cost !== 0 || r.react != null),
               )
-              // Por SERVICIO declarado (idea de Zigor): con bono de material = rig de fabricación →
+              // Por SERVICIO declarado (idea de RoGiz7): con bono de material = rig de fabricación →
               // solo si la ficha tiene planta; sin material (coste/tiempo puro) = rig de laboratorio
               // → solo si tiene lab. Los de REACCIÓN van por su cuenta: viven en otros atributos
               // (`react`) y solo caben en refinerías, así que solo salen si hay reactor declarado.

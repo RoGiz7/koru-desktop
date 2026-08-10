@@ -176,7 +176,7 @@ type MonitorInfo = {
 };
 
 /** Posiciones posibles, en orden de lectura (arriba de izquierda a derecha, luego abajo).
- *  El centro lo pidió Zigor: arriba en medio queda sobre una zona del HUD de EVE que casi siempre
+ *  El centro lo pidió RoGiz7: arriba en medio queda sobre una zona del HUD de EVE que casi siempre
  *  está despejada, así que es buen sitio para un aviso. */
 const ESQUINAS = [
   { k: "tl", label: "Arriba izquierda" },

@@ -16,7 +16,7 @@
 //
 // ⚠️ EL FORMATO, EN DOS CORRECCIONES (las dos en vivo, 2026-08-05).
 //   1ª · Empezó siendo UNA tarjeta con «manda el más cercano»: los demás avisos solo subían un
-//        contador «+N». Zigor lo vio con «5 saltos +7» — la tarjeta se congeló en el primero y los
+//        contador «+N». RoGiz7 lo vio con «5 saltos +7» — la tarjeta se congeló en el primero y los
 //        SIETE siguientes fueron invisibles. Un banner único vale para una alarma; el intel es un
 //        FLUJO y lo nuevo tiene que verse.
 //   2ª · Pasó a pila completa… y con reportes en cadena se comía la pantalla, que es peor que no
@@ -29,7 +29,7 @@
 // Abierta va la MÁS CERCANA (menos saltos a un piloto tuyo), no la más reciente: es la que puede
 // matarte antes. Pulsar un renglón lo abre a él.
 //
-// REGLAS ANTI-RUIDO (decididas con Zigor antes de escribir una línea): tope de avisos a la vez ·
+// REGLAS ANTI-RUIDO (decididas con RoGiz7 antes de escribir una línea): tope de avisos a la vez ·
 // nada se repite · todo caduca solo · y el criterio para merecer salir aquí: **¿el jugador haría
 // algo distinto en los próximos 30 segundos si lo supiera?** Si no, va a la app. Por eso en la v1
 // solo sale el intel: PI, logros y trabajos de industria son cosas de cuando atracas.

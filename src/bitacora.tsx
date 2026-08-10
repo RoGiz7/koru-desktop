@@ -349,7 +349,7 @@ export function BitacoraView({
   const [series, setSeries] = useState<Record<string, AchSeries>>({});
   const [openMedal, setOpenMedal] = useState<string | null>(null);
   /** Pestaña de la Bitácora. `retos` · `progreso` · `oro` · o la clave de un dominio.
-   *  Todo en pestañas (decisión de Zigor): la sección había crecido tanto que lo importante
+   *  Todo en pestañas (decisión de RoGiz7): la sección había crecido tanto que lo importante
    *  quedaba enterrado bajo scroll. Preferencia de UI, no dato: no se persiste. */
   const [tab, setTab] = useState<string>("retos");
   useEffect(() => {
@@ -411,7 +411,7 @@ export function BitacoraView({
           debajo, y una segunda línea suelta con «2 de oro · 22/36 empezadas · la última…» que
           REPETÍA el mismo 22/36. Quedaba pobre y decía dos veces lo mismo en dos sitios.
           Ahora es una sola franja a todo el ancho: cada dato en su celda, con su número grande y su
-          etiqueta debajo, y de remate la barra del medallero entero. Idea de Zigor. */}
+          etiqueta debajo, y de remate la barra del medallero entero. Idea de RoGiz7. */}
       <div className="bit-hero">
         <div className="bit-hero-stats">
           <div className="bhs" title={tr("Suma de puntos por medalla (bronce 1 · plata 3 · oro 8)")}>
@@ -491,7 +491,7 @@ export function BitacoraView({
       {/* El resumen fino de «2 de oro · 22/36 empezadas · la última…» que vivía aquí se ha fundido
           con la franja de arriba: eran los MISMOS datos escritos dos veces con distinto formato. */}
 
-      {/* ---- TODO en pestañas (decisión de Zigor): retos primero, luego lo que está en marcha,
+      {/* ---- TODO en pestañas (decisión de RoGiz7): retos primero, luego lo que está en marcha,
               después el oro, y al final los dominios. Antes era un scroll larguísimo donde lo
               accionable —los retos, que caducan a fin de mes— quedaba arriba pero enterrado en
               cuanto crecía el medallero. ---- */}
@@ -635,7 +635,7 @@ export function BitacoraView({
 
       {/* Las CONDECORACIONES (medallas in-game de corp) ya no viven aquí: se fueron al Diario,
           que es donde encajan —tienen fecha y son parte de tu historia, no de tu progreso—. Allí
-          van replegadas y se despliegan si te interesan. Decisión de Zigor, 2026-08-05. */}
+          van replegadas y se despliegan si te interesan. Decisión de RoGiz7, 2026-08-05. */}
 
       {/* Ficha de la medalla abierta. Se monta UNA sola vez fuera de las rejillas, no una por
           tarjeta: es un modal, y tenerlo dentro del grid lo dejaría atrapado en su overflow. */}

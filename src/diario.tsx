@@ -209,7 +209,7 @@ export function DiarioView({ subject }: { subject: number | "global" }) {
           {tr("Vista global: hitos de todos tus personajes. Elige un personaje para ver también su trayectoria de corporaciones.")}
         </p>
       )}
-      {/* ---- Un AÑO por pestaña (decisión de Zigor) ----
+      {/* ---- Un AÑO por pestaña (decisión de RoGiz7) ----
           El timeline entero era un scroll infinito según crecía la biografía. `years` ya viene
           ordenado de reciente a antiguo, así que el año en curso es el primero y el que se abre
           por defecto: es el que interesa. */}

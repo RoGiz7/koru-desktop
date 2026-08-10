@@ -978,7 +978,7 @@ export function AbyssalRunsView({
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         {/* Un botón DESHABILITADO no recibe eventos de ratón en WebView2, así que
                             su `title` no se ve nunca: pulsarlo no hacía nada y no explicaba por
-                            qué (le pasó a Zigor con sus runs abortadas). Si no se puede editar, no
+                            qué (le pasó a RoGiz7 con sus runs abortadas). Si no se puede editar, no
                             se pinta el botón y el motivo va en el hueco. */}
                         {r.outcome === "aborted" ? (
                           <span className="muted small" title={tr("Una run abortada no tiene botín que corregir. Si te equivocaste al cerrarla, bórrala y vuelve a registrarla.")}>

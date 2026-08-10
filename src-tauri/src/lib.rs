@@ -36,7 +36,7 @@ pub fn run() {
         // Tauri termina el proceso cuando se destruyen TODAS las ventanas. Al añadir el overlay,
         // cerrar Koru dejaba viva esa segunda ventana (aunque estuviera oculta) → el proceso seguía
         // corriendo, el vigilante de intel seguía leyendo y los avisos SEGUÍAN SALIENDO encima del
-        // juego con la app "cerrada". Lo cazó Zigor: «le di a cerrar y sigo viendo el overlay».
+        // juego con la app "cerrada". Lo cazó RoGiz7: «le di a cerrar y sigo viendo el overlay».
         //
         // Cerrar la ventana `main` es la forma en que la gente cierra Koru, así que eso tiene que
         // significar salir. `exit(0)` se lleva por delante el overlay y el hilo de intel.

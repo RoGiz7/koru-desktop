@@ -144,7 +144,7 @@ export function MedalDetail({
   // DE APILAMIENTO propio: dentro de él, el z-index del modal solo compite con sus hermanos de
   // sección, así que los controles del mapa (zoom, capas, Sistemas/Regiones) se le pintaban encima
   // por muy alto que fuera el número. Sacándolo al body el modal deja de estar preso del contexto.
-  // Reportado por Zigor con la app maximizada, 2026-08-05.
+  // Reportado por RoGiz7 con la app maximizada, 2026-08-05.
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="md-modal" onClick={(e) => e.stopPropagation()}>
