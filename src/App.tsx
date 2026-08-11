@@ -643,12 +643,16 @@ function App() {
   }
   // Aviso flotante global (toast): visible en cualquier sección cuando salta intel. El sonido y la
   // notificación nativa los dispara MapView/Rust; aquí solo mostramos el toast.
-  const [globalAlert, setGlobalAlert] = useState<{ text: string; kind: "intel" | "pi" } | null>(
+  const [globalAlert, setGlobalAlert] = useState<{ text: string; kind: "intel" | "pi" | "nota" } | null>(
     null,
   );
   const globalAlertTimer = useRef<number | null>(null);
   // kind decide el destino del clic y el estilo: "intel" → mapa/intel (rojo), "pi" → Planetología (ámbar).
-  function showGlobalAlert(text: string, kind: "intel" | "pi" = "intel") {
+  // ⚠️ EL `kind` NO ES DECORACIÓN. El rojo de `intel` es la señal más fuerte de la app —hostiles
+  // en local— y gastarla en «compra cristales» la devalúa para cuando de verdad importe. Es el
+  // mismo criterio que gobierna el overlay: cada aviso con su peso. Una nota va en `nota`, sin
+  // rojo y con su propio destino al pinchar.
+  function showGlobalAlert(text: string, kind: "intel" | "pi" | "nota" = "intel") {
     setGlobalAlert({ text, kind });
     if (globalAlertTimer.current) window.clearTimeout(globalAlertTimer.current);
     globalAlertTimer.current = window.setTimeout(() => setGlobalAlert(null), 12000);
@@ -781,6 +785,20 @@ function App() {
             }
             return next;
           });
+          // ★ N2 del motor humano: notas que han saltado por llegar aquí. Rust ya las marcó (y
+          // cerró las de «una vez»), así que esto solo las enseña. Van en la misma respuesta que
+          // la posición a propósito: el aviso no puede llegar desincronizado del salto que lo
+          // provocó. La regla del overlay se respeta — esto se queda DENTRO de Koru: una nota de
+          // «compra cristales» es cosa de estar atracado, y el overlay es para lo que pasa
+          // mientras vuelas. Ver documentacion/SPEC_MOTOR_HUMANO.md.
+          for (const p of ps) {
+            if (!p.fired_notes?.length) continue;
+            const donde = p.system_name ? ` · ${p.system_name}` : "";
+            const textos = p.fired_notes.slice(0, 2).map((n) => n.body);
+            const extra = p.fired_notes.length > 2 ? ` +${p.fired_notes.length - 2}` : "";
+            playUnlock();
+            showGlobalAlert(`📄 ${tr("Nota")}${donde}: ${textos.join(" · ")}${extra}`, "nota");
+          }
         })
         .catch(() => {});
     };
@@ -2074,10 +2092,20 @@ function App() {
           alarma de PI → Planetología (ámbar). El destino del clic depende del tipo. */}
       {globalAlert && (
         <div
-          className={`intel-global-alert${globalAlert.kind === "pi" ? " intel-global-alert--pi" : ""}`}
+          className={`intel-global-alert${globalAlert.kind === "pi" ? " intel-global-alert--pi" : ""}${globalAlert.kind === "nota" ? " intel-global-alert--nota" : ""}`}
           onClick={() => {
             setGlobalAlert(null);
-            if (globalAlert.kind === "pi") {
+            if (globalAlert.kind === "nota") {
+              // Al mapa: la nota está pegada a un sistema, y ahí es donde se lee y se cierra.
+              changeTab("mapa");
+              window.setTimeout(
+                () =>
+                  document
+                    .querySelector(".map-wrap")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                60,
+              );
+            } else if (globalAlert.kind === "pi") {
               changeTab("planetologia");
               window.setTimeout(
                 () =>
@@ -2097,11 +2125,11 @@ function App() {
               );
             }
           }}
-          title={globalAlert.kind === "pi" ? tr("Ir a Planetología") : tr("Ir al intel")}
+          title={globalAlert.kind === "nota" ? tr("Ver en el mapa") : globalAlert.kind === "pi" ? tr("Ir a Planetología") : tr("Ir al intel")}
         >
           {globalAlert.text}
           <span className="intel-alert-cta">
-            {globalAlert.kind === "pi" ? tr("Ir a Planetología") : tr("Ir al intel")} ▸
+            {globalAlert.kind === "nota" ? tr("Ver en el mapa") : globalAlert.kind === "pi" ? tr("Ir a Planetología") : tr("Ir al intel")} ▸
           </span>
         </div>
       )}

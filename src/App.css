@@ -1451,6 +1451,24 @@ select,
   align-items: center;
   gap: 0.5rem;
 }
+/* El disparador: lo que convierte la nota en algo que un post-it no puede hacer. */
+.nota-trig {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.nota-trig label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+}
+.nota-trig input {
+  margin: 0;
+  cursor: pointer;
+}
 .nota-hechas {
   align-self: flex-start;
   background: none;
@@ -6219,6 +6237,17 @@ h4 {
 }
 .intel-global-alert--pi::after {
   background: rgba(210, 153, 34, 0.45);
+}
+/* Una NOTA es un recordatorio tuyo, no una amenaza: azul sobrio y sin pulso. El rojo se reserva
+   para lo que puede matarte, o deja de significar nada. */
+.intel-global-alert--nota {
+  background: #12283d;
+  border-color: #4aa3df;
+  color: #d7e9f7;
+}
+.intel-global-alert--nota::after {
+  background: transparent;
+  animation: none;
 }
 /* Respeta "reducir movimiento": sin pulso animado. */
 @media (prefers-reduced-motion: reduce) {

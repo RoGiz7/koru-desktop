@@ -152,6 +152,7 @@ pub fn run() {
             commands::update_note,
             commands::set_note_done,
             commands::set_note_subject,
+            commands::set_note_trigger,
             commands::delete_note,
             commands::get_logi_summary,
             commands::get_logi_series,

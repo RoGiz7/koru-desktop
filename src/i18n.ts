@@ -2403,7 +2403,13 @@ const EN: Record<string, string> = {
   "¿A quién le toca?": "Whose job is it?",
   Cualquiera: "Anyone",
   Notas: "Notes",
-  // "Hechas" y "Cerrar" ya existían más arriba.
+  // N2, el disparador. "Nota", "Hechas" y "Cerrar" ya existían más arriba.
+  "Avisarme al llegar aquí": "Remind me when I arrive here",
+  "Ver en el mapa": "View on the map",
+  "una vez": "once",
+  "cada visita": "every visit",
+  "Una vez avisa y archiva la nota; siempre la deja abierta":
+    "Once reminds you and files the note away; every visit keeps it open",
 };
 
 export function t(s: string, lang: Lang): string {

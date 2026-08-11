@@ -243,6 +243,52 @@ function NotasModal({
                     </select>
                     <span className="muted small">{n.created_at.slice(0, 10)}</span>
                   </div>
+                  {/* ★ N2 — EL DISPARADOR. Solo tiene sentido en notas de SISTEMA: el disparador
+                      es el propio ancla («avisarme al llegar AQUÍ»), así que no hace falta ningún
+                      selector. Es lo que convierte la nota en algo que un post-it no puede hacer. */}
+                  {kind === "system" && (
+                    <div className="nota-trig">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={n.trigger_kind === "arrive"}
+                          onChange={(e) =>
+                            void accion(
+                              () =>
+                                invoke("set_note_trigger", {
+                                  id: n.id,
+                                  systemId: e.target.checked ? anchorId : 0,
+                                  once: n.trigger_once,
+                                }),
+                              "set_note_trigger",
+                            )
+                          }
+                        />
+                        {tr("Avisarme al llegar aquí")}
+                      </label>
+                      {n.trigger_kind === "arrive" && (
+                        <select
+                          className="nota-quien"
+                          value={n.trigger_once ? "1" : "0"}
+                          onChange={(e) =>
+                            void accion(
+                              () =>
+                                invoke("set_note_trigger", {
+                                  id: n.id,
+                                  systemId: anchorId,
+                                  once: e.target.value === "1",
+                                }),
+                              "set_note_trigger",
+                            )
+                          }
+                          title={tr("Una vez avisa y archiva la nota; siempre la deja abierta")}
+                        >
+                          <option value="1">{tr("una vez")}</option>
+                          <option value="0">{tr("cada visita")}</option>
+                        </select>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button
                   className="nota-btn"

@@ -1616,6 +1616,11 @@ pub struct PositionUpdate {
     /// `true` si este sondeo abrió visita nueva (se movió). El front lo usa para saber que hay
     /// novedad sin comparar estados, y evita repintar el mapa cuando no ha pasado nada.
     pub moved: bool,
+    /// ★ N2: notas que han saltado por llegar aquí. Viaja con la posición en vez de por un evento
+    /// de Tauri a propósito: el disparo **solo puede ocurrir en este sondeo** (es el que detecta la
+    /// llegada), así que meterlo en la respuesta ahorra un canal entero y hace imposible que el
+    /// aviso llegue desincronizado de la posición que lo causó.
+    pub fired_notes: Vec<crate::db::NoteRow>,
 }
 
 /// Sondeo de posición: dónde están AHORA tus personajes conectados, y anotarlo en el recorrido.
@@ -1689,6 +1694,7 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
                 ship_type_name: None,
                 online,
                 moved: false,
+                fired_notes: Vec::new(),
             });
             continue;
         }
@@ -1730,9 +1736,32 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
                 .track_note(c.character_id, sid, ship_type_id, ahora, CORTE_MS),
             None => false,
         };
+        // ★ N2 del motor humano: el disparo va AQUÍ, colgado de `moved`, porque `moved` es
+        // exactamente «acaba de llegar». Engancharlo al sondeo entero repetiría el aviso cada
+        // 30 segundos mientras siguieras en el sistema — el ruido que mata cualquier alarma.
+        let mut fired_notes = Vec::new();
         if moved {
             if let Some(sid) = system_id {
                 por_nombrar.insert(sid);
+                // La llegada en RFC3339, no en ms: `fired_at` es texto y compararlo con un entero
+                // daba un orden lexicográfico falso que enmudecía la nota para siempre.
+                let entrada = chrono::Utc::now().to_rfc3339();
+                match state
+                    .db
+                    .notes_fire_on_arrival(c.character_id, sid, &entrada)
+                {
+                    Ok(v) => {
+                        if !v.is_empty() {
+                            eprintln!(
+                                "notas: {} aviso(s) al llegar {} a {sid}",
+                                v.len(),
+                                c.name
+                            );
+                        }
+                        fired_notes = v;
+                    }
+                    Err(e) => eprintln!("notes_fire_on_arrival: {e}"),
+                }
             }
         }
         out.push(PositionUpdate {
@@ -1743,6 +1772,7 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
             ship_type_name: ship_type_id.and_then(|t| ship_name_by_id().get(&t).cloned()),
             online,
             moved,
+            fired_notes,
         });
     }
 
@@ -2941,6 +2971,21 @@ pub async fn set_note_subject(
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     state.db.note_set_subject(id, subject_id)
+}
+
+/// Pone o quita el disparador de llegada. `systemId = 0` lo quita.
+///
+/// `once = true` avisa una vez y **cierra la nota sola** (una tarea que se archiva al avisarte);
+/// `once = false` avisa en cada visita nueva y la nota no se cierra nunca (un aviso permanente
+/// sobre el sitio).
+#[tauri::command]
+pub async fn set_note_trigger(
+    id: i64,
+    system_id: i64,
+    once: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.db.note_set_trigger(id, system_id, once)
 }
 
 /// Cierra o reabre una nota. Cerrar NO borra.

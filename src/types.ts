@@ -1003,6 +1003,8 @@ export type PositionUpdate = {
   online: boolean | null;
   /** `true` si en este sondeo abrió visita nueva, o sea: se ha movido. */
   moved: boolean;
+  /** N2: notas que han saltado por llegar aquí. Viajan con la posición, no por evento aparte. */
+  fired_notes: Note[];
 };
 
 /** Un tramo del recorrido propio: «vi a este piloto en este sistema entre estos dos instantes».
@@ -1078,5 +1080,11 @@ export type Note = {
   /** null = abierta. Cerrar no borra. */
   done_at: string | null;
   pinned: boolean;
+  /** `arrive` si avisa al llegar a un sistema; vacío si no dispara. */
+  trigger_kind: string;
+  /** El sistema al que llegar. */
+  trigger_id: number;
+  /** `true` = avisa una vez y se cierra sola; `false` = avisa en cada visita. */
+  trigger_once: boolean;
   anchors: NoteAnchor[];
 };

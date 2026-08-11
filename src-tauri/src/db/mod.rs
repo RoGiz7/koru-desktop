@@ -430,7 +430,8 @@ impl Db {
                  trigger_kind TEXT NOT NULL DEFAULT '',     -- arrive | undock | job_done | asset...
                  trigger_id   INTEGER NOT NULL DEFAULT 0,   -- sistema, tipo, lo que pida el kind
                  trigger_at   TEXT,                         -- para las alarmas de puro tiempo (N3)
-                 fired_at     TEXT                          -- ya saltó: no repetir sin querer
+                 fired_at     TEXT,                         -- ya saltó: no repetir sin querer
+                 trigger_once INTEGER NOT NULL DEFAULT 1    -- 1 = avisa una vez y se cierra sola
              );
              CREATE INDEX IF NOT EXISTS idx_note_subject ON note(subject_id);
              CREATE INDEX IF NOT EXISTS idx_note_done    ON note(done_at);
@@ -460,6 +461,19 @@ impl Db {
                  PRIMARY KEY (run_id, character_id)
              );
              CREATE INDEX IF NOT EXISTS idx_arc_char ON activity_run_chars(character_id);",
+        );
+        // note: N2 del motor humano. `trigger_once` decide si el aviso salta UNA vez o CADA visita.
+        //
+        // Es la decisión de RoGiz7 (2026-08-11) contra mi propuesta, y gana por algo que yo no había
+        // visto: con el flag explícito, una nota de «una vez» **se cierra sola al saltar**. La tarea
+        // se avisa y se archiva sin que nadie toque nada. Con mi idea —«abierta = sigue saltando»—
+        // eso era imposible, porque estar abierta era justo lo que la mantenía viva.
+        //
+        // Por defecto 1 (una vez): es lo que más se parece a una tarea, y equivocarse hacia el
+        // silencio molesta menos que equivocarse hacia el ruido.
+        let _ = conn.execute(
+            "ALTER TABLE note ADD COLUMN trigger_once INTEGER NOT NULL DEFAULT 1",
+            [],
         );
         // name_cache: columna añadida en fase 3b (último sistema reportado del piloto).
         let _ = conn.execute("ALTER TABLE name_cache ADD COLUMN last_system_id INTEGER", []);
@@ -5498,6 +5512,12 @@ pub struct NoteRow {
     pub created_at: String,
     pub done_at: Option<String>,
     pub pinned: bool,
+    /// `arrive` si tiene disparador de llegada; vacío si no dispara.
+    pub trigger_kind: String,
+    /// Sistema al que llegar (con `trigger_kind = "arrive"`).
+    pub trigger_id: i64,
+    /// `true` = avisa una vez y se cierra sola. `false` = avisa cada visita.
+    pub trigger_once: bool,
     pub anchors: Vec<NoteAnchor>,
 }
 
@@ -5547,6 +5567,7 @@ impl Db {
         let filtro_done = if include_done { "" } else { "AND n.done_at IS NULL" };
         let mut stmt = conn.prepare(&format!(
             "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
+                    n.trigger_kind, n.trigger_id, n.trigger_once,
                     COALESCE(GROUP_CONCAT(a.kind || ':' || a.id), '')
                FROM note n LEFT JOIN note_anchor a ON a.note_id = n.id
               WHERE (?1 IS NULL OR n.subject_id = 0 OR n.subject_id = ?1) {filtro_done}
@@ -5562,7 +5583,10 @@ impl Db {
                     created_at: r.get(3)?,
                     done_at: r.get(4)?,
                     pinned: r.get::<_, i64>(5)? != 0,
-                    anchors: parse_anchors(&r.get::<_, String>(6)?),
+                    trigger_kind: r.get(6)?,
+                    trigger_id: r.get(7)?,
+                    trigger_once: r.get::<_, i64>(8)? != 0,
+                    anchors: parse_anchors(&r.get::<_, String>(9)?),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -5581,6 +5605,7 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
+                    n.trigger_kind, n.trigger_id, n.trigger_once,
                     COALESCE((SELECT GROUP_CONCAT(a2.kind || ':' || a2.id)
                                 FROM note_anchor a2 WHERE a2.note_id = n.id), '')
                FROM note n JOIN note_anchor a ON a.note_id = n.id
@@ -5598,7 +5623,10 @@ impl Db {
                     created_at: r.get(3)?,
                     done_at: r.get(4)?,
                     pinned: r.get::<_, i64>(5)? != 0,
-                    anchors: parse_anchors(&r.get::<_, String>(6)?),
+                    trigger_kind: r.get(6)?,
+                    trigger_id: r.get(7)?,
+                    trigger_once: r.get::<_, i64>(8)? != 0,
+                    anchors: parse_anchors(&r.get::<_, String>(9)?),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -5634,6 +5662,105 @@ impl Db {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Pone (o quita) el disparador de llegada a un sistema. `system_id = 0` lo quita.
+    pub fn note_set_trigger(&self, id: i64, system_id: i64, once: bool) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE note SET trigger_kind = ?1, trigger_id = ?2, trigger_once = ?3,
+                             fired_at = NULL, updated_at = ?4
+              WHERE id = ?5",
+            rusqlite::params![
+                if system_id != 0 { "arrive" } else { "" },
+                system_id,
+                once as i64,
+                now,
+                id
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// ★ N2: UN PILOTO ACABA DE LLEGAR A UN SISTEMA. Devuelve las notas que deben saltar, las
+    /// marca como disparadas y **cierra sola** las que eran de «una vez».
+    ///
+    /// `entered_at` es el instante de la LLEGADA en RFC3339. ⚠️ En RFC3339 y no en milisegundos:
+    /// la primera versión comparaba `fired_at` (texto) contra un `entered_ms` (entero) y
+    /// lexicográficamente `"9001" > "50000"`, así que a partir de cierta hora la nota se quedaba
+    /// **muda para siempre** — sin error, sin log, sin nada. Lo cazó la validación en Python antes
+    /// de escribir esto. RFC3339 sí se ordena bien como cadena, y todo lo demás de la tabla ya va
+    /// en ese formato.
+    ///
+    /// La diferencia entre los dos modos está entera en el `WHERE`:
+    /// · **una vez** → salta si nunca saltó. Al dispararse se cierra, así que no hay vuelta.
+    /// · **siempre** → salta si no ha saltado EN ESTA VISITA (`fired_at < entered_at`). Sin esa
+    ///   condición, cada sondeo de 30 s repetiría el aviso mientras sigues en el sistema.
+    ///
+    /// Solo se llama en la TRANSICIÓN (`moved` de `poll_positions`), no en cada sondeo.
+    pub fn notes_fire_on_arrival(
+        &self,
+        character_id: i64,
+        system_id: i64,
+        entered_at: &str,
+    ) -> AppResult<Vec<NoteRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut due: Vec<NoteRow> = Vec::new();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT id, subject_id, body, created_at, done_at, pinned
+                   FROM note
+                  WHERE trigger_kind = 'arrive'
+                    AND trigger_id = ?1
+                    AND done_at IS NULL
+                    AND (subject_id = 0 OR subject_id = ?2)
+                    AND (
+                         (trigger_once = 1 AND fired_at IS NULL)
+                      OR (trigger_once = 0 AND (fired_at IS NULL OR fired_at < ?3))
+                    )
+                  ORDER BY pinned DESC, id",
+            )?;
+            let rows = stmt.query_map(
+                rusqlite::params![system_id, character_id, entered_at],
+                |r| {
+                    Ok(NoteRow {
+                        id: r.get(0)?,
+                        subject_id: r.get(1)?,
+                        body: r.get(2)?,
+                        created_at: r.get(3)?,
+                        done_at: r.get(4)?,
+                        pinned: r.get::<_, i64>(5)? != 0,
+                        trigger_kind: "arrive".to_string(),
+                        trigger_id: system_id,
+                        trigger_once: false, // se recalcula abajo si hace falta; el aviso no lo usa
+                        anchors: Vec::new(), // el aviso no las necesita; se piden si se abre la nota
+                    })
+                },
+            )?;
+            for r in rows {
+                due.push(r?);
+            }
+        }
+        if due.is_empty() {
+            return Ok(due);
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut upd = tx.prepare(
+                "UPDATE note
+                    SET fired_at = ?1,
+                        done_at = CASE WHEN trigger_once = 1 THEN ?1 ELSE done_at END,
+                        updated_at = ?1
+                  WHERE id = ?2",
+            )?;
+            for n in &due {
+                upd.execute(rusqlite::params![now, n.id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(due)
     }
 
     /// Reasigna una nota a otro personaje (0 = cualquiera).
