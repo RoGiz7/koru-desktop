@@ -1,46 +1,61 @@
 #!/usr/bin/env python3
-"""Añade a public/industry_rigs.json el mapeo rig→producto (`aff`) desde Hoboleaks.
+"""Añade a public/industry_rigs.json el mapeo rig→producto (`aff`) desde el SDE OFICIAL.
 
-Por qué existe: el alcance de un rig de industria (a qué productos aplica su bono) NO está en el
-SDE ni en ESI — vive en el CLIENTE de EVE, y Hoboleaks lo extrae en:
-  - industrymodifiersources.json  → por typeID de rig: actividad → material/time/cost → filterID
-  - industrytargetfilters.json    → filterID → {categoryIDs, groupIDs}
-Validado el 2026-07-29 contra EVE Ref (derivado de Hoboleaks) y contra el fixture real del Bantam
-(rigs 37181+43705 del Sotiyo: 37181 ON cats [6,32] · 43705 OFF para naves → 20307/3808/1587/318).
+★ FUENTE CAMBIADA EL 2026-08-11, y es una dependencia externa menos.
+Hasta hoy esto se leía de HOBOLEAKS, porque el alcance de un rig de industria (a qué productos
+aplica su bono) vivía solo en el CLIENTE de EVE. **El build 3464040 del SDE lo publica**:
+  - industryModifierSources.jsonl → por typeID: actividad → material/time/cost → filterID
+  - industryTargetFilters.jsonl   → filterID → {categoryIDs, groupIDs}
+Son exactamente los dos ficheros que Hoboleaks servía.
 
-⚠️ DEPENDENCIA DE TERCEROS: Hoboleaks no debe nada a nadie y EVE Ref declara su Reference Data
-«in development». Este script solo corre al regenerar (SDE/parche nuevo); el resultado se CONGELA
-en public/industry_rigs.json → si Hoboleaks desaparece, no rompe la app, rompe la REGENERACIÓN.
+CONFRONTADO ANTES DE CAMBIAR (regla de las tres fuentes), Hoboleaks 3457062 contra SDE 3464040:
+  · los 18 filtros: IDÉNTICOS, cero diferencias
+  · el mapeo rig→filtros de los 220 tipos: IDÉNTICO, cero diferencias
+  · los 15 rigs sin `aff` (Upwell Outpost Rigs) tampoco están en el SDE: no era un agujero de
+    Hoboleaks, es que esos rigs no llevan filtro de industria.
+Hoboleaks llevaba años clavándolo. Lo que se gana no es exactitud: es que **la regeneración ya no
+depende de un tercero que no debe nada a nadie**.
 
-Uso: python scripts/extract_rig_targets.py
-Lee  ../documentacion/hoboleaks/{industrymodifiersources,industrytargetfilters,meta}.json
+Ojo a la nomenclatura, que es lo único que cambia: Hoboleaks usaba `research_material`/
+`research_time` (snake_case) y el SDE usa `researchMaterial`/`researchTime`. Como aquí se recorren
+TODAS las actividades sin mirar su nombre, da igual — pero conviene saberlo si algún día se filtra
+por actividad.
+
+Uso: python scripts/extract_rig_targets.py   (elige el SDE más nuevo de documentacion/sde-source)
 Escribe public/industry_rigs.json (añade `aff: {c: [...], g: [...]}` a cada rig mapeado y
 `aff_meta` con la procedencia).
 """
+import glob
 import json
 import os
 import sys
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)  # koru-desktop/
-HOBO = os.path.join(os.path.dirname(ROOT), "documentacion", "hoboleaks")
+SRC = os.path.join(os.path.dirname(ROOT), "documentacion", "sde-source")
 OUT = os.path.join(ROOT, "public", "industry_rigs.json")
 
 
-def load(name: str):
-    with open(os.path.join(HOBO, name), encoding="utf-8") as f:
-        return json.load(f)
-
-
 def main() -> int:
-    ms = load("industrymodifiersources.json")
-    tf = load("industrytargetfilters.json")
-    meta = load("meta.json")
-    # Frescura: si Hoboleaks marca stale alguno de los dos, avisar en voz alta (regla meta.json).
-    for fn in ("industrymodifiersources.json", "industrytargetfilters.json"):
-        info = meta.get("files", {}).get(fn, {})
-        if info.get("stale"):
-            print(f"⚠️  {fn} viene marcado STALE en meta.json (rev {info.get('revision')}) — revisar antes de fiarse")
+    zips = sorted(glob.glob(os.path.join(SRC, "*jsonl.zip")))
+    if not zips:
+        print("ERROR: sin SDE jsonl en documentacion/sde-source/")
+        return 1
+    zpath = zips[-1]
+    print(f"SDE elegido: {os.path.basename(zpath)}")
+    with zipfile.ZipFile(zpath) as z:
+        faltan = [f for f in ("industryModifierSources.jsonl", "industryTargetFilters.jsonl")
+                  if f not in z.namelist()]
+        if faltan:
+            print(f"ERROR: {faltan} no están en el zip (¿build anterior al 3464040?)")
+            return 1
+        ms = {str(d["_key"]): d
+              for d in (json.loads(l) for l in
+                        z.read("industryModifierSources.jsonl").decode("utf-8").splitlines())}
+        tf = {str(d["_key"]): d
+              for d in (json.loads(l) for l in
+                        z.read("industryTargetFilters.jsonl").decode("utf-8").splitlines())}
 
     with open(OUT, encoding="utf-8") as f:
         data = json.load(f)
@@ -56,26 +71,30 @@ def main() -> int:
         # Unimos material + time + cost de todas las actividades: el material decide el BOM de
         # fabricación, y el time/cost es lo ÚNICO que traen los rigs de invención/copia/research
         # (sin esto se quedaban sin aff). El producto elige la actividad que le toca vía cat/grupo.
-        for act in src.values():
+        for clave, act in src.items():
+            if clave == "_key" or not isinstance(act, dict):
+                continue  # el `_key` del SDE no es una actividad
             for kind in ("material", "time", "cost"):
                 for ent in act.get(kind, []):
                     filt = tf.get(str(ent.get("filterID")))
                     if filt:
-                        cats.update(filt["categoryIDs"])
-                        grps.update(filt["groupIDs"])
+                        # `.get(...) or []`: el SDE omite la lista vacía en vez de mandarla vacía.
+                        cats.update(filt.get("categoryIDs") or [])
+                        grps.update(filt.get("groupIDs") or [])
         rig["aff"] = {"c": sorted(cats), "g": sorted(grps)}
         mapped += 1
 
     data["aff_meta"] = {
-        "source": "hoboleaks",
-        "revision": meta.get("revision"),
-        "timestamp": meta.get("timestamp"),
+        "source": "sde",
+        "sde": os.path.basename(zpath),
+        "note": "industryModifierSources + industryTargetFilters. Antes venía de Hoboleaks; las dos "
+                "fuentes se confrontaron el 2026-08-11 y daban EXACTAMENTE lo mismo.",
     }
 
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
 
-    print(f"OK: {mapped}/{len(data['rigs'])} rigs con aff (rev Hoboleaks {meta.get('revision')})")
+    print(f"OK: {mapped}/{len(data['rigs'])} rigs con aff (SDE {os.path.basename(zpath)})")
 
     # Guardas del fixture (si fallan, NO uses el resultado):
     r1 = data["rigs"]["37181"]["aff"]
