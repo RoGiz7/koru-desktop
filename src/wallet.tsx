@@ -1,10 +1,48 @@
 // Sección Patrimonio (networth) + Wallet: evolución del valor líquido+assets, y balance/ingresos/
 // gastos/movimientos con tendencia mensual. Extraído de App.tsx. NetworthChart es interno.
 import { useState, useEffect } from "react";
-import { tr } from "./i18n";
+import { tr, getLang } from "./i18n";
 import { fmtIsk, weekKey, daysAgo } from "./format";
 import { Kpi, MultiLineProgress, Donut, Th, DONUT_COLORS, RangePresets, maxOf } from "./charts";
 import type { NetworthView, NetworthPoint, WalletView, WalletSeries, WalletCatDay, WalletCharDay } from "./types";
+
+/** Tipos de movimiento del wallet (`ref_type` de ESI → nombre en ES/EN), de `accountingEntryTypes`
+ *  del SDE. Ver `scripts/extract_accounting_types.py`.
+ *
+ *  Hasta ahora la tabla pintaba el `ref_type` CRUDO: `bounty_prizes`, `planetary_import_tax`. El
+ *  nombre oficial existe en el SDE en los 8 idiomas del juego, y su `internalName` **es** ese mismo
+ *  `ref_type`, así que el cruce es directo. Traducirlos a mano habría sido inventar 177 cadenas y
+ *  mantenerlas a cada parche. */
+let REF_TYPES: Record<string, { es: string; en: string }> | null = null;
+let refTypesPedido = false;
+
+/** Nombre legible de un `ref_type`. Con fallback, porque ESI puede devolver uno que el SDE aún no
+ *  tenga (o al revés): en ese caso se limpia el crudo —guiones bajos fuera, primera en mayúscula—
+ *  en vez de dejar la celda vacía. Un dato feo se lee; un hueco parece un fallo. */
+function nombreRefType(ref: string | null | undefined): string {
+  if (!ref) return "-";
+  const t = REF_TYPES?.[ref];
+  if (t) return getLang() === "en" ? t.en : t.es;
+  const limpio = ref.replace(/_/g, " ");
+  return limpio.charAt(0).toUpperCase() + limpio.slice(1);
+}
+
+/** Carga perezosa del catálogo: 16 KB que solo hacen falta si abres Wallet. */
+function useRefTypes(): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (REF_TYPES || refTypesPedido) return;
+    refTypesPedido = true;
+    fetch("/accounting_types.json")
+      .then((r) => r.json())
+      .then((j: { types: Record<string, { es: string; en: string }> }) => {
+        REF_TYPES = j.types ?? {};
+        setTick((n) => n + 1); // repintar con los nombres ya resueltos
+      })
+      .catch((e) => console.error("accounting_types.json", e));
+  }, []);
+  return tick;
+}
 
 export function NetworthViewC(props: { data: NetworthView | null; busy: boolean }) {
   const { data, busy } = props;
@@ -128,6 +166,7 @@ export function WalletViewC(props: {
   onSync?: () => void;
 }) {
   const { data, series, charNames, busy, global, onSync } = props;
+  useRefTypes(); // catálogo de tipos de movimiento (16 KB, solo al abrir Wallet)
   const [gran, setGran] = useState<"day" | "week" | "month" | "year">(
     () => (localStorage.getItem("koru-wallet-gran") as "day" | "week" | "month" | "year") || "month",
   );
@@ -150,7 +189,7 @@ export function WalletViewC(props: {
     const d = wSort.dir;
     switch (wSort.col) {
       case "type":
-        return (a.ref_type ?? "").localeCompare(b.ref_type ?? "") * d;
+        return nombreRefType(a.ref_type).localeCompare(nombreRefType(b.ref_type)) * d;
       case "amount":
         return ((a.amount ?? 0) - (b.amount ?? 0)) * d;
       case "balance":
@@ -334,7 +373,9 @@ export function WalletViewC(props: {
               {wRows.map((j) => (
                 <tr key={j.id} className={(j.amount ?? 0) >= 0 ? "kill" : "loss"}>
                   <td>{j.date?.replace("T", " ").slice(0, 16) ?? "-"}</td>
-                  <td>{j.ref_type ?? "-"}</td>
+                  {/* El `ref_type` crudo se conserva en el `title`: es lo que hay que citar si
+                      algún día hay que preguntarle algo a ESI sobre este movimiento. */}
+                  <td title={j.ref_type ?? undefined}>{nombreRefType(j.ref_type)}</td>
                   <td>{j.amount != null ? fmtIsk(j.amount) : "-"}</td>
                   <td>{j.balance != null ? fmtIsk(j.balance) : "-"}</td>
                 </tr>
