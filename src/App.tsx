@@ -1367,6 +1367,7 @@ function App() {
         jobs: number;
         contracts: number;
         pi_programs: number;
+        asset_events: number; // I1 inventario: cambios grabados (lo normal es 0)
         errors?: string[];
       }>("auto_sync");
       // Errores parciales (antes se tragaban): visibles en consola para diagnóstico.

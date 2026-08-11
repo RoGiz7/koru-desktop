@@ -39,9 +39,32 @@ pub async fn fetch_all_assets(
     character_id: i64,
     token: &str,
 ) -> Vec<AssetItem> {
+    fetch_all_assets_checked(esi, db, character_id, token).await.0
+}
+
+/// Igual que [`fetch_all_assets`], pero además dice si la foto está **COMPLETA**.
+///
+/// ⚠️ Esto es la diferencia entre un histórico fiable y uno que miente. Las vistas pueden vivir
+/// con una foto a la que le falta una página (enseñan de menos y se nota); **el diff del
+/// inventario NO**: lo que falta lo leería como «desapareció», y escribiría cientos de bajas
+/// falsas por un 502 pasajero, sin un solo error a la vista. Un histórico que inventa
+/// desapariciones es peor que no tener histórico, porque te fías de él.
+///
+/// `true` en el segundo campo = las páginas se bajaron todas sin un solo reintento fallido.
+/// Cualquier otra cosa → quien diffee debe ABSTENERSE esta pasada y volver en la siguiente.
+pub async fn fetch_all_assets_checked(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    token: &str,
+) -> (Vec<AssetItem>, bool) {
     let mut all: Vec<AssetItem> = Vec::new();
     let mut pages = 0u32;
     let mut errored = false;
+    // Una página se dio por PERDIDA (3 intentos fallidos seguidos). No es lo mismo que `errored`:
+    // un reintento que acaba bien deja la foto completa, y tratar los dos casos igual
+    // significaría no diffear nunca en una tarde con ESI inestable.
+    let mut lost = false;
     for page in 1..=250u32 {
         let path = format!("/characters/{character_id}/assets/?page={page}");
         let mut got: Option<Vec<AssetItem>> = None;
@@ -67,7 +90,13 @@ pub async fn fetch_all_assets(
         }
         let items = match got {
             Some(v) => v,
-            None => break, // 3 fallos seguidos: paramos para no colgarnos
+            None => {
+                // 3 fallos seguidos: paramos para no colgarnos. Esta página y TODAS las que
+                // vinieran detrás se quedan fuera → la foto ya no vale para diffear.
+                eprintln!("assets: página {page} perdida; foto INCOMPLETA, no se diffeará");
+                lost = true;
+                break;
+            }
         };
         if items.is_empty() {
             break; // página vacía = no hay más
@@ -78,7 +107,7 @@ pub async fn fetch_all_assets(
         // en medio. Seguimos hasta una página vacía o 404 (parada real).
     }
     let _ = (pages, errored);
-    all
+    (all, !lost)
 }
 
 /// Sube desde una ubicación anidada (un contenedor o nave que posees, cuyo id aparece como
@@ -161,12 +190,27 @@ pub async fn summary(
     character_id: i64,
     token: &str,
 ) -> AppResult<AssetsSummary> {
+    // Paginación resiliente compartida (no se corta ante un error transitorio de una página).
+    let items = fetch_all_assets(esi, db, character_id, token).await;
+    summary_from_items(esi, db, &items).await
+}
+
+/// El resumen a partir de unos items YA descargados.
+///
+/// Existe para que el `auto_sync` pueda hacer **una sola** descarga y usarla para dos cosas —el
+/// snapshot de patrimonio y el diff del inventario— en vez de deserializar dos veces el mismo
+/// payload de varios miles de pilas. Sigue siendo `async` porque resolver la categoría de un tipo
+/// (para descontar los blueprints) puede pedirle algo a ESI la primera vez.
+pub async fn summary_from_items(
+    esi: &EsiClient,
+    db: &Db,
+    items: &[AssetItem],
+) -> AppResult<AssetsSummary> {
     let mut by_type: HashMap<i64, i64> = HashMap::new();
     let mut stacks: i64 = 0;
     let mut total_units: i64 = 0;
 
-    // Paginación resiliente compartida (no se corta ante un error transitorio de una página).
-    for it in fetch_all_assets(esi, db, character_id, token).await {
+    for it in items {
         let q = it.quantity.max(1);
         *by_type.entry(it.type_id).or_insert(0) += q;
         stacks += 1;
@@ -240,6 +284,62 @@ pub async fn summary(
         top_types: top,
         watched,
     })
+}
+
+/* ---------- I1 del pilar de INVENTARIO: grabar, y nada más ---------- */
+
+/// Traduce una foto de assets de ESI al modelo de la BD y **graba el estado y sus cambios**.
+///
+/// Es todo lo que hace la fase I1 de `documentacion/SPEC_INVENTARIO.md`: ni una pantalla. Igual
+/// que se hizo con industria, la PI y los contratos, y por el mismo motivo — el día que haga falta
+/// la historia, o está o no está, y cada día que pasa sin grabarla es histórico irrecuperable.
+///
+/// Lo único que añade sobre lo que ya sabe la BD es **subir por el árbol de contenedores** hasta la
+/// ubicación raíz: un módulo dentro de una nave dentro de un contenedor está, para todo lo que
+/// importa, en la estación. Sin esto, el histórico diría que se movió algo cada vez que cambias de
+/// nave.
+///
+/// No llama a ESI: recibe los items ya descargados y `complete` tal como lo devolvió
+/// [`fetch_all_assets_checked`]. Sobre por qué ese `complete` decide si se escribe o no, ver
+/// `Db::sync_assets`.
+pub fn sync_inventory(
+    db: &Db,
+    character_id: i64,
+    items: &[AssetItem],
+    complete: bool,
+    prices: &HashMap<i64, f64>,
+) -> AppResult<crate::db::AssetSyncResult> {
+    use crate::db::AssetStackIn;
+    let item_loc: HashMap<i64, i64> = items.iter().map(|i| (i.item_id, i.location_id)).collect();
+
+    let filas: Vec<AssetStackIn> = items
+        .iter()
+        .map(|it| {
+            // El contenedor inmediato solo cuenta si es a su vez un ítem NUESTRO (una nave o un
+            // contenedor propio). Si no, el ítem está suelto en un hangar.
+            let container_id = if item_loc.contains_key(&it.location_id) {
+                it.location_id
+            } else {
+                0
+            };
+            // El slot solo tiene sentido dentro de un contenedor/nave (es lo que dibuja el fit).
+            let slot = if container_id != 0 {
+                it.location_flag.clone().unwrap_or_default()
+            } else {
+                String::new()
+            };
+            AssetStackIn {
+                location_id: root_location(&item_loc, it.location_id),
+                container_id,
+                type_id: it.type_id,
+                assembled: it.is_singleton,
+                slot,
+                quantity: it.quantity.max(1),
+            }
+        })
+        .collect();
+
+    db.sync_assets(character_id, &filas, complete, prices)
 }
 
 /// Conjunto de type_ids distintos que el personaje posee (para marcar naves propias, etc.).

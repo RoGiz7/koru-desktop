@@ -327,6 +327,70 @@ impl Db {
              CREATE INDEX IF NOT EXISTS idx_pisd_day  ON pi_storage_daily(day);
              CREATE INDEX IF NOT EXISTS idx_pisd_char ON pi_storage_daily(character_id);",
         );
+        // INVENTARIO (I1 de documentacion/SPEC_INVENTARIO.md). Los assets eran el ÚLTIMO gran «foto»
+        // que quedaba: killmails, wallet, minería, contratos e industria ya los leen las vistas de
+        // la BD; los assets seguían pidiéndose a ESI en vivo y tirándose. Con esto se termina la
+        // arquitectura que ya existía, y se puede cruzar con un JOIN lo que hoy vive en dos mundos
+        // (assets en ESI, minería en SQLite).
+        //
+        // Dos tablas con DOS GRANOS DISTINTOS, y la diferencia entre ellos es la decisión de diseño
+        // que sostiene todo lo demás:
+        //
+        // 1) `asset_stack` — el ESTADO, fino y acotado. Una fila por sitio EXACTO donde está algo:
+        //    ubicación raíz + contenedor + slot. Se reemplaza entero cada pasada, así que no crece
+        //    con el tiempo, solo con lo que tengas (~2.500-3.500 filas). Es lo que contesta «¿qué
+        //    tengo y dónde?» sin pedirle nada a ESI, y lo que permite dibujar el fit de una nave.
+        //
+        // 2) `asset_event` — la PELÍCULA, y va agregada por UBICACIÓN RAÍZ a propósito (sin
+        //    contenedor, sin slot). Mover 200 pilas del hangar a un contenedor de la MISMA estación
+        //    deja el neto del sitio en cero y no escribe NADA. Sin esa agregación, una tarde
+        //    ordenando el hangar metería cientos de filas que no cambian ninguna decisión, y
+        //    ahogarían las que sí importan. Solo engorda cuando de verdad entra o sale algo.
+        //
+        // ★ REGLA QUE NO SE PUEDE ROMPER (SPEC §2.1): «se movió» es una HIPÓTESIS. ESI no da
+        //   eventos. Si desaparecen 1.000 de tritanio en A y aparecen 1.000 en B, es IMPOSIBLE
+        //   saber si viajaron o si se vendieron allí y se compraron aquí. Aquí se guardan HECHOS
+        //   —apareció (delta>0) y desapareció (delta<0), cada uno con su sitio y su fecha— y
+        //   «movido» se calcula al MOSTRAR (I2), emparejando los dos y presentándolo como
+        //   sugerencia. Nunca hay una columna «moved_from»: el día que Koru afirme un viaje que no
+        //   ocurrió, el histórico entero deja de servir justo cuando más te fías de él.
+        //
+        // `unit_price` guarda el precio medio del tipo EN EL INSTANTE del cambio. Cuesta una
+        // columna y un `prices_map` que el auto_sync ya tiene cargado; sin él, valorar dentro de
+        // ocho meses un evento de hoy usaría el precio de entonces — que sería mentira. Mismo
+        // criterio que `paper_snapshots`, que ya guarda su `value`.
+        //
+        // Como en `location_track` y en `pi_storage_daily`: el hueco con Koru cerrado es CEGUERA.
+        // Un día sin eventos NO significa «no se movió nada», significa «no miré».
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS asset_stack (
+                 character_id INTEGER NOT NULL,
+                 location_id  INTEGER NOT NULL,   -- ubicacion RAIZ (estacion/estructura/sistema)
+                 container_id INTEGER NOT NULL,   -- item_id del contenedor/nave, 0 = suelto
+                 type_id      INTEGER NOT NULL,
+                 assembled    INTEGER NOT NULL,   -- is_singleton: montado != empaquetado (v0.42.0)
+                 slot         TEXT NOT NULL,      -- HiSlot0, Cargo, DroneBay... '' si esta suelto
+                 quantity     INTEGER NOT NULL,
+                 seen_at      TEXT NOT NULL,      -- cuando lo vio Koru
+                 PRIMARY KEY (character_id, location_id, container_id, type_id, assembled, slot)
+             );
+             CREATE INDEX IF NOT EXISTS idx_ast_loc  ON asset_stack(location_id);
+             CREATE INDEX IF NOT EXISTS idx_ast_type ON asset_stack(type_id);
+             CREATE TABLE IF NOT EXISTS asset_event (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 ts           TEXT NOT NULL,      -- cuando lo VIO Koru, no cuando ocurrio
+                 character_id INTEGER NOT NULL,
+                 location_id  INTEGER NOT NULL,   -- ubicacion RAIZ: el grano del evento
+                 type_id      INTEGER NOT NULL,
+                 assembled    INTEGER NOT NULL,
+                 delta        INTEGER NOT NULL,   -- >0 aparecio, <0 desaparecio. NUNCA 'movido'
+                 unit_price   REAL NOT NULL DEFAULT 0  -- precio medio en ese instante
+             );
+             CREATE INDEX IF NOT EXISTS idx_aev_ts   ON asset_event(ts);
+             CREATE INDEX IF NOT EXISTS idx_aev_char ON asset_event(character_id);
+             CREATE INDEX IF NOT EXISTS idx_aev_type ON asset_event(type_id);
+             CREATE INDEX IF NOT EXISTS idx_aev_loc  ON asset_event(location_id);",
+        );
         // Runs MULTICUENTA (multibox): participantes de una run de abisal/CRAB. Tabla hija y no un
         // CSV en una columna, porque todas las preguntas interesantes son POR personaje («¿cuál
         // muere más?», «¿con cuál gano?») y un CSV no se consulta ni se indexa.
@@ -5359,5 +5423,255 @@ impl Db {
             .query_map([], |r| r.get::<_, i64>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+}
+
+// --- INVENTARIO (I1): estado de assets + la película de sus cambios ---
+// Ver documentacion/SPEC_INVENTARIO.md. El porqué de las dos tablas y de sus dos granos está
+// escrito junto al CREATE TABLE, arriba en este mismo fichero.
+
+/// Una pila de assets tal como la ve Koru, con la ubicación RAÍZ ya resuelta por quien llama
+/// (`esi::assets::root_location`). Aquí no se sabe subir por contenedores: eso es cosa de ESI.
+#[derive(Debug, Clone)]
+pub struct AssetStackIn {
+    /// Estación / estructura / sistema. Ya subido por el árbol de contenedores.
+    pub location_id: i64,
+    /// `item_id` del contenedor o nave que lo contiene; 0 = suelto en el hangar.
+    pub container_id: i64,
+    pub type_id: i64,
+    /// `is_singleton`: montado (no apilable) contra empaquetado. Entra en la clave porque no son
+    /// lo mismo ni ocupan lo mismo — un Bestower montado son 260.000 m³ y empaquetado 20.000.
+    pub assembled: bool,
+    /// `HiSlot0`, `Cargo`, `DroneBay`… vacío si está suelto.
+    pub slot: String,
+    pub quantity: i64,
+}
+
+/// Qué hizo una pasada del inventario. Se devuelve en vez de un simple número porque «no escribí
+/// nada» tiene TRES motivos muy distintos y confundirlos sería el peor bug posible: no cambió
+/// nada / era la primera vez / no me fío de la foto.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct AssetSyncResult {
+    /// Filas escritas en `asset_event`.
+    pub events: i64,
+    /// Pilas guardadas como estado.
+    pub stacks: i64,
+    /// Primera vez de este personaje: se guardó el estado y NO se generó ni un evento.
+    pub seeded: bool,
+    /// Se ignoró la pasada por no fiarse de la foto. Contiene el motivo.
+    pub skipped: Option<String>,
+    /// Ubicaciones distintas tocadas por los eventos. Es el número que dice si un montón de
+    /// cambios tiene sentido: **un viaje toca DOS sitios** (de dónde salió y a dónde llegó),
+    /// por muchos tipos que lleve la nave dentro. Si 50 cambios tocaran 30 ubicaciones, no
+    /// habría sido un viaje sino el grano de agregación funcionando mal.
+    #[serde(skip)]
+    pub locations: std::collections::HashSet<i64>,
+}
+
+impl Db {
+    /// Graba el inventario de un personaje y, de paso, **la película**: compara la foto nueva con
+    /// la última guardada y escribe SOLO los cambios.
+    ///
+    /// `complete` viene de `esi::assets::fetch_all_assets_checked`. ⚠️ **Es el parámetro más
+    /// importante de la función.** Si a la foto le faltó una página, lo que falta parecería
+    /// «desapareció» y se escribirían cientos de bajas falsas por un 502 pasajero — un histórico
+    /// que inventa desapariciones es peor que no tener histórico. Con `complete = false` no se
+    /// toca NADA: ni el estado ni los eventos. La siguiente pasada, con la foto entera, verá el
+    /// cambio real de todas formas: no se pierde nada por esperar.
+    ///
+    /// Devuelve qué se hizo. Nunca falla por «no había nada que hacer».
+    pub fn sync_assets(
+        &self,
+        character_id: i64,
+        items: &[AssetStackIn],
+        complete: bool,
+        prices: &HashMap<i64, f64>,
+    ) -> AppResult<AssetSyncResult> {
+        let mut out = AssetSyncResult::default();
+        if !complete {
+            out.skipped = Some("foto incompleta (falló una página de ESI)".to_string());
+            return Ok(out);
+        }
+
+        // 1) Agregar la foto nueva por la clave FINA. Se hace aquí y no fuera para que exista un
+        //    único sitio donde se decide qué es «la misma pila».
+        let mut nuevo: HashMap<(i64, i64, i64, bool, String), i64> = HashMap::new();
+        for it in items {
+            *nuevo
+                .entry((
+                    it.location_id,
+                    it.container_id,
+                    it.type_id,
+                    it.assembled,
+                    it.slot.clone(),
+                ))
+                .or_insert(0) += it.quantity.max(1);
+        }
+
+        let conn = self.conn.lock().unwrap();
+        let previas: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM asset_stack WHERE character_id = ?1",
+            rusqlite::params![character_id],
+            |r| r.get(0),
+        )?;
+
+        // 2) Salvaguarda del borrado catastrófico. Una foto VACÍA sobre un inventario que existía
+        //    es casi siempre un fallo raro de ESI, no un personaje que se quedó sin nada de golpe.
+        //    Si de verdad lo vendió todo, la próxima pasada lo confirmará y se registrará entonces;
+        //    el coste de equivocarse al revés —borrar el estado y firmar 3.000 desapariciones— no
+        //    tiene vuelta atrás.
+        if nuevo.is_empty() && previas > 0 {
+            out.skipped = Some("la foto llegó vacía y antes había inventario".to_string());
+            return Ok(out);
+        }
+
+        let tx = conn.unchecked_transaction()?;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // 3) La PRIMERA vez de un personaje no hubo cambios: hubo un primer vistazo. Sembrar en
+        //    silencio, como ya hace la Bitácora con los logros — si no, el día que alguien añade su
+        //    noveno alt aparecerían 3.000 «apariciones» con la misma marca de tiempo, y esa sería
+        //    la primera página de su histórico.
+        out.seeded = previas == 0;
+
+        if !out.seeded {
+            // 4) El diff, al grano de UBICACIÓN RAÍZ: se suman los contenedores y los slots de un
+            //    mismo sitio. Así, mover algo del hangar a un contenedor de esa misma estación deja
+            //    el neto en cero y no escribe nada.
+            let mut antes: HashMap<(i64, i64, bool), i64> = HashMap::new();
+            {
+                let mut stmt = tx.prepare(
+                    "SELECT location_id, type_id, assembled, SUM(quantity)
+                       FROM asset_stack WHERE character_id = ?1
+                      GROUP BY location_id, type_id, assembled",
+                )?;
+                let filas = stmt.query_map(rusqlite::params![character_id], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)? != 0,
+                        r.get::<_, i64>(3)?,
+                    ))
+                })?;
+                for f in filas {
+                    let (loc, tid, asm, qty) = f?;
+                    antes.insert((loc, tid, asm), qty);
+                }
+            }
+            let mut ahora: HashMap<(i64, i64, bool), i64> = HashMap::new();
+            for ((loc, _cont, tid, asm, _slot), qty) in &nuevo {
+                *ahora.entry((*loc, *tid, *asm)).or_insert(0) += qty;
+            }
+
+            let mut claves: Vec<&(i64, i64, bool)> =
+                antes.keys().chain(ahora.keys()).collect();
+            claves.sort_unstable();
+            claves.dedup();
+
+            let mut ins = tx.prepare(
+                "INSERT INTO asset_event
+                     (ts, character_id, location_id, type_id, assembled, delta, unit_price)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for k in claves {
+                let (loc, tid, asm) = *k;
+                let delta = ahora.get(k).copied().unwrap_or(0) - antes.get(k).copied().unwrap_or(0);
+                if delta == 0 {
+                    continue; // lo más frecuente con diferencia: nada que contar
+                }
+                ins.execute(rusqlite::params![
+                    now,
+                    character_id,
+                    loc,
+                    tid,
+                    asm as i64,
+                    delta,
+                    prices.get(&tid).copied().unwrap_or(0.0),
+                ])?;
+                out.events += 1;
+                out.locations.insert(loc);
+            }
+        }
+
+        // 5) El estado se reemplaza ENTERO. Es un espejo de la última foto, no un acumulado: lo
+        //    que ya no aparece es que ya no está. Por eso está acotado por lo que tienes y no
+        //    crece con el tiempo.
+        tx.execute(
+            "DELETE FROM asset_stack WHERE character_id = ?1",
+            rusqlite::params![character_id],
+        )?;
+        {
+            let mut ins = tx.prepare(
+                "INSERT INTO asset_stack
+                     (character_id, location_id, container_id, type_id, assembled, slot,
+                      quantity, seen_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            for ((loc, cont, tid, asm, slot), qty) in &nuevo {
+                ins.execute(rusqlite::params![
+                    character_id,
+                    loc,
+                    cont,
+                    tid,
+                    *asm as i64,
+                    slot,
+                    qty,
+                    now,
+                ])?;
+                out.stacks += 1;
+            }
+        }
+
+        tx.commit()?;
+        Ok(out)
+    }
+
+    /// Los últimos cambios de inventario, del más reciente al más antiguo. Es la lectura base de
+    /// I2 («qué cambió») y de la que saldrán los movimientos SUGERIDOS: emparejar un negativo con
+    /// un positivo del mismo tipo en una ventana corta. Aquí se devuelven los HECHOS tal cual —
+    /// el emparejamiento es cosa de quien muestra, y siempre como sugerencia (SPEC §2.1).
+    pub fn asset_events_recent(
+        &self,
+        character_id: Option<i64>,
+        limit: i64,
+    ) -> AppResult<Vec<(String, i64, i64, i64, bool, i64, f64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ts, character_id, location_id, type_id, assembled, delta, unit_price
+               FROM asset_event
+              WHERE (?1 IS NULL OR character_id = ?1)
+              ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![character_id, limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)? != 0,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, f64>(6)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// (nº de eventos, fecha del más antiguo) — para que las vistas de I2 puedan escribir
+    /// «histórico desde el …» en vez de dibujar una gráfica que insinúa que antes no se movía
+    /// nada. Igual que `contracts_span`: el hueco es CEGUERA, no un cero.
+    pub fn asset_events_span(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<(i64, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        let r = conn.query_row(
+            "SELECT COUNT(*), MIN(ts) FROM asset_event
+              WHERE (?1 IS NULL OR character_id = ?1)",
+            rusqlite::params![character_id],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)),
+        )?;
+        Ok(r)
     }
 }

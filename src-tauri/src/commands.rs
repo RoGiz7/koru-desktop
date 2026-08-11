@@ -197,6 +197,10 @@ pub struct AutoSyncResult {
     /// Programas de extracción de PI registrados por PRIMERA vez en esta pasada. No es
     /// «extractores que tienes», es «programas nuevos»: si no reprogramaste nada, es 0.
     pub pi_programs: i64,
+    /// I1 · Cambios de inventario grabados en esta pasada (apariciones + desapariciones). Lo
+    /// normal es 0: solo sube cuando de verdad entra o sale algo de un sitio. La primera pasada
+    /// de un personaje también da 0 a propósito — se siembra el estado en silencio.
+    pub asset_events: i64,
     /// Errores por personaje/paso. Antes se tragaban en silencio y un fallo persistente
     /// (token caducado, scope revocado, 4xx de ESI) podía dejar una sección congelada
     /// días sin que nadie lo viera (p. ej. killmails parados desde el 26-06).
@@ -232,6 +236,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         jobs: 0,
         contracts: 0,
         pi_programs: 0,
+        asset_events: 0,
         errors: Vec::new(),
     };
 
@@ -489,6 +494,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         let mut liquid = 0.0;
         let mut asset_value = 0.0;
         let mut have_data = false;
+        let mut skip_networth = false;
         if has("esi-wallet.read_character_wallet.v1") {
             if let Ok(b) =
                 wallet::balance(&state.esi, &state.db, c.character_id, &valid.access_token).await
@@ -498,21 +504,111 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             }
         }
         if has("esi-assets.read_assets.v1") {
-            if let Ok(s) =
-                assets::summary(&state.esi, &state.db, c.character_id, &valid.access_token).await
-            {
-                asset_value = s.est_value_clean; // patrimonio sin blueprints inflados
-                have_data = true;
-                // Papeles redimibles: snapshot del stock del día desde el mismo summary (sin ESI extra).
-                for (&tid, &qty) in &s.watched {
-                    let value = qty as f64 * prices.get(&tid).copied().unwrap_or(0.0);
-                    let _ = state
-                        .db
-                        .insert_paper_snapshot(c.character_id, &today, tid, qty, value);
+            // ⚠️ El inventario puede quedarse quieto por DOS motivos opuestos —«no se movió
+            // nada» y «ni siquiera he mirado»— y desde fuera son idénticos. `get_cached` respeta
+            // el `Expires` y ni llama a ESI mientras siga vigente (los assets duran ~1 h), así
+            // que mover algo en el juego y sincronizar no garantiza verlo. Decir hasta cuándo
+            // vale la foto convierte ese silencio ambiguo en un dato. Misma enfermedad que el
+            // intel mudo y el gamelog viejo: lo que calla, engaña.
+            if let Ok(Some(c0)) = state.db.get_cache(
+                c.character_id,
+                &format!("/characters/{}/assets/?page=1", c.character_id),
+            ) {
+                if let Some(t) = c0.expires.as_deref().and_then(crate::esi::parse_http_or_rfc3339) {
+                    let quedan = (t - chrono::Utc::now()).num_minutes();
+                    if quedan > 0 {
+                        eprintln!(
+                            "auto_sync {}: la foto de assets vale {quedan} min más; hasta entonces el inventario no puede cambiar",
+                            c.name
+                        );
+                    }
                 }
+            }
+
+            // UNA sola descarga para dos cosas. El snapshot de patrimonio ya bajaba los assets
+            // enteros y los tiraba; el inventario (I1) se cuelga de esa misma foto, así que
+            // guardar la película NO añade ni una llamada a ESI. Ver SPEC_INVENTARIO.md.
+            let (items, complete) = assets::fetch_all_assets_checked(
+                &state.esi,
+                &state.db,
+                c.character_id,
+                &valid.access_token,
+            )
+            .await;
+
+            // I1 · INVENTARIO: estado + los cambios respecto a la última foto. Sin una sola
+            // pantalla, igual que industria, PI y contratos en su día. `complete` es lo que
+            // impide escribir desapariciones falsas cuando ESI pierde una página.
+            match assets::sync_inventory(&state.db, c.character_id, &items, complete, &prices) {
+                Ok(r) => {
+                    res.asset_events += r.events;
+                    // Solo se habla cuando pasa algo. El caso normal —nada se movió— es silencio;
+                    // si esto imprimiera en cada pasada, en un mes nadie leería la línea que sí
+                    // importa. La siembra se anuncia porque es el día en que empieza el histórico
+                    // de ese personaje, y esa fecha explica luego por qué la película no llega
+                    // más atrás.
+                    if r.seeded {
+                        eprintln!(
+                            "auto_sync {}: inventario sembrado ({} pilas). El histórico empieza aquí.",
+                            c.name, r.stacks
+                        );
+                    } else if r.events > 0 {
+                        // Las UBICACIONES son lo que da sentido al número de cambios: un viaje
+                        // toca DOS sitios por muchos tipos que lleve la nave dentro (el casco,
+                        // cada módulo montado, los drones y la munición cargada viajan con ella
+                        // y cada uno cuenta doble, al salir y al llegar). Cincuenta cambios en
+                        // dos ubicaciones es un viaje; cincuenta en treinta sería un fallo.
+                        let mut sitios: Vec<i64> = r.locations.iter().copied().collect();
+                        sitios.sort_unstable();
+                        eprintln!(
+                            "auto_sync {}: inventario, {} cambios en {} ubicaciones {:?} ({} pilas)",
+                            c.name,
+                            r.events,
+                            sitios.len(),
+                            sitios,
+                            r.stacks
+                        );
+                    }
+                    if let Some(motivo) = r.skipped {
+                        // No es un error de red: es Koru negándose a firmar un dato del que no se
+                        // fía. Tiene que verse, o el histórico se quedaría quieto en silencio.
+                        let msg = format!("{}: inventario omitido ({motivo})", c.name);
+                        eprintln!("auto_sync {msg}");
+                        res.errors.push(msg);
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("{}: inventario: {e}", c.name);
+                    eprintln!("auto_sync {msg}");
+                    res.errors.push(msg);
+                }
+            }
+
+            // ⚠️ El mismo `complete` protege el PATRIMONIO, y esto arregla un fallo que llevaba
+            // aquí desde siempre: con una página perdida, `summary` devolvía Ok con la suma de lo
+            // poco que llegó, y el snapshot del día se guardaba con un patrimonio falsamente bajo
+            // — un escalón hacia abajo en la gráfica que nadie escribió nunca. Se prefiere un
+            // hueco (que la vista ya sabe declarar como ceguera) a un número inventado.
+            if complete {
+                if let Ok(s) = assets::summary_from_items(&state.esi, &state.db, &items).await {
+                    asset_value = s.est_value_clean; // patrimonio sin blueprints inflados
+                    have_data = true;
+                    // Papeles redimibles: snapshot del stock del día desde el mismo summary (sin ESI extra).
+                    for (&tid, &qty) in &s.watched {
+                        let value = qty as f64 * prices.get(&tid).copied().unwrap_or(0.0);
+                        let _ = state
+                            .db
+                            .insert_paper_snapshot(c.character_id, &today, tid, qty, value);
+                    }
+                }
+            } else {
+                // Sin assets fiables no hay patrimonio que apuntar hoy: mejor no tocar la fila
+                // del día que pisarla con un valor que sabemos incompleto.
+                skip_networth = true;
             }
         }
         if have_data
+            && !skip_networth
             && state
                 .db
                 .insert_networth_snapshot(c.character_id, &today, liquid, asset_value)

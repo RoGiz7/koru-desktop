@@ -570,7 +570,7 @@ fn backoff_secs(resp: &reqwest::Response, attempt: u32) -> u64 {
 
 /// ESI manda `Expires` en formato HTTP (RFC 7231). Aceptamos también RFC3339 por si lo
 /// guardamos normalizado nosotros.
-fn parse_http_or_rfc3339(s: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_http_or_rfc3339(s: &str) -> Option<DateTime<Utc>> {
     if let Ok(d) = DateTime::parse_from_rfc2822(s) {
         return Some(d.with_timezone(&Utc));
     }
