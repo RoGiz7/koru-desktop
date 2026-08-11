@@ -2393,6 +2393,17 @@ const EN: Record<string, string> = {
     "Test alert: this is how intel will look over the game.",
   "Alt de prueba": "Test alt",
   "Piloto de prueba": "Test pilot",
+  // El motor humano (N1): notas ancladas. "Guardar" y "Borrar" ya existían más arriba.
+  "Tus notas aquí": "Your notes here",
+  "Añadir nota": "Add note",
+  "Lo que quieras recordar de este sitio…": "Whatever you want to remember about this place…",
+  "Marcar como hecha": "Mark as done",
+  "Sin notas": "No notes",
+  // A quién le toca la nota (no quién la escribió).
+  "¿A quién le toca?": "Whose job is it?",
+  Cualquiera: "Anyone",
+  Notas: "Notes",
+  // "Hechas" y "Cerrar" ya existían más arriba.
 };
 
 export function t(s: string, lang: Lang): string {

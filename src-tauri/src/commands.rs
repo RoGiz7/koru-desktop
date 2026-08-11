@@ -2866,6 +2866,95 @@ pub async fn delete_personal_project(id: i64, state: State<'_, AppState>) -> App
     state.db.delete_personal_project(id)
 }
 
+/* ---------- El motor humano (N1): notas ancladas ---------- */
+// Ver documentacion/SPEC_MOTOR_HUMANO.md. A diferencia de todo lo demás que guarda Koru, esto lo
+// escribe el jugador — así que, también a diferencia de I1, no puede estar semanas sin pantalla:
+// una nota que no se puede escribir no existe.
+
+/// Notas visibles para el sujeto. `subject_id = 0` es Global (se ven todas).
+/// `include_done` trae también las cerradas, que van al final.
+#[tauri::command]
+pub async fn get_notes(
+    subject_id: i64,
+    include_done: bool,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::NoteRow>> {
+    let subj = (subject_id != 0).then_some(subject_id);
+    state.db.note_list(subj, include_done)
+}
+
+/// «¿Qué tengo apuntado sobre esto?» — notas abiertas pegadas a un sistema, tipo, ubicación o
+/// personaje. Es lo que permite enseñarlas en la ficha de un sistema sin que la vista sepa nada
+/// del modelo. `subject_id = 0` = Global.
+#[tauri::command]
+pub async fn get_notes_for(
+    kind: String,
+    anchor_id: i64,
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::NoteRow>> {
+    let subj = (subject_id != 0).then_some(subject_id);
+    state.db.notes_for_anchor(&kind, anchor_id, subj)
+}
+
+/// Crea una nota. `subject_id = 0` la hace del JUGADOR: visible desde cualquier personaje, que es
+/// lo que se quiere para «reservado para el proyecto X». Devuelve el id.
+#[tauri::command]
+pub async fn create_note(
+    subject_id: i64,
+    body: String,
+    pinned: bool,
+    anchors: Vec<crate::db::NoteAnchor>,
+    state: State<'_, AppState>,
+) -> AppResult<i64> {
+    state.db.note_create(subject_id, &body, pinned, &anchors)
+}
+
+/// Reescribe una nota. Si `anchors` viene vacío se dejan las que tenía; para quitarlas todas hay
+/// que pedirlo con `clear_anchors`, porque «no me mandes anclas» y «quítame las anclas» son cosas
+/// distintas y confundirlas borraría datos sin que nadie lo pidiera.
+#[tauri::command]
+pub async fn update_note(
+    id: i64,
+    body: String,
+    pinned: bool,
+    anchors: Vec<crate::db::NoteAnchor>,
+    clear_anchors: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let a: Option<&[crate::db::NoteAnchor]> = if clear_anchors || !anchors.is_empty() {
+        Some(&anchors)
+    } else {
+        None
+    };
+    state.db.note_update(id, &body, pinned, a)
+}
+
+/// Reasigna una nota a otro personaje. `subject_id = 0` = cualquiera.
+///
+/// `subject_id` es **a quién le toca**, no quién la escribió (idea de RoGiz7): con varios
+/// personajes, «que Vera compre los cristales» es una tarea distinta de «comprar cristales».
+#[tauri::command]
+pub async fn set_note_subject(
+    id: i64,
+    subject_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.db.note_set_subject(id, subject_id)
+}
+
+/// Cierra o reabre una nota. Cerrar NO borra.
+#[tauri::command]
+pub async fn set_note_done(id: i64, done: bool, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.note_set_done(id, done)
+}
+
+/// Borra una nota y sus anclas.
+#[tauri::command]
+pub async fn delete_note(id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.note_delete(id)
+}
+
 /// Resumen logi all-time (dado y recibido, por tipo) para el panel de Logros. subject_id 0 = global.
 #[tauri::command]
 pub async fn get_logi_summary(

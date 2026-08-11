@@ -2116,6 +2116,7 @@ function App() {
           busy={sectionBusy}
           overlay={mapOverlay}
           onOverlayChange={handleOverlayChange}
+          subjectId={subjectId}
           assetsBySystem={assetsMap}
           miningBySystem={miningMap}
           sovBySystem={sovMap}

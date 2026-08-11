@@ -1060,3 +1060,23 @@ export type IntelConfig = {
   onPickFolder: () => void;
   onPickSound: () => void;
 };
+
+/** Una ancla de nota: a qué cosa del juego está pegada. */
+export type NoteAnchor = {
+  /** `system` | `type` | `location` | `character` */
+  kind: string;
+  id: number;
+};
+
+/** EL MOTOR HUMANO (N1). Ver documentacion/SPEC_MOTOR_HUMANO.md. */
+export type Note = {
+  id: number;
+  /** 0 = del JUGADOR: se ve desde cualquier personaje. */
+  subject_id: number;
+  body: string;
+  created_at: string;
+  /** null = abierta. Cerrar no borra. */
+  done_at: string | null;
+  pinned: boolean;
+  anchors: NoteAnchor[];
+};

@@ -17,6 +17,7 @@ import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay, Tab } from "./constants";
 import { openExternal } from "./openExternal";
+import { NotasAncla } from "./notas";
 import type {
   IntelConfig,
   SysActivity,
@@ -285,6 +286,8 @@ export function MapView(props: {
   busy: boolean;
   overlay: MapOverlay;
   onOverlayChange: (o: MapOverlay) => void;
+  /** Sujeto activo (0 = Global). Lo usan las notas de la ficha de sistema. */
+  subjectId?: number;
   assetsBySystem?: Map<number, number> | null;
   miningBySystem?: Map<number, number> | null;
   sovBySystem?: Map<number, SovSystem> | null;
@@ -327,6 +330,7 @@ export function MapView(props: {
     data,
     overlay,
     onOverlayChange,
+    subjectId = 0,
     intel,
     onSystemAssets,
     onOpenCazador,
@@ -3281,6 +3285,16 @@ export function MapView(props: {
                     {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
                   </div>
                 )}
+                {/* EL MOTOR HUMANO (N1). El ancla va aquí —y no en una pestaña propia— porque una
+                    nota sobre un sistema sirve de poco en una lista de notas: sirve cuando estás
+                    mirando ESE sistema. Pero solo el CHIP: el detalle se abre en un modal para no
+                    empujar los botones de ruta. Ver SPEC_MOTOR_HUMANO.md. */}
+                <NotasAncla
+                  kind="system"
+                  anchorId={selected}
+                  subject={subjectId}
+                  anchorName={s.n}
+                />
                 {overlay === "agentes" && (agentDetails?.get(selected)?.length ?? 0) > 0 && (
                   <div className="sys-agents">
                     <div className="muted small">🧑‍✈️ {tr("Tus agentes aquí")}:</div>

@@ -391,6 +391,58 @@ impl Db {
              CREATE INDEX IF NOT EXISTS idx_aev_type ON asset_event(type_id);
              CREATE INDEX IF NOT EXISTS idx_aev_loc  ON asset_event(location_id);",
         );
+        // EL MOTOR HUMANO (N1 de documentacion/SPEC_MOTOR_HUMANO.md). Todo lo demás que guarda Koru
+        // lo genera el juego; esto lo escribe el jugador, y es lo único que ESI no puede contradecir.
+        //
+        // ★ LA IDEA, y sale de una pregunta que dejó abierta RoGiz7 —«¿qué pasa cuando una tarea no
+        //   se puede medir sola?»—: **la trampa está en «medir»**. Una tarea que Koru no puede medir
+        //   no necesita medirse, necesita APARECER EN EL MOMENTO CORRECTO. Koru no sabe si hablaste
+        //   con el FC, pero sabe que acabas de atracar en Jita (`location_track`), que tu trabajo
+        //   terminó (`industry_job`) o que han llegado 2.000 Quake M a TTP-2B (`asset_event`).
+        //   **El valor no está en el check, está en el disparador** — y por eso las columnas
+        //   `trigger_*` nacen aquí aunque N1 las deje vacías: el hueco es la mitad del diseño.
+        //
+        // ★ ESTO ABSORBE EL `asset_note` DE I3, que estaba diseñado y sin construir. Una nota
+        //   pegada a un tipo EN una ubicación («este Tritanio es del proyecto de los Ishtar») es un
+        //   caso particular de una nota pegada a cosas. Construir el motor genérico ahora evita
+        //   levantar `asset_note` para tirarlo en tres semanas.
+        //
+        // `subject_id = 0` es del JUGADOR, no de un personaje: «reservado para el proyecto X» no es
+        // de nadie en concreto y tiene que verse desde cualquier alt. Las de un personaje solo se
+        // ven desde él (o desde Global).
+        //
+        // ⚠️ `note_anchor` es tabla HIJA y no dos columnas fijas, por dos motivos: (1) las preguntas
+        // interesantes son POR ANCLA —«¿qué tengo apuntado sobre Jita?», «¿qué sé del Tritanio?»— y
+        // así cada una es un índice, igual que se razonó en `activity_run_chars`; (2) el caso de
+        // `asset_note` necesita DOS anclas a la vez (tipo + ubicación), y con columnas fijas habría
+        // que decidir hoy cuántas caben. Una nota SIN ninguna ancla es válida: es la lista de la
+        // compra.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS note (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 subject_id   INTEGER NOT NULL DEFAULT 0,  -- 0 = del jugador, no de un personaje
+                 body         TEXT NOT NULL,
+                 created_at   TEXT NOT NULL,
+                 updated_at   TEXT NOT NULL,
+                 done_at      TEXT,                        -- NULL = abierta
+                 pinned       INTEGER NOT NULL DEFAULT 0,
+                 -- El hueco del disparador (N2). Vacío en N1, pero el modelo ya lo contempla.
+                 trigger_kind TEXT NOT NULL DEFAULT '',     -- arrive | undock | job_done | asset...
+                 trigger_id   INTEGER NOT NULL DEFAULT 0,   -- sistema, tipo, lo que pida el kind
+                 trigger_at   TEXT,                         -- para las alarmas de puro tiempo (N3)
+                 fired_at     TEXT                          -- ya saltó: no repetir sin querer
+             );
+             CREATE INDEX IF NOT EXISTS idx_note_subject ON note(subject_id);
+             CREATE INDEX IF NOT EXISTS idx_note_done    ON note(done_at);
+             CREATE INDEX IF NOT EXISTS idx_note_trigger ON note(trigger_kind, trigger_id);
+             CREATE TABLE IF NOT EXISTS note_anchor (
+                 note_id INTEGER NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+                 kind    TEXT NOT NULL,   -- system | type | location | character
+                 id      INTEGER NOT NULL,
+                 PRIMARY KEY (note_id, kind, id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_nanchor_target ON note_anchor(kind, id);",
+        );
         // Runs MULTICUENTA (multibox): participantes de una run de abisal/CRAB. Tabla hija y no un
         // CSV en una columna, porque todas las preguntas interesantes son POR personaje («¿cuál
         // muere más?», «¿con cuál gano?») y un CSV no se consulta ni se indexa.
@@ -5424,6 +5476,219 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+}
+
+// --- EL MOTOR HUMANO (N1): notas ancladas ---
+// Ver documentacion/SPEC_MOTOR_HUMANO.md. El porqué del modelo está junto al CREATE TABLE.
+
+/// A qué está pegada una nota. `kind` es `system`, `type`, `location` o `character`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NoteAnchor {
+    pub kind: String,
+    pub id: i64,
+}
+
+/// Una nota tal como se guarda, con sus anclas ya pegadas.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NoteRow {
+    pub id: i64,
+    /// 0 = del jugador (visible desde cualquier personaje).
+    pub subject_id: i64,
+    pub body: String,
+    pub created_at: String,
+    pub done_at: Option<String>,
+    pub pinned: bool,
+    pub anchors: Vec<NoteAnchor>,
+}
+
+impl Db {
+    /// Crea una nota con sus anclas. Devuelve el id.
+    pub fn note_create(
+        &self,
+        subject_id: i64,
+        body: &str,
+        pinned: bool,
+        anchors: &[NoteAnchor],
+    ) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO note (subject_id, body, created_at, updated_at, pinned)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            rusqlite::params![subject_id, body, now, pinned as i64],
+        )?;
+        let id = tx.last_insert_rowid();
+        {
+            // OR IGNORE: la misma ancla dos veces es un descuido de quien llama, no un error.
+            let mut ins = tx.prepare(
+                "INSERT OR IGNORE INTO note_anchor (note_id, kind, id) VALUES (?1, ?2, ?3)",
+            )?;
+            for a in anchors {
+                ins.execute(rusqlite::params![id, a.kind, a.id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// Todas las notas visibles para un sujeto, con sus anclas.
+    ///
+    /// `subject_id = None` es Global: se ven todas, de cualquier personaje. Con un personaje se ven
+    /// las suyas **y las del jugador** (`subject_id = 0`), porque «reservado para el proyecto X» no
+    /// es de nadie en concreto y esconderla según con qué alt mires sería una forma tonta de
+    /// perderla.
+    ///
+    /// Las anclas vienen en la misma consulta (`GROUP_CONCAT`), no en una consulta por nota: con
+    /// unas cuantas decenas de notas la diferencia da igual, pero el N+1 se paga solo cuando ya
+    /// duele y entonces cuesta desmontarlo.
+    pub fn note_list(&self, subject_id: Option<i64>, include_done: bool) -> AppResult<Vec<NoteRow>> {
+        let conn = self.conn.lock().unwrap();
+        let filtro_done = if include_done { "" } else { "AND n.done_at IS NULL" };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
+                    COALESCE(GROUP_CONCAT(a.kind || ':' || a.id), '')
+               FROM note n LEFT JOIN note_anchor a ON a.note_id = n.id
+              WHERE (?1 IS NULL OR n.subject_id = 0 OR n.subject_id = ?1) {filtro_done}
+              GROUP BY n.id
+              ORDER BY n.done_at IS NOT NULL, n.pinned DESC, n.id DESC"
+        ))?;
+        let rows = stmt
+            .query_map(rusqlite::params![subject_id], |r| {
+                Ok(NoteRow {
+                    id: r.get(0)?,
+                    subject_id: r.get(1)?,
+                    body: r.get(2)?,
+                    created_at: r.get(3)?,
+                    done_at: r.get(4)?,
+                    pinned: r.get::<_, i64>(5)? != 0,
+                    anchors: parse_anchors(&r.get::<_, String>(6)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// «¿Qué tengo apuntado sobre ESTO?» — el caso que justifica que `note_anchor` sea tabla hija.
+    /// Es lo que permite enseñar las notas en la ficha de un sistema, de un tipo o de una estación
+    /// sin que la vista tenga que saber nada del modelo.
+    pub fn notes_for_anchor(
+        &self,
+        kind: &str,
+        anchor_id: i64,
+        subject_id: Option<i64>,
+    ) -> AppResult<Vec<NoteRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
+                    COALESCE((SELECT GROUP_CONCAT(a2.kind || ':' || a2.id)
+                                FROM note_anchor a2 WHERE a2.note_id = n.id), '')
+               FROM note n JOIN note_anchor a ON a.note_id = n.id
+              WHERE a.kind = ?1 AND a.id = ?2
+                AND (?3 IS NULL OR n.subject_id = 0 OR n.subject_id = ?3)
+                AND n.done_at IS NULL
+              ORDER BY n.pinned DESC, n.id DESC",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![kind, anchor_id, subject_id], |r| {
+                Ok(NoteRow {
+                    id: r.get(0)?,
+                    subject_id: r.get(1)?,
+                    body: r.get(2)?,
+                    created_at: r.get(3)?,
+                    done_at: r.get(4)?,
+                    pinned: r.get::<_, i64>(5)? != 0,
+                    anchors: parse_anchors(&r.get::<_, String>(6)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Reescribe el texto y/o las anclas de una nota. `anchors = None` deja las anclas como están.
+    pub fn note_update(
+        &self,
+        id: i64,
+        body: &str,
+        pinned: bool,
+        anchors: Option<&[NoteAnchor]>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE note SET body = ?1, pinned = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![body, pinned as i64, now, id],
+        )?;
+        if let Some(list) = anchors {
+            tx.execute(
+                "DELETE FROM note_anchor WHERE note_id = ?1",
+                rusqlite::params![id],
+            )?;
+            let mut ins = tx.prepare(
+                "INSERT OR IGNORE INTO note_anchor (note_id, kind, id) VALUES (?1, ?2, ?3)",
+            )?;
+            for a in list {
+                ins.execute(rusqlite::params![id, a.kind, a.id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Reasigna una nota a otro personaje (0 = cualquiera).
+    ///
+    /// ★ Idea de RoGiz7 (2026-08-11) que cambió lo que significa `subject_id`. Estaba pensado como
+    /// AUTORÍA —de quién es la nota—, que es poco interesante. Él lo pidió como **ASIGNACIÓN**:
+    /// *«el jugador es dueño de cada personaje y andará de uno a otro; estaría bien poder cambiarlo
+    /// por si esa nota se la asigna a otro pj»*. Con nueve personajes eso no es un matiz: «que Vera
+    /// compre los cristales cuando atraque en Jita» es una tarea de multibox.
+    ///
+    /// Y adelanta N2: cuando la nota tenga disparador, `subject_id` dice **de quién** se espera.
+    /// Si la nota es de Vera, tiene que saltar cuando llegue VERA, no cuando llegue cualquiera.
+    pub fn note_set_subject(&self, id: i64, subject_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE note SET subject_id = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![subject_id, now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Cierra o reabre una nota. **Cerrar no borra**: lo que te propusiste vale como histórico, y
+    /// una nota cerrada por error se recupera; una borrada, no.
+    pub fn note_set_done(&self, id: i64, done: bool) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE note SET done_at = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![if done { Some(now.clone()) } else { None }, now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Borra una nota. Sus anclas se van con ella (`ON DELETE CASCADE`, y `foreign_keys` está ON
+    /// desde `Db::open` — sin ese pragma quedarían huérfanas en silencio).
+    pub fn note_delete(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM note WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }
+}
+
+/// `"system:30000142,type:34"` → las anclas. Formato interno del `GROUP_CONCAT`, no de nadie más.
+fn parse_anchors(s: &str) -> Vec<NoteAnchor> {
+    s.split(',')
+        .filter(|p| !p.is_empty())
+        .filter_map(|p| {
+            let (kind, id) = p.split_once(':')?;
+            Some(NoteAnchor {
+                kind: kind.to_string(),
+                id: id.parse().ok()?,
+            })
+        })
+        .collect()
 }
 
 // --- INVENTARIO (I1): estado de assets + la película de sus cambios ---
