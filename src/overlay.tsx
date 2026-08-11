@@ -163,6 +163,8 @@ export function Overlay() {
   /** Renglón que el jugador ha abierto a mano. `null` = manda el criterio automático (el más
    *  cercano). Se limpia solo cuando ese aviso caduca. */
   const [abiertoManual, setAbiertoManual] = useState<string | null>(null);
+  /** N3: el reloj del abismo. `endsAt` en ms epoch; el modo lo manda quien lo empuja. */
+  const [abismo, setAbismo] = useState<{ endsAt: number; mode: string } | null>(null);
   /** Reloj de 1 s: refresca las edades y retira lo caducado. */
   const [, tick] = useState(0);
   const stackRef = useRef<HTMLDivElement>(null);
@@ -190,6 +192,22 @@ export function Overlay() {
   const quitar = useCallback((key: string) => {
     setAvisos((prev) => prev.filter((a) => a.key !== key));
     setAbiertoManual((k) => (k === key ? null : k));
+  }, []);
+
+  // ★ N3 · EL RELOJ DEL ABISMO. El segundo habitante del overlay después del intel, y el único que
+  // se ganó el sitio sin discusión: estás DENTRO, no puedes alt-tabear, y pasarse del tope de 20
+  // minutos no cuesta puntos — cuesta la nave.
+  //
+  // Llega CUÁNDO acaba, no lo que queda: aquí se cuenta con el reloj propio. Tres avisos por run en
+  // vez de uno por segundo, y si uno se pierde, lo que se está pintando sigue siendo correcto.
+  useEffect(() => {
+    const un = listen<{ ends_at_ms: number; mode: string }>("abyss-timer", (e) => {
+      const p = e.payload;
+      setAbismo(p.mode === "off" ? null : { endsAt: p.ends_at_ms, mode: p.mode });
+    });
+    return () => {
+      void un.then((f) => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -220,7 +238,9 @@ export function Overlay() {
   // para toda la vida del proceso en una ventana que el 99% del tiempo está vacía: impide que el
   // sistema deje la app en reposo y se nota en el portátil. Sin avisos no hay nada que refrescar.
   useEffect(() => {
-    if (avisos.length === 0) return;
+    // ⚠️ El reloj del abismo TAMBIÉN necesita el latido: si solo corriera con avisos de intel, la
+    // cuenta atrás se quedaría congelada en el segundo en que llegó.
+    if (avisos.length === 0 && !abismo) return;
     const i = window.setInterval(() => {
       tick((n) => n + 1);
       setAvisos((prev) => {
@@ -229,7 +249,7 @@ export function Overlay() {
       });
     }, 1000);
     return () => window.clearInterval(i);
-  }, [avisos.length === 0]);
+  }, [avisos.length === 0, abismo]);
 
   // Ajustar la VENTANA al contenido. Es lo que evita que quede una zona invisible pero sólida
   // encima del juego: una ventana transparente sigue capturando los clics del ratón a nivel de
@@ -249,12 +269,12 @@ export function Overlay() {
   }, []);
 
   useLayoutEffect(() => {
-    if (avisos.length === 0) {
+    if (avisos.length === 0 && !abismo) {
       void invoke("overlay_hide").catch(() => {});
       return;
     }
     ajustar();
-  }, [avisos, ajustar]);
+  }, [avisos, abismo, ajustar]);
 
   // ⚠️ Y ADEMÁS un observador de tamaño, porque medir UNA vez no basta: la fuente puede acabar de
   // cargar, un icono de nave puede llegar tarde y el texto puede recolocarse después del primer
@@ -271,7 +291,7 @@ export function Overlay() {
   // Sin avisos NO se devuelve `null`, y es a propósito. Un `null` en una ventana sin bordes pinta un
   // rectángulo vacío, y un rectángulo vacío es ambiguo: puede significar «React no montó» o «montó
   // pero no llegó el evento». Con este cartel, ver el texto ya demuestra que el componente vive.
-  if (avisos.length === 0) {
+  if (avisos.length === 0 && !abismo) {
     return (
       <div className="ov-stack" ref={stackRef}>
         <div className="ov ov-idle">
@@ -288,8 +308,10 @@ export function Overlay() {
   // tuyo). No la más reciente: un hostil a 9 saltos no puede tapar a uno a 2 solo por llegar
   // después. Los renglones van por cercanía también, así el peligro sube solo.
   const orden = [...avisos].sort((x, y) => saltosDe(x) - saltosDe(y) || y.ts_ms - x.ts_ms);
+  // ⚠️ Puede no haber NINGÚN aviso y aun así estar la ventana abierta, si lo que la sostiene es el
+  // reloj del abismo. `abierta` es opcional desde que existe N3.
   const abierta = orden.find((a) => a.key === abiertoManual) ?? orden[0];
-  const resto = orden.filter((a) => a.key !== abierta.key);
+  const resto = abierta ? orden.filter((a) => a.key !== abierta.key) : [];
 
   const tarjeta = (a: Aviso) => {
     const ref = referencia(a);
@@ -422,9 +444,37 @@ export function Overlay() {
     );
   };
 
+  /** El reloj del abismo. Va ARRIBA del todo: cuando quedan dos minutos, no hay nada en esa
+   *  ventana más urgente que esto — ni un hostil a cinco saltos, porque al hostil puedes esquivarlo
+   *  y al tiempo no.
+   *
+   *  En `warn` (5 min) es una línea sobria: aún hay margen para decidir. En `count` (últimos 3) se
+   *  pone en rojo y enseña los segundos: ahí ya no se decide, se sale. */
+  const reloj = () => {
+    if (!abismo) return null;
+    const queda = Math.max(0, abismo.endsAt - Date.now());
+    const mm = Math.floor(queda / 60000);
+    const ss = Math.floor((queda % 60000) / 1000);
+    const fuera = queda <= 0;
+    return (
+      <div className={`ov ov-abyss${abismo.mode === "count" || fuera ? " urge" : ""}`}>
+        <div className="ov-bar" />
+        <div className="ov-body">
+          <span className="ova-tx">
+            {fuera ? tr("¡FUERA DEL ABISMO!") : tr("Abismo")}
+          </span>
+          {!fuera && (
+            <span className="ova-t">{`${mm}:${String(ss).padStart(2, "0")}`}</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="ov-stack" ref={stackRef}>
-      {tarjeta(abierta)}
+      {reloj()}
+      {abierta && tarjeta(abierta)}
       {resto.map(renglon)}
     </div>
   );

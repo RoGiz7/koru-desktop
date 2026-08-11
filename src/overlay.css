@@ -385,3 +385,50 @@ html.koru-overlay #root {
   height: 16px;
   font-size: 10px;
 }
+
+/* ---- N3 · El reloj del abismo ----
+   El segundo habitante del overlay después del intel, y el único que se ganó el sitio sin
+   discusión: estás DENTRO, no puedes alt-tabear, y pasarse del tope de 20 minutos cuesta la nave.
+   En `warn` (quedan 5 min) es sobrio — aún se decide. Con `urge` (últimos 3) se pone en rojo y
+   late: ahí ya no se decide, se sale. */
+.ov-abyss .ov-bar {
+  background: #4aa3df;
+}
+.ov-abyss .ov-body {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ova-tx {
+  font-size: 12.5px;
+  color: #cfe6f7;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ova-t {
+  font-size: 20px;
+  font-weight: 700;
+  color: #eaf4fb;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.ov-abyss.urge .ov-bar {
+  background: #e5534b;
+}
+.ov-abyss.urge .ova-tx {
+  color: #ffd7d4;
+}
+.ov-abyss.urge .ova-t {
+  color: #ff6b6b;
+  animation: ova-late 1s steps(1, end) infinite;
+}
+@keyframes ova-late {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-abyss.urge .ova-t {
+    animation: none;
+  }
+}

@@ -2416,6 +2416,8 @@ const EN: Record<string, string> = {
   "Pulsa para editar": "Click to edit",
   "Nombre exacto del piloto": "Pilot's exact name",
   "No existe ese piloto": "No such pilot",
+  // N3: el reloj del abismo sobre el juego. "Abismo" ya existía más arriba.
+  "¡FUERA DEL ABISMO!": "GET OUT OF THE ABYSS!",
   // "Piloto", "Quitar" y "Cancelar" ya existían más arriba.
   "una vez": "once",
   "cada visita": "every visit",

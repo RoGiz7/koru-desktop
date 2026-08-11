@@ -4,11 +4,12 @@
 // `activity`). Sirve a DOS actividades con la prop `activity`: "abyssal" (filamentos 6×5, cuenta atrás
 // de 20 min) y "crab" (beacon CONCORD Rogue Analysis 60244 / variante Carrier 92183; sin clima ni tope).
 // Diseño: documentacion/koru-desktop-ABYSSAL_CRAB_RUNS_diseno.md. RoGiz7, 2026-07-24 (CRAB 2026-07-28).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, typeIcon } from "./format";
 import { fmtDuration } from "./signaturesControl";
+import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
 import type { ActivityRun, RunChar } from "./types";
@@ -481,6 +482,52 @@ export function AbyssalRunsView({
 
   const elapsed = active ? now - new Date(active.started_at).getTime() : 0;
   const remaining = ABYSS_LIMIT_MS - elapsed; // solo abisales (tope duro de 20 min; CRAB no tiene)
+
+  // ★ N3 · EL RELOJ DEL ABISMO SOBRE EL JUEGO.
+  //
+  // Este cronómetro ya existía; lo que faltaba era que se VIERA, porque dentro del abismo no puedes
+  // alt-tabear a mirar Koru — y pasarse del tope no cuesta puntos, cuesta la nave. Es el único
+  // aviso, aparte del intel, que cumple la regla del overlay sin discusión.
+  //
+  // ⚠️ Se manda CUÁNDO ACABA, no lo que queda: el overlay cuenta con su propio reloj, así que
+  // bastan tres avisos por run en lugar de uno por segundo. Y si un mensaje se pierde por lo que
+  // sea, la cuenta atrás que se está pintando sigue siendo correcta.
+  //
+  // Umbrales de RoGiz7: aviso a los 5 min (ahí decides si entras a otra oleada) y cuenta atrás
+  // visible en los últimos 3 (ahí ya no es un aviso, es información continua).
+  const abyssFase = useRef<"" | "warn" | "count" | "out" | "off">("");
+  useEffect(() => {
+    const activa = active && !isCrab;
+    const endsAt = activa ? new Date(active!.started_at).getTime() + ABYSS_LIMIT_MS : 0;
+    // Fase actual según lo que queda. Fuera de la run, "off".
+    const fase: "" | "warn" | "count" | "out" | "off" = !activa
+      ? "off"
+      : remaining <= 0
+        ? "out"
+        : remaining <= 3 * 60 * 1000
+          ? "count"
+          : remaining <= 5 * 60 * 1000
+            ? "warn"
+            : "";
+    if (fase === abyssFase.current) return; // solo en los cambios: nada de un invoke por segundo
+    // "off" tras "" (nunca hubo run) no hay que anunciarlo.
+    if (fase === "off" && abyssFase.current === "") return;
+    abyssFase.current = fase;
+    if (fase === "") return; // aún queda mucho: no se molesta al overlay
+    // ⚠️ EL SONIDO NO ES UN ADORNO. El reloj vive en una esquina y dentro del abismo estás mirando
+    // el centro de la pantalla: un aviso solo visual puede pasar desapercibido justo cuando importa.
+    // Lo pidió RoGiz7 tras probar la primera versión. Los tres suenan DISTINTO del intel a
+    // propósito — confundir «quedan 5 minutos» con «hostil en local» te haría hacer lo contrario
+    // de lo que toca.
+    if (fase === "warn") playAbyssWarn();
+    else if (fase === "count") playAbyssCount();
+    else if (fase === "out") playAbyssOut();
+    void invoke("overlay_abyss", { endsAtMs: endsAt, mode: fase }).catch((e) =>
+      // El catch AVISA: sobre un invoke con argumentos, tragárselo convierte un error de firma en
+      // un no-op mudo — y aquí el síntoma sería «el reloj no sale», sin más pistas.
+      console.error("overlay_abyss", e),
+    );
+  }, [active, isCrab, remaining]);
   // La caja en curso se tiñe por el clima del filamento (CRAB: azul CONCORD por defecto);
   // al elegir resultado vira a verde/rojo/gris.
   const activeCol = finishing ? outcomeColor(finishing) : weatherColor(active?.weather);

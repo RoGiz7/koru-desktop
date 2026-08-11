@@ -135,6 +135,46 @@ export function playUnlock() {
   tone(1047, 0.38, 0.5, "triangle", 0.18);
   tone(2093, 0.38, 0.35, "sine", 0.05); // octava de brillo (campanilla)
 }
+// ---- N3 · El reloj del abismo ----
+// TRES sonidos que cuentan la misma historia con urgencia creciente, y los tres DISTINTOS de las
+// alertas de intel: dentro del abismo, confundir «quedan 5 minutos» con «hostil en local» te haría
+// tomar justo la decisión contraria. El intel es agudo y brillante; esto va grave y desciende,
+// porque lo que se acaba es el tiempo.
+//
+// El sonido no es un adorno: el reloj se ve en una esquina y dentro del sitio estás mirando el
+// centro de la pantalla. Lo pidió RoGiz7 tras probar la primera versión, que solo era visual.
+
+/** Quedan 5 minutos: dos notas graves y tranquilas. Todavía hay margen para decidir. */
+export function playAbyssWarn() {
+  if (!audioCtx()) return;
+  tone(392, 0, 0.22, "triangle", 0.15); // Sol3
+  tone(330, 0.2, 0.42, "triangle", 0.15); // Mi3 — desciende: queda menos
+}
+
+/** Últimos 3 minutos: tres golpes descendentes, más secos. Ya no se decide, se sale. */
+export function playAbyssCount() {
+  if (!audioCtx()) return;
+  tone(494, 0, 0.12, "square", 0.16);
+  tone(415, 0.16, 0.12, "square", 0.16);
+  tone(330, 0.32, 0.3, "square", 0.18);
+}
+
+/** Se acabó el tiempo: sirena descendente, sin ambigüedad posible. */
+export function playAbyssOut() {
+  if (!audioCtx()) return;
+  sweep(
+    [
+      [0, 880],
+      [0.35, 300],
+      [0.7, 880],
+      [1.05, 260],
+    ],
+    1.15,
+    "sawtooth",
+    0.2,
+  );
+}
+
 // Reproduce la alerta según la elección del usuario.
 export function playAlertChoice(choice: string) {
   if (choice === "custom") playCustom();

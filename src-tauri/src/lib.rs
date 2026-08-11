@@ -121,6 +121,7 @@ pub fn run() {
             commands::overlay_monitors,
             commands::overlay_place,
             commands::overlay_hide,
+            commands::overlay_abyss,
             commands::overlay_fit,
             commands::overlay_test,
             commands::overlay_debug,

@@ -10268,6 +10268,35 @@ pub fn overlay_fit(
     Ok(())
 }
 
+/// El reloj del abismo, tal como lo recibe el overlay.
+#[derive(Debug, Clone, Serialize)]
+pub struct AbyssTimer {
+    /// Cuándo se acaba el tiempo, en ms epoch. **Se manda el FINAL, no lo que queda**: así el
+    /// overlay cuenta solo con su propio reloj y bastan tres avisos por run en vez de uno por
+    /// segundo. Además, si un mensaje se pierde, la cuenta atrás sigue siendo correcta.
+    pub ends_at_ms: i64,
+    /// `warn` = aviso puntual (quedan 5 min) · `count` = cuenta atrás visible (últimos 3) ·
+    /// `off` = se acabó la run, quitar.
+    pub mode: String,
+}
+
+/// ★ N3: empuja el reloj de la run abisal al overlay.
+///
+/// POR QUÉ MERECE EL OVERLAY cuando la PI y los logros no: **estás DENTRO y no puedes alt-tabear**.
+/// El tope del abismo son 20 minutos y pasarse no es perder puntos, es perder la nave. Cumple la
+/// regla al pie de la letra — ¿harías algo distinto en los próximos 30 segundos? Sí: salir.
+///
+/// Los umbrales los eligió RoGiz7: **aviso a los 5 minutos** (ahí decides si entras a otra oleada)
+/// y **cuenta atrás visible en los últimos 3** (ahí ya no es un aviso, es información continua).
+#[tauri::command]
+pub fn overlay_abyss(app: tauri::AppHandle, ends_at_ms: i64, mode: String) -> AppResult<()> {
+    if mode != "off" {
+        mostrar_overlay(&app);
+    }
+    let _ = app.emit("abyss-timer", AbyssTimer { ends_at_ms, mode });
+    Ok(())
+}
+
 /// Esconde el overlay. Lo llama el propio overlay cuando se le acaba la cola.
 #[tauri::command]
 pub fn overlay_hide(app: tauri::AppHandle) -> AppResult<()> {
