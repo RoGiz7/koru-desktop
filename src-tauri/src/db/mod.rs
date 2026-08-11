@@ -5664,8 +5664,21 @@ impl Db {
         Ok(())
     }
 
-    /// Pone (o quita) el disparador de llegada a un sistema. `system_id = 0` lo quita.
-    pub fn note_set_trigger(&self, id: i64, system_id: i64, once: bool) -> AppResult<()> {
+    /// Pone (o quita) el disparador. `target_id = 0` lo quita.
+    ///
+    /// `kind` decide qué es `target_id`:
+    /// · `arrive` → el SISTEMA al que llegar (el ancla de la nota, en la ficha del mapa).
+    /// · `asset`  → el TIPO que esperas; el sitio sale del ancla `location` de la nota.
+    ///
+    /// `fired_at` se limpia siempre: cambiar el disparador es pedir que vuelva a vigilar, y dejar
+    /// la marca vieja habría hecho que una nota reconfigurada naciera muda.
+    pub fn note_set_trigger(
+        &self,
+        id: i64,
+        target_id: i64,
+        once: bool,
+        kind: &str,
+    ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -5673,8 +5686,8 @@ impl Db {
                              fired_at = NULL, updated_at = ?4
               WHERE id = ?5",
             rusqlite::params![
-                if system_id != 0 { "arrive" } else { "" },
-                system_id,
+                if target_id != 0 { kind } else { "" },
+                target_id,
                 once as i64,
                 now,
                 id
@@ -5763,6 +5776,84 @@ impl Db {
         Ok(due)
     }
 
+    /// ★ N2b: HA LLEGADO ALGO A UN SITIO. «Avisarme cuando lleguen Quake M a TTP-2B.»
+    ///
+    /// El tipo va en `trigger_id`; **la ubicación sale del ancla `location` de la nota**, mismo
+    /// patrón que el disparador de llegada, donde el sistema era el ancla. Una nota sin ese ancla
+    /// no salta nunca: el `JOIN` la deja fuera, que es lo correcto —«cuando llegue munición a
+    /// cualquier sitio» no es una pregunta que nadie haga.
+    ///
+    /// **Solo llegadas** (lo llama quien ve un `delta > 0`). Vigilar las salidas se descartó: «se
+    /// movió» es una hipótesis y una venta en ese sitio se ve exactamente igual que un robo, así
+    /// que avisar de ello sería insinuar algo que el dato no dice.
+    ///
+    /// Para qué sirve de verdad: **no para la carga que llevas tú** —esa ya sabes cuándo llega—
+    /// sino para la que llega SIN TI: un contrato de courier, un alt que transporta, alguien que
+    /// te entrega. Ese es el hueco que ninguna otra herramienta cubre.
+    pub fn notes_fire_on_asset(
+        &self,
+        character_id: i64,
+        location_id: i64,
+        type_id: i64,
+    ) -> AppResult<Vec<NoteRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut due: Vec<NoteRow> = Vec::new();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
+                        n.trigger_once
+                   FROM note n
+                   JOIN note_anchor a
+                     ON a.note_id = n.id AND a.kind = 'location' AND a.id = ?1
+                  WHERE n.trigger_kind = 'asset'
+                    AND n.trigger_id = ?2
+                    AND n.done_at IS NULL
+                    AND (n.subject_id = 0 OR n.subject_id = ?3)
+                    AND (n.trigger_once = 0 OR n.fired_at IS NULL)
+                  ORDER BY n.pinned DESC, n.id",
+            )?;
+            let rows = stmt.query_map(
+                rusqlite::params![location_id, type_id, character_id],
+                |r| {
+                    Ok(NoteRow {
+                        id: r.get(0)?,
+                        subject_id: r.get(1)?,
+                        body: r.get(2)?,
+                        created_at: r.get(3)?,
+                        done_at: r.get(4)?,
+                        pinned: r.get::<_, i64>(5)? != 0,
+                        trigger_kind: "asset".to_string(),
+                        trigger_id: type_id,
+                        trigger_once: r.get::<_, i64>(6)? != 0,
+                        anchors: Vec::new(),
+                    })
+                },
+            )?;
+            for r in rows {
+                due.push(r?);
+            }
+        }
+        if due.is_empty() {
+            return Ok(due);
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut upd = tx.prepare(
+                "UPDATE note
+                    SET fired_at = ?1,
+                        done_at = CASE WHEN trigger_once = 1 THEN ?1 ELSE done_at END,
+                        updated_at = ?1
+                  WHERE id = ?2",
+            )?;
+            for n in &due {
+                upd.execute(rusqlite::params![now, n.id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(due)
+    }
+
     /// Reasigna una nota a otro personaje (0 = cualquiera).
     ///
     /// ★ Idea de RoGiz7 (2026-08-11) que cambió lo que significa `subject_id`. Estaba pensado como
@@ -5791,6 +5882,31 @@ impl Db {
         conn.execute(
             "UPDATE note SET done_at = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![if done { Some(now.clone()) } else { None }, now, id],
+        )?;
+        Ok(())
+    }
+
+    /// Añade UNA ancla a una nota sin tocar las demás.
+    ///
+    /// Existe aparte de `note_update` porque aquel REEMPLAZA la lista entera: pegar una nota a un
+    /// piloto no debería poder borrarle la ubicación a la que ya estaba pegada. Y es justo el caso
+    /// que lo pidió —«esto se lo dejé a Reclutador»—, donde la nota necesita las DOS: el sitio
+    /// donde espera que vuelva y la persona que lo tiene.
+    pub fn note_add_anchor(&self, note_id: i64, kind: &str, anchor_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO note_anchor (note_id, kind, id) VALUES (?1, ?2, ?3)",
+            rusqlite::params![note_id, kind, anchor_id],
+        )?;
+        Ok(())
+    }
+
+    /// Quita UNA ancla.
+    pub fn note_remove_anchor(&self, note_id: i64, kind: &str, anchor_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM note_anchor WHERE note_id = ?1 AND kind = ?2 AND id = ?3",
+            rusqlite::params![note_id, kind, anchor_id],
         )?;
         Ok(())
     }
@@ -5858,6 +5974,12 @@ pub struct AssetSyncResult {
     /// habría sido un viaje sino el grano de agregación funcionando mal.
     #[serde(skip)]
     pub locations: std::collections::HashSet<i64>,
+    /// LLEGADAS de esta pasada: `(location_id, type_id)` de cada evento con `delta > 0`. Es lo que
+    /// alimenta el disparador «avisarme cuando lleguen X aquí» (`notes_fire_on_asset`). Se recoge
+    /// aquí y no se vuelve a consultar `asset_event` porque el diff ya sabe qué entró: preguntarlo
+    /// otra vez sería releer lo que acabamos de escribir.
+    #[serde(skip)]
+    pub arrivals: Vec<(i64, i64)>,
 }
 
 impl Db {
@@ -5982,6 +6104,10 @@ impl Db {
                 ])?;
                 out.events += 1;
                 out.locations.insert(loc);
+                if delta > 0 {
+                    // Solo las llegadas: son las que puede estar esperando una nota.
+                    out.arrivals.push((loc, tid));
+                }
             }
         }
 

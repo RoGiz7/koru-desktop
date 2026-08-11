@@ -18,7 +18,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
-import { typeIcon } from "./format";
+import { typeIcon, bpIcon } from "./format";
 import type { Note, Character } from "./types";
 
 /** Iconografía EVE primero (regla de RoGiz7, 2026-07-29): antes de poner un emoji, buscar qué ítem
@@ -26,6 +26,173 @@ import type { Note, Character } from "./types";
  *  documento. Cambiar aquí y cambia en todas partes; el emoji queda de reserva si el Image Server
  *  no responde, que es lo que ya se hace en el resto de la app. */
 const NOTA_TID = 3814;
+
+/** Catálogo de tipos para el disparador de inventario. `public/market_types.json` son 19.369
+ *  entradas: se carga UNA vez y en cuanto alguien abre el buscador, no al montar el modal. */
+type TipoCat = { i: number; n: string };
+let CAT: TipoCat[] | null = null;
+async function catalogo(): Promise<TipoCat[]> {
+  if (CAT) return CAT;
+  const r = await fetch("/market_types.json");
+  CAT = (await r.json()) as TipoCat[];
+  return CAT;
+}
+
+/** Nombre de un tipo desde el catálogo ya cargado. `null` mientras no esté. */
+function useNombreTipo(typeId: number | null): string | null {
+  const [nombre, setNombre] = useState<string | null>(null);
+  useEffect(() => {
+    if (!typeId) return;
+    let vivo = true;
+    void catalogo().then((c) => {
+      if (vivo) setNombre(c.find((t) => t.i === typeId)?.n ?? null);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [typeId]);
+  return nombre;
+}
+
+/** Icono de un tipo, aguantando el caso de los BLUEPRINTS.
+ *
+ *  ⚠️ El servidor de EVE tiene variantes propias para los planos (`bp`) y **NO responde a `/icon`**:
+ *  con `typeIcon` salen rotos. Lo pilló RoGiz7 al esperar una «Carbon Fiber Reaction Formula», que
+ *  es un plano. Se prueba el icono normal y, si falla, la variante de plano; si tampoco, se calla.
+ *  Las fórmulas de reacción son de lo más razonable que alguien puede esperar en un deliver, así
+ *  que este caso no es raro. */
+function TipoIcono({ typeId, size = 16 }: { typeId: number; size?: number }) {
+  const [paso, setPaso] = useState<0 | 1 | 2>(0);
+  if (paso === 2) return null;
+  return (
+    <img
+      src={paso === 0 ? typeIcon(typeId, 32) : bpIcon(typeId, true, 32)}
+      width={size}
+      height={size}
+      alt=""
+      loading="lazy"
+      onError={() => setPaso((p) => (p === 0 ? 1 : 2))}
+    />
+  );
+}
+
+/** Nombre de un piloto anclado. Se guarda el ID, así que el nombre hay que resolverlo — y se
+ *  cachea en memoria porque la misma nota puede repetirlo y varias notas compartir piloto. */
+const PILOTOS = new Map<number, string>();
+function NombrePiloto({ id }: { id: number }) {
+  const [nombre, setNombre] = useState<string | null>(PILOTOS.get(id) ?? null);
+  useEffect(() => {
+    if (PILOTOS.has(id)) return;
+    let vivo = true;
+    invoke<Record<number, string>>("resolve_ids", { ids: [id] })
+      .then((m) => {
+        const n = m[id];
+        if (n) PILOTOS.set(id, n);
+        if (vivo && n) setNombre(n);
+      })
+      .catch((e) => console.error("resolve_ids", e));
+    return () => {
+      vivo = false;
+    };
+  }, [id]);
+  return <>{nombre ?? `#${id}`}</>;
+}
+
+/** «Se lo dejé a Reclutador»: ancla la nota a un piloto REAL, resolviendo su nombre por ESI.
+ *
+ *  Se guarda el ID y no el texto porque un nombre escrito de dos formas serían dos pilotos, y
+ *  entonces «¿qué le he prestado a este tío?» no podría contestarse nunca. Nombre EXACTO: ESI no
+ *  busca por aproximación, así que un «no encontrado» significa que ese nombre no es de nadie. */
+function AnclarPiloto({ onPick }: { onPick: (id: number, nombre: string) => void }) {
+  const [q, setQ] = useState("");
+  const [buscando, setBuscando] = useState(false);
+  const [nada, setNada] = useState(false);
+
+  async function buscar() {
+    const n = q.trim();
+    if (!n) return;
+    setBuscando(true);
+    setNada(false);
+    try {
+      const p = await invoke<{ character_id: number; name: string } | null>("resolve_pilot", {
+        name: n,
+      });
+      if (p) {
+        onPick(p.character_id, p.name);
+        setQ("");
+      } else {
+        setNada(true);
+      }
+    } catch (e) {
+      console.error("resolve_pilot", e);
+      setNada(true);
+    } finally {
+      setBuscando(false);
+    }
+  }
+
+  return (
+    <div className="nota-buscar">
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setNada(false);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && void buscar()}
+        placeholder={buscando ? tr("Buscando…") : tr("Nombre exacto del piloto")}
+        autoFocus
+      />
+      {nada && <span className="muted small">{tr("No existe ese piloto")}</span>}
+    </div>
+  );
+}
+
+/** El nombre de lo que esperas. Sin él, tres notas esperando cosas distintas se leen todas igual
+ *  —«Avisar cuando llegue»— y la función deja de servir en cuanto tienes más de una. */
+function NombreTipo({ id }: { id: number }) {
+  const n = useNombreTipo(id);
+  return <>{n ?? `#${id}`}</>;
+}
+
+/** Buscador de tipo para «avisarme cuando lleguen X aquí». */
+function BuscarTipo({ onPick }: { onPick: (t: TipoCat) => void }) {
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState<TipoCat[] | null>(null);
+
+  useEffect(() => {
+    void catalogo().then(setCat);
+  }, []);
+
+  const ql = q.trim().toLowerCase();
+  // Un mínimo de 2 letras: con una sola, filtrar 19.000 nombres devuelve ruido y cuesta.
+  const res = ql.length < 2 || !cat
+    ? []
+    : cat.filter((t) => t.n.toLowerCase().includes(ql)).slice(0, 8);
+
+  return (
+    <div className="nota-buscar">
+      <input
+        type="search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={cat ? tr("¿Qué esperas que llegue?") : tr("Cargando…")}
+        autoFocus
+      />
+      {res.length > 0 && (
+        <div className="nota-res">
+          {res.map((t) => (
+            <button key={t.i} className="nota-res-item" onClick={() => onPick(t)}>
+              <TipoIcono typeId={t.i} size={18} />
+              {t.n}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** El icono de las notas, con el emoji como red. */
 function NotaGlifo({ size = 14 }: { size?: number }) {
@@ -117,6 +284,13 @@ function NotasModal({
   const [texto, setTexto] = useState("");
   const [pjs, setPjs] = useState<Character[]>([]);
   const [verHechas, setVerHechas] = useState(false);
+  /** Id de la nota cuyo buscador de tipo está abierto (N2b). */
+  const [esperando, setEsperando] = useState<number | null>(null);
+  /** Id de la nota que se está editando, y su borrador. */
+  const [editando, setEditando] = useState<number | null>(null);
+  const [borrador, setBorrador] = useState("");
+  /** Id de la nota cuyo buscador de piloto está abierto. */
+  const [pilotando, setPilotando] = useState<number | null>(null);
 
   const cargar = useCallback(() => {
     invoke<Note[]>("get_notes_for", { kind, anchorId, subjectId: subject })
@@ -162,6 +336,30 @@ function NotasModal({
       cargar();
     } catch (e) {
       console.error("create_note", e);
+    }
+  }
+
+  /** Guarda el texto editado. `clearAnchors: false` es importante: `update_note` reemplaza la lista
+   *  de anclas, y corregir una falta de ortografía no puede desanclar la nota de su sitio ni del
+   *  piloto al que se la prestaste. */
+  async function guardarEdicion(n: Note) {
+    const body = borrador.trim();
+    if (!body || body === n.body) {
+      setEditando(null);
+      return;
+    }
+    try {
+      await invoke("update_note", {
+        id: n.id,
+        body,
+        pinned: n.pinned,
+        anchors: [],
+        clearAnchors: false,
+      });
+      setEditando(null);
+      cargar();
+    } catch (e) {
+      console.error("update_note", e);
     }
   }
 
@@ -214,7 +412,94 @@ function NotasModal({
             {notas.map((n) => (
               <div key={n.id} className={`nota-row${n.pinned ? " pin" : ""}`}>
                 <div className="nota-main">
-                  <span className="nota-body">{n.body}</span>
+                  {/* EDITAR: una nota se corrige o se amplía —«esto se lo dejé a Reclutador»— y
+                      sin esto habría que borrarla y reescribirla, perdiendo su fecha, sus anclas
+                      y su disparador. */}
+                  {editando === n.id ? (
+                    <div className="nota-form">
+                      <textarea
+                        value={borrador}
+                        onChange={(e) => setBorrador(e.target.value)}
+                        rows={3}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void guardarEdicion(n);
+                          if (e.key === "Escape") setEditando(null);
+                        }}
+                      />
+                      <div className="nota-meta">
+                        <button className="nota-save" onClick={() => void guardarEdicion(n)}>
+                          {tr("Guardar")}
+                        </button>
+                        <button className="nota-hechas" onClick={() => setEditando(null)}>
+                          {tr("Cancelar")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <span
+                      className="nota-body editable"
+                      title={tr("Pulsa para editar")}
+                      onClick={() => {
+                        setEditando(n.id);
+                        setBorrador(n.body);
+                      }}
+                    >
+                      {n.body}
+                    </span>
+                  )}
+                  {/* PILOTOS anclados: quién tiene esto, o con quién va la cosa. */}
+                  <div className="nota-pilotos">
+                    {n.anchors
+                      .filter((a) => a.kind === "character")
+                      .map((a) => (
+                        <span key={a.id} className="nota-piloto">
+                          <img
+                            src={`https://images.evetech.net/characters/${a.id}/portrait?size=32`}
+                            width={18}
+                            height={18}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <NombrePiloto id={a.id} />
+                          <button
+                            className="nota-btn del"
+                            title={tr("Quitar")}
+                            onClick={() =>
+                              void accion(
+                                () =>
+                                  invoke("remove_note_anchor", {
+                                    noteId: n.id,
+                                    kind: "character",
+                                    anchorId: a.id,
+                                  }),
+                                "remove_note_anchor",
+                              )
+                            }
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    {pilotando === n.id ? (
+                      <AnclarPiloto
+                        onPick={(id) =>
+                          void accion(async () => {
+                            await invoke("add_note_anchor", {
+                              noteId: n.id,
+                              kind: "character",
+                              anchorId: id,
+                            });
+                            setPilotando(null);
+                          }, "add_note_anchor")
+                        }
+                      />
+                    ) : (
+                      <button className="nota-hechas" onClick={() => setPilotando(n.id)}>
+                        + {tr("Piloto")}
+                      </button>
+                    )}
+                  </div>
                   <div className="nota-meta">
                     {/* A QUIÉN LE TOCA. Con varios personajes, «que Vera compre los cristales» es
                         una tarea distinta de «comprar cristales» — y cuando la nota tenga
@@ -246,6 +531,58 @@ function NotasModal({
                   {/* ★ N2 — EL DISPARADOR. Solo tiene sentido en notas de SISTEMA: el disparador
                       es el propio ancla («avisarme al llegar AQUÍ»), así que no hace falta ningún
                       selector. Es lo que convierte la nota en algo que un post-it no puede hacer. */}
+                  {/* ★ N2b — «AVISARME CUANDO LLEGUE X AQUÍ». Solo en notas de UBICACIÓN: el sitio
+                      es el ancla y el tipo se elige. Para lo que llega SIN TI —un courier, o un
+                      piloto que te hace un deliver de palabra—, porque tu propia carga ya sabes
+                      cuándo llega. */}
+                  {kind === "location" && (
+                    <div className="nota-trig">
+                      {n.trigger_kind === "asset" ? (
+                        <>
+                          <TipoIcono typeId={n.trigger_id} />
+                          <span>
+                            {tr("Avisar cuando llegue")}: <b><NombreTipo id={n.trigger_id} /></b>
+                          </span>
+                          <button
+                            className="nota-btn del"
+                            title={tr("Quitar el aviso")}
+                            onClick={() =>
+                              void accion(
+                                () =>
+                                  invoke("set_note_trigger", {
+                                    id: n.id,
+                                    systemId: 0,
+                                    once: true,
+                                    kind: "asset",
+                                  }),
+                                "set_note_trigger",
+                              )
+                            }
+                          >
+                            ✕
+                          </button>
+                        </>
+                      ) : esperando === n.id ? (
+                        <BuscarTipo
+                          onPick={(t) =>
+                            void accion(async () => {
+                              await invoke("set_note_trigger", {
+                                id: n.id,
+                                systemId: t.i, // el TIPO va en trigger_id; el sitio es el ancla
+                                once: true,
+                                kind: "asset",
+                              });
+                              setEsperando(null);
+                            }, "set_note_trigger")
+                          }
+                        />
+                      ) : (
+                        <button className="nota-hechas" onClick={() => setEsperando(n.id)}>
+                          + {tr("Avisarme cuando llegue algo aquí")}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {kind === "system" && (
                     <div className="nota-trig">
                       <label>

@@ -101,6 +101,7 @@ import type {
   IntelConfig,
   MutedSystem,
   PositionUpdate,
+  Note,
 } from "./types";
 
 // Nave insignia de fondo por pestaña (patrón "carta de la Agencia", ver <SectionArt>). typeIDs
@@ -1386,10 +1387,19 @@ function App() {
         contracts: number;
         pi_programs: number;
         asset_events: number; // I1 inventario: cambios grabados (lo normal es 0)
+        fired_notes?: Note[]; // N2b: notas que esperaban una llegada
         errors?: string[];
       }>("auto_sync");
       // Errores parciales (antes se tragaban): visibles en consola para diagnóstico.
       if (r.errors?.length) console.warn("auto_sync con errores:", r.errors);
+      // N2b: llegó lo que alguien esperaba. Mismo toast azul que las notas de llegada — un
+      // recordatorio tuyo no es una amenaza, y el rojo se reserva para lo que puede matarte.
+      if (r.fired_notes?.length) {
+        const textos = r.fired_notes.slice(0, 2).map((n) => n.body);
+        const extra = r.fired_notes.length > 2 ? ` +${r.fired_notes.length - 2}` : "";
+        playUnlock();
+        showGlobalAlert(`📄 ${tr("Ya está aquí")}: ${textos.join(" · ")}${extra}`, "nota");
+      }
       setLastSync(Date.now());
       // refrescar la vista actual con lo nuevo, en segundo plano (sin skeleton ni resetear scroll)
       loadHeadline(subject);

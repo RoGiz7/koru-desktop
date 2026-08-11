@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
+import { NotasAncla } from "./notas";
 
 type AssetRow = {
   type_id: number;
@@ -61,6 +62,8 @@ type Ubicacion = {
 };
 
 export function InventarioView({ subject }: { subject: number | "global" }) {
+  // 0 = Global, igual que en el resto de la app. Lo usan las notas de cada ubicación.
+  const subjectId = typeof subject === "number" ? subject : 0;
   const [rows, setRows] = useState<AssetRow[] | null>(null);
   const [vols, setVols] = useState<Volumenes>({ packed: {}, asm: {} });
   const [precios, setPrecios] = useState<Record<number, number>>({});
@@ -223,6 +226,16 @@ export function InventarioView({ subject }: { subject: number | "global" }) {
                 <span className="muted small">{fmtIsk(u.isk)}</span>
                 <span className="muted small">
                   {fmtSp(u.filas.length)} {tr("pilas")}
+                </span>
+                {/* Notas de ESTA ubicación (N1) y, dentro, el disparador «avisarme cuando lleguen
+                    X aquí» (N2b). El clic no debe plegar la ubicación. */}
+                <span onClick={(e) => e.stopPropagation()}>
+                  <NotasAncla
+                    kind="location"
+                    anchorId={u.location_id}
+                    subject={subjectId}
+                    anchorName={u.location_name || undefined}
+                  />
                 </span>
               </div>
               {open && (

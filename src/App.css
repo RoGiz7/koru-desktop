@@ -1465,9 +1465,56 @@ select,
   gap: 0.25rem;
   cursor: pointer;
 }
-.nota-trig input {
+.nota-trig input[type="checkbox"] {
   margin: 0;
   cursor: pointer;
+}
+/* Buscador del tipo que esperas (N2b). */
+.nota-buscar {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.nota-buscar input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.8rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 0.5px solid var(--border);
+  border-radius: 3px;
+  padding: 0.2rem 0.35rem;
+  box-sizing: border-box;
+}
+.nota-res {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: 100%;
+  max-height: 190px;
+  overflow-y: auto;
+  background: var(--panel, #12171f);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.nota-res-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
+}
+.nota-res-item:hover {
+  background: rgba(255, 255, 255, 0.07);
 }
 .nota-hechas {
   align-self: flex-start;
@@ -1539,6 +1586,36 @@ select,
 .nota-body {
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* Se edita pinchando el texto: sin botón de lápiz, que en una lista corta es más ruido que ayuda. */
+.nota-body.editable {
+  cursor: text;
+  border-radius: 3px;
+  padding: 0 0.15rem;
+  margin-left: -0.15rem;
+}
+.nota-body.editable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+/* Pilotos anclados: quién tiene esto. */
+.nota-pilotos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+.nota-piloto {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 0.05rem 0.3rem 0.05rem 0.1rem;
+}
+.nota-piloto img {
+  border-radius: 50%;
+  object-fit: cover;
 }
 /* «¿A quién le toca?» — discreto hasta que lo tocas: es un dato de la nota, no su protagonista. */
 .nota-quien {

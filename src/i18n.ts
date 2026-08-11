@@ -2406,6 +2406,17 @@ const EN: Record<string, string> = {
   // N2, el disparador. "Nota", "Hechas" y "Cerrar" ya existían más arriba.
   "Avisarme al llegar aquí": "Remind me when I arrive here",
   "Ver en el mapa": "View on the map",
+  // N2b: «avisarme cuando llegue X aquí» (para lo que llega SIN ti: couriers, deliveries).
+  "Avisarme cuando llegue algo aquí": "Remind me when something arrives here",
+  "Avisar cuando llegue": "Alert when it arrives",
+  "¿Qué esperas que llegue?": "What are you waiting for?",
+  "Quitar el aviso": "Remove the alert",
+  "Ya está aquí": "It's here",
+  // Editar la nota y anclarla a un piloto («esto se lo dejé a Reclutador»).
+  "Pulsa para editar": "Click to edit",
+  "Nombre exacto del piloto": "Pilot's exact name",
+  "No existe ese piloto": "No such pilot",
+  // "Piloto", "Quitar" y "Cancelar" ya existían más arriba.
   "una vez": "once",
   "cada visita": "every visit",
   "Una vez avisa y archiva la nota; siempre la deja abierta":

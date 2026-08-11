@@ -201,6 +201,8 @@ pub struct AutoSyncResult {
     /// normal es 0: solo sube cuando de verdad entra o sale algo de un sitio. La primera pasada
     /// de un personaje también da 0 a propósito — se siembra el estado en silencio.
     pub asset_events: i64,
+    /// N2b · Notas que han saltado porque llegó lo que esperaban.
+    pub fired_notes: Vec<crate::db::NoteRow>,
     /// Errores por personaje/paso. Antes se tragaban en silencio y un fallo persistente
     /// (token caducado, scope revocado, 4xx de ESI) podía dejar una sección congelada
     /// días sin que nadie lo viera (p. ej. killmails parados desde el 26-06).
@@ -237,8 +239,12 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         contracts: 0,
         pi_programs: 0,
         asset_events: 0,
+        fired_notes: Vec::new(),
         errors: Vec::new(),
     };
+    // Notas que han saltado porque llegó lo que esperaban. Se acumulan en el bucle de personajes
+    // y viajan en el resultado del sync, igual que las de llegada viajan con la posición.
+    let mut notas_assets: Vec<crate::db::NoteRow> = Vec::new();
 
     // Precios de mercado primero (público, cacheado ≈1h) para valorar assets en los snapshots.
     if let Ok(n) = market::sync_prices(&state.esi, &state.db).await {
@@ -569,6 +575,23 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                             r.stacks
                         );
                     }
+                    // ★ N2b: ¿alguien esperaba algo de esto? «Avisarme cuando lleguen Quake M a
+                    // TTP-2B.» Sirve para lo que llega SIN TI —un courier, un deliver que te hace
+                    // otro piloto de palabra— porque tu propia carga ya sabes cuándo llega.
+                    for (loc, tid) in &r.arrivals {
+                        match state.db.notes_fire_on_asset(c.character_id, *loc, *tid) {
+                            Ok(v) => {
+                                for n in v {
+                                    eprintln!(
+                                        "notas: llegó el tipo {tid} a {loc} ({}) → «{}»",
+                                        c.name, n.body
+                                    );
+                                    notas_assets.push(n);
+                                }
+                            }
+                            Err(e) => eprintln!("notes_fire_on_asset: {e}"),
+                        }
+                    }
                     if let Some(motivo) = r.skipped {
                         // No es un error de red: es Koru negándose a firmar un dato del que no se
                         // fía. Tiene que verse, o el histórico se quedaría quieto en silencio.
@@ -728,6 +751,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         }
     }
 
+    res.fired_notes = notas_assets;
     Ok(res)
 }
 
@@ -2978,14 +3002,88 @@ pub async fn set_note_subject(
 /// `once = true` avisa una vez y **cierra la nota sola** (una tarea que se archiva al avisarte);
 /// `once = false` avisa en cada visita nueva y la nota no se cierra nunca (un aviso permanente
 /// sobre el sitio).
+/// `kind` decide qué es `systemId`: con `arrive` es el sistema al que llegar; con `asset`, el TIPO
+/// que esperas (el sitio sale del ancla `location` de la nota). Por defecto `arrive`, que es como
+/// nació el disparador.
 #[tauri::command]
 pub async fn set_note_trigger(
     id: i64,
     system_id: i64,
     once: bool,
+    kind: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    state.db.note_set_trigger(id, system_id, once)
+    state
+        .db
+        .note_set_trigger(id, system_id, once, kind.as_deref().unwrap_or("arrive"))
+}
+
+/// Un piloto identificado por su nombre exacto.
+#[derive(Debug, Clone, Serialize)]
+pub struct PilotoRef {
+    pub character_id: i64,
+    pub name: String,
+}
+
+/// Resuelve el nombre EXACTO de un piloto a su identidad real (endpoint público, sin permisos
+/// nuevos). Para anclar una nota a alguien que no es tuyo: «este carbono se lo dejé a Reclutador».
+///
+/// Se guarda el ID y no el texto porque un nombre escrito de dos maneras serían dos pilotos
+/// distintos, y entonces «¿qué le he prestado a este tío?» nunca podría contestarse. Con el ID
+/// llega gratis el retrato, y queda la puerta abierta a cruzarlo con killmails y contratos.
+///
+/// ⚠️ Es nombre EXACTO: `/universe/ids` no busca por aproximación. Si el piloto no existe (o hay
+/// una errata), devuelve `None` — y eso es información, no un fallo: significa que ese nombre no
+/// es de nadie.
+#[tauri::command]
+pub async fn resolve_pilot(
+    name: String,
+    state: State<'_, AppState>,
+) -> AppResult<Option<PilotoRef>> {
+    let n = name.trim().to_string();
+    if n.is_empty() {
+        return Ok(None);
+    }
+    let (chars, _) = state.esi.resolve_entities(&[n.clone()]).await?;
+    Ok(chars
+        .into_iter()
+        .find(|(_, nm)| nm.eq_ignore_ascii_case(&n))
+        .map(|(id, nm)| PilotoRef {
+            character_id: id,
+            name: nm,
+        }))
+}
+
+/// IDs → nombres (personajes, corps, sistemas… lo que sepa resolver ESI). Público y cacheado.
+/// Lo usan las notas para enseñar a quién está anclada una nota, ya que se guarda el ID.
+#[tauri::command]
+pub async fn resolve_ids(
+    ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<HashMap<i64, String>> {
+    state.esi.resolve_names(&ids).await
+}
+
+/// Añade un ancla a una nota SIN tocar las que ya tiene.
+#[tauri::command]
+pub async fn add_note_anchor(
+    note_id: i64,
+    kind: String,
+    anchor_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.db.note_add_anchor(note_id, &kind, anchor_id)
+}
+
+/// Quita un ancla concreta.
+#[tauri::command]
+pub async fn remove_note_anchor(
+    note_id: i64,
+    kind: String,
+    anchor_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.db.note_remove_anchor(note_id, &kind, anchor_id)
 }
 
 /// Cierra o reabre una nota. Cerrar NO borra.
