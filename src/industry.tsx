@@ -123,6 +123,9 @@ type Facility = {
    *  una refinería lista TRES impuestos de reacción (compuestas/bioquímicas/híbridas) por separado.
    *  Claves: mfg · invention · copy · me · te · reaction_comp · reaction_bio · reaction_hyb. */
   tax_by_activity: string;
+  /** Módulos Standup declarados (JSON con typeIDs). NO manda en los cálculos: de él se DERIVAN
+   *  las tres casillas, que siguen siendo la fuente. Vacío = ficha de siempre, sin cambios. */
+  services: string;
   eligible: boolean;
   source: string; // 'esi' descubierta · 'manual' escrita a mano
   notes: string | null;
@@ -354,6 +357,18 @@ function FacilityPicker({
     </span>
   );
 }
+
+/** public/industry_services.json (SDE): los módulos Standup, qué actividades dan y dónde encajan.
+ *  Ver scripts/extract_service_modules.py. `does` son las casillas de la ficha a las que
+ *  contribuye el módulo; `g`/`t`, dónde cabe (grupo de estructura / tipos concretos). */
+type ServiceMod = {
+  n: { es: string; en: string };
+  acts: string[];
+  does: string[];
+  g: number[];
+  t: number[];
+};
+type ServiceCat = { mods: Record<string, ServiceMod> };
 
 /** Advanced Industry (−3% de tiempo por nivel): la parte de skills del tiempo de invención. */
 const ADV_INDUSTRY_SKILL = 3388;
@@ -2703,6 +2718,7 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
     rigs: [],
     tax: null, // sin declarar, que es la verdad de una ficha recién creada
     tax_by_activity: "", // vacío = el impuesto general vale para todo
+    services: "", // sin módulos declarados: las casillas se marcan a mano, como siempre
     eligible: true,
     source: "manual",
     notes: null,
@@ -2896,6 +2912,11 @@ function FacilityWizard({
   const [d, setD] = useState<Facility>(f);
   const [q, setQ] = useState("");
   const [allRigs, setAllRigs] = useState(false);
+  const [svc, setSvc] = useState<ServiceCat | null>(null);
+  useEffect(() => {
+    fetch("/industry_services.json").then((r) => r.json()).then(setSvc)
+      .catch((e) => console.error("industry_services.json", e));
+  }, []);
   const es = getLang() === "es";
   const set = (p: Partial<Facility>) => setD({ ...d, ...p });
 
@@ -2912,6 +2933,41 @@ function FacilityWizard({
     !kind || !ir.reaction_groups?.length || ir.reaction_groups.includes(kind.g);
   const band = sysHit ? secBand(sysHit.s) : null;
   const listos = d.name.trim() !== "" && d.system_id > 0;
+
+  /* ---- Módulos de servicio (SDE): declarar lo que VES en el juego ---- */
+  const mods: number[] = (() => {
+    try {
+      return d.services ? (JSON.parse(d.services) as number[]) : [];
+    } catch {
+      return []; // una ficha con el campo corrupto no debe reventar el editor
+    }
+  })();
+  /** ¿Cabe este módulo en esta estructura? `t` (tipos concretos) manda sobre `g` (grupos): el
+   *  Supercapital Shipyard solo entra en el Sotiyo aunque su grupo admita otros. */
+  const cabe = (m: ServiceMod) =>
+    !kind
+      ? true
+      : m.t.length
+        ? d.type_id != null && m.t.includes(d.type_id)
+        : m.g.includes(kind.g);
+  /** Las tres casillas DERIVADAS de los módulos. `invention` y `research` caen las dos en
+   *  `has_lab` porque la ficha aún no los distingue — el dato del SDE sí, y el día que la ficha lo
+   *  haga no habrá que regenerar nada. */
+  const derivar = (ids: number[]) => {
+    const does = new Set(ids.flatMap((id) => svc?.mods[String(id)]?.does ?? []));
+    return {
+      has_mfg: does.has("mfg"),
+      has_lab: does.has("invention") || does.has("research"),
+      has_reactor: does.has("reactor"),
+    };
+  };
+  const setMods = (ids: number[]) =>
+    set({ services: JSON.stringify(ids), ...derivar(ids) });
+  /** Lo declarado a mano que el juego NO permite. Solo se afirma lo que dice el SDE: los reactores
+   *  únicamente caben en refinerías. **NO** se avisa de «una refinería no fabrica», porque SÍ
+   *  fabrica: el Manufacturing Plant encaja en el grupo 1406. Nos equivocamos dos veces con eso el
+   *  2026-08-11 antes de mirar el dato. */
+  const imposible = d.has_reactor && !puedeReact ? tr("un reactor no cabe en este tipo de estructura") : null;
 
   // Tipos ofrecidos: los que admiten la planta de fabricación, según el propio módulo (SDE).
   const tipos = Object.entries(ir.kinds ?? {})
@@ -2995,8 +3051,55 @@ function FacilityWizard({
         </em>
       </label>
 
+      {/* ★ MÓDULOS DE SERVICIO (SDE 3464040). Declarar los módulos es declarar lo que VES en el
+          juego; las tres casillas de abajo obligaban a traducir. De los módulos se DERIVAN las
+          casillas, que siguen mandando en los cálculos — así una ficha vieja se comporta igual.
+          Ver scripts/extract_service_modules.py. */}
+      <div className="fac-f">
+        <span>4 · {tr("Módulos instalados")}</span>
+        <span className="fac-rigs">
+          {mods.map((id) => {
+            const m = svc?.mods[String(id)];
+            return (
+              <span key={id} className="fac-rig">
+                <img src={typeIcon(id, 32)} alt="" width={16} height={16} />
+                {m ? (es ? m.n.es : m.n.en) : `#${id}`}
+                <button
+                  className="bom-exp"
+                  onClick={() => setMods(mods.filter((x) => x !== id))}
+                >
+                  ✕
+                </button>
+              </span>
+            );
+          })}
+          <select
+            value=""
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              if (id && !mods.includes(id)) setMods([...mods, id]);
+            }}
+          >
+            <option value="">{tr("+ añadir módulo…")}</option>
+            {Object.entries(svc?.mods ?? {})
+              .filter(([id, m]) => cabe(m) && !mods.includes(Number(id)))
+              .sort((a, b) => a[1].n.en.localeCompare(b[1].n.en))
+              .map(([id, m]) => (
+                <option key={id} value={id}>
+                  {es ? m.n.es : m.n.en}
+                </option>
+              ))}
+          </select>
+        </span>
+        <em className="muted">
+          {mods.length > 0
+            ? tr("las casillas de abajo se rellenan solas con lo que dan estos módulos")
+            : tr("opcional: si los declaras, los servicios de abajo se marcan solos. Solo se ofrecen los que caben en este tipo de estructura, según el propio módulo en el SDE.")}
+        </em>
+      </div>
+
       <label className="fac-f">
-        <span>4 · {tr("Servicios")}</span>
+        <span>5 · {tr("Servicios")}</span>
         <span>
           <input
             type="checkbox"
@@ -3021,8 +3124,10 @@ function FacilityWizard({
           />{" "}
           {tr("tiene reactor (reacciones)")}
         </span>
-        <em className="muted">
-          {!puede
+        <em className={imposible ? "warn" : "muted"}>
+          {imposible
+            ? `⚠ ${imposible}`
+            : !puede
             ? tr("este tipo NO admite la planta: lo dice el propio módulo en el SDE")
             : !puedeReact
               ? tr("el reactor solo cabe en refinerías (Athanor / Tatara): lo dice su propio módulo en el SDE")
@@ -3031,7 +3136,7 @@ function FacilityWizard({
       </label>
 
       <div className="fac-f">
-        <span>5 · {tr("Rigs")}</span>
+        <span>6 · {tr("Rigs")}</span>
         <span className="fac-rigs">
           {d.rigs.map((id) => {
             const r = ir.rigs[String(id)];
@@ -3108,7 +3213,7 @@ function FacilityWizard({
       </div>
 
       <label className="fac-f">
-        <span>6 · {tr("Impuesto")}</span>
+        <span>7 · {tr("Impuesto")}</span>
         <span>
           {/* Vacío = null («no lo sé»), no 0. `Number("") || 0` daba 0 y se tragaba la diferencia. */}
           <input
@@ -3177,7 +3282,7 @@ function FacilityWizard({
        *  Todo vacío = hereda el general, que es como funcionaba hasta ahora: nadie tiene que tocar
        *  nada si su estructura cobra lo mismo para todo. */}
       <div className="fac-f">
-        <span>7 · {tr("Impuesto por actividad")}</span>
+        <span>8 · {tr("Impuesto por actividad")}</span>
         <span className="fac-tax-acts">
           {(() => {
             let cur: Record<string, number> = {};

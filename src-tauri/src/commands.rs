@@ -1219,7 +1219,7 @@ pub async fn facility_seed_from_esi(state: State<'_, AppState>) -> AppResult<usi
             rigs: Vec::new(),
             tax: None, // ESI no sabe el impuesto: sin declarar, no un 0 que parecería un dato
             tax_by_activity: String::new(), // vacío = usa `tax` para todo (comportamiento de siempre)
-
+            services: String::new(), // ESI tampoco ve los módulos montados: los declara el usuario
             eligible: false,
             source: "esi".into(),
             notes: None,

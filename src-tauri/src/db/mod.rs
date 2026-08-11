@@ -147,6 +147,17 @@ impl Db {
             "ALTER TABLE facility ADD COLUMN tax_by_activity TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // MÓDULOS DE SERVICIO instalados (JSON con typeIDs de los Standup). Vacío = no declarados,
+        // que es como han vivido todas las fichas hasta hoy: las tres casillas siguen mandando en
+        // los cálculos y esto solo sirve para DERIVARLAS y para avisar de imposibles.
+        //
+        // Existe porque declarar módulos es declarar lo que VES en el juego, mientras que las
+        // casillas obligan a traducir. Y porque el dato del SDE distingue cosas que la ficha funde:
+        // «Invention Lab» e «Research Lab» son módulos distintos y hoy los dos caen en `has_lab`.
+        let _ = conn.execute(
+            "ALTER TABLE facility ADD COLUMN services TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         // Coste de ENTRADA de la run: lo que costó el filamento o la baliza. Sin esto el P&L era
         // optimista — una baliza CRAB ronda los 68M y no se restaba en ninguna parte.
         //
@@ -3671,6 +3682,11 @@ pub struct FacilityRow {
     /// Claves: mfg · invention · copy · me · te · reaction_comp · reaction_bio · reaction_hyb.
     #[serde(default)]
     pub tax_by_activity: String,
+    /// Módulos de servicio declarados (JSON con typeIDs Standup). Vacío = sin declarar.
+    /// NO manda en los cálculos: de él se DERIVAN `has_mfg`/`has_lab`/`has_reactor`, que siguen
+    /// siendo la fuente. Así una ficha vieja se comporta exactamente igual que ayer.
+    #[serde(default)]
+    pub services: String,
     #[serde(default)]
     pub eligible: bool,
     #[serde(default)]
@@ -3821,7 +3837,7 @@ impl Db {
             // Las columnas nuevas se añaden SIEMPRE AL FINAL del SELECT: así los índices de las
             // anteriores no se mueven y no hay que reindexar el mapeo de abajo.
             "SELECT id, structure_id, name, system_id, type_id, has_mfg, rigs, tax, eligible,
-                    source, notes, has_lab, has_reactor, tax_by_activity
+                    source, notes, has_lab, has_reactor, tax_by_activity, services
              FROM facility ORDER BY eligible DESC, name",
         )?;
         let rows = stmt
@@ -3841,6 +3857,7 @@ impl Db {
                     has_lab: r.get::<_, i64>(11)? != 0,
                     has_reactor: r.get::<_, i64>(12)? != 0,
                     tax_by_activity: r.get(13)?,
+                    services: r.get(14)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -3856,12 +3873,13 @@ impl Db {
             conn.execute(
                 "UPDATE facility SET structure_id=?2, name=?3, system_id=?4, type_id=?5,
                         has_mfg=?6, rigs=?7, tax=?8, eligible=?9, source=?10, notes=?11,
-                        updated_at=?12, has_lab=?13, has_reactor=?14, tax_by_activity=?15
+                        updated_at=?12, has_lab=?13, has_reactor=?14, tax_by_activity=?15,
+                        services=?16
                  WHERE id=?1",
                 rusqlite::params![
                     f.id, f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs,
                     f.tax, f.eligible as i64, f.source, f.notes, now, f.has_lab as i64,
-                    f.has_reactor as i64, f.tax_by_activity
+                    f.has_reactor as i64, f.tax_by_activity, f.services
                 ],
             )?;
             return Ok(f.id);
@@ -3874,15 +3892,15 @@ impl Db {
         conn.execute(
             "INSERT INTO facility (structure_id, name, system_id, type_id, has_mfg, rigs, tax,
                                    eligible, source, notes, updated_at, has_lab, has_reactor,
-                                   tax_by_activity)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                                   tax_by_activity, services)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
              ON CONFLICT(structure_id) WHERE structure_id IS NOT NULL DO UPDATE SET
                 name=excluded.name, system_id=excluded.system_id, type_id=excluded.type_id,
                 updated_at=excluded.updated_at",
             rusqlite::params![
                 f.structure_id, f.name, f.system_id, f.type_id, f.has_mfg as i64, rigs, f.tax,
                 f.eligible as i64, f.source, f.notes, now, f.has_lab as i64, f.has_reactor as i64,
-                f.tax_by_activity
+                f.tax_by_activity, f.services
             ],
         )?;
         Ok(conn.last_insert_rowid())

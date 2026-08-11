@@ -2416,6 +2416,15 @@ const EN: Record<string, string> = {
   "Pulsa para editar": "Click to edit",
   "Nombre exacto del piloto": "Pilot's exact name",
   "No existe ese piloto": "No such pilot",
+  // Ficha de instalación: módulos de servicio declarados (SDE 3464040).
+  "Módulos instalados": "Installed modules",
+  "+ añadir módulo…": "+ add module…",
+  "las casillas de abajo se rellenan solas con lo que dan estos módulos":
+    "the boxes below fill themselves from what these modules provide",
+  "opcional: si los declaras, los servicios de abajo se marcan solos. Solo se ofrecen los que caben en este tipo de estructura, según el propio módulo en el SDE.":
+    "optional: declare them and the services below tick themselves. Only the ones that fit this structure type are offered, according to the module itself in the SDE.",
+  "un reactor no cabe en este tipo de estructura":
+    "a reactor doesn't fit in this structure type",
   // Industria: por qué no hay índice de coste. Antes decía «elige una estructura» aunque hubiera
   // una elegida; la causa real es que su ficha no tiene marcada la actividad.
   "Esta instalación no tiene marcada la fabricación en su ficha":

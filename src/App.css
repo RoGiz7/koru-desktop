@@ -8419,3 +8419,9 @@ h4 {
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* Aviso dentro de la ficha de instalación: algo declarado que el juego no permite. Ámbar, no rojo:
+   es un dato tuyo que no cuadra, no una avería de la app. */
+.fac-wiz .warn {
+  color: var(--warn, #d29922);
+}
