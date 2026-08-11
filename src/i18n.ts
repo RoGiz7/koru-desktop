@@ -2416,6 +2416,15 @@ const EN: Record<string, string> = {
   "Pulsa para editar": "Click to edit",
   "Nombre exacto del piloto": "Pilot's exact name",
   "No existe ese piloto": "No such pilot",
+  // Industria: por qué no hay índice de coste. Antes decía «elige una estructura» aunque hubiera
+  // una elegida; la causa real es que su ficha no tiene marcada la actividad.
+  "Esta instalación no tiene marcada la fabricación en su ficha":
+    "This installation doesn't have manufacturing enabled in its sheet",
+  "Márcala en Ajustes → Instalaciones si de verdad fabrica ahí.":
+    "Enable it in Settings → Installations if it really manufactures there.",
+  solo: "only",
+  laboratorio: "laboratory",
+  reactor: "reactor",
   // N3: el reloj del abismo sobre el juego. "Abismo" ya existía más arriba.
   "¡FUERA DEL ABISMO!": "GET OUT OF THE ABYSS!",
   // "Piloto", "Quitar" y "Cancelar" ya existían más arriba.

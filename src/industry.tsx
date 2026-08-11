@@ -1024,7 +1024,8 @@ function BomPanel({
         if (!r) return { id, name: `#${id}`, mat: 0, eff: 0, state: "unmapped" as const };
         const eff = r.mat * (r.sec[band] ?? 1);
         // Decidir si el rig aplica a ESTE producto. Dos vías, por orden de calidad del dato:
-        //   1) `aff` (Hoboleaks = la tabla con la que decide el SERVIDOR): categorías + grupos.
+        //   1) `aff` (SDE oficial desde el 2026-08-11, antes Hoboleaks; es la tabla con la que
+        //      decide el SERVIDOR): categorías + grupos.
         //      Con aff el veredicto es BINARIO (on/off): ya no existe «unmapped» para estos rigs.
         //   2) Fallback por nombre de efecto (SCOPE_CAT), para rigs sin aff — con sus tres estados
         //      de siempre (on / off afirmado / unmapped que no aplicamos y decimos).
@@ -2153,8 +2154,25 @@ function BomPanel({
             <strong>{fmtIsk(cost.veo)}</strong>
           </div>
           {cost.index == null ? (
+            /* ⚠️ SIN índice hay DOS causas muy distintas, y hasta hoy las dos decían «elige una
+               estructura» — con una estructura ya elegida. Lo cazó RoGiz7 (2026-08-11) probando el
+               mismo plano en tres sitios: el Tatara y el «Weaselior University T2 Lab» daban ese
+               aviso, y el Lab **es un Sotiyo**, que fabricar fabrica. O sea que la causa no era la
+               estructura: era que su ficha no tiene marcada la FABRICACIÓN.
+               Un mensaje que manda a hacer algo que ya está hecho es peor que no decir nada. */
             <div className="muted">
-              {tr("Sin índice de coste: elige una estructura para calcular el coste del trabajo.")}
+              {st && !st.has_mfg
+                ? `${tr("Esta instalación no tiene marcada la fabricación en su ficha")}${
+                    st.has_lab || st.has_reactor
+                      ? ` (${tr("solo")} ${[
+                          st.has_lab ? tr("laboratorio") : null,
+                          st.has_reactor ? tr("reactor") : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}).`
+                      : "."
+                  } ${tr("Márcala en Ajustes → Instalaciones si de verdad fabrica ahí.")}`
+                : tr("Sin índice de coste: elige una estructura para calcular el coste del trabajo.")}
             </div>
           ) : (
             <>
