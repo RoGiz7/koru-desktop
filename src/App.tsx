@@ -58,6 +58,8 @@ import {
 } from "./constants";
 import type { Tab, MapOverlay } from "./constants";
 import { openExternal, setOpenExternalFallback } from "./openExternal";
+import { ThemePicker } from "./themePicker";
+import { shipForSection } from "./sectionShips";
 import type {
   Character,
   LoginOutcome,
@@ -106,40 +108,10 @@ import type {
 
 // Nave insignia de fondo por pestaña (patrón "carta de la Agencia", ver <SectionArt>). typeIDs
 // verificados contra type_names_es.json. Las que no estén aquí simplemente no llevan fondo.
-const SECTION_SHIP: Partial<Record<Tab, number>> = {
-  // PvP
-  pvp: 641, // Megathron
-  rivales: 641,
-  batallas: 641,
-  cazador: 641,
-  resumen: 641,
-  actividad: 641,
-  // Patrimonio / Personaje
-  patrimonio: 20185, // Charon (carguero = la caja fuerte)
-  wallet: 20185,
-  skills: 47466, // Praxis
-  assets: 20185,
-  contactos: 47466,
-  lealtad: 47466,
-  fiteos: 47466,
-  // Comercio
-  comercio: 20183, // Providence (carguero)
-  comercio_pnl: 20183,
-  comercio_watch: 20183,
-  planetologia: 20183,
-  // PvE
-  rateo: 645, // Dominix (ratear)
-  mineria: 22544, // Hulk (exhumer)
-  factional: 638, // Raven
-  abyssals: 17715, // Gila (reina del abismo)
-  crab: 19726, // Phoenix (dread crabero)
-  campanas: 44996, // Marshal (acorazado de CONCORD — el estandarte del esfuerzo de guerra)
-  // Industria
-  industria: 28606, // Orca
-  // Exploración
-  exploracion: 33468, // Astero (SoE)
-  exploracion_log: 33468,
-};
+
+/* El fondo de nave de cada sección se ha mudado a `sectionShips.tsx`, porque ya no depende solo de
+   la sección: **sigue a la facción del tema**. Ver el porqué y las tablas allí. */
+
 
 /* ---------- relojes/contadores aislados (tic propio para NO re-renderizar toda la app) ---------- */
 // Hook de "ahora" con su propio intervalo, encapsulado en componentes pequeños de la barra de estado.
@@ -474,7 +446,11 @@ function App() {
   // Tema visual seleccionable (persistido en local). "nebula" = por defecto.
   // "ambiente" (N1-d) = dinámico: tiñe según la seguridad del sistema del personaje activo.
   const [theme, setTheme] = useState<string>(
-    () => localStorage.getItem("koru-theme") || "nebula"
+    // Por defecto, el tema de KORU (decisión de RoGiz7, 2026-08-12): es el único que se pinta con
+    // TUS datos —cambia con la seguridad del sistema donde estés— así que es la mejor primera
+    // impresión de lo que hace la app. Solo afecta a instalaciones nuevas: quien ya eligió tema lo
+    // tiene guardado en localStorage y no se le toca.
+    () => localStorage.getItem("koru-theme") || "ambiente"
   );
   // Índice sistema→seguridad del SDE local; solo se carga si el tema ambiental está activo.
   const [neSec, setNeSec] = useState<Map<number, number> | null>(null);
@@ -1826,20 +1802,9 @@ function App() {
           <option value="en">🇬🇧 EN</option>
         </select>
 
-        <select
-          className="tb-theme"
-          value={theme}
-          onChange={(e) => setTheme(e.target.value)}
-          title={tr("Tema visual")}
-        >
-          <option value="nebula">🌌 Nebulosa</option>
-          <option value="ambiente">📍 {tr("Ambiente (donde estás)")}</option>
-          <option value="amarr">👑 Amarr</option>
-          <option value="caldari">❄️ Caldari</option>
-          <option value="gallente">🌿 Gallente</option>
-          <option value="minmatar">🔥 Minmatar</option>
-          <option value="abismo">🌀 Abismo</option>
-        </select>
+        {/* Desplegable PROPIO, no `<select>`: el nativo no admite `<img>` y los escudos de facción
+            eran imposibles. Ver themePicker.tsx. */}
+        <ThemePicker value={theme} onChange={setTheme} />
 
         {updateVersion && (
           <button
@@ -2334,7 +2299,7 @@ function App() {
           </div>
 
           <div className="panel-art-wrap">
-          {SECTION_SHIP[tab] != null && <SectionArt typeId={SECTION_SHIP[tab]} />}
+          {shipForSection(tab, theme) != null && <SectionArt typeId={shipForSection(tab, theme)} />}
 
           {tab === "pvp" && (
             <PvpView

@@ -806,6 +806,8 @@ const EN: Record<string, string> = {
   "Tus kills": "Your kills",
   "Tus losses": "Your losses",
   "Tu ISK": "Your ISK",
+  "Tu historial de PvP en este sistema. Lo que importa es el balance: si has muerto aquí más de lo que has matado, el sistema ya te ha avisado una vez.":
+    "Your PvP history in this system. What matters is the balance: if you have died here more than you have killed, the system has already warned you once.",
   "Kills 1h": "Kills 1h",
   "Jumps 1h": "Jumps 1h",
   "Assets (stacks)": "Assets (stacks)",
@@ -2416,6 +2418,11 @@ const EN: Record<string, string> = {
   "Pulsa para editar": "Click to edit",
   "Nombre exacto del piloto": "Pilot's exact name",
   "No existe ese piloto": "No such pilot",
+  // Temas visuales: «Nebulosa» pasó a EDENCOM y «Abismo» a Triglaviano (los dos con escudo real).
+  Triglaviano: "Triglavian",
+  Piratas: "Pirates",
+  "Koru (según dónde estés)": "Koru (based on where you are)",
+  Tema: "Theme",
   // Ficha de instalación: módulos de servicio declarados (SDE 3464040).
   "Módulos instalados": "Installed modules",
   "+ añadir módulo…": "+ add module…",

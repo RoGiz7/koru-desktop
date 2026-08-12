@@ -234,36 +234,112 @@
 }
 
 /* ----- Temas seleccionables (override de acento + tinte de fondo) ----- */
-/* El tema se aplica con data-theme en <html>; "nebula" = por defecto (:root). */
+/* El tema se aplica con data-theme en <html>; "nebula" = por defecto (:root).
+ *
+ * ★ PALETAS DE LAS ARMADAS, no los tópicos (2026-08-11). Hasta hoy esto era verde brillante para
+ * Gallente y rojo vivo para Minmatar: los colores que la comunidad da por hechos, no los del juego.
+ * Los de ahora salen de `graphicMaterialSets` del SDE — los colores con los que CCP **pinta los
+ * cascos** de la Imperial Navy, la Caldari Navy, la Federation Navy y la Republic Fleet:
+ *
+ *     Imperial Navy    hull #3d3c37 · primary #d3c8b5 · secondary #ffcb6a
+ *     Caldari Navy     hull #3d3c37 · primary #7d898f · secondary #3c3934
+ *     Federation Navy  hull #3d3c37 · primary #6e7578 · secondary #466c59
+ *     Republic Fleet   hull #3d3c37 · primary #865a44 · secondary #2f2e2e
+ *
+ * Y lo que les da autoridad: **coinciden con la paleta que la comunidad extrajo de la pantalla de
+ * creación de personaje** (foro oficial, 2021: amarr #7f6c50 · caldari #4a6c7f · gallente #366565 ·
+ * minmatar #653834), por un camino completamente distinto. Dos fuentes independientes, un resultado.
+ *
+ * ⚠️ Son colores APAGADOS a propósito: están pensados para verse sobre el negro del espacio. Por eso
+ * esto es la variante MIXTA que eligió RoGiz7 comparándolas a ojo: **casco y fondos fieles, acento
+ * subido en `--accent-text` para lo que hay que leer de un vistazo**. Fiel puro dejaba las cuatro
+ * demasiado parecidas entre sí; el tópico no se parecía a EVE.
+ * Investigación completa en documentacion/TEMAS_RAZA_investigacion.md.
+ *
+ * ⚠️⚠️ EL CONTRATO DE `--accent`, que me salté en la primera pasada y lo cazó RoGiz7 a la primera:
+ * **`--accent` se usa como FONDO (≈10 reglas) Y COMO COLOR DE TEXTO (≈16)** — entre ellas
+ * `.tab.active` y `.navg.active`. O sea que tiene que ser un **TONO MEDIO**, como el `#34507a` del
+ * `:root`: ni el casco casi negro ni el acento brillante.
+ * Puse el hull puro (`#3d3c37`) y **la pestaña ACTIVA se leía PEOR que las inactivas** — texto casi
+ * negro sobre fondo negro. No cambié un valor: cambié el SIGNIFICADO de una variable de la que
+ * dependían 26 reglas. Antes de tocar una variable compartida, mirar quién la usa y para qué.
+ * Los colores de facción de verdad viven en `--accent-border` (el del casco) y `--accent-text`.
+ */
 html[data-theme="amarr"] {
-  --accent: #6b5418;
-  --accent-border: #d4af37;
-  --accent-text: #e8c66a;
-  --bg-tint: rgba(212, 175, 55, 0.07);
+  --accent: #554d33; /* dorado de la Imperial Navy, en tono MEDIO (ver contrato abajo) */
+  --accent-border: #ffcb6a; /* su dorado (secondary) */
+  --accent-text: #f5d35c; /* del set «Imperial», el dorado legible */
+  --bg-tint: rgba(255, 203, 106, 0.07);
 }
 html[data-theme="minmatar"] {
-  --accent: #6e2f25;
-  --accent-border: #c0392b;
-  --accent-text: #e8897e;
-  --bg-tint: rgba(192, 57, 43, 0.07);
+  --accent: #63463a; /* el óxido de la Republic Fleet, en tono MEDIO */
+  --accent-border: #865a44; /* el óxido de la Republic Fleet */
+  --accent-text: #e08a5f; /* naranja legible: el óxido puro no se lee en texto pequeño */
+  --bg-tint: rgba(134, 90, 68, 0.09);
 }
 html[data-theme="gallente"] {
-  --accent: #1d5b43;
-  --accent-border: #2ecc71;
-  --accent-text: #7fe0a8;
-  --bg-tint: rgba(46, 204, 113, 0.06);
+  --accent: #37564a; /* el verde de la Federation Navy, en tono MEDIO */
+  --accent-border: #466c59; /* el verde apagado de la Federation Navy */
+  --accent-text: #7fd6a2; /* verde subido para las cifras */
+  --bg-tint: rgba(70, 108, 89, 0.08);
 }
 html[data-theme="caldari"] {
-  --accent: #2a4a6b;
-  --accent-border: #4a90d9;
-  --accent-text: #8fc0f0;
-  --bg-tint: rgba(74, 144, 217, 0.06);
+  --accent: #3e4f5c; /* el acero de la Caldari Navy, en tono MEDIO */
+  --accent-border: #7d898f; /* el acero de la Caldari Navy */
+  --accent-text: #9fd0ea; /* azul frío en los números, que el acero solo no distingue */
+  --bg-tint: rgba(125, 137, 143, 0.07);
 }
+/* TRIGLAVIANO (antes «Abismo», con un morado que no venía de ninguna parte). Del SDE: los cascos
+   «Triglavian Defender» son hull #ff0000 · primary #4b4b4b · secondary #b50000, y el rojo oscuro
+   #b50000 es el secondary más repetido de la raza. El verde sucio del texto es el de sus efectos y
+   el que la comunidad usa para los temas triglavianos del propio cliente (#A8BE7B en el hilo de
+   Photon UI) — rojo y verde ácido es exactamente su lenguaje. */
 html[data-theme="abismo"] {
-  --accent: #432a6b;
-  --accent-border: #a371f7;
-  --accent-text: #c9adf9;
-  --bg-tint: rgba(163, 113, 247, 0.08);
+  --accent: #6e3535; /* rojo apagado en tono MEDIO: se usa de fondo Y de texto (ver contrato) */
+  --accent-border: #b50000; /* el rojo del casco triglaviano */
+  --accent-text: #a8be7b; /* el verde ácido, que sobre el rojo es lo único que se lee bien */
+  --bg-tint: rgba(181, 0, 0, 0.07);
+}
+
+/* ----- FACCIONES PIRATAS (2026-08-11, petición de RoGiz7) -----
+   Mismo método que las armadas: colores sacados de `graphicMaterialSets` del SDE, buscando los sets
+   de cada facción. Y la misma regla de siempre — `--accent` en tono MEDIO (se usa de fondo y de
+   texto), el color de la facción en `--accent-border`, y en `--accent-text` algo que se LEA:
+   verificado, todos por encima de 7:1 sobre el fondo de la app. */
+html[data-theme="guristas"] {
+  /* «Guristas (Caldari Hull)»: arena #90846c. El amarillo #f2d330 es de «Hostile Takeover». */
+  --accent: #55503b;
+  --accent-border: #90846c;
+  --accent-text: #f2d330;
+  --bg-tint: rgba(242, 211, 48, 0.06);
+}
+html[data-theme="angel"] {
+  /* «Angels (Minmatar Hulls)»: beige #9e8e77, y el naranja #dc882a es su secondary más repetido. */
+  --accent: #4f4a41;
+  --accent-border: #9e8e77;
+  --accent-text: #dcb882;
+  --bg-tint: rgba(220, 136, 42, 0.06);
+}
+html[data-theme="blood"] {
+  /* Blood Raiders: #a70000 es su primary más repetido — rojo sangre, sin matices. */
+  --accent: #8a3030;
+  --accent-border: #a70000;
+  --accent-text: #ff8f8f;
+  --bg-tint: rgba(167, 0, 0, 0.08);
+}
+html[data-theme="sansha"] {
+  /* «Sansha (Amarr Hulls)»: oliva #838664 sobre crema #caad8d. */
+  --accent: #4c4d3a;
+  --accent-border: #838664;
+  --accent-text: #cbb08e;
+  --bg-tint: rgba(131, 134, 100, 0.07);
+}
+html[data-theme="serpentis"] {
+  /* «Serpentis (Gallente Hulls)»: verde muy oscuro #3b4340 con el dorado #ccb150 de sus torneos. */
+  --accent: #3c4a3f;
+  --accent-border: #6b7a5f;
+  --accent-text: #ccb150;
+  --bg-tint: rgba(204, 177, 80, 0.06);
 }
 
 /* ----- Tema ambiental ("Ambiente": data-theme dinámico según dónde está tu personaje) ----- */
@@ -2940,13 +3016,25 @@ tr.job-ready td:first-child {
 }
 .tab.active {
   background: linear-gradient(180deg, transparent, rgba(122, 162, 247, 0.14));
-  border-bottom-color: var(--accent, #7aa2f7);
+  border-bottom-color: var(--accent-border, #7aa2f7);
   border-bottom-width: 3px;
-  color: var(--accent, #7aa2f7);
+  color: var(--accent-text, #7fb0ff); /* NO `--accent`: es un tono de fondo, ver la nota de arriba */
 }
 .tab:disabled {
   opacity: 0.45;
 }
+
+/* ⚠️ EL ACTIVO SE LEE PEOR QUE LOS INACTIVOS — arreglado el 2026-08-12, lo cazó RoGiz7 de un
+   vistazo: «¿el menú seleccionado no se ve menos que los demás?».
+   `.tab.active` y `.navg.active` pintaban su texto con `--accent`, que es un tono MEDIO pensado
+   para fondos. Contraste sobre el fondo de la app: **2,09:1 en el tema por defecto** contra los
+   **9,02:1** de las pestañas INACTIVAS (`--fg-dim`). O sea que la seleccionada se leía CUATRO VECES
+   PEOR que las demás, y no era cosa de los temas de facción: pasaba en Nebulosa desde siempre. Los
+   colores de las armadas solo lo hicieron evidente, porque son más oscuros aún.
+   Ahora usan `--accent-text`, que existe justo para esto: 7,8:1 en Nebulosa y hasta 11,7:1 en
+   Amarr. El acento sigue marcando el activo en el SUBRAYADO y el degradado, que es donde un color
+   medio sí funciona.
+   Lección: un color de fondo y un color de texto no son intercambiables aunque «sean el acento». */
 
 /* ===== Navegación en grupos: barra de tabs (nivel primario) ===== */
 .nav-groups {
@@ -2982,8 +3070,8 @@ tr.job-ready td:first-child {
 }
 
 .navg.active {
-  color: var(--accent, #7aa2f7);
-  border-bottom-color: var(--accent, #7aa2f7);
+  color: var(--accent-text, #7fb0ff); /* NO `--accent`: ver la nota de arriba */
+  border-bottom-color: var(--accent-border, #7aa2f7);
   /* Degradado hacia arriba en vez de un bloque plano: la pestaña «nace» de su subrayado. */
   background: linear-gradient(180deg, transparent, rgba(122, 162, 247, 0.14));
   border-bottom-width: 3px;
@@ -3440,7 +3528,9 @@ h4 {
   position: absolute;
   top: 8px;
   left: 8px;
-  width: 220px;
+  /* 250, no 220: con las acciones a DOS POR FILA, «Mis assets aquí» y «Silenciar aquí» no cabían y
+     el texto se cortaba. Es el ancho mínimo que admite las dos etiquetas más largas en una línea. */
+  width: 250px;
   background: rgba(20, 26, 36, 0.95);
   border: 1px solid #3a4654;
   border-radius: 10px;
@@ -3448,23 +3538,71 @@ h4 {
   backdrop-filter: blur(4px);
   z-index: 6;
 }
-/* En la capa Intel el panel de Intel ocupa la izquierda → el del sistema va a la derecha. */
-.sys-panel.intel {
-  left: auto;
-  right: 8px;
+/* En la capa Intel la ficha NO flota: vive dentro de la tarjeta derecha, como una pestaña más. Así
+   que aquí se le quita todo lo de tarjeta —posición, marco, fondo y padding— y se deja que mande el
+   contenedor. La `.intel-detail` ya pone el suyo. */
+.intel-detail .sys-panel,
+.intel-detail .sys-panel.intel {
+  position: static;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  z-index: auto;
 }
+/* La ✕ de la ficha suelta cierra el sistema; dentro de la pestaña sigue valiendo (lo deselecciona),
+   pero no debe competir con la ✕ de la tarjeta: no hay ninguna, así que se queda. */
 
 .sys-panel-head {
   display: flex;
   justify-content: space-between;
+  /* `center`, no `baseline`: el chip de Notas es una CAJA con borde, y una caja alineada por la
+     línea base del texto que lleva dentro se ve descolgada respecto al título. Con enlaces solos
+     daba igual; en cuanto entró el chip, no. */
   align-items: center;
+  /* Sin `gap`, zKill se pegaba al nombre del sistema y a Dotlan: se leía «F3-8X2zKillDotlan». */
+  gap: 0.45rem;
+}
+/* El chip de Notas EN LA CABECERA: manda la fila, no el chip.
+   · `margin: 0` — el `margin-top: 0.4rem` que trae de serie (venía de ir suelto entre bloques) lo
+     empujaba hacia abajo y era la mitad de lo que se veía raro.
+   · escala de los enlaces, no la suya: en una fila con un título en negrita y dos enlaces diminutos,
+     un tercer tamaño intermedio es justo lo que hace que nada parezca alineado. */
+.sys-panel-head .nota-chip {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.35rem;
+}
+.sys-panel-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sys-close {
+  align-self: center;
   padding: 0.05rem 0.4rem;
   background: transparent;
   border-color: transparent;
   color: #888;
+}
+
+/* La línea de tu historial en el sistema. Primero coloreé el BALANCE (toda la línea en rojo si has
+   muerto más de lo que has matado); RoGiz7 pidió lo directo: kills en verde y losses en rojo,
+   siempre. Tiene su lógica — son los mismos colores que un killmail, así que no hay nada que
+   aprender, y el balance se lee solo al ver los dos números juntos. */
+.sys-mine {
+  color: var(--muted);
+}
+.sys-mine .k {
+  color: #3fb950;
+}
+.sys-mine .l {
+  color: #e5534b;
 }
 
 .sys-stats {
@@ -3475,14 +3613,22 @@ h4 {
   gap: 0.2rem;
 }
 
-.sys-links {
+/* ---- JERARQUÍA de la ficha de sistema (2026-08-12) ----
+   Lo que la hacía confusa no era que hubiera mucho: era que TODO PESABA IGUAL — las notas, los
+   botones de ruta y los enlaces a webs externas se leían con la misma voz, en tres grupos que
+   parecían tres tarjetas pegadas. RoGiz7 propuso pestañas; se descartaron porque estas tarjetas son
+   cortas y porque el criterio de la casa es no esconder lo que se mira en caliente.
+   La solución acabó siendo la misma que en la tarjeta de aviso, y a propósito: **las dos tarjetas
+   del mapa comparten hoja de estilo**. Enlaces externos arriba junto al nombre, y UN solo bloque de
+   acciones a dos por fila tras un separador. Si se toca `.intel-detail-acts`, esto cambia también. */
+.sys-acts,
+.intel-detail-acts {
   display: flex;
-  gap: 0.4rem;
-}
-
-.sys-links button {
-  font-size: 0.8rem;
-  padding: 0.3rem 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border, #2a3340);
 }
 
 .sys-assets-btn {
@@ -6144,6 +6290,101 @@ h4 {
   border-color: var(--accent-border, #4f9cff);
 }
 
+/* ---- Selector de tema con escudos de facción (themePicker.tsx) ----
+   Es un desplegable PROPIO porque un `<select>` nativo no admite `<img>`. Hereda el aspecto de
+   `.tb-theme` para que en la barra no se note el cambio de mecanismo. */
+.th-wrap {
+  position: relative;
+}
+.th-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(20, 26, 38, 0.7);
+  border: 1px solid var(--border-accent-2, #3a4654);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--fg, #e6edf3);
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.th-btn:hover {
+  border-color: var(--accent-border, #4f9cff);
+}
+/* «Tema»: la etiqueta que dice para qué sirve el control. Tenue y pequeña — informa sin competir
+   con el nombre de la facción, que es lo que se lee primero. */
+.th-tag {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+}
+.th-caret {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.th-logo {
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.th-emoji {
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.th-menu {
+  position: absolute;
+  z-index: 60; /* por encima del contenido, por debajo de los modales (800) */
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 190px;
+  background: var(--panel, #12171f);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.th-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+}
+/* Cabecera de grupo dentro del desplegable: con doce temas hace falta separar imperios de piratas. */
+.th-grupo {
+  padding: 0.35rem 0.55rem 0.15rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  margin-top: 0.2rem;
+}
+.th-menu > div:first-child .th-grupo {
+  border-top: none;
+  margin-top: 0;
+}
+.th-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+/* El activo se marca con el acento del tema EN CURSO: al abrirlo ya estás viendo su color. */
+.th-item.on {
+  color: var(--accent-text);
+  box-shadow: inset 2px 0 0 var(--accent-border);
+}
+
 /* ---- Header rico de personaje ---- */
 .char-header {
   background: rgba(18, 24, 35, 0.55);
@@ -6645,6 +6886,34 @@ h4 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.4rem;
+}
+/* El nombre del sistema manda; el zKill va detrás, pequeño y como enlace. `margin-right: auto`
+   los mantiene juntos a la izquierda y empuja la ✕ al otro extremo. */
+.intel-detail-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.intel-head-link {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.intel-head-link.push,
+.intel-detail-head .intel-head-link {
+  /* El ÚLTIMO enlace es el que empuja la ✕ al otro extremo. En el aviso solo hay uno (zKill); en la
+     ficha de sistema hay dos y el que empuja es Dotlan, marcado con `.push`. */
+  margin-right: auto;
+}
+.intel-head-link:hover {
+  color: var(--accent-text);
 }
 /* Hostiles habituales */
 .intel-hab-list {
@@ -6900,25 +7169,77 @@ h4 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* EL MISMO LENGUAJE QUE EL FEED EN VIVO (idea de RoGiz7, 2026-08-12). Este texto ES la línea del
+   feed —la misma frase, del mismo reporte—, así que se pinta igual: franja roja a la izquierda y
+   fondo rojo apagado, con la esquina izquierda a escuadra para que la franja se lea como un borde
+   y no como un adorno. Los valores son literalmente los de `.intel-row.near`; si allí se retocan,
+   aquí también. Antes era una caja gris neutra y el vínculo con el feed se perdía al abrir. */
 .intel-detail-msg {
   font-size: 0.85rem;
   word-break: break-word;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 6px;
-  padding: 0.35rem 0.45rem;
+  border-left: 2px solid #ff3b3b;
+  background: rgba(122, 28, 28, 0.25);
+  border-radius: 0 6px 6px 0;
+  padding: 0.35rem 0.5rem;
 }
 .intel-detail-sec {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  /* Mismo lenguaje que `.intel-cfg`: cada bloque separado por una línea, no por un hueco a ojo. */
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border, #2a3340);
+}
+/* El de la tarjeta de aviso arranca pegado al mensaje del reporte, y ahí la línea sobra. */
+.intel-detail-msg + .intel-detail-sec {
+  border-top: none;
+  padding-top: 0;
+}
+/* El layout de `.intel-detail-acts` vive arriba, junto al de `.sys-acts`: las dos tarjetas del mapa
+   comparten el mismo bloque de acciones y separarlas aquí las dejaría desincronizadas. */
+/* DOS POR FILA, exactas. `calc(50% - …)` descuenta la mitad del hueco a cada botón: sin eso, dos
+   al 50% más el gap suman más de 100% y el segundo se cae a la línea de abajo. */
+.ida-btn {
+  flex: 1 1 calc(50% - 0.18rem);
+  min-width: 0;
+  font-size: 0.76rem;
+  padding: 0.3rem 0.5rem;
+  white-space: nowrap;
+}
+/* «Destino» es lo que haces el 90% de las veces que abres un aviso: mismo tamaño que las demás,
+   pero con el acento del tema para que la vista caiga ahí primero. */
+.ida-btn.ida-primary {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
 }
 .intel-pilot {
   border: 1px solid #2a3340;
   border-radius: 7px;
-  padding: 0.3rem 0.4rem;
+  /* Aire como el de `.intel-cfg` (0.6/0.7), que es la tarjeta que RoGiz7 da por buena. Con
+     0.3/0.4 los botones tocaban el borde y en las esquinas REDONDEADAS se veían cortados: el radio
+     recorta la esquina y allí el botón ya estaba pegado al filo. Lo cazó él en una captura. */
+  padding: 0.5rem 0.6rem;
+  /* El contenido no puede pisar el radio del borde. */
+  overflow: hidden;
 }
 .intel-pilot.active {
   border-color: #ffb24a;
+}
+/* Los pilotos DE LA TARJETA DE AVISO, en la misma gramática que el feed: franja a la izquierda en
+   vez de marco cerrado. Se queda gris —el rojo es del reporte, no de cada piloto— y solo se
+   enciende el que estás rastreando.
+   ⚠️ Va acotado a `.intel-detail` a propósito: la lista de pilotos de la CONFIGURACIÓN usa la misma
+   clase y esa tarjeta él la dio por buena tal cual. */
+.intel-detail .intel-pilot {
+  border: none;
+  border-left: 2px solid #3a4654;
+  border-radius: 0 6px 6px 0;
+  background: rgba(255, 255, 255, 0.02);
+}
+.intel-detail .intel-pilot.active {
+  border-left-color: #ffb24a;
+  background: rgba(255, 178, 74, 0.1);
 }
 .intel-pilot-row {
   display: flex;
@@ -6939,9 +7260,22 @@ h4 {
   font-weight: 600;
   font-size: 0.82rem;
 }
+/* Fila propia para las acciones del piloto, alineada bajo el NOMBRE (no bajo el retrato): así la
+   columna de botones arranca donde arranca el texto y los bloques se leen como una lista. */
+.intel-pilot-btns {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-left: 30px; /* 24px de retrato + el gap de la fila */
+}
 .intel-pilot-row button {
   font-size: 0.72rem;
   padding: 0.15rem 0.4rem;
+}
+/* Separación entre pilotos: sin esto las tarjetas se tocan y parecen una sola. */
+.intel-detail-sec .intel-pilot + .intel-pilot {
+  margin-top: 0.35rem;
 }
 .intel-track {
   margin: 0.3rem 0 0;
@@ -8204,8 +8538,9 @@ h4 {
   max-width: 100%;
 }
 
-/* Botón «Evitar» activo en la ficha del sistema. */
-.sys-links button.avoid-on {
+/* Botón «Evitar» activo en la ficha del sistema. Antes colgaba de `.sys-links`, que ya no existe:
+   los enlaces externos se fueron a la cabecera y las acciones comparten `.ida-btn`. */
+.ida-btn.avoid-on {
   color: #e5534b;
   border-color: rgba(229, 83, 75, 0.5);
   font-weight: 600;

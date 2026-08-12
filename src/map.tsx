@@ -413,7 +413,7 @@ export function MapView(props: {
   const navRef = useRef<HTMLDivElement | null>(null);
   // La columna derecha es UNA tarjeta con pestañas (antes eran cuatro apiladas y tapaban el mapa).
   // `cardOpen` pliega la tarjeta entera dejando solo la barra de pestañas.
-  type RightTab = "ruta" | "rastro" | "aviso" | "habituales";
+  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema";
   const [rightTab, setRightTab] = useState<RightTab>("ruta");
   const [cardOpen, setCardOpen] = useState(true);
   // Red de Ansiblex de la alianza (declarada por el piloto en Ajustes; ESI no la publica).
@@ -1906,6 +1906,10 @@ export function MapView(props: {
     // y la ruta al final — que es la consecuencia, no el punto de partida.
     const t: { id: RightTab; label: string }[] = [];
     if (overlay === "intel" && intelDetail) t.push({ id: "aviso", label: `📡 ${tr("Aviso")}` });
+    // La ficha del sistema entra aquí SOLO en Intel: en las demás capas flota arriba a la izquierda,
+    // donde no estorba a nadie. Aquí la esquina ya está ocupada y compartir tarjeta es la salida.
+    if (overlay === "intel" && selected != null && geo?.idx.get(selected))
+      t.push({ id: "sistema", label: `🪐 ${tr("Sistema")}` });
     if (overlay === "intel" && huntPilots.length > 0)
       t.push({ id: "rastro", label: `🎯 ${tr("Rastro")}` });
     if (overlay === "intel" && habitualOpen)
@@ -1913,7 +1917,12 @@ export function MapView(props: {
     if (routeActive) t.push({ id: "ruta", label: `🧭 ${tr("Ruta")}` });
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen]);
+  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen, selected, geo]);
+  // Pinchar un sistema en el mapa es un acto deliberado: la tarjeta salta a su pestaña. Sin esto
+  // seleccionas un sistema, no ves nada cambiar y parece que el clic no ha hecho nada.
+  useEffect(() => {
+    if (overlay === "intel" && selected != null) setRightTab("sistema");
+  }, [selected, overlay]);
   // Si la pestaña activa deja de existir (cerraste el aviso, soltaste el rastro…), cae a la primera
   // disponible en vez de dejar la tarjeta en blanco.
   useEffect(() => {
@@ -1921,6 +1930,10 @@ export function MapView(props: {
       setRightTab(rightTabs[0].id);
     }
   }, [rightTabs, rightTab]);
+
+  // (Aquí vivió un ResizeObserver que empujaba la ficha de sistema por debajo de la columna derecha
+  // para que no se solaparan. Lo sustituye la pestaña «Sistema»: con la tarjeta de Ruta desplegada,
+  // el empujón dejaba la ficha fuera de la pantalla. Un solapamiento se ve; quedarse fuera, no.)
 
   if (!ne || !geo) return <p className="muted">{tr("Cargando mapa…")}</p>;
 
@@ -2096,6 +2109,273 @@ export function MapView(props: {
       : ctxKpi
       ? [ctxKpi]
       : [];
+
+  // LA FICHA DE SISTEMA, en una variable y no inline: se pinta en DOS sitios distintos —flotando
+  // arriba a la izquierda en las capas normales, y como PESTAÑA de la tarjeta derecha en Intel—.
+  // Motivo (RoGiz7, 2026-08-12): en Intel esa esquina ya es de la columna Ruta/Aviso y las dos
+  // tarjetas se tapaban. Empujar la ficha hacia abajo con un ResizeObserver lo arreglaba a medias:
+  // con la Ruta desplegada, la ficha quedaba fuera de la pantalla. Con pestañas el problema no
+  // existe, porque solo hay una tarjeta.
+  const fichaSistema =
+    selected != null && geo.idx.get(selected)
+      ? (() => {
+            const s = geo.idx.get(selected)!;
+            const act = pvp.find((d) => d.system_id === selected);
+            const region = ne.regions.find((r) => r.id === s.r)?.n ?? "";
+            const kv = liveKills?.get(selected);
+            const jv = liveJumps?.get(selected);
+            const av = assetsBySystem?.get(selected);
+            return (
+              <div className={`sys-panel${overlay === "intel" ? " intel" : ""}`}>
+                <div className="sys-panel-head">
+                  <strong>{s.n}</strong>
+                  {/* EL MOTOR HUMANO (N1). El chip va PEGADO AL NOMBRE (RoGiz7, 2026-08-12): una
+                      nota es lo que TÚ sabes de este sistema, así que pertenece a su identidad, no
+                      a la lista de acciones donde estaba —allí se leía como un botón más entre
+                      «Evitar» y «Anclar». Delante de zKill y Dotlan porque es tuyo y ellos son de
+                      fuera. Solo el CHIP: el detalle se abre en modal. Ver SPEC_MOTOR_HUMANO.md. */}
+                  <NotasAncla
+                    kind="system"
+                    anchorId={selected}
+                    subject={subjectId}
+                    anchorName={s.n}
+                  />
+                  {/* Las webs externas, PEGADAS AL NOMBRE y como enlaces — el mismo trato que en la
+                      tarjeta de aviso. Hablan de ESTE sistema, así que se leen donde se lee su
+                      nombre; al pie y con forma de botón competían con «Silenciar aquí», que sí
+                      cambia algo dentro de Koru. */}
+                  <button
+                    className="intel-head-link"
+                    title={tr("Abrir el sistema en zKillboard")}
+                    onClick={() => openExternal(`https://zkillboard.com/system/${selected}/`)}
+                  >
+                    zKill
+                  </button>
+                  <button
+                    className="intel-head-link push"
+                    title={tr("Abrir el sistema en Dotlan")}
+                    onClick={() =>
+                      openExternal(`https://evemaps.dotlan.net/system/${s.n.replace(/ /g, "_")}`)
+                    }
+                  >
+                    Dotlan
+                  </button>
+                  <button className="sys-close" onClick={() => setSelected(null)}>
+                    ✕
+                  </button>
+                </div>
+                <div className="muted small">
+                  {tr("Seguridad")} <span style={{ color: secColor(s.s) }}>{s.s.toFixed(1)}</span> · {region}
+                </div>
+                {overlay !== "pi" && (
+                  <div className="sys-stats">
+                    {/* TU HISTORIA AQUÍ, en una línea (2026-08-12). Antes eran tres renglones —kills,
+                        losses y ISK— y RoGiz7 preguntó si seguían teniendo sentido. La respuesta es
+                        que sí, pero no como contadores: lo que decide si entras es el BALANCE, no el
+                        número. «8 y 13» en tres líneas dice una sola cosa, y la dice a gritos.
+                        «Tu ISK» se va: es un trofeo, no intel — no responde a «¿entro o no?», y es
+                        justo la cifra que estorba en una captura para los foros. Sigue en la sección
+                        de PvP, que es donde vas A MIRAR el balance, no en la tarjeta que abres en
+                        caliente con un hostil a dos saltos.
+                        Si nunca has peleado aquí no se pinta nada: un «0 · 0» ocupa sitio para decir
+                        que no hay dato. */}
+                    {act && act.kills + act.losses > 0 && (
+                      <div
+                        className="sys-mine"
+                        title={tr("Tu historial de PvP en este sistema. Lo que importa es el balance: si has muerto aquí más de lo que has matado, el sistema ya te ha avisado una vez.")}
+                      >
+                        {tr("Aquí")}: <strong className="k">{act.kills}</strong> kills ·{" "}
+                        <strong className="l">{act.losses}</strong> losses
+                      </div>
+                    )}
+                    {kv != null && <div>{tr("Kills 1h")}: <strong>{kv}</strong></div>}
+                    {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
+                    {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
+                  </div>
+                )}
+                {overlay === "agentes" && (agentDetails?.get(selected)?.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🧑‍✈️ {tr("Tus agentes aquí")}:</div>
+                    {agentDetails!
+                      .get(selected)!
+                      .slice()
+                      .sort((a, b) => b.level - a.level)
+                      .map((ag, i) => (
+                        <div key={i} className="sys-agent-row">
+                          <img
+                            src={`https://images.evetech.net/characters/${ag.id}/portrait?size=32`}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <span className="ag-lvl">L{ag.level}</span>
+                          <span>{ag.name}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {overlay === "corps_npc" && (corpDetails?.get(selected)?.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🏢 {tr("Tus corps NPC aquí")}:</div>
+                    {corpDetails!
+                      .get(selected)!
+                      .slice()
+                      .sort((a, b) => b.lp - a.lp)
+                      .map((c, i) => (
+                        <div key={i} className="sys-agent-row">
+                          <img
+                            src={`https://images.evetech.net/corporations/${c.id}/logo?size=32`}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <span>{c.name}</span>
+                          <span className="muted small" style={{ marginLeft: "auto" }}>
+                            {c.lp.toLocaleString()} LP
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {overlay === "pi" && (piBySystem?.get(selected)?.detail.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🪐 {tr("Colonias de PI aquí")}:</div>
+                    {piBySystem!
+                      .get(selected)!
+                      .detail.slice()
+                      .sort((a, b) => (a.worst_hours ?? 1e9) - (b.worst_hours ?? 1e9))
+                      .map((col, i) => (
+                        <div key={i} className="pi-sys-colony">
+                          <span className="pi-sys-planet">{col.planet_type}</span>
+                          <span className="muted small">{col.character}</span>
+                          {col.products.map((pid) => (
+                            <img
+                              key={pid}
+                              src={typeIcon(pid, 32) ?? undefined}
+                              alt=""
+                              width={14}
+                              height={14}
+                            />
+                          ))}
+                          {col.factories > 0 && <span className="muted small">🏭{col.factories}</span>}
+                          <span
+                            className="pi-sys-worst"
+                            style={{ marginLeft: "auto", color: piHealthColor(col.worst_hours) }}
+                          >
+                            {col.worst_hours == null
+                              ? tr("sin extractor")
+                              : col.worst_hours <= 0
+                                ? tr("parado")
+                                : `${Math.ceil(col.worst_hours)}h`}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {overlay === "pi" && onOpenPi && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      onOpenPi();
+                      setSelected(null);
+                    }}
+                  >
+                    🪐 {tr("Ver en Planetología")}
+                  </button>
+                )}
+                {(overlay === "agentes" || overlay === "corps_npc") && onOpenMisiones && (
+                  <button
+                    className="sys-assets-btn"
+                    onClick={() => {
+                      onOpenMisiones();
+                      setSelected(null);
+                    }}
+                  >
+                    📋 {tr("Ver todo en Misiones")}
+                  </button>
+                )}
+                {/* ACCIONES sobre el sistema, DOS POR FILA y en un solo bloque tras un separador —
+                    el mismo lenguaje que la tarjeta de aviso, que es el que RoGiz7 dio por bueno.
+                    Antes iban en tres grupos distintos (rutas / herramientas / webs) y la tarjeta se
+                    leía como tres tarjetas pegadas.
+                    El orden va de MIRAR a CONFIGURAR: rutas arriba, assets y veto en medio, y las
+                    dos que tocan el intel abajo. */}
+                <div className="sys-acts">
+                  <button
+                    className="ida-btn ida-primary"
+                    onClick={() => {
+                      setJumpActive(false);
+                      setRouteActive(true);
+                      setRouteStops([selected, null]);
+                      setSelected(null);
+                    }}
+                  >
+                    {tr("Ruta desde")}
+                  </button>
+                  <button
+                    className="ida-btn"
+                    onClick={() => {
+                      setRouteActive(false);
+                      setJumpActive(true);
+                      setJumpOrigin(selected);
+                      setJumpDest(null);
+                      setSelected(null);
+                    }}
+                  >
+                    {tr("Saltar desde")}
+                  </button>
+                  {/* Vetar desde el propio mapa: es donde ves que un sistema está caliente. Antes
+                      solo se podía desde el buscador de la sección de abajo. */}
+                  <button
+                    className={`ida-btn${avoid.has(selected) ? " avoid-on" : ""}`}
+                    title={tr("Los sistemas vetados se saltan al calcular cualquier ruta.")}
+                    onClick={() => toggleAvoid(selected)}
+                  >
+                    🚫 {avoid.has(selected) ? tr("Vetado ✓") : tr("Evitar")}
+                  </button>
+                  {onSystemAssets && (
+                  <button
+                    className="ida-btn"
+                    onClick={() => {
+                      onSystemAssets(s.n);
+                      setSelected(null);
+                    }}
+                  >
+                    📦 {tr("Mis assets aquí")}
+                  </button>
+                )}
+                {overlay === "intel" && intel && (
+                  <button
+                    className="ida-btn"
+                    onClick={() => {
+                      const has = intel.anchors.includes(selected);
+                      intel.onConfig({
+                        anchors: has
+                          ? intel.anchors.filter((x) => x !== selected)
+                          : [...intel.anchors, selected],
+                      });
+                    }}
+                  >
+                    {intel.anchors.includes(selected) ? `⚓ ${tr("Quitar ancla")}` : `⚓ ${tr("Anclar aquí")}`}
+                  </button>
+                )}
+                {overlay === "intel" && intel && (
+                  <button
+                    className="ida-btn"
+                    title={tr("Calla la alarma de este sistema. El aviso SIGUE saliendo en el feed y en el mapa.")}
+                    onClick={(e) => {
+                      // Con Alt = silencio de 1 hora. El motivo para callar un sistema casi siempre
+                      // es temporal («esta noche rateo aquí»), y un silencio indefinido que se te
+                      // olvida quitar es justo el que te mata tres semanas después.
+                      alternarSilencio(selected, e.altKey ? 1 : undefined);
+                    }}
+                  >
+                    {estaSilenciado(selected) ? `🔔 ${tr("Volver a avisar")}` : `🔇 ${tr("Silenciar aquí")}`}
+                  </button>
+                )}
+                </div>
+              </div>
+            );
+        })()
+      : null;
 
   return (
     <>
@@ -3255,232 +3535,9 @@ export function MapView(props: {
           <button onClick={() => setView({ z: 1, x: 0, y: 0 })} title="Reset">⟲</button>
         </div>
 
-        {selected != null &&
-          geo.idx.get(selected) &&
-          (() => {
-            const s = geo.idx.get(selected)!;
-            const act = pvp.find((d) => d.system_id === selected);
-            const region = ne.regions.find((r) => r.id === s.r)?.n ?? "";
-            const kv = liveKills?.get(selected);
-            const jv = liveJumps?.get(selected);
-            const av = assetsBySystem?.get(selected);
-            return (
-              <div className={`sys-panel${overlay === "intel" ? " intel" : ""}`}>
-                <div className="sys-panel-head">
-                  <strong>{s.n}</strong>
-                  <button className="sys-close" onClick={() => setSelected(null)}>
-                    ✕
-                  </button>
-                </div>
-                <div className="muted small">
-                  {tr("Seguridad")} <span style={{ color: secColor(s.s) }}>{s.s.toFixed(1)}</span> · {region}
-                </div>
-                {overlay !== "pi" && (
-                  <div className="sys-stats">
-                    <div>{tr("Tus kills")}: <strong>{act?.kills ?? 0}</strong></div>
-                    <div>{tr("Tus losses")}: <strong>{act?.losses ?? 0}</strong></div>
-                    <div>{tr("Tu ISK")}: <strong>{act ? fmtIsk(act.isk) : "0"}</strong></div>
-                    {kv != null && <div>{tr("Kills 1h")}: <strong>{kv}</strong></div>}
-                    {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
-                    {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
-                  </div>
-                )}
-                {/* EL MOTOR HUMANO (N1). El ancla va aquí —y no en una pestaña propia— porque una
-                    nota sobre un sistema sirve de poco en una lista de notas: sirve cuando estás
-                    mirando ESE sistema. Pero solo el CHIP: el detalle se abre en un modal para no
-                    empujar los botones de ruta. Ver SPEC_MOTOR_HUMANO.md. */}
-                <NotasAncla
-                  kind="system"
-                  anchorId={selected}
-                  subject={subjectId}
-                  anchorName={s.n}
-                />
-                {overlay === "agentes" && (agentDetails?.get(selected)?.length ?? 0) > 0 && (
-                  <div className="sys-agents">
-                    <div className="muted small">🧑‍✈️ {tr("Tus agentes aquí")}:</div>
-                    {agentDetails!
-                      .get(selected)!
-                      .slice()
-                      .sort((a, b) => b.level - a.level)
-                      .map((ag, i) => (
-                        <div key={i} className="sys-agent-row">
-                          <img
-                            src={`https://images.evetech.net/characters/${ag.id}/portrait?size=32`}
-                            alt=""
-                            loading="lazy"
-                          />
-                          <span className="ag-lvl">L{ag.level}</span>
-                          <span>{ag.name}</span>
-                        </div>
-                      ))}
-                  </div>
-                )}
-                {overlay === "corps_npc" && (corpDetails?.get(selected)?.length ?? 0) > 0 && (
-                  <div className="sys-agents">
-                    <div className="muted small">🏢 {tr("Tus corps NPC aquí")}:</div>
-                    {corpDetails!
-                      .get(selected)!
-                      .slice()
-                      .sort((a, b) => b.lp - a.lp)
-                      .map((c, i) => (
-                        <div key={i} className="sys-agent-row">
-                          <img
-                            src={`https://images.evetech.net/corporations/${c.id}/logo?size=32`}
-                            alt=""
-                            loading="lazy"
-                          />
-                          <span>{c.name}</span>
-                          <span className="muted small" style={{ marginLeft: "auto" }}>
-                            {c.lp.toLocaleString()} LP
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                )}
-                {overlay === "pi" && (piBySystem?.get(selected)?.detail.length ?? 0) > 0 && (
-                  <div className="sys-agents">
-                    <div className="muted small">🪐 {tr("Colonias de PI aquí")}:</div>
-                    {piBySystem!
-                      .get(selected)!
-                      .detail.slice()
-                      .sort((a, b) => (a.worst_hours ?? 1e9) - (b.worst_hours ?? 1e9))
-                      .map((col, i) => (
-                        <div key={i} className="pi-sys-colony">
-                          <span className="pi-sys-planet">{col.planet_type}</span>
-                          <span className="muted small">{col.character}</span>
-                          {col.products.map((pid) => (
-                            <img
-                              key={pid}
-                              src={typeIcon(pid, 32) ?? undefined}
-                              alt=""
-                              width={14}
-                              height={14}
-                            />
-                          ))}
-                          {col.factories > 0 && <span className="muted small">🏭{col.factories}</span>}
-                          <span
-                            className="pi-sys-worst"
-                            style={{ marginLeft: "auto", color: piHealthColor(col.worst_hours) }}
-                          >
-                            {col.worst_hours == null
-                              ? tr("sin extractor")
-                              : col.worst_hours <= 0
-                                ? tr("parado")
-                                : `${Math.ceil(col.worst_hours)}h`}
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                )}
-                {overlay === "pi" && onOpenPi && (
-                  <button
-                    className="sys-assets-btn"
-                    onClick={() => {
-                      onOpenPi();
-                      setSelected(null);
-                    }}
-                  >
-                    🪐 {tr("Ver en Planetología")}
-                  </button>
-                )}
-                {(overlay === "agentes" || overlay === "corps_npc") && onOpenMisiones && (
-                  <button
-                    className="sys-assets-btn"
-                    onClick={() => {
-                      onOpenMisiones();
-                      setSelected(null);
-                    }}
-                  >
-                    📋 {tr("Ver todo en Misiones")}
-                  </button>
-                )}
-                <div className="sys-links">
-                  <button
-                    onClick={() => {
-                      setJumpActive(false);
-                      setRouteActive(true);
-                      setRouteStops([selected, null]);
-                      setSelected(null);
-                    }}
-                  >
-                    {tr("Ruta desde")}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setRouteActive(false);
-                      setJumpActive(true);
-                      setJumpOrigin(selected);
-                      setJumpDest(null);
-                      setSelected(null);
-                    }}
-                  >
-                    {tr("Saltar desde")}
-                  </button>
-                  {/* Vetar desde el propio mapa: es donde ves que un sistema está caliente. Antes
-                      solo se podía desde el buscador de la sección de abajo. */}
-                  <button
-                    className={avoid.has(selected) ? "avoid-on" : ""}
-                    title={tr("Los sistemas vetados se saltan al calcular cualquier ruta.")}
-                    onClick={() => toggleAvoid(selected)}
-                  >
-                    🚫 {avoid.has(selected) ? tr("Vetado ✓") : tr("Evitar")}
-                  </button>
-                </div>
-                <div className="sys-links">
-                  <button onClick={() => openExternal(`https://zkillboard.com/system/${selected}/`)}>
-                    zKillboard
-                  </button>
-                  <button
-                    onClick={() =>
-                      openExternal(`https://evemaps.dotlan.net/system/${s.n.replace(/ /g, "_")}`)
-                    }
-                  >
-                    Dotlan
-                  </button>
-                </div>
-                {onSystemAssets && (
-                  <button
-                    className="sys-assets-btn"
-                    onClick={() => {
-                      onSystemAssets(s.n);
-                      setSelected(null);
-                    }}
-                  >
-                    📦 {tr("Mis assets aquí")}
-                  </button>
-                )}
-                {overlay === "intel" && intel && (
-                  <button
-                    className="sys-assets-btn"
-                    onClick={() => {
-                      const has = intel.anchors.includes(selected);
-                      intel.onConfig({
-                        anchors: has
-                          ? intel.anchors.filter((x) => x !== selected)
-                          : [...intel.anchors, selected],
-                      });
-                    }}
-                  >
-                    {intel.anchors.includes(selected) ? `⚓ ${tr("Quitar ancla")}` : `⚓ ${tr("Anclar aquí")}`}
-                  </button>
-                )}
-                {overlay === "intel" && intel && (
-                  <button
-                    className="sys-assets-btn"
-                    title={tr("Calla la alarma de este sistema. El aviso SIGUE saliendo en el feed y en el mapa.")}
-                    onClick={(e) => {
-                      // Con Alt = silencio de 1 hora. El motivo para callar un sistema casi siempre
-                      // es temporal («esta noche rateo aquí»), y un silencio indefinido que se te
-                      // olvida quitar es justo el que te mata tres semanas después.
-                      alternarSilencio(selected, e.altKey ? 1 : undefined);
-                    }}
-                  >
-                    {estaSilenciado(selected) ? `🔔 ${tr("Volver a avisar")}` : `🔇 ${tr("Silenciar aquí")}`}
-                  </button>
-                )}
-              </div>
-            );
-          })()}
+        {/* En las capas normales la ficha flota arriba a la izquierda, como siempre. En Intel no se
+            pinta aquí: se pinta como pestaña de la tarjeta derecha (más abajo). */}
+        {overlay !== "intel" && fichaSistema}
 
         {/* Panel de Intel: configuración + feed en vivo (izquierda) */}
         {overlay === "intel" && intel && (
@@ -3981,11 +4038,26 @@ export function MapView(props: {
           </>
         )}
 
+        {rightTab === "sistema" && fichaSistema}
+
         {/* Tarjeta de detalle de un reporte de intel (piloto/nave/ruta/zKill) */}
         {rightTab === "aviso" && overlay === "intel" && intelDetail && (
           <>
             <div className="intel-detail-head">
               <strong>{intelDetail.sysName ?? tr("Reporte")}</strong>
+              {/* zKill del sistema PEGADO AL NOMBRE y como enlace, no como botón (idea de RoGiz7).
+                  Es información SOBRE ese sistema —lo natural es leerlo donde lees su nombre— y al
+                  pie, con forma de botón, pesaba lo mismo que «Silenciar aquí», que sí cambia algo
+                  en Koru. Un enlace dice «esto te saca fuera» sin escribirlo. */}
+              {intelDetail.sysId != null && (
+                <button
+                  className="intel-head-link"
+                  title={tr("Abrir el sistema en zKillboard")}
+                  onClick={() => openExternal(`https://zkillboard.com/system/${intelDetail.sysId}/`)}
+                >
+                  zKill
+                </button>
+              )}
               <button className="sys-close" onClick={() => setIntelDetail(null)}>✕</button>
             </div>
             <div className="muted small">
@@ -4019,6 +4091,11 @@ export function MapView(props: {
                         height={24}
                       />
                       <span className="intel-pilot-name">{c.name}</span>
+                      {/* Los botones, en su PROPIA fila. Colgando detrás del nombre se partían por
+                          donde cayera —«Interceptar» solo en la línea de abajo, «Ficha» en una
+                          tercera— y cada piloto se rompía de una forma distinta. Ahora todos los
+                          bloques se leen igual: retrato y nombre arriba, acciones debajo. */}
+                      <div className="intel-pilot-btns">
                       <button title="zKillboard" onClick={() => openExternal(`https://zkillboard.com/character/${c.id}/`)}>
                         zKill
                       </button>
@@ -4077,6 +4154,7 @@ export function MapView(props: {
                           📇 {tr("Ficha")}
                         </button>
                       )}
+                      </div>
                     </div>
                     {active && track.length > 0 && (
                       <ol className="intel-track">
@@ -4112,11 +4190,16 @@ export function MapView(props: {
             )}
 
             {intelDetail.sysId != null && (
-              <>
+              /* ACCIONES en una FILA compacta, no tres botones a ancho completo. Ocupaban un tercio
+                 de la tarjeta y gritaban más que los pilotos, que es lo que de verdad se mira. Van
+                 tras un separador, igual que «Naves citadas», para que se lea como otro bloque.
+                 «Mis assets» sube aquí: también es algo que HACES sobre este sistema, y así el pie
+                 de la tarjeta desaparece del todo. */
+              <div className="intel-detail-acts">
                 {/* Rutar hasta el sistema del aviso. Sustituye al viejo «click en el punto rojo pone
                     parada»: allí el gesto cambiaba de significado según el modo; aquí es explícito. */}
                 <button
-                  className="sys-assets-btn"
+                  className="ida-btn ida-primary"
                   title={tr("Poner este sistema como destino de la ruta")}
                   onClick={() => {
                     const id = intelDetail.sysId!;
@@ -4132,9 +4215,16 @@ export function MapView(props: {
                 >
                   🧭 {tr("Destino")}
                 </button>
+                {/* Primera fila: las dos que MIRAN («¿por dónde voy?» y «¿tengo algo ahí?»).
+                    Debajo van las dos que CONFIGURAN el intel. Orden pedido por RoGiz7. */}
+                {onSystemAssets && intelDetail.sysName && (
+                  <button className="ida-btn" onClick={() => onSystemAssets(intelDetail.sysName!)}>
+                    📦 {tr("Mis assets")}
+                  </button>
+                )}
                 {intel && (
                   <button
-                    className="sys-assets-btn"
+                    className="ida-btn"
                     onClick={() => {
                       const id = intelDetail.sysId!;
                       const has = intel.anchors.includes(id);
@@ -4148,22 +4238,14 @@ export function MapView(props: {
                 )}
                 {intel && (
                   <button
-                    className="sys-assets-btn"
+                    className="ida-btn"
                     title={tr("Calla la alarma de este sistema. El aviso SIGUE saliendo en el feed y en el mapa.")}
                     onClick={(e) => alternarSilencio(intelDetail.sysId!, e.altKey ? 1 : undefined)}
                   >
                     {estaSilenciado(intelDetail.sysId!) ? `🔔 ${tr("Volver a avisar")}` : `🔇 ${tr("Silenciar aquí")}`}
                   </button>
                 )}
-                <div className="sys-links">
-                  <button onClick={() => openExternal(`https://zkillboard.com/system/${intelDetail.sysId}/`)}>
-                    {tr("zKill sistema")}
-                  </button>
-                  {onSystemAssets && intelDetail.sysName && (
-                    <button onClick={() => onSystemAssets(intelDetail.sysName!)}>📦 {tr("Mis assets")}</button>
-                  )}
-                </div>
-              </>
+              </div>
             )}
           </>
         )}
