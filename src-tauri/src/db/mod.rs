@@ -4874,6 +4874,75 @@ impl Db {
         out
     }
 
+    /// Avistamientos de intel en una ventana de tiempo, de CUALQUIER piloto.
+    /// Devuelve `(name_lower, system_id, ts_ms)`. Lo usa el cruce «¿qué se cantó mientras yo pasaba
+    /// por aquí?» — ver `get_trips`.
+    pub fn sightings_range(&self, desde_ms: i64, hasta_ms: i64) -> Vec<(String, i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT name_lower, system_id, ts_ms FROM intel_sightings
+             WHERE ts_ms >= ?1 AND ts_ms <= ?2 ORDER BY ts_ms ASC",
+        ) {
+            if let Ok(filas) = st.query_map(rusqlite::params![desde_ms, hasta_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            }) {
+                for x in filas.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
+    /// Killmails de una ventana de tiempo. Devuelve `(system_id, killed_at, isk, is_loss)`.
+    ///
+    /// ⚠️ `killed_at` es TEXTO RFC3339 y la ventana viene en MILISEGUNDOS. Comparar lo uno con lo
+    /// otro es el error que ya nos costó una vez un disparador mudo para siempre (una nota que
+    /// comparaba «9001» con «50000» como cadenas). Aquí se acota SOLO por la parte de fecha
+    /// `YYYY-MM-DD`, que sí ordena bien como texto, y el recorte fino al milisegundo lo hace quien
+    /// llama, ya parseado. Un día de más a cada lado no molesta a nadie.
+    pub fn killmails_range_days(
+        &self,
+        character_id: Option<i64>,
+        dia_desde: &str,
+        dia_hasta: &str,
+    ) -> Vec<(i64, String, f64, bool)> {
+        let conn = self.conn.lock().unwrap();
+        let (filtro, cid) = match character_id {
+            Some(id) => ("AND character_id = ?3", id),
+            None => ("", 0),
+        };
+        let sql = format!(
+            "SELECT system_id, killed_at, isk_value, is_loss FROM killmails
+             WHERE killed_at IS NOT NULL AND system_id IS NOT NULL
+               AND substr(killed_at,1,10) >= ?1 AND substr(killed_at,1,10) <= ?2 {filtro}
+             ORDER BY killed_at ASC"
+        );
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(&sql) {
+            let mapear = |r: &rusqlite::Row| -> rusqlite::Result<(i64, String, f64, bool)> {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                    r.get::<_, i64>(3)? == 1,
+                ))
+            };
+            let filas = if character_id.is_some() {
+                st.query_map(rusqlite::params![dia_desde, dia_hasta, cid], mapear)
+            } else {
+                st.query_map(rusqlite::params![dia_desde, dia_hasta], mapear)
+            };
+            if let Ok(filas) = filas {
+                for x in filas.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
     /// Guarda un avistamiento persistente (modo cazador). Dedup por (nombre, sistema, ts).
     /// `ship_type_id` = nave que volaba (solo se atribuye en líneas de UN piloto; NULL si ambiguo).
     pub fn insert_sighting(

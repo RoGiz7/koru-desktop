@@ -1867,6 +1867,219 @@ pub fn get_track(
         .collect())
 }
 
+/// ---- VIAJES: lo que PASÓ, no lo que planeaste ----
+///
+/// Un viaje se DEDUCE de `location_track`; **no se guarda en ninguna tabla**, y es a propósito.
+/// Un viaje no es un dato: es una interpretación de los datos crudos (depende de dónde pongas el
+/// corte). Si lo congelamos en una tabla, el día que cambien los umbrales el histórico viejo
+/// seguirá con el criterio antiguo y los dos convivirán mintiendo. Lo crudo ya se guarda; esto se
+/// recalcula entero cada vez que se pide, así que mover un umbral reescribe también el pasado.
+///
+/// LAS REGLAS (validadas en `outputs/viajes.py`, 17 casos, antes de escribir este fichero):
+///  · Rompe el viaje una PARADA larga: seguías en el mismo sistema más de `parada_min`.
+///  · Rompe el viaje una CEGUERA larga: hueco entre el `seen_ms` de un tramo y el `entered_ms` del
+///    siguiente mayor que `ceguera_min`. Una ceguera CORTA no rompe: se declara dentro (`blind_before_ms`).
+///    Regla de la casa: el hueco es lo que NO vimos, jamás un salto.
+///  · Un viaje necesita `min_saltos` saltos. Estar quieto no es viajar.
+///
+/// ⚠️ CONSECUENCIA QUE HAY QUE ENSEÑAR, NO ESCONDER: un viaje real partido por la mitad por una
+/// ceguera puede quedar en dos trozos demasiado cortos y **desaparecer entero**. Es honesto (no
+/// sabemos por dónde fuiste), pero el que mira la lista tiene que saber que puede faltar algo.
+#[derive(Debug, Clone, Serialize)]
+pub struct TripLeg {
+    pub system_id: i64,
+    pub ship_type_id: Option<i64>,
+    pub entered_ms: i64,
+    pub seen_ms: i64,
+    /// Ceguera ARRASTRADA desde el tramo anterior (ms). 0 = continuidad observada.
+    pub blind_before_ms: i64,
+}
+
+/// Algo que pasó en el viaje. `kind`: "intel" | "kill" | "loss".
+#[derive(Debug, Clone, Serialize)]
+pub struct TripEvent {
+    pub kind: String,
+    pub system_id: i64,
+    pub ts_ms: i64,
+    /// Para "intel": el piloto cantado. Para kills/losses: None.
+    pub who: Option<String>,
+    pub isk: Option<f64>,
+    /// Cuánto ANTES de que entraras se cantó (ms). 0 si fue estando tú dentro.
+    pub lead_ms: i64,
+    /// true = ocurrió mientras estabas en el sistema.
+    pub during: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Trip {
+    pub character_id: i64,
+    pub name: String,
+    pub from_system: i64,
+    pub to_system: i64,
+    pub started_ms: i64,
+    pub ended_ms: i64,
+    /// Saltos = tramos - 1. Lo que se cuenta en EVE.
+    pub jumps: i64,
+    /// Ceguera total acumulada dentro del viaje (ms). Si es > 0, el recorrido tiene agujeros.
+    pub blind_ms: i64,
+    pub legs: Vec<TripLeg>,
+    pub events: Vec<TripEvent>,
+}
+
+/// Viajes deducidos en una ventana de tiempo, del más reciente al más antiguo.
+///
+/// `parada_min` (20 por defecto) y `min_saltos` (3) los eligió RoGiz7: 20 min aguanta un atraque
+/// para reorganizar carga sin partir el viaje, y por debajo de 3 saltos casi todo es ruido.
+/// `previo_min` (15) es cuánto antes de que entraras cuenta un aviso de intel: ese es el dato que
+/// duele —«lo cantaron 3 min antes de que pasaras»—, no solo lo que se cantó estando tú dentro.
+#[tauri::command]
+pub fn get_trips(
+    character_id: Option<i64>,
+    desde_ms: i64,
+    hasta_ms: i64,
+    parada_min: Option<i64>,
+    ceguera_min: Option<i64>,
+    min_saltos: Option<i64>,
+    previo_min: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<Trip>> {
+    const MIN_MS: i64 = 60_000;
+    let parada = parada_min.unwrap_or(20) * MIN_MS;
+    let ceguera = ceguera_min.unwrap_or(20) * MIN_MS;
+    let min_j = min_saltos.unwrap_or(3);
+    let previo = previo_min.unwrap_or(15) * MIN_MS;
+
+    let nombres: std::collections::HashMap<i64, String> = state
+        .db
+        .list_characters()?
+        .into_iter()
+        .map(|c| (c.character_id, c.name))
+        .collect();
+
+    // El track viene ordenado por `entered_ms`, pero MEZCLA personajes cuando se piden todos: hay
+    // que trocear POR PILOTO o se inventarían viajes saltando de un alt a otro.
+    let mut por_piloto: std::collections::HashMap<i64, Vec<(i64, Option<i64>, i64, i64)>> =
+        std::collections::HashMap::new();
+    for (cid, sid, ship, ent, seen) in state.db.track_range(character_id, desde_ms, hasta_ms) {
+        por_piloto.entry(cid).or_default().push((sid, ship, ent, seen));
+    }
+
+    // El intel y los killmails se piden UNA vez para toda la ventana y se cruzan en memoria: pedir
+    // por tramo serían cientos de consultas para el mismo dato.
+    let sightings = state.db.sightings_range(desde_ms - previo, hasta_ms);
+    let dia = |ms: i64| -> String {
+        chrono::DateTime::from_timestamp_millis(ms)
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_default()
+    };
+    // Un día de margen a cada lado: el recorte fino se hace abajo, ya parseado a ms.
+    let kms: Vec<(i64, i64, f64, bool)> = state
+        .db
+        .killmails_range_days(character_id, &dia(desde_ms - 86_400_000), &dia(hasta_ms + 86_400_000))
+        .into_iter()
+        .filter_map(|(sid, killed_at, isk, is_loss)| {
+            chrono::DateTime::parse_from_rfc3339(&killed_at)
+                .ok()
+                .map(|d| (sid, d.timestamp_millis(), isk, is_loss))
+        })
+        .collect();
+
+    let mut viajes: Vec<Trip> = Vec::new();
+    for (cid, tramos) in por_piloto {
+        let mut actual: Vec<TripLeg> = Vec::new();
+        // `cerrar` empuja el viaje si cumple el mínimo. Se llama en cada corte y al final.
+        let cerrar = |actual: &mut Vec<TripLeg>, viajes: &mut Vec<Trip>| {
+            if actual.len() as i64 - 1 < min_j {
+                actual.clear();
+                return;
+            }
+            let legs = std::mem::take(actual);
+            let blind_ms = legs.iter().map(|l| l.blind_before_ms).sum();
+            let mut events: Vec<TripEvent> = Vec::new();
+            for l in &legs {
+                let ini = l.entered_ms - previo;
+                for (who, sid, ts) in &sightings {
+                    if *sid == l.system_id && *ts >= ini && *ts <= l.seen_ms {
+                        let lead = l.entered_ms - *ts;
+                        events.push(TripEvent {
+                            kind: "intel".into(),
+                            system_id: *sid,
+                            ts_ms: *ts,
+                            who: Some(who.clone()),
+                            isk: None,
+                            lead_ms: lead.max(0),
+                            during: lead <= 0,
+                        });
+                    }
+                }
+                for (sid, ts, isk, is_loss) in &kms {
+                    if *sid == l.system_id && *ts >= l.entered_ms && *ts <= l.seen_ms {
+                        events.push(TripEvent {
+                            kind: if *is_loss { "loss".into() } else { "kill".into() },
+                            system_id: *sid,
+                            ts_ms: *ts,
+                            who: None,
+                            isk: Some(*isk),
+                            lead_ms: 0,
+                            during: true,
+                        });
+                    }
+                }
+            }
+            events.sort_by_key(|e| e.ts_ms);
+            viajes.push(Trip {
+                character_id: cid,
+                name: nombres.get(&cid).cloned().unwrap_or_default(),
+                from_system: legs[0].system_id,
+                to_system: legs[legs.len() - 1].system_id,
+                started_ms: legs[0].entered_ms,
+                ended_ms: legs[legs.len() - 1].seen_ms,
+                jumps: legs.len() as i64 - 1,
+                blind_ms,
+                legs,
+                events,
+            });
+        };
+
+        for (sid, ship, ent, seen) in tramos {
+            if let Some(prev) = actual.last() {
+                let parado = prev.seen_ms - prev.entered_ms;
+                let ciego = ent - prev.seen_ms;
+                if parado > parada || ciego > ceguera {
+                    cerrar(&mut actual, &mut viajes);
+                    actual.push(TripLeg {
+                        system_id: sid,
+                        ship_type_id: ship,
+                        entered_ms: ent,
+                        seen_ms: seen,
+                        blind_before_ms: 0,
+                    });
+                    continue;
+                }
+                actual.push(TripLeg {
+                    system_id: sid,
+                    ship_type_id: ship,
+                    entered_ms: ent,
+                    seen_ms: seen,
+                    blind_before_ms: ciego.max(0),
+                });
+            } else {
+                actual.push(TripLeg {
+                    system_id: sid,
+                    ship_type_id: ship,
+                    entered_ms: ent,
+                    seen_ms: seen,
+                    blind_before_ms: 0,
+                });
+            }
+        }
+        cerrar(&mut actual, &mut viajes);
+    }
+    // El más reciente arriba: es el que quieres mirar.
+    viajes.sort_by(|a, b| b.started_ms.cmp(&a.started_ms));
+    Ok(viajes)
+}
+
 /// Cierra sesión de un personaje: borra su refresh token del keyring y su fila de la BD.
 #[tauri::command]
 pub fn logout(character_id: i64, state: State<'_, AppState>) -> AppResult<()> {

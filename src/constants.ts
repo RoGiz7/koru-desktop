@@ -397,14 +397,23 @@ export const SUBFILTERS: Partial<Record<MapOverlay, { v: string; l: string }[]>>
 
 // Categorías para agrupar las capas del mapa en desplegables (evita la fila enorme de iconos).
 export type OverlayCat = "tu" | "universo" | "vivo";
-export const OVERLAY_CATS: { key: OverlayCat; label: string; icon: string }[] = [
+// `typeId` = icono REAL de EVE (Image Server). Los emojis se quedan solo de reserva: si la imagen no
+// carga, o si Windows no tiene ese emoji en la fuente, algo tiene que salir. Los typeID están
+// verificados contra `public/market_types.json`, nunca de memoria.
+export const OVERLAY_CATS: { key: OverlayCat; label: string; icon: string; typeId?: number }[] = [
+  // «Tú» es el único que NO lleva typeId a propósito: el mapa le pone TU RETRATO, que es lo más
+  // literal que puede haber. Ver `map.tsx`, donde se resuelve con el personaje activo.
   { key: "tu", label: "Tú", icon: "👤" },
+  // «Universo» tampoco lleva typeId: el mapa le pone el ICONO DE KORU. Probé antes con Astrometrics
+  // (3412) y se quedaba en un pergamino soso — el problema de fondo es que ningún objeto del juego
+  // significa «todo New Eden». El de la app sí: este mapa es la mirada de Koru sobre la galaxia, y
+  // deja la pareja bien repartida — tu cara = tú, la marca de Koru = todo lo demás.
   { key: "universo", label: "Universo", icon: "🌌" },
-  { key: "vivo", label: "En vivo", icon: "📡" },
+  { key: "vivo", label: "En vivo", icon: "📡", typeId: 1973 }, // Sensor Booster I: lo que está pasando ahora
 ];
 
 // `typeId` opcional = icono real de EVE (images.evetech.net) para la capa; si no, se usa el emoji `icon`.
-export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: string; typeId?: number; cat: OverlayCat }[] = [
+export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: string; typeId?: number; factionId?: number; cat: OverlayCat }[] = [
   { key: "ubicacion", label: "Ubicación", short: "Ubicación", icon: "📍", typeId: 670, cat: "tu" }, // Capsule
   { key: "pvp", label: "Tu PvP", short: "Tu PvP", icon: "⚔️", typeId: 587, cat: "tu" }, // Rifter
   { key: "assets", label: "Tus assets", short: "Assets", icon: "📦", typeId: 17366, cat: "tu" }, // Station Container
@@ -420,8 +429,12 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "fw", label: "Guerra de facciones", short: "Facciones", icon: "◎", typeId: 17841, cat: "universo" }, // Federation Navy Comet
   { key: "kills", label: "Kills última hora", short: "Kills 1h", icon: "💥", typeId: 484, cat: "vivo" }, // 125mm Gatling AutoCannon I
   { key: "jumps", label: "Jumps última hora", short: "Jumps 1h", icon: "➿", typeId: 21096, cat: "vivo" }, // Cynosural Field Generator I
-  { key: "intel", label: "Intel en vivo (chat)", short: "Intel", icon: "🚨", cat: "vivo" },
-  { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", cat: "vivo" },
+  // Filamento triglaviano: icono rojo incandescente, imposible de confundir con el resto de la
+  // barra. Era el requisito de RoGiz7 — el 🚨 llamaba la atención y eso no se podía perder.
+  { key: "intel", label: "Intel en vivo (chat)", short: "Intel", icon: "🚨", typeId: 56071, cat: "vivo" },
+  // El ESCUDO de Sansha's Nation (500019), no un objeto: una incursión no es una cosa, es ELLOS.
+  // Mismo ID que el tema pirata de `themePicker.tsx`.
+  { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", factionId: 500019, cat: "vivo" },
   { key: "wormholes", label: "Wormholes Thera/Turnur", short: "Wormholes", icon: "🕳️", cat: "vivo" },
   { key: "firmas", label: "Firmas escaneadas (tuyas)", short: "Firmas", icon: "📡", typeId: 30488, cat: "vivo" }, // Sisters Core Scanner Probe
 ];

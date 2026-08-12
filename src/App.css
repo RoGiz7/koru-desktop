@@ -3613,6 +3613,188 @@ h4 {
   gap: 0.2rem;
 }
 
+/* Icono de EVE dentro de una pestaña o cabecera de la tarjeta derecha. `vertical-align` no vale:
+   el botón es flex, así que se alinea con `align-items` del propio contenedor. */
+.rt-ico {
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ---- VIAJES (2026-08-12): lo que hiciste de verdad, con lo que pasó por el camino ----
+   Misma gramática que el feed de intel en vivo —franja de color a la izquierda y fondo del mismo
+   color muy atenuado—, pero en AZUL: el rojo del feed significa amenaza AHORA, y un viaje ya
+   terminado no amenaza nada. Reutilizar el rojo aquí sería robarle significado allí. */
+.trip {
+  border-left: 2px solid #4aa3df;
+  border-radius: 0 6px 6px 0;
+  background: rgba(74, 163, 223, 0.09);
+  padding: 0.4rem 0.5rem;
+}
+.trip + .trip {
+  margin-top: 0.35rem;
+}
+.trip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.85rem;
+}
+.trip-head:hover .trip-ruta {
+  color: var(--accent-text);
+}
+.trip-ruta {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trip-flecha {
+  color: #7fb0ff;
+  font-weight: 400;
+}
+.trip-when {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+/* Los datos, en SU PROPIA línea. Iban pegados al nombre y con dos sistemas largos se partían por
+   donde caía: «10 saltos · 45 min» acababa encima del destino. */
+.trip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+}
+.tb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+.tb img {
+  border-radius: 2px;
+  opacity: 0.9;
+}
+/* Cada incidente con el color que ya significa eso en el resto de la app. El manto de invisibilidad
+   se queda en gris a propósito: la ceguera NO es un incidente, es lo que no sabemos. */
+.tb.intel {
+  color: #ff8b6b;
+  background: rgba(255, 139, 107, 0.14);
+}
+.tb.loss {
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.14);
+}
+.tb.kill {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.14);
+}
+.trip-quien {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.trip-body {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(74, 163, 223, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.trip-ev {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+}
+.trip-ev.intel {
+  color: #ffb3b3;
+}
+.trip-ev.loss {
+  color: #ff9b95;
+}
+.trip-ev.kill {
+  color: #8fe0a0;
+}
+
+/* ---- AVISOS DE INTEL SOBRE LA RUTA TRAZADA (2026-08-12) ----
+   Mismo lenguaje que el feed y que el mensaje de la tarjeta de aviso: franja roja a la izquierda y
+   fondo rojo apagado. No es decoración — al ver los tres sitios con el mismo color se entiende sin
+   explicación que hablan del mismo dato. */
+.route-intel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-left: 2px solid #ff3b3b;
+  background: rgba(122, 28, 28, 0.25);
+  border-radius: 0 6px 6px 0;
+  padding: 0.35rem 0.45rem;
+}
+.route-intel-head {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #ffb3b3;
+}
+.route-intel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.12rem 0;
+  font-size: 0.78rem;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.route-intel-row:hover {
+  color: var(--accent-text);
+}
+/* El número de salto, en pastilla y con ancho fijo: así los sistemas quedan en columna aunque los
+   saltos vayan de «+2» a «+14». */
+.ri-salto {
+  flex-shrink: 0;
+  min-width: 2.2rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ff8b6b;
+  background: rgba(255, 139, 107, 0.12);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+}
+.ri-sys {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* La cuenta de hostiles: el mismo ámbar que usa «▲ N hostiles (posible flota)» en el aviso. */
+.ri-n {
+  flex-shrink: 0;
+  color: #ffd98a;
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+.route-intel-row .muted {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 /* ---- JERARQUÍA de la ficha de sistema (2026-08-12) ----
    Lo que la hacía confusa no era que hubiera mucho: era que TODO PESABA IGUAL — las notas, los
    botones de ruta y los enlaces a webs externas se leían con la misma voz, en tres grupos que
@@ -4637,6 +4819,12 @@ h4 {
   width: 20px;
   height: 20px;
   border-radius: 3px;
+}
+/* El retrato de «Tú» va redondo: en EVE los retratos siempre son circulares (flota, chat, ficha de
+   piloto) y cuadrado se leería como un objeto más de la barra en vez de como una persona. */
+.mfb-btn .mfb-icon img[src*="/characters/"] {
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .mfb-icon {
@@ -8227,6 +8415,11 @@ h4 {
   margin: 0 0 0.7rem;
   font-size: 1rem;
   font-weight: 600;
+  /* Flex desde que el título lleva icono de EVE: en un `h3` normal la imagen se sienta sobre la
+     línea base y queda alta respecto al texto. */
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .nav-grid {
   display: grid;
@@ -8337,6 +8530,11 @@ h4 {
   padding-bottom: 0.25rem;
 }
 .right-tab {
+  /* `inline-flex`, no bloque: las pestañas con icono de EVE necesitan alinear la imagen con su
+     texto, y con `vertical-align` la imagen se sienta sobre la línea base y queda alta. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   background: none;
   border: 1px solid transparent;
   border-radius: 5px 5px 0 0;

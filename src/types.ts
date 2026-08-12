@@ -1009,6 +1009,41 @@ export type PositionUpdate = {
 
 /** Un tramo del recorrido propio: «vi a este piloto en este sistema entre estos dos instantes».
  *  El tiempo allí es `seen_ms - entered_ms`; el hueco hasta el siguiente tramo es ceguera. */
+/** Un VIAJE deducido de `location_track`. No existe tabla: el Rust lo recalcula al pedirlo, así que
+ *  cambiar un umbral reescribe también el pasado. Ver `get_trips` en commands.rs. */
+export type TripLeg = {
+  system_id: number;
+  ship_type_id: number | null;
+  entered_ms: number;
+  seen_ms: number;
+  /** Ceguera arrastrada del tramo anterior (ms). 0 = continuidad observada, no un salto. */
+  blind_before_ms: number;
+};
+
+export type TripEvent = {
+  kind: "intel" | "kill" | "loss";
+  system_id: number;
+  ts_ms: number;
+  who: string | null;
+  isk: number | null;
+  /** Cuánto ANTES de que entraras se cantó. 0 = ocurrió estando tú dentro. */
+  lead_ms: number;
+  during: boolean;
+};
+
+export type Trip = {
+  character_id: number;
+  name: string;
+  from_system: number;
+  to_system: number;
+  started_ms: number;
+  ended_ms: number;
+  jumps: number;
+  blind_ms: number;
+  legs: TripLeg[];
+  events: TripEvent[];
+};
+
 export type RouteStop = {
   character_id: number;
   name: string;

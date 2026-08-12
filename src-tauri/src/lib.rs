@@ -117,6 +117,7 @@ pub fn run() {
             commands::get_character_cards,
             commands::poll_positions,
             commands::get_track,
+            commands::get_trips,
             commands::overlay_enable,
             commands::overlay_monitors,
             commands::overlay_place,

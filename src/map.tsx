@@ -34,6 +34,7 @@ import type {
   SystemJumps,
   JumpShip,
   RouteStop,
+  Trip,
 } from "./types";
 
 const MAP_W = 1000;
@@ -413,7 +414,7 @@ export function MapView(props: {
   const navRef = useRef<HTMLDivElement | null>(null);
   // La columna derecha es UNA tarjeta con pestañas (antes eran cuatro apiladas y tapaban el mapa).
   // `cardOpen` pliega la tarjeta entera dejando solo la barra de pestañas.
-  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema";
+  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema" | "viajes";
   const [rightTab, setRightTab] = useState<RightTab>("ruta");
   const [cardOpen, setCardOpen] = useState(true);
   // Red de Ansiblex de la alianza (declarada por el piloto en Ajustes; ESI no la publica).
@@ -1148,6 +1149,31 @@ export function MapView(props: {
     return () => window.clearInterval(id);
   }, [overlay, horasTrack, hereCharId]);
 
+  // ---- VIAJES: lo que PASÓ, con sus incidentes (2026-08-12) ----
+  // No hay tabla de viajes: el Rust los DEDUCE de `location_track` cada vez que se piden. Así, el
+  // día que cambien los umbrales, el pasado se recalcula solo en vez de convivir con dos criterios.
+  // Ver el comentario largo de `get_trips` en commands.rs.
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [tripOpen, setTripOpen] = useState<number | null>(null);
+  useEffect(() => {
+    if (overlay !== "recorrido") {
+      setTrips([]);
+      return;
+    }
+    const hasta = Date.now();
+    invoke<Trip[]>("get_trips", {
+      characterId: hereCharId ?? null,
+      desdeMs: hasta - horasTrack * 3600_000,
+      hastaMs: hasta,
+      paradaMin: null,
+      cegueraMin: null,
+      minSaltos: null,
+      previoMin: null,
+    })
+      .then(setTrips)
+      .catch(() => setTrips([]));
+  }, [overlay, horasTrack, hereCharId, track.length]);
+
   /** Tramos del recorrido, por piloto y en orden. Cada uno sabe si viene de un salto real
    *  (sistemas vecinos en el grafo), de un tramo que no vimos entero, o de un rato ciego. */
   const trackSegs = useMemo(() => {
@@ -1749,6 +1775,42 @@ export function MapView(props: {
     return full;
   }, [geo, routeAdj, routeStops, routeMode, avoid]);
 
+  // ---- ¿HAY AVISOS DE INTEL EN LA RUTA QUE ACABAS DE TRAZAR? (idea de RoGiz7, 2026-08-12) ----
+  //
+  // Hasta hoy las dos capas convivían en el mapa pero NO se hablaban: el intel pintaba sistemas
+  // calientes, el planificador trazaba una línea, y eras tú quien miraba si se cruzaban. Es una
+  // intersección de dos conjuntos que ya estaban los dos en memoria: cero ESI, cero BD, cero SDE.
+  //
+  // TRES DECISIONES, que son lo que separa esto de un contador inútil:
+  //  1. **Se recorre `routePath`, no los vecinos.** Con Ansiblex y wormholes la ruta NO es una
+  //     cadena de sistemas contiguos; recalcular adyacencias daría una lista distinta a la que se
+  //     está pintando en amarillo.
+  //  2. **Manda la ANTIGÜEDAD, y se reutiliza el umbral del feed (`intel.recency`).** Un aviso de
+  //     hace 40 min en tu ruta no es lo mismo que uno de hace 2, y un umbral propio inventado aquí
+  //     acabaría contradiciendo a la propia capa de intel. Un solo criterio en toda la app.
+  //  3. **NO se filtra por capa.** El intel corre aunque estés mirando Ansiblex o Recorrido, y si
+  //     hay un aviso en tu ruta lo quieres saber igual. Sin la capa Intel puesta no hay puntos rojos
+  //     en el mapa, así que es justo cuando MÁS falta hace.
+  //
+  // ⚠️ Esto NO es una alarma y no debe sonar: el intel ya tiene la suya por proximidad
+  // (ver koru-intel-defensa-vs-caza). Esto es información al PLANIFICAR.
+  const intelEnRuta = useMemo(() => {
+    if (!routePath || routePath.length < 2 || !intelReports || intelReports.rep.size === 0) return [];
+    const now = Date.now();
+    const ventanaMs = (intel?.recency ?? 30) * 60000;
+    const out: { sid: number; name: string; ts: number; salto: number; count: number | null; author: string; message: string }[] = [];
+    for (let i = 0; i < routePath.length; i++) {
+      const r = intelReports.rep.get(routePath[i]);
+      if (!r || now - r.ts > ventanaMs) continue;
+      // `salto` es la posición en la ruta: el 0 es donde estás, así que «salto 4» se lee solo.
+      out.push({ sid: routePath[i], name: r.name, ts: r.ts, salto: i, count: r.count, author: r.author, message: r.message });
+    }
+    return out;
+    // `ageTick` entra a propósito: es el latido de 15 s que ya refresca las edades del intel. Sin él
+    // un aviso caducaría en silencio y la lista seguiría enseñándolo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routePath, intelReports, intel?.recency, ageTick]);
+
   // Paradas de la ruta en orden (sin huecos). Es lo que se manda a EVE como waypoints: así se puede
   // forzar un camino con escalas (cazar pasando por X, o un viaje planificado), no solo el destino.
   const routeWaypoints = useMemo(
@@ -1904,7 +1966,7 @@ export function MapView(props: {
   const rightTabs = useMemo(() => {
     // Orden de lectura del cazador: primero lo que acaba de pasar (el aviso), luego a quién sigues,
     // y la ruta al final — que es la consecuencia, no el punto de partida.
-    const t: { id: RightTab; label: string }[] = [];
+    const t: { id: RightTab; label: string; typeId?: number }[] = [];
     if (overlay === "intel" && intelDetail) t.push({ id: "aviso", label: `📡 ${tr("Aviso")}` });
     // La ficha del sistema entra aquí SOLO en Intel: en las demás capas flota arriba a la izquierda,
     // donde no estorba a nadie. Aquí la esquina ya está ocupada y compartir tarjeta es la salida.
@@ -1914,7 +1976,12 @@ export function MapView(props: {
       t.push({ id: "rastro", label: `🎯 ${tr("Rastro")}` });
     if (overlay === "intel" && habitualOpen)
       t.push({ id: "habituales", label: `👥 ${tr("Habituales")}` });
-    if (routeActive) t.push({ id: "ruta", label: `🧭 ${tr("Ruta")}` });
+    if (routeActive) t.push({ id: "ruta", label: tr("Ruta"), typeId: 439 });
+    // Los viajes solo tienen sentido mirando el Recorrido: es la misma capa, contada.
+    // 439 = «1MN Afterburner I», verificado en `market_types.json` (grupo 542, Propulsion Module).
+    // Lo eligió RoGiz7 y encaja solo: un viaje es movimiento, y el afterburner es EL módulo de
+    // moverse. El emoji 🧳 se quedaba además en caja vacía en su Windows.
+    if (overlay === "recorrido") t.push({ id: "viajes", label: tr("Viajes"), typeId: 439 });
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen, selected, geo]);
@@ -3179,6 +3246,28 @@ export function MapView(props: {
                       opacity={0.9}
                     />
                   )}
+                  {/* Los saltos calientes, marcados SOBRE la línea. Va aquí y no en la capa de intel
+                      porque tiene que verse en CUALQUIER capa: sin Intel puesta no hay puntos rojos
+                      y la ruta parecería limpia. `pointerEvents=none` para no robarle el clic al
+                      sistema que hay debajo. */}
+                  {intelEnRuta.map((h) => {
+                    const p = posOf(h.sid);
+                    if (!p) return null;
+                    return (
+                      <circle
+                        key={`ri-${h.sid}`}
+                        cx={p.px}
+                        cy={p.py}
+                        r={8 / view.z}
+                        fill="none"
+                        stroke="#ff3b3b"
+                        strokeWidth={2}
+                        vectorEffect="non-scaling-stroke"
+                        opacity={0.95}
+                        pointerEvents="none"
+                      />
+                    );
+                  })}
                 </>
               );
             })()}
@@ -3849,6 +3938,9 @@ export function MapView(props: {
                 className={`right-tab${rightTab === t.id ? " active" : ""}`}
                 onClick={() => setRightTab(t.id)}
               >
+                {t.typeId != null && (
+                  <img className="rt-ico" src={typeIcon(t.typeId, 32)} alt="" width={14} height={14} loading="lazy" />
+                )}
                 {t.label}
               </button>
             ))}
@@ -3867,7 +3959,8 @@ export function MapView(props: {
         {rightTab === "ruta" && routeActive && (
           <>
             <span className="chip-head">
-              🧭 {tr("Ruta")}
+              <img className="rt-ico" src={typeIcon(439, 32)} alt="" width={16} height={16} loading="lazy" />
+              {tr("Ruta")}
               {routePath && (
                 <span className="muted small">
                   {" · "}
@@ -3882,6 +3975,38 @@ export function MapView(props: {
                 ? `${nameOf(routeWaypoints[0])} → ${nameOf(routeWaypoints[routeWaypoints.length - 1])}`
                 : tr("Haz click en sistemas del mapa para poner origen y destino.")}
             </span>
+            {/* LO PRIMERO que se lee de una ruta trazada: si tiene avisos encima. Va antes que los
+                interruptores de Ansiblex y wormholes porque cambia la decisión, no el cálculo. */}
+            {intelEnRuta.length > 0 && routePath && (
+              <div className="route-intel">
+                <div className="route-intel-head">
+                  ⚠ {intelEnRuta.length}{" "}
+                  {intelEnRuta.length === 1 ? tr("salto con aviso") : tr("saltos con avisos")}{" "}
+                  <span className="muted">/ {routePath.length - 1}</span>
+                </div>
+                {intelEnRuta.map((h) => (
+                  <button
+                    key={h.sid}
+                    className="route-intel-row"
+                    title={h.message}
+                    onClick={() =>
+                      openIntelDetail({
+                        sysId: h.sid,
+                        sysName: h.name,
+                        ts: h.ts,
+                        author: h.author,
+                        message: h.message,
+                      })
+                    }
+                  >
+                    <span className="ri-salto">{h.salto === 0 ? tr("Aquí") : `+${h.salto}`}</span>
+                    <span className="ri-sys">{h.name}</span>
+                    {h.count != null && h.count > 1 && <span className="ri-n">▲{h.count}</span>}
+                    <span className="muted small">{fmtAgo(Date.now() - h.ts)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {ansi && (
               <button
                 className={`intel-hab-track${useAnsiblex ? " active" : ""}`}
@@ -4039,6 +4164,111 @@ export function MapView(props: {
         )}
 
         {rightTab === "sistema" && fichaSistema}
+
+        {/* VIAJES: la lista de lo que hiciste de verdad, con lo que pasó por el camino. */}
+        {rightTab === "viajes" && overlay === "recorrido" && (
+          <>
+            <span className="chip-head">
+              <img className="rt-ico" src={typeIcon(439, 32)} alt="" width={16} height={16} loading="lazy" />
+              {tr("Viajes")} <span className="muted small">({trips.length})</span>
+            </span>
+            {trips.length === 0 && (
+              <span className="muted small">
+                {tr("Ningún viaje en esta ventana. Un viaje son 3 saltos o más sin pararte 20 minutos.")}
+              </span>
+            )}
+            {trips.map((v) => {
+              const abierto = tripOpen === v.started_ms;
+              const avisos = v.events.filter((e) => e.kind === "intel").length;
+              const perdidas = v.events.filter((e) => e.kind === "loss").length;
+              const kills = v.events.filter((e) => e.kind === "kill").length;
+              return (
+                <div key={`${v.character_id}-${v.started_ms}`} className="trip">
+                  <button
+                    className="trip-head"
+                    onClick={() => setTripOpen(abierto ? null : v.started_ms)}
+                  >
+                    <span className="trip-ruta">
+                      {nameOf(v.from_system)} <span className="trip-flecha">→</span> {nameOf(v.to_system)}
+                    </span>
+                    <span className="muted small trip-when">{fmtAgo(Date.now() - v.ended_ms)}</span>
+                  </button>
+                  {/* La fila de datos, en su propia línea. Antes iba pegada al nombre y con dos
+                      sistemas largos se partía por donde caía: «10 saltos · 45 min» acababa encima
+                      del destino. Iconografía de EVE, no emojis (regla de la casa), y los typeID
+                      verificados contra `market_types.json` — no de memoria. */}
+                  <div className="trip-meta">
+                    <span className="tb" title={tr("Saltos")}>
+                      {/* 21096 Cynosural Field Generator I: es el icono que la app ya usa para
+                          «Jumps 1h» y para la capa Recorrido. Mismo concepto, mismo icono. */}
+                      <img src={typeIcon(21096, 32)} alt="" width={13} height={13} loading="lazy" />
+                      {v.jumps}
+                    </span>
+                    <span className="tb">{fmtMin((v.ended_ms - v.started_ms) / 60000)}</span>
+                    {avisos > 0 && (
+                      <span className="tb intel" title={tr("Avisos de intel por el camino")}>
+                        {/* 3242 Warp Disruptor I: lo que te para en una puerta. Es la amenaza. */}
+                        <img src={typeIcon(3242, 32)} alt="" width={13} height={13} loading="lazy" />
+                        {avisos}
+                      </span>
+                    )}
+                    {perdidas > 0 && (
+                      <span className="tb loss" title={tr("Naves que perdiste en el viaje")}>
+                        {/* 670 Capsule: en EVE, lo que queda de ti cuando te revientan. */}
+                        <img src={typeIcon(670, 32)} alt="" width={13} height={13} loading="lazy" />
+                        {perdidas}
+                      </span>
+                    )}
+                    {kills > 0 && (
+                      <span className="tb kill" title={tr("Kills durante el viaje")}>
+                        <img src={typeIcon(484, 32)} alt="" width={13} height={13} loading="lazy" />
+                        {kills}
+                      </span>
+                    )}
+                    {/* La ceguera se DECLARA. Un viaje con agujeros no es un viaje limpio, y
+                        callarlo sería justo la mentira que evita el resto del diseño.
+                        11370 Prototype Cloaking Device I: «no te vimos» no tiene mejor icono. */}
+                    {v.blind_ms > 0 && (
+                      <span
+                        className="tb blind"
+                        title={tr("Parte del recorrido no la vimos: Koru cerrado o el piloto desconectado.")}
+                      >
+                        <img src={typeIcon(11370, 32)} alt="" width={13} height={13} loading="lazy" />
+                        {fmtMin(v.blind_ms / 60000)}
+                      </span>
+                    )}
+                    <span className="muted small trip-quien">{v.name}</span>
+                  </div>
+                  {abierto && (
+                    <div className="trip-body">
+                      {v.events.length === 0 && (
+                        <div className="muted small">{tr("Sin incidentes: ni un aviso ni un disparo.")}</div>
+                      )}
+                      {v.events.map((e, i) => (
+                        <div key={i} className={`trip-ev ${e.kind}`}>
+                          <span className="ri-salto">{nameOf(e.system_id)}</span>
+                          {e.kind === "intel" ? (
+                            <span>
+                              {e.during
+                                ? tr("cantado MIENTRAS estabas dentro")
+                                : `${tr("cantado")} ${fmtMin(e.lead_ms / 60000)} ${tr("antes de entrar")}`}
+                              {e.who && <span className="muted"> · {e.who}</span>}
+                            </span>
+                          ) : (
+                            <span>
+                              {e.kind === "loss" ? tr("Perdiste una nave") : tr("Kill")}
+                              {e.isk != null && e.isk > 0 && <span className="muted"> · {fmtIsk(e.isk)}</span>}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
 
         {/* Tarjeta de detalle de un reporte de intel (piloto/nave/ruta/zKill) */}
         {rightTab === "aviso" && overlay === "intel" && intelDetail && (
@@ -4213,7 +4443,8 @@ export function MapView(props: {
                     setRightTab("ruta");
                   }}
                 >
-                  🧭 {tr("Destino")}
+                  <img className="rt-ico" src={typeIcon(439, 32)} alt="" width={14} height={14} loading="lazy" />{" "}
+                  {tr("Destino")}
                 </button>
                 {/* Primera fila: las dos que MIRAN («¿por dónde voy?» y «¿tengo algo ahí?»).
                     Debajo van las dos que CONFIGURAN el intel. Orden pedido por RoGiz7. */}
@@ -4423,7 +4654,32 @@ export function MapView(props: {
                   title={tr(c.label)}
                 >
                   <span className="mfb-icon">
-                    {activeHere ? <OverlayIcon o={activeHere} /> : c.icon}
+                    {activeHere ? (
+                      <OverlayIcon o={activeHere} />
+                    ) : c.key === "tu" && hereCharId != null ? (
+                      // «Tú» con TU CARA. Ningún icono de EVE dice «tú» mejor que tu propio retrato,
+                      // y además cambia al cambiar de personaje, así que la barra te dice de quién
+                      // estás mirando los datos sin leer una palabra. Si falla la imagen, el emoji.
+                      <img
+                        src={`https://images.evetech.net/characters/${hereCharId}/portrait?size=32`}
+                        alt=""
+                        width={16}
+                        height={16}
+                        loading="lazy"
+                        onError={(e) => (e.currentTarget.style.display = "none")}
+                      />
+                    ) : c.key === "universo" ? (
+                      <img
+                        src="/koru-icon.svg"
+                        alt=""
+                        width={16}
+                        height={16}
+                        loading="lazy"
+                        onError={(e) => (e.currentTarget.style.display = "none")}
+                      />
+                    ) : (
+                      <OverlayIcon o={{ icon: c.icon, typeId: c.typeId }} />
+                    )}
                   </span>
                   <span className="mfb-label">{activeHere ? tr(activeHere.short) : tr(c.label)}</span>
                   <span className="mfb-caret">▾</span>
@@ -4458,7 +4714,14 @@ export function MapView(props: {
               onClick={() => setOpenCat(openCat === "navegacion" ? null : "navegacion")}
               title={tr("Navegación")}
             >
-              <span className="mfb-icon">🧭</span>
+              {/* El icono SIGUE AL MODO, igual que el rótulo de al lado: con Ruta puesta enseña el
+                  afterburner, con Salto el cyno, y sin nada los registros de navegación (56708).
+                  Todos verificados en market_types.json. */}
+              <span className="mfb-icon">
+                <OverlayIcon
+                  o={{ icon: "🧭", typeId: routeActive ? 439 : jumpActive ? 21096 : 56708 }}
+                />
+              </span>
               <span className="mfb-label">
                 {routeActive ? tr("Ruta") : jumpActive ? tr("Salto") : tr("Navegación")}
               </span>
@@ -4475,7 +4738,9 @@ export function MapView(props: {
                     setOpenCat(null);
                   }}
                 >
-                  <span className="mfb-icon">🗺️</span>
+                  <span className="mfb-icon">
+                    <OverlayIcon o={{ icon: "🗺️", typeId: 439 }} />
+                  </span>
                   <span>{tr("Ruta")} {routeActive ? "(ON)" : ""}</span>
                 </button>
                 <button
@@ -4488,7 +4753,9 @@ export function MapView(props: {
                     setOpenCat(null);
                   }}
                 >
-                  <span className="mfb-icon">⚡</span>
+                  <span className="mfb-icon">
+                    <OverlayIcon o={{ icon: "⚡", typeId: 21096 }} />
+                  </span>
                   <span>{tr("Salto")} {jumpActive ? "(ON)" : ""}</span>
                 </button>
               </div>
@@ -4506,7 +4773,8 @@ export function MapView(props: {
       {routeActive && (
         <div className="nav-section" ref={navRef}>
           <h3 className="nav-title">
-            🧭 {tr("Navegación")}
+            <img className="rt-ico" src={typeIcon(439, 32)} alt="" width={18} height={18} loading="lazy" />{" "}
+            {tr("Navegación")}
             {routePath && (
               <span className="muted small">
                 {" · "}

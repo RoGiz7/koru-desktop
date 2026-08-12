@@ -53,7 +53,23 @@ export function TypeIcon({
 }
 
 // Icono de una capa del mapa: arte real de EVE si tiene typeId, si no el emoji.
-export function OverlayIcon({ o }: { o: { icon: string; typeId?: number } }) {
+/** Icono de una capa del mapa. Tres fuentes, por orden: el ESCUDO de una facción, el icono de un
+ *  typeID, o el emoji de reserva. Los escudos entran porque hay capas que NO son un objeto sino una
+ *  facción entera —Incursiones ES Sansha—, y ahí un módulo cualquiera contaría peor la historia.
+ *  Mismos IDs que el selector de temas (`themePicker.tsx`). */
+export function OverlayIcon({
+  o,
+}: {
+  o: { icon: string; typeId?: number; factionId?: number };
+}) {
+  if (o.factionId)
+    return (
+      <img
+        src={`https://images.evetech.net/corporations/${o.factionId}/logo?size=32`}
+        alt=""
+        loading="lazy"
+      />
+    );
   return o.typeId ? <img src={typeIcon(o.typeId, 32)} alt="" loading="lazy" /> : <>{o.icon}</>;
 }
 
