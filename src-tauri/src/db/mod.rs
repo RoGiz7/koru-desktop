@@ -168,6 +168,10 @@ impl Db {
         // NULL = no declarado. Las runs viejas se quedan así a propósito: valorarlas hoy sería
         // inventar un dato que nadie dio, y el mercado de entonces no es el de ahora.
         let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN entry_cost REAL", []);
+        // Cuántas unidades entraron en ese coste (2026-08-13). Sin esto, «−196 M» no distingue un
+        // filamento caro de tres normales — y en el abismo cooperativo se gasta UNO POR NAVE.
+        // NULL en las runs viejas: no se inventa un 1 que sería mentira en las cooperativas.
+        let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN entry_units INTEGER", []);
         // RECORRIDO PROPIO: por dónde han pasado TUS personajes y cuándo.
         //
         // Por qué existe: hasta ahora la posición era una foto que se pedía al arrancar la app y
@@ -3588,6 +3592,10 @@ pub struct ActivityRun {
     /// Coste de entrada (filamento/baliza) congelado al iniciar. `None` = no declarado.
     #[serde(default)]
     pub entry_cost: Option<f64>,
+    /// Cuántas unidades componen ese coste (filamentos/balizas). `None` en las runs anteriores al
+    /// 2026-08-13: no se rellena con un 1 porque en las cooperativas sería falso.
+    #[serde(default)]
+    pub entry_units: Option<i64>,
     /// Participantes de la run (multibox). Vacío = run de un solo piloto, como toda la vida.
     #[serde(default)]
     pub chars: Vec<RunCharRow>,
@@ -4407,17 +4415,20 @@ impl Db {
         // valorarlo luego con el precio de hoy cambiaría tu P&L del pasado cada vez que se mueve
         // el mercado. `None` = no declarado.
         entry_cost: Option<f64>,
+        // Unidades que componen ese coste: 1 baliza en CRAB, y en el abismo 1 crucero / 2
+        // destructores / 3 fragatas — una por nave.
+        entry_units: Option<i64>,
     ) -> AppResult<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO activity_runs
                  (activity, variant_id, variant_name, tier, weather, system_id, system_name,
-                  ship_type_id, started_at, outcome, character_id, entry_cost)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10,?11)",
+                  ship_type_id, started_at, outcome, character_id, entry_cost, entry_units)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10,?11,?12)",
             rusqlite::params![
                 activity, variant_id, variant_name, tier, weather, system_id, system_name,
-                ship_type_id, now, character_id, entry_cost
+                ship_type_id, now, character_id, entry_cost, entry_units
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -4453,7 +4464,7 @@ impl Db {
             .query_row(
                 "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                         ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
-                        note, character_id, entry_cost
+                        note, character_id, entry_cost, entry_units
                  FROM activity_runs
                  WHERE ended_at IS NULL AND activity = ?1
                    AND (character_id = ?2 OR (?2 IS NULL AND character_id IS NULL))
@@ -4521,7 +4532,7 @@ impl Db {
         let mut stmt = conn.prepare(
             "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                     ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
-                    note, character_id, entry_cost
+                    note, character_id, entry_cost, entry_units
              FROM activity_runs WHERE ended_at IS NOT NULL AND activity = ?1
              ORDER BY ended_at DESC, id DESC",
         )?;
@@ -4612,6 +4623,7 @@ impl Db {
             note: r.get(15)?,
             character_id: r.get(16)?,
             entry_cost: r.get(17)?,
+            entry_units: r.get(18)?,
             // Los participantes NO vienen en este SELECT: los rellenan run_active/run_list, que
             // los piden aparte para no repetir la fila de la run por cada piloto.
             chars: Vec::new(),

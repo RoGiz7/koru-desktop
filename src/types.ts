@@ -174,6 +174,9 @@ export type ActivityRun = {
   character_id: number | null;
   /** Coste de entrada (filamento/baliza) congelado al iniciar. `null` = no declarado. */
   entry_cost: number | null;
+  /** Unidades (filamentos/balizas) que componen ese coste. `null` en runs anteriores al
+   *  2026-08-13, cuando Koru daba por hecho que siempre era una. */
+  entry_units: number | null;
   /** Participantes (multibox). Vacío = run de un solo piloto, como toda la vida. */
   chars: RunChar[];
 };

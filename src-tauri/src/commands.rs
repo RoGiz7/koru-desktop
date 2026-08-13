@@ -1089,9 +1089,13 @@ pub fn run_start(
     system_name: String,
     ship_type_id: Option<i64>,
     character_id: Option<i64>,
-    // Coste de entrada estimado a mercado al iniciar: UN filamento o UNA baliza, siempre a cuenta
-    // de quien lanza (en el cooperativo abisal entran hasta 3 con el filamento del que activa).
+    // Coste de entrada estimado a mercado al iniciar, siempre a cuenta de quien lanza.
+    // ⚠️ NO es «una unidad»: en el abismo cooperativo se gasta UN FILAMENTO POR NAVE (1 crucero /
+    // 2 destructores / 3 fragatas). Corregido el 2026-08-13 tras el aviso de un tester.
     entry_cost: Option<f64>,
+    // Cuántas unidades componen ese coste. Sin esto el histórico no distingue un filamento caro de
+    // tres normales.
+    entry_units: Option<i64>,
 ) -> AppResult<i64> {
     state.db.run_start(
         &activity,
@@ -1104,6 +1108,7 @@ pub fn run_start(
         ship_type_id,
         character_id,
         entry_cost,
+        entry_units,
     )
 }
 
@@ -8384,6 +8389,50 @@ fn hub_station_for_region(region_id: i64) -> i64 {
         10000042 => 60005686, // Metropolis → Hek VIII-12
         _ => 0,
     }
+}
+
+/// Precio REAL de comprar algo ahora mismo: la mejor orden de VENTA en el hub.
+///
+/// ⚠️ POR QUÉ EXISTE ESTO (2026-08-13). Koru estimaba el coste de entrada de una run con
+/// `average_price`, que viene de `/markets/prices/` y es **una media global de todo New Eden**.
+/// Para cosas de nicho como los filamentos abisales esa media se queda MUY por debajo de lo que de
+/// verdad pagas en Jita — lo notó un jugador que corre el contenido: «lo toma muy bajo al precio
+/// del filamento». Y tiene sentido: tú no compras a la media del universo, compras la orden de
+/// venta más barata del sitio donde estás.
+///
+/// Cae a `average_price` si el hub no tiene órdenes de ese tipo: un 0 sería peor que una media
+/// imperfecta, porque un coste de entrada de cero convierte cualquier run en rentable.
+#[tauri::command]
+pub async fn get_hub_sell_prices(
+    ids: Vec<i64>,
+    region_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<i64, f64>> {
+    let region = region_id.unwrap_or(10000002); // The Forge (Jita) por defecto
+    let hub = hub_station_for_region(region);
+    let medias = state.db.prices_map().unwrap_or_default();
+    let mut out = std::collections::HashMap::new();
+    for id in ids {
+        let sells = crate::esi::market::region_orders(&state.esi, &state.db, region, id, "sell").await;
+        // Del hub si las hay; si no, de toda la región. Mismo criterio que el watchlist.
+        let en_hub: Vec<f64> = sells
+            .iter()
+            .filter(|o| hub == 0 || o.location_id == hub)
+            .map(|o| o.price)
+            .collect();
+        let lista = if en_hub.is_empty() {
+            sells.iter().map(|o| o.price).collect::<Vec<f64>>()
+        } else {
+            en_hub
+        };
+        let mejor = lista.into_iter().fold(f64::INFINITY, f64::min);
+        if mejor.is_finite() && mejor > 0.0 {
+            out.insert(id, mejor);
+        } else if let Some(m) = medias.get(&id) {
+            out.insert(id, *m);
+        }
+    }
+    Ok(out)
 }
 
 /// Un punto del histórico de precio/volumen (para la gráfica de tendencia).

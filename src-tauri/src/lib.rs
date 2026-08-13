@@ -181,6 +181,7 @@ pub fn run() {
             commands::get_pi_alert_hours,
             commands::set_pi_alert_hours,
             commands::get_type_prices,
+            commands::get_hub_sell_prices,
             commands::get_gamelog_quality,
             commands::get_gamelog_salvage,
             commands::get_gamelog_boosts,

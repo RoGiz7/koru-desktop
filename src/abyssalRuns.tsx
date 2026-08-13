@@ -14,6 +14,53 @@ import { LootPasteModal } from "./lootPasteModal";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
 import type { ActivityRun, RunChar } from "./types";
 
+/** ---- CUÁNTOS FILAMENTOS CUESTA ENTRAR (2026-08-13) ----
+ *
+ * ⚠️ ESTO CORRIGE UN ERROR QUE ESTUVO MESES EN EL CÓDIGO. Koru daba por hecho que una run gasta UN
+ * filamento siempre, también en el cooperativo. Es falso, y lo cazó un jugador que corre el
+ * contenido: la entrada cooperativa consume **un filamento por nave**, del mismo tipo y nivel, en
+ * la bodega del que activa. Confirmado además en el artículo oficial de soporte —«a fleet of up to
+ * three frigates or two destroyers using filaments of the same type and tier»—, que es justo el
+ * plural que yo había leído en su día y descartado por otra explicación.
+ *
+ * La diferencia no es cosmética: en T6 Electrical, a ~60M el filamento, entrar con fragatas cuesta
+ * 180M y no 60M. El P&L de una tarde entera cambiaba de signo.
+ *
+ * Un crucero entra solo (1) · hasta 2 destructores (2) · hasta 3 fragatas (3).
+ */
+const CLASES = [
+  { key: "cruiser", label: "Crucero", fil: 1 },
+  { key: "destroyer", label: "Destructor", fil: 2 },
+  { key: "frigate", label: "Fragata", fil: 3 },
+] as const;
+type ClaseKey = (typeof CLASES)[number]["key"];
+
+/** Grupos de `ships.json` que caen en cada clase. Se usa para DEDUCIR la clase de la nave escrita:
+ *  si Koru puede saberlo, no lo pregunta. Un Gila es «Cruiser», un Hecate «Tactical Destroyer». */
+const GRUPO_CLASE: Record<string, ClaseKey> = {
+  Cruiser: "cruiser",
+  "Heavy Assault Cruiser": "cruiser",
+  "Heavy Interdiction Cruiser": "cruiser",
+  Logistics: "cruiser",
+  "Force Recon Ship": "cruiser",
+  "Combat Recon Ship": "cruiser",
+  "Strategic Cruiser": "cruiser",
+  "Flag Cruiser": "cruiser",
+  Destroyer: "destroyer",
+  Interdictor: "destroyer",
+  "Command Destroyer": "destroyer",
+  "Tactical Destroyer": "destroyer",
+  Frigate: "frigate",
+  "Assault Frigate": "frigate",
+  "Covert Ops": "frigate",
+  Interceptor: "frigate",
+  "Electronic Attack Ship": "frigate",
+  "Stealth Bomber": "frigate",
+  "Logistics Frigate": "frigate",
+  "Expedition Frigate": "frigate",
+  "Prototype Exploration Ship": "frigate",
+};
+
 /** Filamentos abisales: 6 tiers × 5 climas → typeID real (icono + identidad). Verificados contra el
  *  catálogo de mercado. El tope del abismo son 20 min. */
 const TIERS: { t: string; n: string }[] = [
@@ -129,6 +176,12 @@ export function AbyssalRunsView({
   const [editEntry, setEditEntry] = useState("");
   const [now, setNow] = useState(Date.now());
   const [period, setPeriod] = useState<string>("all"); // filtro de tiempo del histórico
+  /** Clase elegida A MANO. `null` = la deduce la nave escrita. Se separan a propósito: si el
+   *  usuario la fija, escribir una nave después no debe pisársela. */
+  const [claseManual, setClaseManual] = useState<ClaseKey | null>(null);
+  /** Filamentos que se van a gastar. Arranca en lo que dice la clase, pero es EDITABLE: en el
+   *  cooperativo puedes entrar con menos naves de las que admite el tramo. */
+  const [filUds, setFilUds] = useState<number | null>(null);
   const [filTab, setFilTab] = useState<string>("all"); // pestaña por filamento ("all" = todos)
   // MULTIBOX: tus personajes, y los que van a correr ESTA run. Vacío = run de un solo piloto.
   const [chars, setChars] = useState<{ character_id: number; name: string }[]>([]);
@@ -198,23 +251,39 @@ export function AbyssalRunsView({
     return q ? (ships.find((s) => s.n.toLowerCase() === q) ?? null) : null;
   }, [ships, shipName]);
 
-  // Precio del filamento/baliza elegido (mercado local, sin red).
+  /** Precio del filamento/baliza elegido: la MEJOR ORDEN DE VENTA EN JITA, no la media global.
+   *
+   *  Antes salía de `get_type_prices` → `average_price` de `/markets/prices/`, que es una media de
+   *  TODO New Eden. Para cosas de nicho como los filamentos se queda muy por debajo de lo que
+   *  pagas de verdad, y lo cazó un jugador que corre el contenido. La razón de fondo: tú no
+   *  compras a la media del universo, compras la orden más barata del sitio donde estás.
+   *  El Rust cae a la media si el hub no tiene órdenes — un 0 sería peor, porque una entrada
+   *  gratis vuelve rentable cualquier run. */
   useEffect(() => {
     if (!filamentId) return;
-    invoke<Record<number, number>>("get_type_prices", { ids: [filamentId] })
+    invoke<Record<number, number>>("get_hub_sell_prices", { ids: [filamentId], regionId: null })
       .then((r) => setVariantPrice(r[filamentId] ?? null))
-      .catch(() => setVariantPrice(null));
+      .catch(() => {
+        // Sin red o sin libro: la media local sigue siendo mejor que nada.
+        invoke<Record<number, number>>("get_type_prices", { ids: [filamentId] })
+          .then((r) => setVariantPrice(r[filamentId] ?? null))
+          .catch(() => setVariantPrice(null));
+      });
   }, [filamentId]);
 
-  /** UNA entrada por run en las dos actividades: una baliza en CRAB, un filamento en abisales —
-   *  también en el cooperativo, donde entran hasta 3 fragatas o 2 destructores con un solo
-   *  filamento del que activa (confirmado por RoGiz7, que corre el contenido).
-   *
-   *  Ojo si alguien lo revisa: el artículo de soporte dice «es necesario que haya FILAMENTOS del
-   *  mismo tipo y nivel en la bodega del capsulista que activa», en plural, y eso me hizo pensar
-   *  que se gastaba uno por piloto. No es así. Como el coste es editable, si algún día se
-   *  demuestra lo contrario se corrige en la propia run sin tocar código. */
-  const entryCost = variantPrice;
+  /** La clase que se va a usar: la que hayas fijado, o la DEDUCIDA de la nave que escribiste.
+   *  Koru no pregunta lo que puede saber — un Gila es crucero y un Hecate destructor. */
+  const claseAuto: ClaseKey | null = shipMatch ? (GRUPO_CLASE[shipMatch.g] ?? null) : null;
+  const clase: ClaseKey = claseManual ?? claseAuto ?? "cruiser";
+  const filPorClase = CLASES.find((c) => c.key === clase)?.fil ?? 1;
+  /** Unidades a gastar. CRAB gasta SIEMPRE una baliza: lo de las clases es solo del abismo. */
+  const uds = isCrab ? 1 : (filUds ?? filPorClase);
+
+  /** Coste de entrada = precio de la unidad × unidades.
+   *  Antes era `variantPrice` a secas, dando por hecho UNA unidad siempre. Ver el comentario largo
+   *  de CLASES: en el cooperativo se gasta un filamento POR NAVE, y en T6 eso son 180M en vez
+   *  de 60M. Es la diferencia entre una tarde rentable y una que no lo fue. */
+  const entryCost = variantPrice != null ? variantPrice * uds : null;
 
   async function startRun() {
     if (!filamentId) return;
@@ -236,6 +305,9 @@ export function AbyssalRunsView({
         // Coste de entrada estimado a mercado y CONGELADO aquí: una baliza o un filamento, a
         // cuenta de quien lanza. Congelarlo evita que el P&L del pasado cambie con el mercado.
         entryCost: entryCost,
+        // Cuántas unidades entraron en ese coste. Sin esto el histórico enseña «−196 M» y no hay
+        // forma de saber si fue un filamento caro o tres normales.
+        entryUnits: uds,
       });
       // Solo se escriben participantes si de verdad hay varios: con uno, la run se queda
       // exactamente como siempre y no se crea una fila hija que no aporta nada.
@@ -351,26 +423,59 @@ export function AbyssalRunsView({
     [periodRows, filTab],
   );
 
-  // Estadísticas de las runs finalizadas (no abortadas): P&L honesto y tasa de muerte.
+  /** ---- ESTADÍSTICAS: el P&L y el ISK/hora NO cuentan lo mismo, y es a propósito (2026-08-13) ----
+   *
+   *  Lo cazó RoGiz7 en una captura: **−58.52 B de ISK/hora**. La cifra no era un fallo de cálculo,
+   *  era una división por casi nada — una run de tres segundos, empezada y cerrada para probar.
+   *
+   *  Dos reglas distintas, porque son dos preguntas distintas:
+   *   · **P&L (¿cuánto llevo ganado?)** cuenta TODO, abortadas incluidas. Si abriste el filamento y
+   *     te saliste, ese filamento te lo has gastado igual. Esconderlo sería maquillar.
+   *   · **ISK/hora y tasa de muerte (¿cuánto rinde esto?)** solo cuentan runs que SE JUGARON: ni
+   *     abortadas, ni las que duran menos de un minuto. No hay run abisal de 15 segundos; eso es
+   *     una prueba o un despiste, y una sola basta para que la media horaria no signifique nada. */
   const stats = useMemo(() => {
+    const MIN_MS = 60_000; // por debajo de un minuto no es una run, es un botón mal dado
     let n = 0,
       deaths = 0,
       loot = 0,
       shipLoss = 0,
-      ms = 0;
+      ms = 0,
+      lootJugado = 0,
+      perdidoJugado = 0,
+      descartadas = 0;
     for (const r of viewRows) {
-      if (r.outcome === "aborted") continue;
+      const perdido =
+        (r.chars?.length ? r.chars.reduce((a, c) => a + c.lost_value, 0) : (r.ship_loss_isk ?? 0)) +
+        (r.entry_cost ?? 0);
+      // El P&L se lleva TODAS, abortadas incluidas: el filamento se gastó.
+      loot += r.loot_isk ?? 0;
+      shipLoss += perdido;
+      const d = r.ended_at ? new Date(r.ended_at).getTime() - new Date(r.started_at).getTime() : 0;
+      if (r.outcome === "aborted" || d < MIN_MS) {
+        if (r.outcome !== "aborted") descartadas += 1;
+        continue;
+      }
       n += 1;
       if (r.outcome === "died") deaths += 1;
-      loot += r.loot_isk ?? 0;
-      // Naves perdidas de TODOS los participantes + lo que costó entrar (filamento/baliza).
-      shipLoss += (r.chars?.length ? r.chars.reduce((a, c) => a + c.lost_value, 0) : (r.ship_loss_isk ?? 0)) + (r.entry_cost ?? 0);
-      const d = r.ended_at ? new Date(r.ended_at).getTime() - new Date(r.started_at).getTime() : 0;
-      if (d > 0) ms += d;
+      lootJugado += r.loot_isk ?? 0;
+      perdidoJugado += perdido;
+      ms += d;
     }
     const net = loot - shipLoss;
     const hours = ms / 3_600_000;
-    return { n, deaths, loot, shipLoss, net, hours, iskPerHour: hours > 0 ? net / hours : 0 };
+    return {
+      n,
+      deaths,
+      loot,
+      shipLoss,
+      net,
+      hours,
+      descartadas,
+      // Rendimiento SOLO de lo jugado: mezclar aquí el coste de una run abortada haría que el
+      // ISK/hora culpara al tiempo de una run que sí se jugó de un gasto que no fue suyo.
+      iskPerHour: hours > 0 ? (lootJugado - perdidoJugado) / hours : 0,
+    };
   }, [viewRows]);
 
   /** P&L POR PILOTO (multibox). Botín a partes iguales entre los participantes; la nave perdida
@@ -653,7 +758,10 @@ export function AbyssalRunsView({
             className="small"
             list="run-ships"
             value={shipName}
-            onChange={(e) => setShipName(e.target.value)}
+            onChange={(e) => {
+              setShipName(e.target.value);
+              setFilUds(null); // la nave manda otra vez sobre las unidades
+            }}
             placeholder={tr("Nave (opcional)")}
             style={{ width: 130 }}
           />
@@ -671,12 +779,58 @@ export function AbyssalRunsView({
           {shipMatch && (
             <img className="kind-glyph" src={typeIcon(shipMatch.i, 32)} alt="" title={shipMatch.n} style={{ width: 22, height: 22 }} />
           )}
+          {!isCrab && (
+            <>
+              {/* LA CLASE, que es lo que decide cuántos filamentos se gastan. Va pegada a la nave
+                  porque casi siempre la deduce de ella; el desplegable está para cuando no escribes
+                  nave, o para corregirla. */}
+              <select
+                className="small"
+                value={clase}
+                title={tr("Un crucero entra solo; hasta 2 destructores o 3 fragatas, y cada nave gasta su filamento.")}
+                onChange={(e) => {
+                  setClaseManual(e.target.value as ClaseKey);
+                  setFilUds(null);
+                }}
+              >
+                {CLASES.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {tr(c.label)} · {c.fil}×
+                  </option>
+                ))}
+              </select>
+              {/* Editable: el tramo ADMITE hasta 3 fragatas, pero puedes entrar con dos. */}
+              <input
+                className="small"
+                type="number"
+                min={1}
+                max={3}
+                value={uds}
+                title={tr("Filamentos que se gastan. Lo pone la clase, pero puedes entrar con menos naves.")}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setFilUds(Number.isFinite(n) && n >= 1 && n <= 3 ? n : null);
+                }}
+                style={{ width: 46 }}
+              />
+            </>
+          )}
           {entryCost != null && (
             <span
               className="muted small"
               title={tr("Estimado a precio de mercado y congelado al iniciar. Editable después.")}
             >
-              {tr("Entrada")}: {fmtIsk(entryCost)}
+              {/* ⚠️ «3 × 23.0 K» era AMBIGUO y así salió en la primera prueba: se lee como «tres
+                  veces 23 K = 69 K», pero 23 K ya era el total. Ahora se escribe la cuenta
+                  entera —unidad × unidades = total— que no se puede malinterpretar. */}
+              {tr("Entrada")}:{" "}
+              {uds > 1 && variantPrice != null ? (
+                <>
+                  {uds} × {fmtIsk(variantPrice)} = <strong>{fmtIsk(entryCost)}</strong>
+                </>
+              ) : (
+                fmtIsk(entryCost)
+              )}
             </span>
           )}
           <button className="pp-add" onClick={startRun} disabled={busy || !filamentId}>▶ {tr("Iniciar run")}</button>
@@ -823,6 +977,15 @@ export function AbyssalRunsView({
               <div className="explog-stat-l small muted">{tr("tasa de muerte")}</div>
             </div>
           </div>
+          {/* Se DICE lo que se ha dejado fuera. Un número que ignora datos en silencio es peor que
+              uno raro: al menos el raro se cuestiona. El P&L de arriba sí las incluye. */}
+          {stats.descartadas > 0 && (
+            <div className="muted small" style={{ marginTop: "0.3rem" }}>
+              {tr("El ISK/hora ignora")} {stats.descartadas}{" "}
+              {stats.descartadas === 1 ? tr("run de menos de un minuto") : tr("runs de menos de un minuto")}
+              {tr(" (y las abortadas). El P&L sí las cuenta: el filamento se gastó igual.")}
+            </div>
+          )}
 
           {/* P&L por nave (solo si hay runs con nave anotada en la vista actual). */}
           {shipStats.length > 0 && (
@@ -1016,8 +1179,26 @@ export function AbyssalRunsView({
                   ) : (
                     <>
                       <td style={{ textAlign: "right" }}>{r.loot_isk != null ? fmtIsk(r.loot_isk) : <span className="muted">—</span>}</td>
+                      {/* Las UNIDADES delante del total: «3 × −196 M» y «1 × −65 M» son historias
+                          distintas, y el total solo no las distingue. Las runs anteriores al
+                          2026-08-13 no las tienen (`null`) y se enseñan como siempre — no se
+                          inventa un 1 que en las cooperativas sería mentira. */}
                       <td style={{ textAlign: "right" }} className="muted">
-                        {r.entry_cost != null ? `-${fmtIsk(r.entry_cost)}` : "—"}
+                        {r.entry_cost != null ? (
+                          <>
+                            {`-${fmtIsk(r.entry_cost)}`}
+                            {/* Detrás y entre paréntesis, NO delante con un «×»: pegado al importe
+                                se leía como una multiplicación pendiente de hacer. */}
+                            {r.entry_units != null && r.entry_units > 1 && (
+                              <span className="run-uds" title={tr("Filamentos gastados")}>
+                                {" "}
+                                ({r.entry_units})
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td style={{ textAlign: "right" }} className="abyss-died">
                         {r.ship_loss_isk != null ? `-${fmtIsk(r.ship_loss_isk)}` : <span className="muted">—</span>}
