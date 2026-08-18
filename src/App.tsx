@@ -716,6 +716,19 @@ function App() {
         .catch(() => {});
     }
   }, []);
+  // AL ARRANCAR, decirle al Rust dónde va el overlay. El hilo de intel vive en Rust y no puede leer
+  // el `localStorage`, así que sin esto la colocación guardada no existía para él hasta que abrías
+  // Ajustes: reiniciabas y el aviso volvía al monitor principal. Los ajustes son del navegador y
+  // hay que empujárselos una vez.
+  useEffect(() => {
+    if (localStorage.getItem("koru-overlay") !== "1") return;
+    void invoke("overlay_place", {
+      monitor: Number(localStorage.getItem("koru-overlay-mon") ?? 0),
+      corner: localStorage.getItem("koru-overlay-corner") ?? "tr",
+      margin: Number(localStorage.getItem("koru-overlay-margin") ?? 24),
+    }).catch(() => {});
+  }, []);
+
   // Canales disponibles (para el selector) cuando hay carpeta + capa intel activa.
   useEffect(() => {
     if (mapOverlay !== "intel" || !intelFolder) return;

@@ -7233,6 +7233,18 @@ fn hostiles_de(
 /// encima sin activarla. El foco solo se pide cuando el jugador HACE CLIC (ver `overlay_open_main`).
 fn mostrar_overlay(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("overlay") {
+        // ⚠️ COLOCAR ANTES DE ENSEÑAR, SIEMPRE (2026-08-18). Antes solo se colocaba cuando tocabas
+        // los ajustes, y de ahí salían los tres síntomas que reportó RoGiz7 y que parecían tres
+        // bugs distintos:
+        //   · elegías el monitor secundario y el aviso salía en el principal,
+        //   · al reiniciar volvía al principal aunque el ajuste siguiera guardado,
+        //   · el botón de prueba también salía en el principal.
+        // Son el mismo: la posición se pedía sobre una ventana OCULTA y no sobrevivía, y al arrancar
+        // no la pedía nadie. Colocar justo antes del `show()` arregla los tres de una vez, porque
+        // es el único instante en que la ventana va a existir de verdad en pantalla.
+        if let Some((monitor, corner, margin)) = colocacion_guardada() {
+            aplicar_colocacion(&w, monitor, &corner, margin);
+        }
         let _ = w.show();
         let _ = w.set_always_on_top(true);
     }
@@ -10390,6 +10402,43 @@ pub struct MonitorInfo {
     pub is_primary: bool,
 }
 
+/// Dónde va el overlay: `(monitor, esquina, margen)`. Vive aquí porque el aviso lo enseña el HILO
+/// DE INTEL, en Rust, que no tiene forma de leer el `localStorage` del navegador. El frontend lo
+/// empuja al arrancar y cada vez que se cambia en Ajustes.
+///
+/// No se persiste en la BD a propósito, de momento: el frontend ya lo guarda en `localStorage` y lo
+/// manda al arrancar, así que duplicarlo sería tener dos fuentes de verdad para el mismo ajuste —
+/// justo lo que suele acabar en «cambié la opción y no cambió nada».
+static OVERLAY_POS: std::sync::Mutex<Option<(usize, String, i32)>> = std::sync::Mutex::new(None);
+
+fn colocacion_guardada() -> Option<(usize, String, i32)> {
+    OVERLAY_POS.lock().ok().and_then(|g| g.clone())
+}
+
+/// El cálculo de la esquina, extraído para que lo usen `overlay_place` y `mostrar_overlay`.
+///
+/// Las coordenadas van en píxeles FÍSICOS porque `available_monitors()` los da así; mezclarlos con
+/// lógicos en un monitor con escalado deja la ventana a media pantalla de donde debería.
+fn aplicar_colocacion(w: &tauri::WebviewWindow, monitor: usize, corner: &str, margin: i32) {
+    let monitors = w.available_monitors().unwrap_or_default();
+    let Some(m) = monitors.get(monitor).or_else(|| monitors.first()) else {
+        return;
+    };
+    let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+    let (mx, my) = (m.position().x, m.position().y);
+    let size = w.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((460, 132));
+    let x = match corner {
+        "tl" | "bl" => mx + margin,
+        "tc" | "bc" => mx + (mw - size.0) / 2,
+        _ => mx + mw - size.0 - margin,
+    };
+    let y = match corner {
+        "tl" | "tr" | "tc" => my + margin,
+        _ => my + mh - size.1 - margin,
+    };
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 /// Enciende o apaga el overlay: al encender lo coloca, al apagar lo esconde.
 ///
 /// ⚠️⚠️ AQUÍ NO SE CREAN VENTANAS, Y ESO NO ES PEREZA. La ventana se declara en `tauri.conf.json`
@@ -10467,24 +10516,12 @@ pub fn overlay_place(
     let Some(w) = app.get_webview_window("overlay") else {
         return Ok(());
     };
-    let monitors = w.available_monitors().unwrap_or_default();
-    let Some(m) = monitors.get(monitor).or_else(|| monitors.first()) else {
-        return Ok(());
-    };
-    let (mw, mh) = (m.size().width as i32, m.size().height as i32);
-    let (mx, my) = (m.position().x, m.position().y);
-    let size = w.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((460, 132));
-
-    let x = match corner.as_str() {
-        "tl" | "bl" => mx + margin,
-        "tc" | "bc" => mx + (mw - size.0) / 2,
-        _ => mx + mw - size.0 - margin,
-    };
-    let y = match corner.as_str() {
-        "tl" | "tr" | "tc" => my + margin,
-        _ => my + mh - size.1 - margin,
-    };
-    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    // Se RECUERDA aunque la ventana esté oculta: es lo que permite recolocarla justo antes de
+    // enseñarla, que es el único momento en que la posición se queda de verdad.
+    if let Ok(mut g) = OVERLAY_POS.lock() {
+        *g = Some((monitor, corner.clone(), margin));
+    }
+    aplicar_colocacion(&w, monitor, &corner, margin);
     Ok(())
 }
 
