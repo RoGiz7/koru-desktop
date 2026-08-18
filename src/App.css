@@ -3643,6 +3643,18 @@ h4 {
   margin-left: auto;
 }
 
+/* Blueprint en el pegado de botín: tachado y en gris. Se enseña su precio para que se vea que Koru
+   lo ha leído y ha decidido NO contarlo — un guion a secas parecería un fallo de lectura. */
+.loot-bp {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.loot-bp-nota {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border, #2a3340);
+}
+
 /* ---- VIAJES (2026-08-12): lo que hiciste de verdad, con lo que pasó por el camino ----
    Misma gramática que el feed de intel en vivo —franja de color a la izquierda y fondo del mismo
    color muy atenuado—, pero en AZUL: el rojo del feed significa amenaza AHORA, y un viaje ya

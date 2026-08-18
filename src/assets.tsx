@@ -120,7 +120,7 @@ export function AssetsView(props: {
             <div className="panel resumen-panel" style={{ maxWidth: 580, marginBottom: "0.8rem" }}>
               <h4>💰 {tr("Top assets por valor estimado")}</h4>
               <p className="muted small">
-                {tr("Los blueprints NO cuentan para el patrimonio: el average_price de ESI para un BPO/BPC es su valor base, no lo que sacarías vendiéndolo.")}
+                {tr("Los blueprints no cuentan para el patrimonio. Un BPC no se puede vender en el mercado —solo por contrato—, así que ningún precio de mercado le corresponde. Un BPO sí se vende, pero el average_price de ESI es su valor base, no lo que sacarías por él, y la investigación (ME/TE) no aparece en ningún precio automático.")}
               </p>
               <table className="km-table cat-table">
                 <thead>

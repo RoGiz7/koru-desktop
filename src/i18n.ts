@@ -828,6 +828,13 @@ const EN: Record<string, string> = {
   " (y las abortadas). El P&L sí las cuenta: el filamento se gastó igual.": " (and aborted ones). The P&L does count them: the filament was spent all the same.",
   "Koru ha arrancado en modo gráfico compatible porque el intento anterior no llegó a mostrar la ventana. Todo funciona, pero el dibujado va por un camino más lento.": "Koru started in compatible graphics mode because the previous attempt never showed a window. Everything works, but drawing takes a slower path.",
   "Entendido": "Got it",
+  "Los blueprints no se venden en el mercado: no cuentan al total. Añade su valor a mano si lo vendes por contrato.": "Blueprints are not sold on the market: they do not count towards the total. Add their value by hand if you sell them by contract.",
+  "blueprint no contado": "blueprint not counted",
+  "blueprints no contados": "blueprints not counted",
+  "el juego les ponía": "the game valued them at",
+  "No se venden en el mercado, solo por contrato: pon su valor a mano si lo sabes.": "They are not sold on the market, only by contract: enter their value by hand if you know it.",
+  "Los blueprints no cuentan para el patrimonio. Un BPC no se puede vender en el mercado —solo por contrato—, así que ningún precio de mercado le corresponde. Un BPO sí se vende, pero el average_price de ESI es su valor base, no lo que sacarías por él, y la investigación (ME/TE) no aparece en ningún precio automático.":
+    "Blueprints do not count towards net worth. A BPC cannot be sold on the market — only by contract — so no market price applies to it. A BPO can be sold, but ESI's average_price is its base value, not what you would get for it, and research (ME/TE) shows up in no automatic price.",
   "Tus kills": "Your kills",
   "Tus losses": "Your losses",
   "Tu ISK": "Your ISK",

@@ -6052,6 +6052,10 @@ pub struct AssetStackIn {
     /// `HiSlot0`, `Cargo`, `DroneBay`… vacío si está suelto.
     pub slot: String,
     pub quantity: i64,
+    /// `true` = COPIA de blueprint. Viaja hasta aquí porque el `unit_price` del evento se calcula
+    /// por typeID, y un BPC comparte typeID con su BPO — sin este dato, a la copia se le congelaría
+    /// el precio del original **para siempre** en el histórico. Ver la nota de `AssetItem`.
+    pub is_copy: bool,
 }
 
 /// Qué hizo una pasada del inventario. Se devuelve en vez de un simple número porque «no escribí
@@ -6105,6 +6109,13 @@ impl Db {
             out.skipped = Some("foto incompleta (falló una página de ESI)".to_string());
             return Ok(out);
         }
+
+        // typeIDs de los que HAY alguna copia. Se usa para no congelar un precio de mercado en el
+        // evento de un BPC. Es deliberadamente conservador: si de un tipo tienes BPO y BPC a la vez,
+        // el evento se graba a 0. Preferimos quedarnos cortos a inventar valor — un número de menos
+        // se nota; uno de más se cree.
+        let copias: std::collections::HashSet<i64> =
+            items.iter().filter(|i| i.is_copy).map(|i| i.type_id).collect();
 
         // 1) Agregar la foto nueva por la clave FINA. Se hace aquí y no fuera para que exista un
         //    único sitio donde se decide qué es «la misma pila».
@@ -6199,7 +6210,14 @@ impl Db {
                     tid,
                     asm as i64,
                     delta,
-                    prices.get(&tid).copied().unwrap_or(0.0),
+                    // Un BPC no se vende en el mercado: su precio de mercado no significa nada y se
+                    // graba como 0. Y esto se graba UNA VEZ, congelado — un precio falso aquí
+                    // envenena el histórico para siempre.
+                    if copias.contains(&tid) {
+                        0.0
+                    } else {
+                        prices.get(&tid).copied().unwrap_or(0.0)
+                    },
                 ])?;
                 out.events += 1;
                 out.locations.insert(loc);

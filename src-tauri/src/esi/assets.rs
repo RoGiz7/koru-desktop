@@ -27,6 +27,15 @@ pub struct AssetItem {
     /// que ya existen.
     #[serde(default)]
     pub is_singleton: bool,
+    /// `true` = es una COPIA de blueprint (BPC). ESI lo manda desde siempre y se descartaba.
+    ///
+    /// ⚠️ IMPORTA PARA EL DINERO, y por eso se rescató (2026-08-13, aviso de un jugador): un BPC y
+    /// su BPO **comparten typeID**, así que valorar por typeID le pone a la copia el precio del
+    /// original. Y no son lo mismo ni de lejos: **un BPC no se puede vender en el mercado**, solo
+    /// por contrato. Poner precio de mercado a algo que no se vende en el mercado es valorar una
+    /// cosa con el precio de otra.
+    #[serde(default)]
+    pub is_blueprint_copy: bool,
 }
 
 /// Descarga TODOS los items de assets paginando de forma RESILIENTE: reintenta cada página
@@ -226,11 +235,29 @@ pub async fn summary_from_items(
         watched.insert(tid, by_type.get(&tid).copied().unwrap_or(0));
     }
 
+    // ---- LOS BPC NO VALEN NADA, Y HAY QUE QUITARLOS ANTES DE AGREGAR ----
+    // No se puede filtrar por typeID después: un BPC y su BPO comparten typeID, así que la única
+    // oportunidad de distinguirlos es AQUÍ, sobre los items sueltos, con `is_blueprint_copy`.
+    // Después de agregar por tipo la información ya se perdió.
+    let copias: std::collections::HashMap<i64, i64> =
+        items
+            .iter()
+            .filter(|i| i.is_blueprint_copy)
+            .fold(std::collections::HashMap::new(), |mut m, i| {
+                *m.entry(i.type_id).or_insert(0) += i.quantity.max(1);
+                m
+            });
+
     // Valor por tipo (qty × precio medio), ordenado desc. La categoría solo la resolvemos para los
     // tipos de MÁS valor (donde estarían los blueprints inflados); el resto es cola irrelevante.
     let mut valued: Vec<(i64, i64, f64)> = by_type
         .iter()
         .filter_map(|(&tid, &qty)| {
+            // Se descuentan las copias: si de un tipo tienes 1 BPO y 3 BPC, solo cuenta el BPO.
+            let qty = qty - copias.get(&tid).copied().unwrap_or(0);
+            if qty <= 0 {
+                return None;
+            }
             let v = prices.get(&tid).copied().unwrap_or(0.0) * qty as f64;
             if v > 0.0 {
                 Some((tid, qty, v))
@@ -335,6 +362,7 @@ pub fn sync_inventory(
                 assembled: it.is_singleton,
                 slot,
                 quantity: it.quantity.max(1),
+                is_copy: it.is_blueprint_copy,
             }
         })
         .collect();

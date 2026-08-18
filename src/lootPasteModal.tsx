@@ -34,6 +34,35 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
 
   const parse = useMemo(() => (text.trim() ? parseLootPaste(text, index) : null), [text, index]);
 
+  /** ---- LOS BLUEPRINTS DEL BOTÍN NO SE VALORAN (2026-08-13) ----
+   *
+   *  Lo avisó un jugador viendo cifras raras en abisales. El motivo es de EVE, no de Koru: **un BPC
+   *  y su BPO comparten typeID**, y **un BPC no se puede vender en el mercado** — solo por contrato.
+   *  Así que cualquier precio de mercado aplicado a una copia es el precio de OTRA cosa.
+   *
+   *  En el botín no hay forma de saber si es copia u original: el texto que copia el juego no lo
+   *  dice. Pero lo que cae en abisales y exploración son **copias, siempre**, así que la regla
+   *  correcta aquí es no valorarlos. Se listan aparte para que se vean y puedas ponerles tú el ISK
+   *  que valgan por contrato — que es donde de verdad tienen precio.
+   *
+   *  El conjunto sale de `bp_tree.json`, que ya se sirve para el planificador de industria: son
+   *  typeIDs, así que funciona con el juego en cualquier idioma. */
+  const [bpSet, setBpSet] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    if (!open || bpSet) return;
+    fetch("/bp_tree.json")
+      .then((r) => r.json())
+      .then((d: { bp?: Record<string, unknown> }) =>
+        setBpSet(new Set(Object.keys(d.bp ?? {}).map(Number))),
+      )
+      .catch(() => setBpSet(new Set()));
+  }, [open, bpSet]);
+
+  const esBlueprint = (tid: number | null) => tid != null && (bpSet?.has(tid) ?? false);
+  const blueprints = parse ? parse.items.filter((i) => esBlueprint(i.typeId)) : [];
+  /** Lo que el PEGADO les puso y hay que descontar del total: el juego sí les pone precio. */
+  const bpIskDelPegado = blueprints.reduce((a, i) => a + (i.iskFromPaste ?? 0), 0);
+
   // Al limpiar el modal cada vez que se abre.
   useEffect(() => {
     if (open) {
@@ -51,7 +80,9 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
       setFallbackIsk(0);
       return;
     }
-    const unpriced = parse.items.filter((i) => i.iskFromPaste == null && i.typeId != null);
+    const unpriced = parse.items.filter(
+      (i) => i.iskFromPaste == null && i.typeId != null && !esBlueprint(i.typeId),
+    );
     if (unpriced.length === 0) {
       setFallbackIsk(0);
       return;
@@ -67,11 +98,14 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
         setFallbackIsk(f);
       })
       .catch(() => setFallbackIsk(0));
-  }, [parse]);
+    // `bpSet` entra en las dependencias: hasta que carga no se sabe qué es blueprint, y sin esto
+    // el primer cálculo se haría con la lista vacía y los contaría.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parse, bpSet]);
 
   if (!open) return null;
 
-  const computed = (parse?.totalFromPaste ?? 0) + fallbackIsk;
+  const computed = (parse?.totalFromPaste ?? 0) - bpIskDelPegado + fallbackIsk;
   const manual = parseIskShorthand(override);
   const total = override.trim() ? manual : computed > 0 ? computed : null;
   const perSite = total != null && siteCount > 1 ? total / siteCount : total;
@@ -133,12 +167,32 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
                       {it.qty}
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      {it.iskFromPaste != null ? fmtIsk(it.iskFromPaste) : <span className="muted">—</span>}
+                      {/* Un blueprint se enseña TACHADO con su precio, no sin él: así se ve que
+                          Koru lo ha reconocido y ha decidido no contarlo. Un guion a secas
+                          parecería que no supo leerlo. */}
+                      {esBlueprint(it.typeId) ? (
+                        <span className="loot-bp" title={tr("Los blueprints no se venden en el mercado: no cuentan al total. Añade su valor a mano si lo vendes por contrato.")}>
+                          {it.iskFromPaste != null ? fmtIsk(it.iskFromPaste) : "—"}
+                        </span>
+                      ) : it.iskFromPaste != null ? (
+                        fmtIsk(it.iskFromPaste)
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {blueprints.length > 0 && (
+              <div className="muted small loot-bp-nota">
+                {blueprints.length}{" "}
+                {blueprints.length === 1 ? tr("blueprint no contado") : tr("blueprints no contados")}
+                {bpIskDelPegado > 0 && <> · {tr("el juego les ponía")} {fmtIsk(bpIskDelPegado)}</>}
+                {". "}
+                {tr("No se venden en el mercado, solo por contrato: pon su valor a mano si lo sabes.")}
+              </div>
+            )}
             <div className="small muted" style={{ marginTop: 4 }}>
               {parse.items.length} {tr("items")} · {parse.pricedLines} {tr("con precio de EVE")}
               {unresolved > 0 ? ` · ${unresolved} ${tr("sin reconocer")}` : ""}
