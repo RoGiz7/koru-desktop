@@ -826,6 +826,8 @@ const EN: Record<string, string> = {
   "run de menos de un minuto": "run under a minute",
   "runs de menos de un minuto": "runs under a minute",
   " (y las abortadas). El P&L sí las cuenta: el filamento se gastó igual.": " (and aborted ones). The P&L does count them: the filament was spent all the same.",
+  "Koru ha arrancado en modo gráfico compatible porque el intento anterior no llegó a mostrar la ventana. Todo funciona, pero el dibujado va por un camino más lento.": "Koru started in compatible graphics mode because the previous attempt never showed a window. Everything works, but drawing takes a slower path.",
+  "Entendido": "Got it",
   "Tus kills": "Your kills",
   "Tus losses": "Your losses",
   "Tu ISK": "Your ISK",

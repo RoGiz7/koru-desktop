@@ -10,6 +10,7 @@ mod db;
 mod error;
 mod esi;
 mod gamelog;
+mod graphics;
 mod medals;
 mod sso;
 
@@ -21,6 +22,10 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // LO PRIMERO DE TODO, y no es negociable el orden: las variables de entorno del renderizado
+    // solo surten efecto si se ponen ANTES de que se cree la webview. Ver `graphics.rs`.
+    graphics::preparar();
+
     tauri::Builder::default()
         // Instancia única: si se intenta abrir una 2ª, enfocamos la ventana existente.
         // Debe registrarse ANTES que el resto de plugins.
@@ -118,6 +123,8 @@ pub fn run() {
             commands::poll_positions,
             commands::get_track,
             commands::get_trips,
+            graphics::ui_lista,
+            graphics::grafico_modo_seguro,
             commands::overlay_enable,
             commands::overlay_monitors,
             commands::overlay_place,

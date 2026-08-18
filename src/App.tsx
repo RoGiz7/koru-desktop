@@ -215,6 +215,21 @@ function App() {
   });
   const ranStartupBackup = useRef(false);
   // Estado del servidor EVE (Tranquility)
+  // ---- MODO GRÁFICO COMPATIBLE (Linux) ----
+  // Este aviso es LA PRUEBA DE QUE LA INTERFAZ SE HA PINTADO. `ui_lista` borra la marca que dejó
+  // el Rust al arrancar; si el arranque anterior murió con la ventana en blanco, la marca seguía
+  // ahí y esta vez se han encendido las variables de compatibilidad. Ver `src-tauri/src/graphics.rs`.
+  //
+  // ⚠️ Va en un `useEffect` sin dependencias A PROPÓSITO, y tiene que ser de los primeros: es lo
+  // único que distingue «arrancó» de «arrancó y además se ve».
+  const [modoSeguro, setModoSeguro] = useState(false);
+  useEffect(() => {
+    invoke("ui_lista").catch(() => {});
+    invoke<boolean>("grafico_modo_seguro")
+      .then(setModoSeguro)
+      .catch(() => {});
+  }, []);
+
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
   const [serverOffline, setServerOffline] = useState(false);
   useEffect(() => {
@@ -1669,6 +1684,21 @@ function App() {
 
   return (
     <main className="shell">
+      {/* Un modo degradado que no se anuncia es un misterio para quien lo sufre y para quien da
+          soporte: «a mí se me ve raro» sin saber por qué. Se dice una vez, arriba del todo, y se
+          puede cerrar. */}
+      {modoSeguro && (
+        <div className="graf-aviso">
+          <span>
+            {tr(
+              "Koru ha arrancado en modo gráfico compatible porque el intento anterior no llegó a mostrar la ventana. Todo funciona, pero el dibujado va por un camino más lento.",
+            )}
+          </span>
+          <button className="sys-close" onClick={() => setModoSeguro(false)} title={tr("Entendido")}>
+            ✕
+          </button>
+        </div>
+      )}
       {/* ----- BARRA SUPERIOR (antes rail) ----- */}
       <header className="topbar">
         <div className="tb-brand">

@@ -3627,6 +3627,22 @@ h4 {
   font-weight: 700;
 }
 
+/* Aviso de modo gráfico compatible (Linux). Ámbar, no rojo: no es un error — la app funciona, solo
+   dibuja por un camino más lento. Un rojo aquí asustaría sin motivo. */
+.graf-aviso {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+  color: #ffd98a;
+  background: rgba(210, 153, 34, 0.14);
+  border-bottom: 1px solid rgba(210, 153, 34, 0.35);
+}
+.graf-aviso .sys-close {
+  margin-left: auto;
+}
+
 /* ---- VIAJES (2026-08-12): lo que hiciste de verdad, con lo que pasó por el camino ----
    Misma gramática que el feed de intel en vivo —franja de color a la izquierda y fondo del mismo
    color muy atenuado—, pero en AZUL: el rojo del feed significa amenaza AHORA, y un viaje ya
