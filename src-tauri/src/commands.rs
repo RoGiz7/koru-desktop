@@ -6523,36 +6523,64 @@ pub async fn scan_gamelogs(
     })
 }
 
+/// Lo que se encontró al mirar la carpeta de chatlogs. **No solo los canales: también lo que se
+/// descartó y por qué.**
+///
+/// Un `Vec<String>` vacío no distingue «la carpeta está vacía» de «hay 300 ficheros pero ninguno me
+/// encaja» ni de «esta no es la carpeta». Son tres problemas distintos con tres arreglos distintos,
+/// y el usuario los veía todos como el mismo cartel.
+#[derive(Debug, Serialize)]
+pub struct IntelFolderScan {
+    pub channels: Vec<String>,
+    /// Entradas totales de la carpeta (ficheros y subcarpetas).
+    pub entries: usize,
+    /// Cuántas acaban en `.txt`.
+    pub txt: usize,
+    /// Un nombre de ejemplo de los `.txt` que NO encajaron con el formato esperado. Con esto se ve
+    /// de un vistazo si el problema es el formato o es que esa no es la carpeta.
+    pub sample: Option<String>,
+}
+
 /// Lista los canales presentes en la carpeta (prefijo antes de `_AAAAMMDD_HHMMSS_charID.txt`).
 #[tauri::command]
-pub fn intel_channels(folder: String) -> AppResult<Vec<String>> {
+pub fn intel_channels(folder: String) -> AppResult<IntelFolderScan> {
     // ⚠️ ESTO ANTES SE TRAGABA EL ERROR (`if let Ok(rd)`), y por eso un tester de Linux se pasó un
     // rato mirando una carpeta CORRECTA que decía «no se encontraron canales». No es lo mismo «he
-    // mirado y no hay» que «no he podido mirar», y sin distinguirlo no hay forma de diagnosticar:
-    // el cartel culpaba a la carpeta cuando el problema podía ser la ruta, los permisos o un disco
-    // sin montar. Ahora el fallo de lectura sale con el motivo del sistema operativo.
-    let rd = std::fs::read_dir(&folder).map_err(|e| {
-        AppError::Other(format!("No se pudo leer la carpeta «{folder}»: {e}"))
-    })?;
+    // mirado y no hay» que «no he podido mirar», y sin distinguirlo no hay forma de diagnosticar.
+    let rd = std::fs::read_dir(&folder)
+        .map_err(|e| AppError::Other(format!("No se pudo leer la carpeta «{folder}»: {e}")))?;
     let mut set = std::collections::BTreeSet::new();
-    {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            let stem = match name.strip_suffix(".txt") {
-                Some(s) => s,
-                None => continue,
-            };
-            // Quitar los 3 últimos campos separados por '_' (fecha, hora, charID).
-            let parts: Vec<&str> = stem.split('_').collect();
-            if parts.len() >= 4 {
-                let ch = parts[..parts.len() - 3].join("_");
-                if !ch.is_empty() {
-                    set.insert(ch);
-                }
+    let mut entries = 0usize;
+    let mut txt = 0usize;
+    let mut sample: Option<String> = None;
+    for e in rd.flatten() {
+        entries += 1;
+        let name = e.file_name().to_string_lossy().to_string();
+        let Some(stem) = name.strip_suffix(".txt") else {
+            continue;
+        };
+        txt += 1;
+        // Quitar los 3 últimos campos separados por '_' (fecha, hora, charID).
+        let parts: Vec<&str> = stem.split('_').collect();
+        if parts.len() >= 4 {
+            let ch = parts[..parts.len() - 3].join("_");
+            if !ch.is_empty() {
+                set.insert(ch);
+                continue;
             }
         }
+        // Se guarda UN ejemplo de lo descartado. Uno basta: si el formato no encaja, no encaja en
+        // todos igual, y una lista larga no diría más que el primero.
+        if sample.is_none() {
+            sample = Some(name);
+        }
     }
-    Ok(set.into_iter().collect())
+    Ok(IntelFolderScan {
+        channels: set.into_iter().collect(),
+        entries,
+        txt,
+        sample,
+    })
 }
 
 /// Una línea de intel parseada de un log de chat.

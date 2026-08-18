@@ -23,17 +23,25 @@
 //! sin navegador). Aquí no se detecta el fracaso: se detecta **la ausencia de éxito**, que es una
 //! señal mucho más honesta.
 //!
-//!   1. Al arrancar se escribe una marca.
+//!   1. Al arrancar se escribe una marca (`arranque-en-curso`).
 //!   2. Cuando la interfaz llega a pintarse de verdad, el frontend llama a `ui_lista` y la borra.
 //!   3. Si al arrancar la marca **sigue ahí**, el arranque anterior nunca llegó a pintar → se
 //!      encienden las variables de compatibilidad.
+//!   4. Y si se pinta ESTANDO en compatible, se recuerda para siempre (`modo-grafico-compatible`).
+//!
+//! **El paso 4 no estaba y el arreglo ALTERNABA** — se vio en el pegado de un tester el 2026-08-18:
+//! compatible pintaba → se borraba la marca → el arranque siguiente probaba el modo normal → fallaba
+//! → el siguiente volvía a compatible. Una sí y una no, para siempre. Eran dos hechos distintos
+//! metidos en un mismo fichero: «el arranque anterior falló» (efímero) y «aquí hace falta el modo
+//! compatible» (permanente).
 //!
 //! Un cierre normal deja la marca borrada, así que cerrar Koru no dispara nada. Matar el proceso
 //! *antes* de que pinte sí lo dispara — y es correcto, porque desde fuera no se distingue de una
 //! ventana que nunca llegó.
 //!
 //! ## Escape manual
-//! `KORU_GRAPHICS=safe` fuerza el modo compatible · `KORU_GRAPHICS=normal` lo desactiva del todo.
+//! `KORU_GRAPHICS=safe` fuerza el modo compatible · `KORU_GRAPHICS=normal` lo desactiva **y olvida
+//! lo aprendido** (si no, un `normal` puntual no serviría: al arranque siguiente volvería solo).
 //! Está para el caso en que la detección se equivoque, que es cuestión de tiempo que pase.
 
 use std::path::PathBuf;
@@ -60,8 +68,20 @@ fn dir_datos() -> Option<PathBuf> {
     None
 }
 
+/// Marca de «hay un arranque en curso que aún no ha pintado». Se borra en cuanto pinta.
 fn ruta_marca() -> Option<PathBuf> {
     dir_datos().map(|d| d.join("arranque-en-curso"))
+}
+
+/// Bandera de «en esta máquina el que funciona es el modo compatible». **Persiste.**
+///
+/// ⚠️ SIN ESTO EL ARREGLO ALTERNABA, y no lo vi hasta ver el pegado de un tester (2026-08-18):
+/// el modo compatible pintaba → el frontend borraba la marca → el arranque siguiente volvía a modo
+/// normal → fallaba → el siguiente volvía a compatible… una sí y una no, para siempre.
+/// Son dos hechos distintos y estaban mezclados en un solo fichero: **«el arranque anterior falló»**
+/// (efímero) y **«aquí hace falta el modo compatible»** (permanente).
+fn ruta_flag() -> Option<PathBuf> {
+    dir_datos().map(|d| d.join("modo-grafico-compatible"))
 }
 
 /// Llamar lo PRIMERO de todo en `run()`, antes de construir Tauri.
@@ -73,17 +93,24 @@ pub fn preparar() {
 
     let forzado = std::env::var("KORU_GRAPHICS").unwrap_or_default();
     if forzado.eq_ignore_ascii_case("normal") {
-        // El usuario manda: ni se detecta ni se deja marca.
+        // El usuario manda, y manda DE VERDAD: además de no aplicar nada, se olvida lo aprendido.
+        // Si no, un `normal` puntual no serviría de nada — al arranque siguiente volvería solo.
+        if let Some(f) = ruta_flag() {
+            let _ = std::fs::remove_file(f);
+        }
         return;
     }
 
     let marca = ruta_marca();
     let pendiente = marca.as_ref().map(|p| p.exists()).unwrap_or(false);
+    // Lo aprendido manda sobre la detección: si ya sabemos que aquí hace falta, no hay que fallar
+    // una vez más para recordarlo.
+    let aprendido = ruta_flag().map(|p| p.exists()).unwrap_or(false);
 
-    if forzado.eq_ignore_ascii_case("safe") || pendiente {
+    if forzado.eq_ignore_ascii_case("safe") || pendiente || aprendido {
         aplicar_compatibilidad();
         MODO_SEGURO.store(true, Ordering::Relaxed);
-        if pendiente {
+        if pendiente && !aprendido {
             eprintln!(
                 "[koru] El arranque anterior no llegó a pintar la ventana. \
                  Arrancando en modo gráfico compatible (X11, sin DMA-BUF ni compositing). \
@@ -121,6 +148,16 @@ fn aplicar_compatibilidad() {
 pub fn ui_lista() {
     if let Some(p) = ruta_marca() {
         let _ = std::fs::remove_file(p);
+    }
+    // Si hemos pintado ESTANDO en modo compatible, es que aquí el compatible es el que funciona.
+    // Se recuerda, porque si no el arranque siguiente volvería a probar el normal y fallaría.
+    if MODO_SEGURO.load(Ordering::Relaxed) {
+        if let Some(f) = ruta_flag() {
+            if let Some(dir) = f.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(&f, b"1");
+        }
     }
 }
 

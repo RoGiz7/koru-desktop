@@ -835,6 +835,9 @@ const EN: Record<string, string> = {
   "No se venden en el mercado, solo por contrato: pon su valor a mano si lo sabes.": "They are not sold on the market, only by contract: enter their value by hand if you know it.",
   "Los blueprints no cuentan para el patrimonio. Un BPC no se puede vender en el mercado —solo por contrato—, así que ningún precio de mercado le corresponde. Un BPO sí se vende, pero el average_price de ESI es su valor base, no lo que sacarías por él, y la investigación (ME/TE) no aparece en ningún precio automático.":
     "Blueprints do not count towards net worth. A BPC cannot be sold on the market — only by contract — so no market price applies to it. A BPO can be sold, but ESI's average_price is its base value, not what you would get for it, and research (ME/TE) shows up in no automatic price.",
+  "Leí la carpeta": "I read the folder",
+  "ejemplo": "example",
+  "ficheros dentro": "items inside",
   "Tus kills": "Your kills",
   "Tus losses": "Your losses",
   "Tu ISK": "Your ISK",

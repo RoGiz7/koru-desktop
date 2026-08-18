@@ -61,6 +61,7 @@ import { openExternal, setOpenExternalFallback } from "./openExternal";
 import { ThemePicker } from "./themePicker";
 import { shipForSection } from "./sectionShips";
 import type {
+  IntelFolderScan,
   Character,
   LoginOutcome,
   CharacterCard,
@@ -580,6 +581,7 @@ function App() {
    *  Distinguir «he mirado y no hay» de «no he podido mirar» es la diferencia entre un cartel que
    *  ayuda y uno que acusa a la carpeta equivocada. */
   const [intelChannelsError, setIntelChannelsError] = useState<string | null>(null);
+  const [intelScan, setIntelScan] = useState<IntelFolderScan | null>(null);
   const [intelFolder, setIntelFolder] = useState<string>(() => localStorage.getItem("koru-intel-folder") || "");
   const [intelChannels, setIntelChannels] = useState<string[]>(() => {
     try {
@@ -732,13 +734,15 @@ function App() {
   // Canales disponibles (para el selector) cuando hay carpeta + capa intel activa.
   useEffect(() => {
     if (mapOverlay !== "intel" || !intelFolder) return;
-    invoke<string[]>("intel_channels", { folder: intelFolder })
-      .then((c) => {
-        setIntelAvailChannels(c);
+    invoke<IntelFolderScan>("intel_channels", { folder: intelFolder })
+      .then((r) => {
+        setIntelAvailChannels(r.channels);
+        setIntelScan(r);
         setIntelChannelsError(null);
       })
       .catch((e) => {
         setIntelAvailChannels([]);
+        setIntelScan(null);
         setIntelChannelsError(String(e));
       });
   }, [mapOverlay, intelFolder]);
@@ -1685,6 +1689,7 @@ function App() {
     lines: intelLines,
     availChannels: intelAvailChannels,
     channelsError: intelChannelsError,
+    scan: intelScan,
     channels: intelChannels,
     folder: intelFolder,
     recency: intelRecency,

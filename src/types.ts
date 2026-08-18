@@ -1010,6 +1010,15 @@ export type PositionUpdate = {
   fired_notes: Note[];
 };
 
+/** Lo que Koru encontró al mirar la carpeta de chatlogs. Un cero en `entries` no significa lo mismo
+ *  que 300 ficheros sin ninguno válido, y el usuario veía los dos casos como el mismo cartel. */
+export type IntelFolderScan = {
+  channels: string[];
+  entries: number;
+  txt: number;
+  sample: string | null;
+};
+
 /** Un tramo del recorrido propio: «vi a este piloto en este sistema entre estos dos instantes».
  *  El tiempo allí es `seen_ms - entered_ms`; el hueco hasta el siguiente tramo es ceguera. */
 /** Un VIAJE deducido de `location_track`. No existe tabla: el Rust lo recalcula al pedirlo, así que
@@ -1064,6 +1073,8 @@ export type MutedSystem = { system_id: number; until_ms: number | null };
 export type IntelConfig = {
   lines: IntelLine[];
   availChannels: string[];
+  /** Lo que se vio al mirar la carpeta, para poder explicar por qué no hay canales. */
+  scan?: IntelFolderScan | null;
   /** Motivo de que no se pudieran leer los canales. `null` = la carpeta se leyó bien y de verdad
    *  no hay ninguno. Ver `intel_channels` en commands.rs. */
   channelsError?: string | null;

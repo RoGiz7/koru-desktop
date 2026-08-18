@@ -47,7 +47,14 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
             {intel.channelsError
               ? intel.channelsError
               : intel.availChannels.length === 0
-                ? tr("No se encontraron canales en la carpeta.")
+                ? // No basta con «no hay»: se cuenta LO QUE SE VIO. Cero entradas es una carpeta
+                  // equivocada; muchos .txt sin ninguno válido es otro problema, y el ejemplo lo
+                  // enseña en vez de obligar a adivinarlo.
+                  intel.scan
+                  ? `${tr("Leí la carpeta")}: ${intel.scan.entries} ${tr("ficheros dentro")}, ${intel.scan.txt} .txt${
+                      intel.scan.sample ? ` · ${tr("ejemplo")}: ${intel.scan.sample}` : ""
+                    }`
+                  : tr("No se encontraron canales en la carpeta.")
                 : `${intel.channels.length} / ${intel.availChannels.length} ${tr("vigilados")}`}
           </span>
           <div className="ovs-chans">
