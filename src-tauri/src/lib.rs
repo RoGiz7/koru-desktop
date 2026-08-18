@@ -337,6 +337,7 @@ pub fn run() {
             medals::get_medal_texture,
             commands::read_audio_file,
             commands::intel_channels,
+            commands::find_eve_log_dirs,
             commands::read_intel,
             commands::resolve_intel_entities,
             commands::intel_record_sightings,

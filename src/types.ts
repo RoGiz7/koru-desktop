@@ -1010,6 +1010,9 @@ export type PositionUpdate = {
   fired_notes: Note[];
 };
 
+/** Una carpeta de logs que el buscador ha encontrado Y que tiene ficheros dentro. */
+export type LogDirCandidate = { path: string; files: number; source: string };
+
 /** Lo que Koru encontró al mirar la carpeta de chatlogs. Un cero en `entries` no significa lo mismo
  *  que 300 ficheros sin ninguno válido, y el usuario veía los dos casos como el mismo cartel. */
 export type IntelFolderScan = {
@@ -1112,6 +1115,8 @@ export type IntelConfig = {
     soundFile?: string;
   }) => void;
   onPickFolder: () => void;
+  /** Fija la carpeta directamente (la usa el buscador automático). */
+  onSetFolder?: (dir: string) => void;
   onPickSound: () => void;
 };
 

@@ -731,9 +731,18 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  // Canales disponibles (para el selector) cuando hay carpeta + capa intel activa.
+  // Canales disponibles para el selector.
+  //
+  // ⚠️ ESTO ESTABA ATADO A QUE LA CAPA INTEL DEL MAPA ESTUVIERA ACTIVA, y era el fallo de verdad
+  // detrás de «no se encontraron canales» (2026-08-18). Si abrías Ajustes viniendo de cualquier
+  // otra pantalla, no se llamaba a nada: la lista se quedaba vacía y el panel afirmaba que no había
+  // canales **cuando lo cierto es que no se había mirado**. Se reprodujo con la carpeta correcta en
+  // dos máquinas distintas, y nos costó una tarde de diagnóstico persiguiendo rutas y permisos.
+  //
+  // La condición era una optimización: ahorrarse un `read_dir` mientras no hiciera falta. Ahorraba
+  // microsegundos y costaba una afirmación falsa en pantalla.
   useEffect(() => {
-    if (mapOverlay !== "intel" || !intelFolder) return;
+    if (!intelFolder) return;
     invoke<IntelFolderScan>("intel_channels", { folder: intelFolder })
       .then((r) => {
         setIntelAvailChannels(r.channels);
@@ -745,7 +754,7 @@ function App() {
         setIntelScan(null);
         setIntelChannelsError(String(e));
       });
-  }, [mapOverlay, intelFolder]);
+  }, [intelFolder]);
   // El intel lo vigila ahora un hilo en Rust (start_intel_watch en MapView): emite el evento
   // "intel-lines" que escuchamos aquí para pintar mapa/feed, sin polling JS (no se ralentiza
   // minimizado). Las alertas + notificación nativa las dispara el propio hilo de Rust.
@@ -1708,6 +1717,7 @@ function App() {
     onClearAlert: () => setGlobalAlert(null),
     onConfig: setIntelCfg,
     onPickFolder: pickIntelFolder,
+    onSetFolder: (dir: string) => setIntelCfg({ folder: dir }),
     onPickSound: pickIntelSound,
   };
 

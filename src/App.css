@@ -3662,6 +3662,31 @@ h4 {
   word-break: break-word;
 }
 
+/* Candidatas del buscador de la carpeta de logs. Cada una es un botón entero: el objetivo es que
+   alguien que no sabe qué es un prefijo de Proton pueda elegir por lo que reconoce —«Steam», y
+   cuántos ficheros tiene— sin leer la ruta. */
+.ovs-hallazgos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+}
+.ovs-hallazgo {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border, #2a3340);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ovs-hallazgo:hover {
+  border-color: var(--accent-border);
+}
+
 /* ---- VIAJES (2026-08-12): lo que hiciste de verdad, con lo que pasó por el camino ----
    Misma gramática que el feed de intel en vivo —franja de color a la izquierda y fondo del mismo
    color muy atenuado—, pero en AZUL: el rojo del feed significa amenaza AHORA, y un viaje ya

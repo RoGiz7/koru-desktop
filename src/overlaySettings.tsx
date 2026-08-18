@@ -10,13 +10,34 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
-import type { IntelConfig } from "./types";
+import type { IntelConfig, LogDirCandidate } from "./types";
 
 /** Config del intel que se pone UNA VEZ y no se vuelve a tocar: de dónde se lee, qué canales,
  *  cuánto dura un avistamiento y qué suena. Vivía en el panel de 280 px del mapa, donde no cabía
  *  y competía por sitio con lo que sí se toca volando (umbral de saltos, pilotos, anclas).
  *  Aquí hay ancho de sobra: los canales pasan de un desplegable a una lista que se ve entera. */
 export function IntelSettings({ intel }: { intel: IntelConfig }) {
+  /** Resultado del buscador. `null` = todavía no se ha buscado (no es lo mismo que «no hay»). */
+  const [hallazgos, setHallazgos] = useState<LogDirCandidate[] | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  /** Busca la carpeta de chats sin preguntarle nada al usuario.
+   *
+   *  Con UNA candidata se pone sola: hacer clic otra vez para confirmar lo que solo puede ser una
+   *  cosa es papeleo. Con VARIAS se pregunta — elegir por él entre dos instalaciones sería adivinar,
+   *  y aquí adivinar se paga con el intel mudo, que falla en silencio. */
+  const buscar = async () => {
+    setBuscando(true);
+    try {
+      const r = await invoke<LogDirCandidate[]>("find_eve_log_dirs", { sub: "Chatlogs" });
+      setHallazgos(r);
+      if (r.length === 1) intel.onSetFolder?.(r[0].path);
+    } catch {
+      setHallazgos([]);
+    } finally {
+      setBuscando(false);
+    }
+  };
+
   return (
     <>
       <div className="tb-settings-title small muted">{tr("Lectura de los chats de intel")}</div>
@@ -32,8 +53,34 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
             <span className={`ovs-path${intel.folder ? "" : " ovs-path-vacio"}`} title={intel.folder}>
               {intel.folder || tr("(sin definir)")}
             </span>
+            {/* BUSCAR va ANTES que Elegir: pedirle a alguien la ruta de un prefijo de Proton es
+                pedirle demasiado, y el que no sabe ni por dónde empezar es justo el que más lo
+                necesita. Elegir a mano se queda para quien tenga una instalación rara. */}
+            <button onClick={buscar} disabled={buscando}>
+              {buscando ? tr("Buscando…") : `🔎 ${tr("Buscar")}`}
+            </button>
             <button onClick={intel.onPickFolder}>{tr("Elegir…")}</button>
           </div>
+          {/* Con UNA candidata se pone sola y se dice cuál. Con VARIAS se pregunta: elegir por él
+              entre dos instalaciones sería adivinar, y adivinar aquí se paga con el intel mudo. */}
+          {hallazgos !== null && hallazgos.length > 1 && (
+            <div className="ovs-hallazgos small">
+              {tr("Se encontraron varias. Elige la tuya:")}
+              {hallazgos.map((h) => (
+                <button key={h.path} className="ovs-hallazgo" onClick={() => intel.onSetFolder?.(h.path)}>
+                  <strong>{h.source}</strong> · {h.files} {tr("ficheros")}
+                  <span className="muted"> — {h.path}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {hallazgos !== null && hallazgos.length === 0 && (
+            <div className="small ovs-chan-err">
+              {tr(
+                "No se encontró ninguna carpeta con chats. Se ha mirado en las bibliotecas de Steam declaradas (incluidas las de otros discos), en Wine, en Lutris y en Documentos. Si tu EVE está en otro sitio, elígela a mano.",
+              )}
+            </div>
+          )}
         </span>
       </div>
 

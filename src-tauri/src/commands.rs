@@ -6278,6 +6278,154 @@ pub fn read_audio_file(path: String) -> AppResult<Vec<u8>> {
 /// **Linux**: EVE va por Wine/Proton, así que los logs viven DENTRO del prefijo y no hay una sola
 /// ruta buena — se prueban las de Wine, Steam Proton (appid 8500) y Lutris. Si no acierta ninguna,
 /// el usuario elige la carpeta a mano, que es algo que la app ya sabe hacer.
+/// Raíces de instalación de Steam conocidas (la carpeta que contiene `steamapps`).
+#[cfg(not(target_os = "windows"))]
+fn steam_roots() -> Vec<std::path::PathBuf> {
+    let mut v = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        let home = std::path::Path::new(&home);
+        for base in [
+            ".steam/steam",
+            ".local/share/Steam",
+            ".var/app/com.valvesoftware.Steam/.local/share/Steam", // Flatpak
+        ] {
+            v.push(home.join(base));
+        }
+    }
+    v
+}
+
+#[cfg(target_os = "windows")]
+fn steam_roots() -> Vec<std::path::PathBuf> {
+    vec![
+        std::path::PathBuf::from("C:\\Program Files (x86)\\Steam"),
+        std::path::PathBuf::from("C:\\Steam"),
+    ]
+}
+
+/// ★ BIBLIOTECAS DE STEAM DECLARADAS, incluidas las de OTROS DISCOS.
+///
+/// Esta es la pieza que faltaba y por la que a un tester no se le encontraba EVE (2026-08-18): su
+/// juego vivía en `/mnt/<disco>/SteamLibrary/…`, una biblioteca secundaria. Koru solo miraba las
+/// rutas por defecto, así que por muy bien que estuviera todo, no había forma de dar con ella.
+///
+/// **No se rastrea el disco ni se adivina**: Steam lleva la lista escrita en
+/// `steamapps/libraryfolders.vdf`. Se leen las líneas `"path"  "/lo/que/sea"` con un parseo
+/// deliberadamente tonto — un VDF completo sería una dependencia nueva para sacar un campo, y este
+/// fichero lo escribe Steam siempre igual.
+fn steam_libraries() -> Vec<std::path::PathBuf> {
+    let mut libs: Vec<std::path::PathBuf> = Vec::new();
+    for root in steam_roots() {
+        if root.is_dir() && !libs.contains(&root) {
+            libs.push(root.clone());
+        }
+        let vdf = root.join("steamapps").join("libraryfolders.vdf");
+        let Ok(txt) = std::fs::read_to_string(&vdf) else {
+            continue;
+        };
+        for linea in txt.lines() {
+            let l = linea.trim();
+            if !l.starts_with("\"path\"") {
+                continue;
+            }
+            // `"path"		"/mnt/disco/SteamLibrary"` → nos quedamos con lo de las SEGUNDAS comillas.
+            let trozos: Vec<&str> = l.split('"').collect();
+            if trozos.len() >= 4 {
+                let p = std::path::PathBuf::from(trozos[3].replace("\\\\", "\\"));
+                if p.is_dir() && !libs.contains(&p) {
+                    libs.push(p);
+                }
+            }
+        }
+    }
+    libs
+}
+
+/// Una carpeta de logs candidata, con lo que la hace creíble.
+#[derive(Debug, Serialize)]
+pub struct LogDirCandidate {
+    pub path: String,
+    /// Cuántos `.txt` tiene dentro. **Es lo que decide**: una carpeta que existe pero está vacía no
+    /// sirve de nada y ofrecerla sería mandar al usuario a un callejón.
+    pub files: usize,
+    /// De dónde salió: "Steam", "Wine", "Lutris", "Documentos"… para que se pueda reconocer la suya.
+    pub source: String,
+}
+
+/// Busca la carpeta de logs de EVE (`Chatlogs` o `Gamelogs`) por todos los sitios conocidos.
+///
+/// Devuelve SOLO las que tienen ficheros dentro, ordenadas por cuántos: la que más tiene es casi
+/// siempre la instalación que de verdad usa. Vacío = no se encontró nada, y quien llama debe decir
+/// dónde se ha mirado en vez de dejarlo en blanco.
+#[tauri::command]
+pub fn find_eve_log_dirs(sub: String) -> AppResult<Vec<LogDirCandidate>> {
+    let mut cands: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
+
+    // 1. Las bibliotecas de Steam (appid 8500 = EVE). Aquí entran los discos secundarios.
+    for lib in steam_libraries() {
+        cands.push((
+            lib.join("steamapps/compatdata/8500/pfx/drive_c/users/steamuser/Documents/EVE/logs")
+                .join(&sub),
+            "Steam",
+        ));
+    }
+
+    // 2. Lo de siempre: cliente nativo, Wine y Lutris.
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(up) = std::env::var("USERPROFILE") {
+            cands.push((
+                std::path::Path::new(&up).join("Documents").join("EVE").join("logs").join(&sub),
+                "Documentos",
+            ));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let home = std::path::Path::new(&home);
+            let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
+            cands.push((home.join("Documents/EVE/logs").join(&sub), "Documentos"));
+            cands.push((
+                home.join(".wine/drive_c/users").join(&user).join("Documents/EVE/logs").join(&sub),
+                "Wine",
+            ));
+            cands.push((
+                home.join("Games/eve-online/drive_c/users")
+                    .join(&user)
+                    .join("Documents/EVE/logs")
+                    .join(&sub),
+                "Lutris",
+            ));
+        }
+    }
+
+    let mut out: Vec<LogDirCandidate> = Vec::new();
+    for (p, source) in cands {
+        if !p.is_dir() {
+            continue;
+        }
+        let files = std::fs::read_dir(&p)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.file_name().to_string_lossy().ends_with(".txt"))
+                    .count()
+            })
+            .unwrap_or(0);
+        if files == 0 {
+            continue; // existe pero no sirve
+        }
+        let path = p.to_string_lossy().into_owned();
+        if out.iter().any(|c| c.path == path) {
+            continue; // dos raíces de Steam pueden apuntar a la misma biblioteca
+        }
+        out.push(LogDirCandidate { path, files, source: source.to_string() });
+    }
+    // La que más ficheros tiene primero: es casi siempre la instalación viva.
+    out.sort_by(|a, b| b.files.cmp(&a.files));
+    Ok(out)
+}
+
 fn eve_log_dir(sub: &str) -> String {
     let mut cands: Vec<std::path::PathBuf> = Vec::new();
 
