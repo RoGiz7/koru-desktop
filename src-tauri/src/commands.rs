@@ -6526,8 +6526,16 @@ pub async fn scan_gamelogs(
 /// Lista los canales presentes en la carpeta (prefijo antes de `_AAAAMMDD_HHMMSS_charID.txt`).
 #[tauri::command]
 pub fn intel_channels(folder: String) -> AppResult<Vec<String>> {
+    // ⚠️ ESTO ANTES SE TRAGABA EL ERROR (`if let Ok(rd)`), y por eso un tester de Linux se pasó un
+    // rato mirando una carpeta CORRECTA que decía «no se encontraron canales». No es lo mismo «he
+    // mirado y no hay» que «no he podido mirar», y sin distinguirlo no hay forma de diagnosticar:
+    // el cartel culpaba a la carpeta cuando el problema podía ser la ruta, los permisos o un disco
+    // sin montar. Ahora el fallo de lectura sale con el motivo del sistema operativo.
+    let rd = std::fs::read_dir(&folder).map_err(|e| {
+        AppError::Other(format!("No se pudo leer la carpeta «{folder}»: {e}"))
+    })?;
     let mut set = std::collections::BTreeSet::new();
-    if let Ok(rd) = std::fs::read_dir(&folder) {
+    {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().to_string();
             let stem = match name.strip_suffix(".txt") {

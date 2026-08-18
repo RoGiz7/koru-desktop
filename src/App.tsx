@@ -576,6 +576,10 @@ function App() {
   // --- Intel en vivo (logs de chat) ---
   const [intelLines, setIntelLines] = useState<IntelLine[]>([]);
   const [intelAvailChannels, setIntelAvailChannels] = useState<string[]>([]);
+  /** El motivo por el que no hay canales, cuando lo hay. `null` = se pudo leer la carpeta.
+   *  Distinguir «he mirado y no hay» de «no he podido mirar» es la diferencia entre un cartel que
+   *  ayuda y uno que acusa a la carpeta equivocada. */
+  const [intelChannelsError, setIntelChannelsError] = useState<string | null>(null);
   const [intelFolder, setIntelFolder] = useState<string>(() => localStorage.getItem("koru-intel-folder") || "");
   const [intelChannels, setIntelChannels] = useState<string[]>(() => {
     try {
@@ -716,8 +720,14 @@ function App() {
   useEffect(() => {
     if (mapOverlay !== "intel" || !intelFolder) return;
     invoke<string[]>("intel_channels", { folder: intelFolder })
-      .then(setIntelAvailChannels)
-      .catch(() => setIntelAvailChannels([]));
+      .then((c) => {
+        setIntelAvailChannels(c);
+        setIntelChannelsError(null);
+      })
+      .catch((e) => {
+        setIntelAvailChannels([]);
+        setIntelChannelsError(String(e));
+      });
   }, [mapOverlay, intelFolder]);
   // El intel lo vigila ahora un hilo en Rust (start_intel_watch en MapView): emite el evento
   // "intel-lines" que escuchamos aquí para pintar mapa/feed, sin polling JS (no se ralentiza
@@ -1661,6 +1671,7 @@ function App() {
   const intelCfg: IntelConfig = {
     lines: intelLines,
     availChannels: intelAvailChannels,
+    channelsError: intelChannelsError,
     channels: intelChannels,
     folder: intelFolder,
     recency: intelRecency,

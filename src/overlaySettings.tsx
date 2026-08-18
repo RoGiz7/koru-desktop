@@ -41,10 +41,14 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
         <span className="tb-si-ic">💬</span>
         <span className="tb-si-tx">
           <strong>{tr("Canales que se vigilan")}</strong>
-          <span className="small muted">
-            {intel.availChannels.length === 0
-              ? tr("No se encontraron canales en la carpeta.")
-              : `${intel.channels.length} / ${intel.availChannels.length} ${tr("vigilados")}`}
+          {/* Tres estados, no dos. El del medio faltaba y era el que dejaba tirado a quien tiene
+              la carpeta bien pero Koru no puede abrirla: el cartel culpaba a la carpeta. */}
+          <span className={`small ${intel.channelsError ? "ovs-chan-err" : "muted"}`}>
+            {intel.channelsError
+              ? intel.channelsError
+              : intel.availChannels.length === 0
+                ? tr("No se encontraron canales en la carpeta.")
+                : `${intel.channels.length} / ${intel.availChannels.length} ${tr("vigilados")}`}
           </span>
           <div className="ovs-chans">
             {intel.availChannels.map((c) => (

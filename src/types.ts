@@ -1064,6 +1064,9 @@ export type MutedSystem = { system_id: number; until_ms: number | null };
 export type IntelConfig = {
   lines: IntelLine[];
   availChannels: string[];
+  /** Motivo de que no se pudieran leer los canales. `null` = la carpeta se leyó bien y de verdad
+   *  no hay ninguno. Ver `intel_channels` en commands.rs. */
+  channelsError?: string | null;
   channels: string[];
   folder: string;
   recency: number;

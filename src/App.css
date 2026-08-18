@@ -3655,6 +3655,13 @@ h4 {
   border-top: 1px solid var(--border, #2a3340);
 }
 
+/* El motivo de que no se puedan leer los canales de intel. Rojo apagado: es un error de verdad,
+   pero se lee dentro de un panel de ajustes, no en mitad de una alarma. */
+.ovs-chan-err {
+  color: #ff9b95;
+  word-break: break-word;
+}
+
 /* ---- VIAJES (2026-08-12): lo que hiciste de verdad, con lo que pasó por el camino ----
    Misma gramática que el feed de intel en vivo —franja de color a la izquierda y fondo del mismo
    color muy atenuado—, pero en AZUL: el rojo del feed significa amenaza AHORA, y un viaje ya
