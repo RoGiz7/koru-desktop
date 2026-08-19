@@ -9925,6 +9925,294 @@ pub async fn get_pi_history(
     })
 }
 
+// ---- GRABADOR DE FLOTAS (solo siendo FC; con botón, nunca solo) ----
+
+/// Un miembro tal y como lo devuelve `/fleets/{id}/members/`.
+#[derive(serde::Deserialize)]
+struct MiembroRaw {
+    character_id: i64,
+    #[serde(default)]
+    ship_type_id: Option<i64>,
+    #[serde(default)]
+    solar_system_id: Option<i64>,
+    /// Solo viene si ESE miembro está atracado. Que falte NO es un fallo: es que está en el espacio.
+    #[serde(default)]
+    station_id: Option<i64>,
+    #[serde(default)]
+    wing_id: Option<i64>,
+    #[serde(default)]
+    squad_id: Option<i64>,
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    join_time: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct EscuadronRaw {
+    id: i64,
+    #[serde(default)]
+    name: Option<String>,
+}
+#[derive(serde::Deserialize)]
+struct AlaRaw {
+    id: i64,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    squads: Vec<EscuadronRaw>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpEstado {
+    pub op_id: i64,
+    pub fleet_id: i64,
+    pub boss_id: i64,
+    pub grabando: bool,
+    /// Miembros presentes ahora mismo.
+    pub miembros: i64,
+    /// Cambios escritos EN ESTE sondeo. Cero es lo normal y no significa que falle nada.
+    pub cambios: i64,
+    pub sistemas: i64,
+    pub ticks: i64,
+    /// Si la flota se acabó (o dejaste de mandarla), se dice y se cierra la grabación.
+    pub aviso: Option<String>,
+}
+
+/// GET crudo con token. Devuelve `(status, cuerpo)` sin caché: en una grabación queremos el estado
+/// de ahora, y un 404 aquí es información (la flota se acabó), no un error que tragar.
+async fn esi_get(http: &reqwest::Client, token: &str, path: &str) -> (u16, String) {
+    let url = format!("{}{}", config::ESI_BASE_URL, path);
+    match http
+        .get(&url)
+        .header("X-Compatibility-Date", config::ESI_COMPATIBILITY_DATE)
+        .header("Accept", "application/json")
+        .bearer_auth(token)
+        .send()
+        .await
+    {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            (s, r.text().await.unwrap_or_default())
+        }
+        Err(e) => (0, format!("error de red: {e}")),
+    }
+}
+
+/// Empieza a grabar la flota que manda `character_id`.
+///
+/// ⚠️ Exige ser **fleet_commander**. No es un capricho ni una comprobación defensiva: la sonda del
+/// 2026-08-19 demostró que a quien no manda ESI le devuelve **404** en `/fleets/{id}/members/`, así
+/// que una grabación desde un miembro sería una lista vacía con cara de op grabada.
+#[tauri::command]
+pub async fn fleet_op_start(
+    character_id: i64,
+    name: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<OpEstado> {
+    if let Some((op_id, fleet_id, boss_id)) = state.db.fleet_op_abierta()? {
+        // Ya había una grabando. No se abre otra: dos sondeando a la vez duplicarían las peticiones
+        // y ninguna de las dos contaría la op entera.
+        return Ok(OpEstado {
+            op_id,
+            fleet_id,
+            boss_id,
+            grabando: true,
+            miembros: 0,
+            cambios: 0,
+            sistemas: 0,
+            ticks: 0,
+            aviso: Some("Ya había una grabación abierta; se sigue con esa.".into()),
+        });
+    }
+    let valid = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+        .map_err(|_| AppError::Other("no hay sesión válida para ese personaje".into()))?;
+    let http = state.esi.http().clone();
+
+    let (s1, b1) = esi_get(&http, &valid.access_token, &format!("/characters/{character_id}/fleet/")).await;
+    if s1 == 404 {
+        return Err(AppError::Other("Ese personaje no está en ninguna flota.".into()));
+    }
+    if s1 == 401 || s1 == 403 {
+        return Err(AppError::Other(
+            "Falta el scope de flotas en ese personaje: vuelve a iniciar sesión con el Set completo.".into(),
+        ));
+    }
+    let v: serde_json::Value = serde_json::from_str(&b1).unwrap_or(serde_json::Value::Null);
+    let fleet_id = v
+        .get("fleet_id")
+        .and_then(|x| x.as_i64())
+        .ok_or_else(|| AppError::Other(format!("Respuesta inesperada de ESI ({s1}).")))?;
+    let rol = v.get("role").and_then(|x| x.as_str()).unwrap_or("");
+    if rol != "fleet_commander" {
+        return Err(AppError::Other(format!(
+            "Solo se puede grabar la flota que mandas tú. Ahora mismo vas de «{rol}», y a quien no \
+             manda ESI no le deja leer los miembros."
+        )));
+    }
+
+    let op_id = state
+        .db
+        .fleet_op_open(fleet_id, character_id, name.as_deref())?;
+    // Se abre y ya. El primer sondeo lo dispara el frontend acto seguido, en vez de encadenar aquí
+    // una llamada al otro comando: así hay un solo sitio que sondea y un solo sitio que puede fallar.
+    Ok(OpEstado {
+        op_id,
+        fleet_id,
+        boss_id: character_id,
+        grabando: true,
+        miembros: 0,
+        cambios: 0,
+        sistemas: 0,
+        ticks: 0,
+        aviso: None,
+    })
+}
+
+/// Un sondeo. Lo llama el frontend con un intervalo: así la grabación sigue viva aunque cambies de
+/// sección, y se para sola si cierras Koru (que es honesto — el hueco se ve en `ticks`).
+#[tauri::command]
+pub async fn fleet_op_tick(op_id: i64, state: State<'_, AppState>) -> AppResult<OpEstado> {
+    use std::collections::HashSet;
+    let Some((abierta, fleet_id, boss_id)) = state.db.fleet_op_abierta()? else {
+        return Err(AppError::Other("No hay ninguna grabación abierta.".into()));
+    };
+    if abierta != op_id {
+        return Err(AppError::Other("Esa grabación ya está cerrada.".into()));
+    }
+    let valid = state
+        .tokens
+        .access_token(state.esi.http(), boss_id)
+        .await
+        .map_err(|_| AppError::Other("no hay sesión válida para ese personaje".into()))?;
+    let http = state.esi.http().clone();
+
+    let (s, body) = esi_get(&http, &valid.access_token, &format!("/fleets/{fleet_id}/members/")).await;
+    if s == 404 {
+        // La flota se acabó, o te han quitado el mando. Se CIERRA la grabación en vez de seguir
+        // pidiendo: insistir contra un 404 quema el presupuesto de errores de ESI para nada.
+        state.db.fleet_op_close(op_id)?;
+        return Ok(OpEstado {
+            op_id,
+            fleet_id,
+            boss_id,
+            grabando: false,
+            miembros: 0,
+            cambios: 0,
+            sistemas: 0,
+            ticks: 0,
+            aviso: Some("La flota ya no existe o dejaste de mandarla. Grabación cerrada.".into()),
+        });
+    }
+    if s != 200 {
+        return Err(AppError::Other(format!(
+            "ESI respondió {s} al leer los miembros: {}",
+            body.chars().take(200).collect::<String>()
+        )));
+    }
+    let miembros: Vec<MiembroRaw> = serde_json::from_str(&body).unwrap_or_default();
+
+    let previo = state.db.fleet_state(op_id)?;
+    let mut vistos: HashSet<i64> = HashSet::new();
+    let mut cambios = 0i64;
+    let mut sistemas: HashSet<i64> = HashSet::new();
+
+    for m in &miembros {
+        vistos.insert(m.character_id);
+        if let Some(sys) = m.solar_system_id {
+            sistemas.insert(sys);
+        }
+        let nuevo = crate::db::FleetMemberState {
+            ship_type_id: m.ship_type_id,
+            system_id: m.solar_system_id,
+            station_id: m.station_id,
+            wing_id: m.wing_id,
+            squad_id: m.squad_id,
+            role: m.role.clone(),
+            present: true,
+        };
+        match previo.get(&m.character_id) {
+            // Sin cambios: solo se refresca `last_seen`. Escribir un evento aquí sería guardar el
+            // sondeo, que es justo lo que no queremos.
+            Some(ant) if *ant == nuevo => {
+                state.db.fleet_touch(op_id, m.character_id)?;
+            }
+            otro => {
+                // El TIPO de cambio se nombra, porque «cambió algo» no sirve para nada al releerlo.
+                let kind = match otro {
+                    None => "join",
+                    Some(a) if !a.present => "join",
+                    Some(a) if a.ship_type_id != nuevo.ship_type_id => "ship",
+                    Some(a) if a.system_id != nuevo.system_id => "move",
+                    Some(a) if a.station_id.is_none() && nuevo.station_id.is_some() => "dock",
+                    Some(a) if a.station_id.is_some() && nuevo.station_id.is_none() => "undock",
+                    _ => "squad",
+                };
+                state
+                    .db
+                    .fleet_event(op_id, m.character_id, kind, &nuevo, m.join_time.as_deref())?;
+                cambios += 1;
+            }
+        }
+    }
+    // Quien estaba y ya no está. Se escribe como evento `leave` conservando su último estado
+    // conocido: es lo último que sabemos de él, no un hueco.
+    for (cid, ant) in previo.iter() {
+        if ant.present && !vistos.contains(cid) {
+            let mut fuera = ant.clone();
+            fuera.present = false;
+            state.db.fleet_event(op_id, *cid, "leave", &fuera, None)?;
+            cambios += 1;
+        }
+    }
+
+    // Alas y escuadrones: la mejor fuente de ROL que existe, porque la escribe el FC. Best-effort —
+    // si falla, la grabación sigue: los nombres son un lujo y el roster no.
+    let (sw, bw) = esi_get(&http, &valid.access_token, &format!("/fleets/{fleet_id}/wings/")).await;
+    if sw == 200 {
+        let alas: Vec<AlaRaw> = serde_json::from_str(&bw).unwrap_or_default();
+        for a in alas {
+            if let Some(n) = a.name.as_deref() {
+                state.db.fleet_wing_name(op_id, a.id, 0, n)?;
+            }
+            for sq in a.squads {
+                if let Some(n) = sq.name.as_deref() {
+                    state.db.fleet_wing_name(op_id, a.id, sq.id, n)?;
+                }
+            }
+        }
+    }
+
+    let ticks = state.db.fleet_tick(op_id)?;
+    Ok(OpEstado {
+        op_id,
+        fleet_id,
+        boss_id,
+        grabando: true,
+        miembros: miembros.len() as i64,
+        cambios,
+        sistemas: sistemas.len() as i64,
+        ticks,
+        aviso: None,
+    })
+}
+
+/// Cierra la grabación a mano.
+#[tauri::command]
+pub fn fleet_op_stop(op_id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.fleet_op_close(op_id)
+}
+
+/// ¿Hay algo grabando ahora mismo? Lo pregunta el frontend al arrancar: si Koru se cerró a mitad de
+/// una op, la grabación sigue abierta y hay que retomarla en vez de perderla.
+#[tauri::command]
+pub fn fleet_op_activa(state: State<'_, AppState>) -> AppResult<Option<(i64, i64, i64)>> {
+    state.db.fleet_op_abierta()
+}
+
 // ---- CON QUIÉN VUELAS (deducido de los killmails; sin scope de flotas y RETROACTIVO) ----
 
 /// Un compañero de vuelo: alguien que aparece como atacante en TUS kills.
@@ -9943,9 +10231,14 @@ pub struct Wingmate {
     /// días es alguien con quien vuelas. Sin esto, una sola noche de flota de 200 Ravens llenaba la
     /// tabla de desconocidos con números altísimos.
     pub dias: i64,
-    /// La nave que más le has visto pilotar en esos kills, y cuántas veces.
+    /// La nave que más le has visto pilotar en esos kills.
     pub ship_type_id: Option<i64>,
     pub ship_name: Option<String>,
+    /// ★ Y la que llevabas TÚ en esos mismos kills. Puesta al lado de la suya, la pareja cuenta el
+    /// papel de cada uno: «él en Guardian y yo en Ferox» es una flota de línea con su logi; «los dos
+    /// en Maledictions» es otra cosa completamente distinta.
+    pub mi_ship_type_id: Option<i64>,
+    pub mi_ship_name: Option<String>,
     pub first_seen: Option<String>,
     pub last_seen: Option<String>,
 }
@@ -10050,6 +10343,10 @@ pub async fn get_wingmates(
         corp: Option<i64>,
         alli: Option<i64>,
         naves: HashMap<i64, i64>,
+        /// Las naves que llevabas TÚ en esos kills. Es un contador aparte y no «la nave del sujeto»
+        /// a secas porque en global pueden ir varios alts en el mismo kill, cada uno en algo
+        /// distinto: se cuentan todas, que es lo que de verdad llevabas.
+        mis_naves: HashMap<i64, i64>,
         primero: Option<String>,
         ultimo: Option<String>,
     }
@@ -10096,6 +10393,24 @@ pub async fn get_wingmates(
             }
         }
         kills_mirados += 1;
+        // Con qué ibas TÚ en este kill. Con un personaje elegido es SU nave y solo la suya; en
+        // global se cuentan las de todos tus alts que estuvieran —cada una una vez—, porque en
+        // global «tu nave» es legítimamente varias.
+        let mis_naves_aqui: Vec<i64> = {
+            let mut v: Vec<i64> = km
+                .attackers
+                .iter()
+                .filter(|a| match (a.character_id, character_id) {
+                    (Some(c), Some(cid)) => c == cid,
+                    (Some(c), None) => own.contains(&c),
+                    _ => false,
+                })
+                .filter_map(|a| a.ship_type_id)
+                .collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
         if let Some(ref d) = killed_at {
             if desde.as_ref().map(|x| d < x).unwrap_or(true) {
                 desde = Some(d.clone());
@@ -10126,6 +10441,7 @@ pub async fn get_wingmates(
                 corp: None,
                 alli: None,
                 naves: HashMap::new(),
+                mis_naves: HashMap::new(),
                 primero: None,
                 ultimo: None,
             });
@@ -10156,6 +10472,9 @@ pub async fn get_wingmates(
             if let Some(s) = a.ship_type_id {
                 *e.naves.entry(s).or_insert(0) += 1;
             }
+            for s in &mis_naves_aqui {
+                *e.mis_naves.entry(*s).or_insert(0) += 1;
+            }
         }
     }
 
@@ -10185,6 +10504,9 @@ pub async fn get_wingmates(
         if let Some((&s, _)) = e.naves.iter().max_by_key(|(_, &n)| n) {
             ids.insert(s);
         }
+        if let Some((&s, _)) = e.mis_naves.iter().max_by_key(|(_, &n)| n) {
+            ids.insert(s);
+        }
     }
     let names = state
         .esi
@@ -10196,6 +10518,7 @@ pub async fn get_wingmates(
         .into_iter()
         .map(|(cid, e)| {
             let nave = e.naves.iter().max_by_key(|(_, &n)| n).map(|(&s, _)| s);
+            let mi_nave = e.mis_naves.iter().max_by_key(|(_, &n)| n).map(|(&s, _)| s);
             Wingmate {
                 character_id: cid,
                 name: names.get(&cid).cloned(),
@@ -10206,6 +10529,8 @@ pub async fn get_wingmates(
                 dias: e.dias.len() as i64,
                 ship_type_id: nave,
                 ship_name: nave.and_then(|s| names.get(&s).cloned()),
+                mi_ship_type_id: mi_nave,
+                mi_ship_name: mi_nave.and_then(|s| names.get(&s).cloned()),
                 first_seen: e.primero,
                 last_seen: e.ultimo,
             }

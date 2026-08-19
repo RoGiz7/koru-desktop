@@ -210,6 +210,9 @@ export function WingmatesView(props: {
                   compañero de vuelo de alguien que estuvo en la misma op enorme una noche. */}
               <th>{tr("Días juntos")}</th>
               <th>{tr("Kills juntos")}</th>
+              {/* Las dos naves JUNTAS y en este orden. Separadas por otras columnas se leerían como
+                  dos datos sueltos; pegadas cuentan el papel de cada uno en la misma frase. */}
+              <th>{tr("Tu nave")}</th>
               <th>{tr("Su nave habitual")}</th>
               <th>{tr("Desde")}</th>
               <th>{tr("Última vez")}</th>
@@ -246,6 +249,19 @@ export function WingmatesView(props: {
                 >
                   {m.kills}
                   {m.dias === 1 && m.kills > 10 && <span className="prod-falta"> ·1d</span>}
+                </td>
+                <td>
+                  {m.mi_ship_type_id && (
+                    <img
+                      className="wm-ship"
+                      src={typeIcon(m.mi_ship_type_id, 32) ?? undefined}
+                      alt=""
+                      width={20}
+                      height={20}
+                      loading="lazy"
+                    />
+                  )}
+                  {m.mi_ship_name ?? "—"}
                 </td>
                 <td>
                   {m.ship_type_id && (

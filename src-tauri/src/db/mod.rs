@@ -406,6 +406,93 @@ impl Db {
              CREATE INDEX IF NOT EXISTS idx_aev_type ON asset_event(type_id);
              CREATE INDEX IF NOT EXISTS idx_aev_loc  ON asset_event(location_id);",
         );
+        // GRABADOR DE FLOTAS. Idea de RoGiz7 (2026-08-19): en vez de deducir con quién vuelas y en
+        // qué papel a partir de los killmails, **grabar la flota mientras la mandas**.
+        //
+        // ★ POR QUÉ ESTO Y NO LOS KILLMAILS: **los logi NO SALEN en los killmails.** Es una
+        //   limitación conocida del juego —un piloto que solo repara nunca aparece como atacante—,
+        //   así que cualquier ficha de «quién vuela conmigo y en qué papel» construida sobre
+        //   killmails se equivoca, y se equivoca justo con el rol más difícil de cubrir: el tío que
+        //   lleva dos años aprendiendo a llevar Guardian parecería alguien que dejó de volar en
+        //   2024. Grabando el roster, los logi y los ojos están ahí POR CONSTRUCCIÓN.
+        //
+        // ★ SOLO FUNCIONA SIENDO FC, y hay que decirlo en pantalla: la sonda del 2026-08-19
+        //   demostró que `/fleets/{id}/members/` **solo lo lee el boss** (a un miembro le devuelve
+        //   404, ni siquiera 403 — le oculta que la flota exista).
+        //
+        // ★ SE GRABA CON UN BOTÓN, NO SOLO. Decisión suya, y es la correcta: «mejor ser explícitos».
+        //   Aquí se guardan las POSICIONES DE OTRAS PERSONAS a lo largo del tiempo, que es el dato
+        //   más sensible que Koru va a tener nunca. Empezar a registrarlo porque sí, solo porque la
+        //   app estaba abierta, sería otra cosa distinta de una herramienta.
+        //
+        // ## Las tres tablas y por qué son tres
+        // 1) `fleet_op` — la op. Una fila por grabación.
+        // 2) `fleet_member_state` — el ESTADO actual de cada miembro (una fila por persona y op).
+        //    Existe para poder DIFERENCIAR sin guardar en memoria: si Koru se cierra a mitad de una
+        //    op y vuelve, sigue sabiendo cómo estaba cada uno y no reescribe la op entera.
+        // 3) `fleet_member_event` — LOS CAMBIOS. **No los sondeos.** Cincuenta pilotos sondeados
+        //    cada 30 s durante tres horas son 18.000 filas para dibujar exactamente la misma línea;
+        //    guardando solo cuando alguien cambia de nave o de sistema quedan unos cientos. Misma
+        //    regla que `pi_storage_daily` y que `asset_event`.
+        // 4) `fleet_wing` — los nombres de alas y escuadrones. **Es la mejor fuente de ROL que hay**,
+        //    mejor que deducirlo del casco: si el FC llama «Logi» a un escuadrón, eso no es una
+        //    inferencia de Koru, es su intención declarada. Renombrar crea fila nueva (va en la PK),
+        //    igual que reprogramar un extractor en `pi_program`.
+        //
+        // Y la regla de siempre: **un hueco es CEGUERA, no quietud.** Si Koru se cerró media hora,
+        // esa media hora no es «la flota no se movió»; las vistas deben decirlo.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS fleet_op (
+                 op_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                 fleet_id     INTEGER NOT NULL,
+                 boss_id      INTEGER NOT NULL,   -- cual de TUS personajes la mandaba
+                 name         TEXT,               -- se lo pones tu; ESI no da nombre de flota
+                 started_at   TEXT NOT NULL,
+                 ended_at     TEXT,               -- NULL = grabando ahora mismo
+                 last_tick    TEXT,               -- ultimo sondeo con exito: delata la ceguera
+                 ticks        INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX IF NOT EXISTS idx_fop_start ON fleet_op(started_at);
+             CREATE TABLE IF NOT EXISTS fleet_member_state (
+                 op_id        INTEGER NOT NULL,
+                 character_id INTEGER NOT NULL,
+                 ship_type_id INTEGER,
+                 system_id    INTEGER,
+                 station_id   INTEGER,            -- solo si esta atracado
+                 wing_id      INTEGER,
+                 squad_id     INTEGER,
+                 role         TEXT,
+                 joined_at    TEXT,               -- join_time de ESI: cuando entro en la flota
+                 first_seen   TEXT NOT NULL,      -- cuando lo vio la grabacion
+                 last_seen    TEXT NOT NULL,
+                 present      INTEGER NOT NULL DEFAULT 1,  -- 0 = ya no esta en la flota
+                 PRIMARY KEY (op_id, character_id)
+             );
+             CREATE TABLE IF NOT EXISTS fleet_member_event (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 op_id        INTEGER NOT NULL,
+                 character_id INTEGER NOT NULL,
+                 at           TEXT NOT NULL,      -- cuando lo VIO Koru, no cuando ocurrio
+                 kind         TEXT NOT NULL,      -- join | ship | move | dock | undock | leave
+                 ship_type_id INTEGER,
+                 system_id    INTEGER,
+                 station_id   INTEGER,
+                 wing_id      INTEGER,
+                 squad_id     INTEGER,
+                 role         TEXT
+             );
+             CREATE INDEX IF NOT EXISTS idx_fme_op   ON fleet_member_event(op_id);
+             CREATE INDEX IF NOT EXISTS idx_fme_at   ON fleet_member_event(at);
+             CREATE INDEX IF NOT EXISTS idx_fme_char ON fleet_member_event(character_id);
+             CREATE TABLE IF NOT EXISTS fleet_wing (
+                 op_id     INTEGER NOT NULL,
+                 wing_id   INTEGER NOT NULL,
+                 squad_id  INTEGER NOT NULL,      -- 0 = es el ala, no un escuadron
+                 name      TEXT NOT NULL,
+                 seen_at   TEXT NOT NULL,
+                 PRIMARY KEY (op_id, wing_id, squad_id, name)
+             );",
+        );
         // EL MOTOR HUMANO (N1 de documentacion/SPEC_MOTOR_HUMANO.md). Todo lo demás que guarda Koru
         // lo genera el juego; esto lo escribe el jugador, y es lo único que ESI no puede contradecir.
         //
@@ -985,6 +1072,19 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+}
+
+/// Estado de un miembro dentro de una op grabada. Lo comparte `db` con los comandos para poder
+/// DIFERENCIAR: lo que se guarda es el cambio, no el sondeo.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FleetMemberState {
+    pub ship_type_id: Option<i64>,
+    pub system_id: Option<i64>,
+    pub station_id: Option<i64>,
+    pub wing_id: Option<i64>,
+    pub squad_id: Option<i64>,
+    pub role: Option<String>,
+    pub present: bool,
 }
 
 // --- Trabajos de industria acumulados (ver el porqué del esquema en `open`) ---
@@ -2759,6 +2859,199 @@ impl Db {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    // ---- Grabador de flotas (ver el porqué del esquema en `open`) ----
+
+    /// Abre una grabación y devuelve su `op_id`.
+    pub fn fleet_op_open(&self, fleet_id: i64, boss_id: i64, name: Option<&str>) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let ahora = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO fleet_op (fleet_id, boss_id, name, started_at) VALUES (?1,?2,?3,?4)",
+            rusqlite::params![fleet_id, boss_id, name, ahora],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Cierra la grabación. Idempotente: cerrar dos veces no reescribe la hora de la primera.
+    pub fn fleet_op_close(&self, op_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE fleet_op SET ended_at = ?2 WHERE op_id = ?1 AND ended_at IS NULL",
+            rusqlite::params![op_id, chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// La grabación abierta, si la hay. Solo puede haber UNA a la vez: dos grabando en paralelo
+    /// duplicarían el sondeo y ninguna de las dos contaría la op entera.
+    pub fn fleet_op_abierta(&self) -> AppResult<Option<(i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT op_id, fleet_id, boss_id FROM fleet_op WHERE ended_at IS NULL
+              ORDER BY op_id DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query([])?;
+        if let Some(r) = rows.next()? {
+            Ok(Some((r.get(0)?, r.get(1)?, r.get(2)?)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Estado actual de los miembros de una grabación (para diferenciar en el siguiente sondeo).
+    ///
+    /// Se lee de la BD y no de memoria a propósito: si Koru se cierra a mitad de una op y vuelve,
+    /// la grabación continúa donde estaba en vez de reescribir a todo el mundo como si acabara de
+    /// entrar. El hueco queda declarado por `last_tick`, que es lo honesto.
+    #[allow(clippy::type_complexity)]
+    pub fn fleet_state(&self, op_id: i64) -> AppResult<HashMap<i64, FleetMemberState>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT character_id, ship_type_id, system_id, station_id, wing_id, squad_id, role,
+                    present
+               FROM fleet_member_state WHERE op_id = ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![op_id], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                FleetMemberState {
+                    ship_type_id: r.get(1)?,
+                    system_id: r.get(2)?,
+                    station_id: r.get(3)?,
+                    wing_id: r.get(4)?,
+                    squad_id: r.get(5)?,
+                    role: r.get(6)?,
+                    present: r.get::<_, i64>(7)? != 0,
+                },
+            ))
+        })?;
+        let mut m = HashMap::new();
+        for row in rows {
+            let (k, v) = row?;
+            m.insert(k, v);
+        }
+        Ok(m)
+    }
+
+    /// Escribe un cambio: el evento + el estado nuevo. Los dos juntos porque son la misma verdad
+    /// vista de dos formas, y dejarlos separados abriría la puerta a un estado que no cuadra con su
+    /// propio histórico.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fleet_event(
+        &self,
+        op_id: i64,
+        character_id: i64,
+        kind: &str,
+        s: &FleetMemberState,
+        joined_at: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let ahora = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO fleet_member_event
+               (op_id, character_id, at, kind, ship_type_id, system_id, station_id, wing_id,
+                squad_id, role)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            rusqlite::params![
+                op_id,
+                character_id,
+                ahora,
+                kind,
+                s.ship_type_id,
+                s.system_id,
+                s.station_id,
+                s.wing_id,
+                s.squad_id,
+                s.role
+            ],
+        )?;
+        conn.execute(
+            "INSERT INTO fleet_member_state
+               (op_id, character_id, ship_type_id, system_id, station_id, wing_id, squad_id, role,
+                joined_at, first_seen, last_seen, present)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11)
+             ON CONFLICT(op_id, character_id) DO UPDATE SET
+                ship_type_id = excluded.ship_type_id,
+                system_id    = excluded.system_id,
+                station_id   = excluded.station_id,
+                wing_id      = excluded.wing_id,
+                squad_id     = excluded.squad_id,
+                role         = excluded.role,
+                joined_at    = COALESCE(fleet_member_state.joined_at, excluded.joined_at),
+                last_seen    = excluded.last_seen,
+                present      = excluded.present",
+            rusqlite::params![
+                op_id,
+                character_id,
+                s.ship_type_id,
+                s.system_id,
+                s.station_id,
+                s.wing_id,
+                s.squad_id,
+                s.role,
+                joined_at,
+                ahora,
+                if s.present { 1 } else { 0 }
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Solo toca `last_seen`: el miembro sigue igual. No escribe evento — eso es un sondeo, no un
+    /// cambio, y guardarlo llenaría la tabla de filas idénticas.
+    pub fn fleet_touch(&self, op_id: i64, character_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE fleet_member_state SET last_seen = ?3
+              WHERE op_id = ?1 AND character_id = ?2",
+            rusqlite::params![op_id, character_id, chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// Marca el sondeo con éxito. `ticks` y `last_tick` son los que permiten enseñar la ceguera:
+    /// una op de 3 horas con 12 sondeos es una op que se grabó a medias, y hay que poder decirlo.
+    pub fn fleet_tick(&self, op_id: i64) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE fleet_op SET last_tick = ?2, ticks = ticks + 1 WHERE op_id = ?1",
+            rusqlite::params![op_id, chrono::Utc::now().to_rfc3339()],
+        )?;
+        let n: i64 = conn.query_row(
+            "SELECT ticks FROM fleet_op WHERE op_id = ?1",
+            rusqlite::params![op_id],
+            |r| r.get(0),
+        )?;
+        Ok(n)
+    }
+
+    /// Nombres de alas y escuadrones. `INSERT OR IGNORE`: la PK lleva el nombre, así que renombrar
+    /// un ala a mitad de op crea fila nueva y el histórico conserva los dos — como `pi_program`.
+    pub fn fleet_wing_name(
+        &self,
+        op_id: i64,
+        wing_id: i64,
+        squad_id: i64,
+        name: &str,
+    ) -> AppResult<()> {
+        if name.trim().is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO fleet_wing (op_id, wing_id, squad_id, name, seen_at)
+             VALUES (?1,?2,?3,?4,?5)",
+            rusqlite::params![
+                op_id,
+                wing_id,
+                squad_id,
+                name,
+                chrono::Utc::now().to_rfc3339()
+            ],
+        )?;
+        Ok(())
     }
 
     /// Igual que `killmails_raw` pero con la FECHA, y **siempre de todos los personajes**.

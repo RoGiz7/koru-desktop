@@ -393,6 +393,10 @@ export type Wingmate = {
   dias: number;
   ship_type_id: number | null;
   ship_name: string | null;
+  /** Con qué ibas TÚ en esos mismos kills. Al lado de la suya, la pareja cuenta el papel de cada
+   *  uno: «él en Guardian y tú en Ferox» no es lo mismo que «los dos en Maledictions». */
+  mi_ship_type_id: number | null;
+  mi_ship_name: string | null;
   first_seen: string | null;
   last_seen: string | null;
 };

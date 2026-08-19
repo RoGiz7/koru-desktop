@@ -6,6 +6,7 @@ export type Tab =
   | "actividad"
   | "rivales"
   | "vuelas"
+  | "flotas"
   | "batallas"
   | "cazador"
   | "mapa"
@@ -102,9 +103,6 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "actividad", label: "Actividad", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "rivales", label: "Rivales", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "batallas", label: "Batallas", scopes: ["esi-killmails.read_killmails.v1"] },
-      // «Con quién vuelas» sale de los MISMOS killmails que Rivales — es su espejo—, así que vive
-      // aquí y depende del mismo scope. NO necesita el de flotas: ese solo lo puede usar el FC.
-      { key: "vuelas", label: "Con quién vuelas", scopes: ["esi-killmails.read_killmails.v1"] },
       // Cazador: análisis de hostiles desde el intel local (no depende de scopes ESI).
       { key: "cazador", label: "Cazador" },
     ],
@@ -155,6 +153,22 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "naves", label: "Tus naves", scopes: ["esi-assets.read_assets.v1"] },
       // T1b: la pregunta gemela — qué COSAS tienes y dónde, con sus m³. Con las dos sale T3.
       { key: "inventario", label: "Qué tienes y dónde", scopes: ["esi-assets.read_assets.v1"] },
+    ],
+  },
+  {
+    // FLOTAS: espacio propio desde el primer día, y por la regla de la casa — cada actividad con su
+    // sección, sin enterrar features en pestañas de otra cosa. Aquí acaban las dos caras de la misma
+    // pregunta: con quién has volado (deducido de los killmails, retroactivo) y con quién vuelas
+    // AHORA (grabado mientras mandas, que es lo único que ve a los logi).
+    group: "Flotas",
+    icon: "🛰",
+    // Skillbook «Fleet Command» (24764), verificado en market_types.json. Un casco habría sido más
+    // vistoso, pero una Damnation es amarr y con doce temas de facción elegir nave es tomar partido
+    // — mismo criterio que Comercio, que lleva el skillbook de Trade y no una nave.
+    typeId: 24764,
+    subs: [
+      { key: "flotas", label: "Grabar una op", scopes: ["esi-fleets.read_fleet.v1"] },
+      { key: "vuelas", label: "Con quién vuelas", scopes: ["esi-killmails.read_killmails.v1"] },
     ],
   },
   {
@@ -288,6 +302,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   actividad: { title: "Actividad", subtitle: "Actividad diaria y horas calientes (UTC EVE)" },
   rivales: { title: "Rivales", subtitle: "A quién matas y quién te mata (por personaje y corp)" },
   vuelas: { title: "Con quién vuelas", subtitle: "Quién aparece contigo en tus kills, y en bandas de cuántos" },
+  flotas: { title: "Flotas", subtitle: "Graba la composición y el movimiento de la flota que mandas" },
   batallas: { title: "Batallas", subtitle: "Concentraciones de killmails por sistema y momento" },
   cazador: { title: "Cazador", subtitle: "Fichas de hostiles del intel: horas activas, sistemas, naves y rastro" },
   patrimonio: { title: "Patrimonio", subtitle: "Líquido + valor de assets y su evolución en el tiempo" },

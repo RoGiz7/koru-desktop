@@ -25,6 +25,7 @@ import { ResumenView } from "./resumen";
 import { ActividadView } from "./actividad";
 import { IndustryView } from "./industry";
 import { BattlesView, RivalsView, WingmatesView } from "./rivals";
+import { FlotasView, TICK_SEG, type OpEstado } from "./flotas";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
@@ -1367,6 +1368,94 @@ function App() {
     }
   }
 
+  /* ---- GRABADOR DE FLOTAS ----
+   *
+   *  El intervalo vive AQUÍ y no en la sección a propósito: una grabación no puede pararse porque
+   *  el usuario se vaya a mirar el mapa — que además es justo lo que va a hacer durante una op.
+   *  Si Koru se cierra, el sondeo para y el hueco queda declarado en `ticks`, que es lo honesto:
+   *  fingir que se grabó lo que no se miró sería peor que el hueco. */
+  const [opEstado, setOpEstado] = useState<OpEstado | null>(null);
+  const [opBusy, setOpBusy] = useState(false);
+  const [opErr, setOpErr] = useState<string | null>(null);
+
+  // Al arrancar: ¿quedó una grabación abierta? Si Koru se cerró a mitad de una op, la op sigue viva
+  // y hay que retomarla, no perderla.
+  useEffect(() => {
+    invoke<[number, number, number] | null>("fleet_op_activa")
+      .then((a) => {
+        if (!a) return;
+        const [op_id, fleet_id, boss_id] = a;
+        setOpEstado({
+          op_id,
+          fleet_id,
+          boss_id,
+          grabando: true,
+          miembros: 0,
+          cambios: 0,
+          sistemas: 0,
+          ticks: 0,
+          aviso: null,
+        });
+      })
+      .catch((e) => console.warn("fleet_op_activa", e));
+  }, []);
+
+  useEffect(() => {
+    if (!opEstado?.grabando) return;
+    const op = opEstado.op_id;
+    let vivo = true;
+    const tic = async () => {
+      try {
+        const r = await invoke<OpEstado>("fleet_op_tick", { opId: op });
+        if (!vivo) return;
+        setOpEstado(r);
+        setOpErr(null);
+      } catch (e) {
+        // NO se traga: un sondeo que falla en silencio deja una grabación que parece viva y está
+        // muerta. Se enseña y se sigue intentando — un fallo de red no debe cerrar la op.
+        if (vivo) setOpErr(String(e));
+      }
+    };
+    void tic(); // primer sondeo ya, para que la sección no nazca vacía
+    const id = window.setInterval(tic, TICK_SEG * 1000);
+    return () => {
+      vivo = false;
+      window.clearInterval(id);
+    };
+    // Solo depende del id de la op: meter `opEstado` entero reiniciaría el intervalo en cada sondeo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opEstado?.op_id, opEstado?.grabando]);
+
+  async function opStart(characterId: number, name: string) {
+    setOpBusy(true);
+    setOpErr(null);
+    try {
+      setOpEstado(
+        await invoke<OpEstado>("fleet_op_start", {
+          characterId,
+          name: name || null,
+        }),
+      );
+    } catch (e) {
+      setOpErr(String(e));
+    } finally {
+      setOpBusy(false);
+    }
+  }
+
+  async function opStop() {
+    if (!opEstado) return;
+    setOpBusy(true);
+    try {
+      await invoke("fleet_op_stop", { opId: opEstado.op_id });
+      setOpEstado({ ...opEstado, grabando: false });
+    } catch (e) {
+      setOpErr(String(e));
+    } finally {
+      setOpBusy(false);
+    }
+  }
+
   /** Recarga «Con quién vuelas» con otra ventana.
    *
    *  Existe en vez de dejar que lo haga el efecto de la sección por una razón concreta: `loadTab`
@@ -2618,6 +2707,17 @@ function App() {
             />
           )}
           {tab === "rivales" && <RivalsView data={rivalsData} busy={sectionBusy} />}
+          {tab === "flotas" && (
+            <FlotasView
+              characters={characters}
+              subject={subject}
+              estado={opEstado}
+              onStart={opStart}
+              onStop={opStop}
+              busy={opBusy}
+              error={opErr}
+            />
+          )}
           {tab === "vuelas" && (
             <WingmatesView
               data={wingData}

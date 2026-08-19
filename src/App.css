@@ -9122,3 +9122,64 @@ h4 {
   vertical-align: middle;
   margin-right: 0.35rem;
 }
+
+/* ---------- Flotas · grabador ---------- */
+.flt-limite,
+.flt-privacidad {
+  border-left: 2px solid var(--border);
+  padding-left: 0.6rem;
+  max-width: 62rem;
+  line-height: 1.45;
+}
+/* La privacidad en ámbar: no es una advertencia de peligro, es algo que hay que saber ANTES de
+   pulsar. Rojo asustaría; gris se leería como pie de página. */
+.flt-privacidad {
+  border-left-color: var(--warn, #d29922);
+  margin-top: 1.4rem;
+}
+.flt-arranque {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+.flt-arranque input[type="text"] {
+  min-width: 16rem;
+}
+.flt-rec {
+  font-size: 1.02rem;
+  padding: 0.55rem 1.1rem;
+}
+.flt-grabando {
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-2);
+}
+.flt-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+/* Punto rojo que late: es el lenguaje universal de «esto está grabando», y aquí importa que se vea
+   desde lejos — se está registrando a otras personas. */
+.flt-punto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5534b;
+  animation: flt-latido 1.6s ease-in-out infinite;
+}
+@keyframes flt-latido {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.flt-aviso {
+  color: var(--warn, #d29922);
+}
+.flt-vacio {
+  padding: 1rem 0;
+}
