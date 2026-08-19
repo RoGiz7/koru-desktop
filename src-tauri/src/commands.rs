@@ -7418,6 +7418,12 @@ fn mostrar_overlay(app: &tauri::AppHandle) {
         // Son el mismo: la posición se pedía sobre una ventana OCULTA y no sobrevivía, y al arrancar
         // no la pedía nadie. Colocar justo antes del `show()` arregla los tres de una vez, porque
         // es el único instante en que la ventana va a existir de verdad en pantalla.
+        // El ORDEN importa: primero el tamaño y luego la esquina, porque colocar usa el tamaño
+        // para calcular el punto de anclaje. Al revés, una ventana anclada abajo o a la derecha
+        // aparecería descolocada justo el pico que haya cambiado de alto.
+        if let Some(h) = OVERLAY_ALTO.lock().ok().and_then(|g| *g) {
+            let _ = w.set_size(tauri::LogicalSize::new(430.0, h));
+        }
         if let Some((monitor, corner, margin)) = colocacion_guardada() {
             aplicar_colocacion(&w, monitor, &corner, margin);
         }
@@ -10587,6 +10593,17 @@ pub struct MonitorInfo {
 /// justo lo que suele acabar en «cambié la opción y no cambió nada».
 static OVERLAY_POS: std::sync::Mutex<Option<(usize, String, i32)>> = std::sync::Mutex::new(None);
 
+/// Último alto pedido por `overlay_fit`, en píxeles LÓGICOS.
+///
+/// ⚠️ Existe por el mismo motivo que `OVERLAY_POS`, y la pista la dio el tester de Linux: en su
+/// máquina la ventana se quedaba en 200 px con una tarjeta de 80 —hueco transparente de sobra—
+/// mientras que en Windows se ciñe perfecta. Misma medida del DOM, distinto resultado.
+/// La sospecha, con precedente en esta misma semana: **pedir geometría sobre una ventana OCULTA no
+/// sobrevive**. El primer aviso mide y pide tamaño antes de que la ventana esté en pantalla, y ahí
+/// se pierde; después el observador de tamaño solo vuelve a actuar si el contenido CAMBIA de alto,
+/// así que nadie lo reintenta nunca.
+static OVERLAY_ALTO: std::sync::Mutex<Option<f64>> = std::sync::Mutex::new(None);
+
 fn colocacion_guardada() -> Option<(usize, String, i32)> {
     OVERLAY_POS.lock().ok().and_then(|g| g.clone())
 }
@@ -10725,6 +10742,11 @@ pub fn overlay_fit(
     // ventana invisible o tapando la pantalla, y el jugador no tendría forma de arreglarlo.
     let h = height.clamp(60.0, 900.0);
     let ancho = 430.0;
+    // Se RECUERDA aunque la ventana esté oculta: es lo que permite volver a aplicarlo justo antes
+    // de enseñarla, que es el único momento en que el tamaño se queda de verdad.
+    if let Ok(mut g) = OVERLAY_ALTO.lock() {
+        *g = Some(h);
+    }
     let _ = w.set_size(tauri::LogicalSize::new(ancho, h));
 
     // ⚠️ La posición se calcula con el tamaño que ACABAMOS de pedir, NO releyendo `outer_size()`.
