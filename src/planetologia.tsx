@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
 import { fmtSp, fmtIsk, typeIcon } from "./format";
-import { Kpi } from "./charts";
+import { Kpi, MultiLineProgress, DONUT_COLORS } from "./charts";
 import type { Planet, PlanetDetail, PlanetPin, PiSchematic } from "./types";
 
 /** Horas hasta una fecha ISO (negativo = pasado). null si no hay fecha. */
@@ -119,11 +119,15 @@ export function PlanetologiaView({
   planets,
   busy,
   syncTick,
+  subject,
 }: {
   planets: Planet[] | null;
   busy: boolean;
   /// Latido de App: cada auto-sync refresca detalles (ETag: los 304 son gratis).
   syncTick?: number;
+  /// Personaje activo o "global". El histórico se pide por personaje; las colonias ya vienen
+  /// filtradas de App, pero `get_pi_history` necesita saberlo explícitamente.
+  subject?: number | "global";
 }) {
   const [details, setDetails] = useState<Map<string, PlanetDetail>>(new Map());
   const [schematics, setSchematics] = useState<Record<string, PiSchematic>>({});
@@ -430,6 +434,13 @@ export function PlanetologiaView({
         })}
       </div>
 
+      <PiHistorico
+        subject={subject}
+        planets={planets}
+        schematics={schematics}
+        p0table={p0table}
+      />
+
       <ChainsExplorer
         schematics={schematics}
         p0table={p0table}
@@ -444,6 +455,215 @@ export function PlanetologiaView({
         onTarget={setPlanTarget}
       />
     </>
+  );
+}
+
+/* ---------- R1d: el HISTÓRICO de la PI (la película, no la foto) ---------- */
+
+type PiProgramRow = {
+  character_id: number;
+  planet_id: number;
+  system_id: number;
+  planet_type: string | null;
+  product_type_id: number | null;
+  qty_per_cycle: number | null;
+  cycle_time: number | null;
+  install_time: string;
+  expiry_time: string | null;
+};
+type PiHistory = {
+  programs: PiProgramRow[];
+  /** (día, type_id, unidades) — lo que había en los almacenes ese día. */
+  storage: [string, number, number][];
+  total_programs: number;
+  since: string | null;
+};
+
+/** Nombre de un producto de PI. Los fabricados salen del esquema (con traducción); los 15 P0 solo
+ *  tienen nombre inglés en nuestros datos — fleco conocido, no un fallo de aquí. */
+function nombrePi(
+  tid: number,
+  schematics: SchemRec,
+  outIdx: Map<number, string>,
+  p0table: P0Planets | null,
+): string {
+  const sid = outIdx.get(tid);
+  if (sid && schematics[sid]) {
+    const v = schematics[sid];
+    return getLang() === "es" ? v.n.es : v.n.en;
+  }
+  return p0table?.p0[String(tid)]?.en ?? String(tid);
+}
+
+/**
+ * **Histórico de PI** — lo que las colonias han estado haciendo, no solo lo que hacen ahora.
+ *
+ * ## Por qué hay dos cosas distintas aquí y no una
+ * La PI **no tiene log de eventos** en ESI: solo dice cómo está la colonia en este instante. Por eso
+ * se guardan dos series con granularidades distintas, y significan cosas distintas:
+ * - **Programas** = EVENTOS. Cada vez que reprogramas un extractor nace una fila. Es el histórico
+ *   REAL de qué extraías y a qué ritmo, y no depende de con qué frecuencia se sondee.
+ * - **Almacén** = NIVEL, una foto al día. Sube al extraer y **baja al lanzar a la aduana**, así que
+ *   ⚠️ **la diferencia entre dos días NO es lo que produjiste**. Es el saldo, como una cuenta
+ *   corriente. Aquí se enseña como saldo y en ningún sitio se le llama producción.
+ *
+ * ## La ceguera, otra vez
+ * Un día sin fila no es «almacén vacío», es «Koru no estaba abierto». Por eso el eje del gráfico son
+ * los **días observados** y no un calendario: dibujar los huecos como si fueran ceros convertiría
+ * cada fin de semana sin jugar en un desplome que nunca ocurrió.
+ */
+function PiHistorico({
+  subject,
+  planets,
+  schematics,
+  p0table,
+}: {
+  subject?: number | "global";
+  planets: Planet[] | null;
+  schematics: SchemRec;
+  p0table: P0Planets | null;
+}) {
+  const [hist, setHist] = useState<PiHistory | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [abierto, setAbierto] = useState(false);
+
+  useEffect(() => {
+    setHist(null);
+    setErr(null);
+    invoke<PiHistory>("get_pi_history", {
+      characterId: subject === "global" || subject == null ? null : subject,
+      limit: 1000,
+    })
+      .then(setHist)
+      .catch((e) => setErr(String(e)));
+  }, [subject]);
+
+  const outIdx = useMemo(() => buildOutIndex(schematics), [schematics]);
+
+  /** system_id → nombre, de las colonias que tienes AHORA. Un programa de una colonia que ya
+   *  abandonaste no resuelve: se enseña el id en vez de inventarse un nombre. */
+  const sysName = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of planets ?? []) if (p.system_name) m.set(p.system_id, p.system_name);
+    return m;
+  }, [planets]);
+
+  /** La serie del almacén, pivotada: un día por columna, un producto por línea. */
+  const serie = useMemo(() => {
+    if (!hist || hist.storage.length === 0) return null;
+    const dias = [...new Set(hist.storage.map((s) => s[0]))].sort();
+    const idx = new Map(dias.map((d, i) => [d, i]));
+    const porTipo = new Map<number, number[]>();
+    let total = 0;
+    for (const [dia, tid, q] of hist.storage) {
+      const arr = porTipo.get(tid) ?? new Array(dias.length).fill(0);
+      arr[idx.get(dia) as number] = q;
+      porTipo.set(tid, arr);
+      total += q;
+    }
+    // Los que más pesan primero; el resto se quedan fuera del gráfico para que se lea algo.
+    const orden = [...porTipo.entries()].sort(
+      (a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0),
+    );
+    return { dias, orden, total };
+  }, [hist]);
+
+  if (err) return <p className="small fits-err">{tr("Histórico de PI")}: {err}</p>;
+  if (!hist || hist.total_programs === 0) return null;
+
+  const desde = hist.since ? hist.since.slice(0, 10) : null;
+  const diasObservados = serie?.dias.length ?? 0;
+  const programas = [...hist.programs].sort(
+    (a, b) => Date.parse(b.install_time) - Date.parse(a.install_time),
+  );
+
+  return (
+    <section className="pi-hist">
+      <h3>{tr("Histórico de la PI")}</h3>
+      {desde && (
+        <p className="small muted prod-ceguera">
+          {tr("Koru guarda esto desde el")} <strong>{desde}</strong>.{" "}
+          {tr("Un día sin datos no es un almacén vacío: es que Koru no estaba abierto.")}
+        </p>
+      )}
+
+      <div className="kpis">
+        <Kpi label={tr("Programas registrados")} value={fmtSp(hist.total_programs)} />
+        <Kpi label={tr("Días observados")} value={fmtSp(diasObservados)} />
+        <Kpi
+          label={tr("Colonias que aparecen")}
+          value={fmtSp(new Set(hist.programs.map((p) => p.planet_id)).size)}
+        />
+      </div>
+
+      {serie && serie.dias.length > 1 && (
+        <>
+          <h4>{tr("Lo que había en los almacenes")}</h4>
+          <MultiLineProgress
+            labels={serie.dias.map((d) => d.slice(5))}
+            series={serie.orden.slice(0, 8).map(([tid, values], i) => ({
+              name: nombrePi(tid, schematics, outIdx, p0table),
+              color: DONUT_COLORS[i % DONUT_COLORS.length],
+              values,
+            }))}
+            fmt={fmtSp}
+            /* Recta y no spline: son UNIDADES enteras, y la curva suave dibujaría existencias
+               intermedias que nunca hubo. Misma regla que las gráficas de ratas. */
+            straight
+          />
+          <p className="small muted">
+            {tr(
+              "Es el SALDO de cada día, no la producción: sube al extraer y baja al lanzar a la aduana. El eje son los días con datos, no un calendario.",
+            )}
+          </p>
+        </>
+      )}
+
+      <button className="prod-fold" onClick={() => setAbierto((v) => !v)}>
+        {abierto
+          ? tr("Ocultar los programas")
+          : `${tr("Ver los")} ${fmtSp(programas.length)} ${tr("programas de extracción")}`}
+      </button>
+      {abierto && (
+        <table className="km-table">
+          <thead>
+            <tr>
+              <th>{tr("Programado")}</th>
+              <th>{tr("Sistema")}</th>
+              <th>{tr("Producto")}</th>
+              <th>{tr("Ritmo")}</th>
+              <th>{tr("Caducó")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {programas.slice(0, 200).map((p) => {
+              const ritmo =
+                p.qty_per_cycle && p.cycle_time
+                  ? `${fmtSp(Math.round((p.qty_per_cycle * 3600) / p.cycle_time))}/h`
+                  : "—";
+              return (
+                <tr key={`${p.planet_id}:${p.install_time}`}>
+                  <td>{p.install_time.slice(0, 16).replace("T", " ")}</td>
+                  <td>{sysName.get(p.system_id) ?? p.system_id}</td>
+                  <td>
+                    {p.product_type_id
+                      ? nombrePi(p.product_type_id, schematics, outIdx, p0table)
+                      : "—"}
+                  </td>
+                  {/* El ritmo es el que ESI declaró AL INSTALARLO. En el juego el extractor rinde
+                      menos según avanza el programa, así que esto es el ritmo de partida y no un
+                      promedio: multiplicarlo por la duración daría de más. */}
+                  <td title={tr("Ritmo declarado al instalar el programa, no promedio del ciclo.")}>
+                    {ritmo}
+                  </td>
+                  <td>{p.expiry_time ? p.expiry_time.slice(0, 16).replace("T", " ") : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
 

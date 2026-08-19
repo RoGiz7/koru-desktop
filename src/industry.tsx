@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
 import { fmtSp, fmtIsk, bpIcon, typeIcon } from "./format";
-import { Kpi } from "./charts";
+import { Kpi, Bars } from "./charts";
 // F-REACCIONES / F4a — «de dónde traerlo»: grafo real de New Eden + BFS de saltos, los mismos que
 // usa el mapa. Nada de estimaciones por distancia en píxeles.
 import { loadNewEden } from "./neweden";
@@ -821,6 +821,7 @@ export function IndustryView(props: {
   return (
     <>
       <JobsBlock jobs={props.jobs} busy={props.busy} global={props.global} />
+      <ProduccionBlock subject={props.subject} global={props.global} />
       <FacilitiesBlock onChange={() => setFacsVersion((v) => v + 1)} />
       <BlueprintLibrary
         subject={props.subject}
@@ -919,6 +920,458 @@ function JobsBlock({
         </table>
       )}
     </>
+  );
+}
+
+/* ---------- F3: PRODUCCIÓN (el histórico que ESI ya no te devuelve) ---------- */
+
+/** Una fila de `industry_job`, vestida por `get_industry_history`. */
+type JobHistoryRow = {
+  job_id: number;
+  character_id: number;
+  activity: string;
+  runs: number;
+  successful_runs: number | null;
+  probability: number | null;
+  cost: number | null;
+  status: string | null;
+  blueprint_name: string | null;
+  blueprint_type_id: number;
+  product_name: string | null;
+  product_type_id: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  completed_date: string | null;
+};
+type JobHistory = { jobs: JobHistoryRow[]; total: number; since: string | null };
+
+/** Actividades cuyo producto es un OBJETO con precio de mercado. Las demás sacan BPCs (invención,
+ *  copia) o no sacan nada (ME/TE), y **un BPC no tiene valor en Koru en ninguna sección** — es la
+ *  regla que pidió RoGiz7 y aquí sale gratis: valorar una copia por el precio del objeto que
+ *  fabricaría convertiría un plano de 50 M en cincuenta millones que no tienes. */
+const ACT_CON_PRODUCTO = new Set(["Manufacturing", "Reactions"]);
+
+/** ¿La diferencia entre lo esperado y lo conseguido cabe en el azar? Una desviación típica es el
+ *  listón deliberadamente BAJO: si ni siquiera lo pasa, no hay nada que contar. Con σ = 0 (un solo
+ *  trabajo, o probabilidad 0/1) se considera normal — no hay variación de la que hablar. */
+function normal(inv: { exitos: number; esperados: number; sigma: number }): boolean {
+  return inv.sigma <= 0 || Math.abs(inv.exitos - inv.esperados) <= inv.sigma;
+}
+
+/** El día (YYYY-MM-DD) en que un trabajo cuenta como producido: cuando se recogió, y si no, cuando
+ *  terminó el reloj. `first_seen` NO vale — es cuándo lo vio Koru, no cuándo pasó. */
+function diaDeJob(j: JobHistoryRow): string | null {
+  const d = j.completed_date ?? j.end_date;
+  return d ? d.slice(0, 10) : null;
+}
+
+/** ¿El producto de este trabajo EXISTE ya?
+ *
+ * ⚠️ Esto no es un detalle: sin ello, «unidades producidas» sumaba lo que aún está en el horno y el
+ * titular de la sección mentía por lo que tuvieras lanzado en ese momento. `delivered` es entregado
+ * y `ready` es terminado sin recoger — en los dos casos el objeto ya se fabricó. `active` y
+ * `paused` todavía no, y `cancelled`/`reverted` no llegaron a existir.
+ *
+ * Se es CONSERVADOR con el estado tal cual lo dijo ESI la última vez: si un trabajo acabó hace una
+ * hora pero el último sync lo vio `active`, no cuenta. Preferimos quedarnos cortos a inventarnos
+ * una entrega mirando el reloj. */
+function haSalido(j: JobHistoryRow): boolean {
+  return j.status === "delivered" || j.status === "ready";
+}
+
+/**
+ * F3 — **Producción**: lo que ha salido del horno, con el dinero que ESI solo enseña una vez.
+ *
+ * ## Por qué existe y por qué llega tarde
+ * `industry_job` se llena desde el 2026-08-06 porque ESI mira **90 días atrás y ni uno más**: lo
+ * que no se guardara en esa ventana se perdía para siempre, así que se guardó antes de que hubiera
+ * ninguna pantalla que lo enseñara. Esta es esa pantalla.
+ *
+ * ## ⚠️ LO QUE ESTA VISTA **NO** DICE, y se dice en alto
+ * **No es tu beneficio.** ESI no ata los materiales a un trabajo: sabe que fabricaste 100 obuses y
+ * lo que pagaste de TASA, pero no de dónde salió el tritanio ni a cómo. Restar solo la tasa daría
+ * un «beneficio» inflado que parecería un dato. Así que aquí hay tres cifras separadas y ninguna
+ * pretende ser la cuarta: lo que salió (a precio de mercado), lo que costó instalarlo, y desde
+ * cuándo se mira.
+ *
+ * ## La joya: esperanza contra realidad en invención
+ * Es lo único de todo esto que se puede afirmar **sin ninguna estimación**, porque ESI da los dos
+ * lados: la probabilidad que declaró al instalar cada trabajo y cuántas carreras salieron bien. Y
+ * va con su desviación típica, porque con pocos intentos «vas por debajo» no significa nada — la
+ * binomial se mueve mucho, y un panel que grite mala suerte con 12 intentos estaría mintiendo con
+ * aritmética correcta.
+ */
+function ProduccionBlock({
+  subject,
+  global,
+}: {
+  subject: number | "global";
+  global?: boolean;
+}) {
+  const [hist, setHist] = useState<JobHistory | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [ind, setInd] = useState<BpIndustry | null>(null);
+  const [precios, setPrecios] = useState<Record<number, number>>({});
+  const [nombres, setNombres] = useState<Record<number, string>>({});
+  const [act, setAct] = useState<string>("all");
+  const [dias, setDias] = useState<number>(0); // 0 = todo lo que haya
+  const [abierto, setAbierto] = useState(false);
+
+  useEffect(() => {
+    setHist(null);
+    setErr(null);
+    invoke<JobHistory>("get_industry_history", {
+      characterId: subject === "global" ? null : subject,
+      limit: 2000,
+    })
+      .then(setHist)
+      // Sin `catch` esto sería un bloque que no aparece nunca y nadie sabría por qué. La regla del
+      // overlay: si algo se rechaza, que se vea.
+      .catch((e) => setErr(String(e)));
+  }, [subject]);
+
+  useEffect(() => {
+    fetch("/bp_industry.json").then((r) => r.json()).then(setInd).catch(() => setInd({}));
+    invoke<{ character_id: number; name: string }[]>("list_characters")
+      .then((cs) => setNombres(Object.fromEntries(cs.map((c) => [c.character_id, c.name]))))
+      .catch(() => setNombres({}));
+  }, []);
+
+  // Precios SOLO de los productos que de verdad salieron. `get_type_prices` no toca la red (lee
+  // `average_price` ya guardado), así que abrir la sección no dispara una ráfaga a ESI.
+  useEffect(() => {
+    if (!hist) return;
+    const ids = [
+      ...new Set(
+        hist.jobs
+          .filter((j) => ACT_CON_PRODUCTO.has(j.activity) && j.product_type_id)
+          .map((j) => j.product_type_id as number),
+      ),
+    ];
+    if (ids.length === 0) return;
+    invoke<Record<number, number>>("get_type_prices", { ids })
+      .then(setPrecios)
+      .catch(() => setPrecios({}));
+  }, [hist]);
+
+  /** Unidades que salen de UNA carrera de este plano. Sin esto se valoraría por carreras y un
+   *  plano de munición (200 por carrera) se quedaría corto por dos órdenes de magnitud. */
+  function porCarrera(j: JobHistoryRow): number | null {
+    const e = ind?.[String(j.blueprint_type_id)];
+    const a = j.activity === "Reactions" ? e?.r : e?.m;
+    const q = a?.out?.[0]?.[1];
+    return typeof q === "number" && q > 0 ? q : null;
+  }
+
+  const filtradas = useMemo(() => {
+    if (!hist) return [];
+    const corte = dias > 0 ? Date.now() - dias * 86400000 : 0;
+    return hist.jobs.filter((j) => {
+      if (act !== "all" && j.activity !== act) return false;
+      if (corte > 0) {
+        const d = diaDeJob(j);
+        if (!d || Date.parse(`${d}T00:00:00Z`) < corte) return false;
+      }
+      return true;
+    });
+  }, [hist, act, dias]);
+
+  /** Valor de lo producido y qué parte de él es una estimación coja. `sinPrecio` y `sinPlano` se
+   *  CUENTAN en vez de tratarse como ceros: un total al que le faltan cosas y no lo dice es peor
+   *  que no dar total. */
+  const eco = useMemo(() => {
+    let valor = 0;
+    let tasas = 0;
+    let unidades = 0;
+    let sinPrecio = 0;
+    let sinPlano = 0;
+    let enElHorno = 0;
+    const porProducto = new Map<string, number>();
+    const porPersonaje = new Map<number, number>();
+    for (const j of filtradas) {
+      // La TASA se paga al instalar, así que cuenta aunque el trabajo siga corriendo o lo cancelaras.
+      // El VALOR no: eso solo existe cuando el objeto existe.
+      tasas += j.cost ?? 0;
+      if (!ACT_CON_PRODUCTO.has(j.activity) || !j.product_type_id) continue;
+      if (!haSalido(j)) {
+        if (j.status === "active" || j.status === "paused") enElHorno++;
+        continue;
+      }
+      const uds = porCarrera(j);
+      if (uds === null) {
+        sinPlano++;
+        continue;
+      }
+      const p = precios[j.product_type_id];
+      const n = j.runs * uds;
+      unidades += n;
+      if (!p) {
+        sinPrecio++;
+        continue;
+      }
+      const v = n * p;
+      valor += v;
+      const k = j.product_name ?? String(j.product_type_id);
+      porProducto.set(k, (porProducto.get(k) ?? 0) + v);
+      porPersonaje.set(j.character_id, (porPersonaje.get(j.character_id) ?? 0) + v);
+    }
+    return { valor, tasas, unidades, sinPrecio, sinPlano, enElHorno, porProducto, porPersonaje };
+  }, [filtradas, precios, ind]);
+
+  /** ★ Invención: lo declarado contra lo salido. Sin estimar nada — los dos lados son de ESI.
+   *  σ es la binomial (Σ n·p·(1−p)): sirve para saber si la diferencia es suerte o es un dato. */
+  const inv = useMemo(() => {
+    // Solo trabajos TERMINADOS: un intento en curso no ha fallado, todavía no ha pasado nada. Meterlo
+    // contaría como fracaso lo que aún no ha ocurrido y hundiría la tasa real sin motivo.
+    const j = filtradas.filter(
+      (x) =>
+        x.activity === "Invention" &&
+        x.probability != null &&
+        x.successful_runs != null &&
+        haSalido(x),
+    );
+    let intentos = 0;
+    let esperados = 0;
+    let varianza = 0;
+    let exitos = 0;
+    for (const x of j) {
+      const p = x.probability as number;
+      intentos += x.runs;
+      esperados += x.runs * p;
+      varianza += x.runs * p * (1 - p);
+      exitos += x.successful_runs as number;
+    }
+    const sigma = Math.sqrt(varianza);
+    return { trabajos: j.length, intentos, esperados, exitos, sigma };
+  }, [filtradas]);
+
+  const actividades = useMemo(
+    () => [...new Set((hist?.jobs ?? []).map((j) => j.activity))],
+    [hist],
+  );
+
+  if (err) return <p className="small fits-err">{tr("Producción")}: {err}</p>;
+  if (!hist) return null;
+
+  const desde = hist.since ? hist.since.slice(0, 10) : null;
+  const ordenadas = [...filtradas].sort(
+    (a, b) => Date.parse(diaDeJob(b) ?? "0") - Date.parse(diaDeJob(a) ?? "0"),
+  );
+
+  return (
+    <section className="prod-block">
+      <h4>
+        {tr("Producción")}{" "}
+        <span className="muted small">{tr("(lo que ya salió del horno)")}</span>
+      </h4>
+
+      {hist.total === 0 ? (
+        <p className="muted small">
+          {tr(
+            "Todavía no hay ningún trabajo guardado. Koru empieza a grabar en cuanto lances el primero; ESI solo mira 90 días atrás, así que lo de antes ya no está.",
+          )}
+        </p>
+      ) : (
+        <>
+          {/* LA CEGUERA, ARRIBA Y NO EN UN PIE. Un histórico que empieza el 6 de agosto y no lo
+              dice se lee como «antes no fabricaste nada», que es falso. */}
+          {desde && (
+            <p className="small muted prod-ceguera">
+              {tr("Koru guarda esto desde el")} <strong>{desde}</strong>.{" "}
+              {tr("Lo anterior no es un cero: es que no se miraba.")}
+            </p>
+          )}
+
+          <div className="kpis">
+            <Kpi label={tr("Trabajos guardados")} value={fmtSp(filtradas.length)} />
+            <Kpi label={tr("Unidades producidas")} value={fmtSp(eco.unidades)} />
+            <Kpi
+              label={tr("Valor a precio medio")}
+              value={fmtIsk(eco.valor)}
+              tone={eco.valor > 0 ? "pos" : undefined}
+            />
+            <Kpi label={tr("Tasas de instalación")} value={fmtIsk(eco.tasas)} tone="neg" />
+          </div>
+
+          {/* ⚠️ EL AVISO QUE HACE HONESTA A ESTA PANTALLA. Va junto a los números, no escondido:
+              quien vea «valor 200 M» y «tasas 3 M» va a restar mentalmente, y esa resta está mal. */}
+          <p className="small muted prod-aviso">
+            {tr(
+              "Esto NO es tu beneficio: faltan los materiales. ESI no dice qué material entró en cada trabajo ni a qué precio lo compraste, así que Koru no se lo inventa. El valor está a precio MEDIO de New Eden, que no es lo que tú venderías en tu hub.",
+            )}
+            {(eco.sinPrecio > 0 || eco.sinPlano > 0 || eco.enElHorno > 0) && (
+              <>
+                {" "}
+                <span className="prod-falta">
+                  {[
+                    eco.enElHorno > 0 &&
+                      `${fmtSp(eco.enElHorno)} ${tr("todavía en marcha")}`,
+                    eco.sinPrecio > 0 &&
+                      `${fmtSp(eco.sinPrecio)} ${tr("sin precio conocido")}`,
+                    eco.sinPlano > 0 && `${fmtSp(eco.sinPlano)} ${tr("sin plano en los datos")}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  {` — ${tr("no entran en el total")}.`}
+                </span>
+              </>
+            )}
+          </p>
+
+          <div className="rateo-controls">
+            <div className="seg seg-sm">
+              <button className={dias === 0 ? "active" : ""} onClick={() => setDias(0)}>
+                {tr("Todo")}
+              </button>
+              <button className={dias === 30 ? "active" : ""} onClick={() => setDias(30)}>
+                {tr("30 días")}
+              </button>
+              <button className={dias === 7 ? "active" : ""} onClick={() => setDias(7)}>
+                {tr("7 días")}
+              </button>
+            </div>
+            {actividades.length > 1 && (
+              <div className="seg seg-sm">
+                <button className={act === "all" ? "active" : ""} onClick={() => setAct("all")}>
+                  {tr("Todas")}
+                </button>
+                {actividades.map((a) => (
+                  <button key={a} className={act === a ? "active" : ""} onClick={() => setAct(a)}>
+                    {a}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ★ INVENCIÓN: lo único aquí que no lleva ni una estimación. */}
+          {inv.trabajos > 0 && (
+            <div className="prod-inv">
+              <h5>{tr("Invención: lo que decía la ficha y lo que salió")}</h5>
+              <div className="kpis">
+                <Kpi label={tr("Intentos")} value={fmtSp(inv.intentos)} />
+                <Kpi label={tr("Esperados")} value={inv.esperados.toFixed(1)} />
+                {/* ⚠️ SIN COLOR mientras la diferencia quepa en la variación normal. Pintar de rojo
+                    «14 conseguidos de 15,2 esperados» es exactamente la superstición que este
+                    panel existe para evitar: con 30 intentos eso pasa la mitad de las veces. */}
+                <Kpi
+                  label={tr("Conseguidos")}
+                  value={fmtSp(inv.exitos)}
+                  tone={
+                    !normal(inv) ? (inv.exitos > inv.esperados ? "pos" : "neg") : undefined
+                  }
+                />
+                <Kpi
+                  label={tr("Tasa real")}
+                  value={
+                    inv.intentos > 0 ? `${((inv.exitos / inv.intentos) * 100).toFixed(1)} %` : "—"
+                  }
+                />
+              </div>
+              <p className="small muted">
+                {normal(inv)
+                  ? tr(
+                      "Dentro de lo normal: la diferencia cabe en la variación esperada de ±SIGMA éxitos. Con estos números no se puede hablar de buena ni de mala suerte.",
+                    ).replace("SIGMA", inv.sigma.toFixed(1))
+                  : tr(
+                      "La diferencia se sale de la variación esperada (±SIGMA éxitos), pero hacen falta cientos de intentos para que eso signifique algo más que una racha.",
+                    ).replace("SIGMA", inv.sigma.toFixed(1))}
+              </p>
+            </div>
+          )}
+
+          {eco.porProducto.size > 0 && (
+            <>
+              <h5>{tr("Qué has producido, por valor")}</h5>
+              <Bars
+                items={[...eco.porProducto.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 10)
+                  .map(([label, value]) => ({ label, value }))}
+                fmt={fmtIsk}
+              />
+            </>
+          )}
+
+          {global && eco.porPersonaje.size > 1 && (
+            <>
+              <h5>{tr("Quién produce")}</h5>
+              <Bars
+                items={[...eco.porPersonaje.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([cid, value]) => ({ label: nombres[cid] ?? String(cid), value }))}
+                fmt={fmtIsk}
+                color="#7ad17a"
+              />
+            </>
+          )}
+
+          <button className="prod-fold" onClick={() => setAbierto((v) => !v)}>
+            {abierto
+              ? tr("Ocultar el detalle")
+              : `${tr("Ver los")} ${fmtSp(ordenadas.length)} ${tr("trabajos")}`}
+          </button>
+          {abierto && (
+            <table className="km-table">
+              <thead>
+                <tr>
+                  <th>{tr("Día")}</th>
+                  {global && <th>{tr("Personaje")}</th>}
+                  <th>{tr("Actividad")}</th>
+                  <th>{tr("Producto / Blueprint")}</th>
+                  <th>{tr("Runs")}</th>
+                  <th>{tr("Estado")}</th>
+                  <th>{tr("Tasa")}</th>
+                  <th>{tr("Valor")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ordenadas.slice(0, 300).map((j) => {
+                  const uds = porCarrera(j);
+                  const p = j.product_type_id ? precios[j.product_type_id] : undefined;
+                  const conValor =
+                    ACT_CON_PRODUCTO.has(j.activity) && haSalido(j) && uds !== null && p;
+                  return (
+                    <tr key={j.job_id}>
+                      <td>{diaDeJob(j) ?? "—"}</td>
+                      {global && <td>{nombres[j.character_id] ?? "—"}</td>}
+                      <td>{j.activity}</td>
+                      <td>{j.product_name ?? j.blueprint_name ?? "—"}</td>
+                      <td>
+                        {j.runs}
+                        {uds !== null && uds > 1 && (
+                          <span className="muted small"> × {fmtSp(uds)}</span>
+                        )}
+                      </td>
+                      <td>{j.status ?? "—"}</td>
+                      <td>{j.cost ? fmtIsk(j.cost) : "—"}</td>
+                      <td
+                        title={
+                          conValor
+                            ? undefined
+                            : !ACT_CON_PRODUCTO.has(j.activity)
+                              ? tr("Lo que sale de aquí es un BPC, y un BPC no tiene valor en Koru.")
+                              : !haSalido(j)
+                                ? tr("Todavía no ha salido del horno.")
+                                : tr("Sin precio o sin plano para valorarlo.")
+                        }
+                      >
+                        {conValor ? fmtIsk(j.runs * (uds as number) * (p as number)) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {abierto && ordenadas.length > 300 && (
+            <p className="small muted">
+              {tr("Se enseñan los 300 más recientes de")} {fmtSp(ordenadas.length)}.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

@@ -1340,6 +1340,8 @@ fn scopes_for_feature(feature: &str) -> Vec<String> {
         "location" => config::scopes::LOCATION,
         // Campañas Militares fase 2 (contribución personal). Suelto para no exigir el set entero.
         "actividad" => config::scopes::ACTIVIDAD,
+        // Sonda de flotas (ver el porqué en `config::scopes::FLOTA`). Suelto y fuera del set.
+        "flota" => config::scopes::FLOTA,
         "core" => {
             return config::scopes::core_v1()
                 .iter()
@@ -9822,6 +9824,10 @@ pub struct JobHistoryRow {
     pub cost: Option<f64>,
     pub status: Option<String>,
     pub blueprint_name: Option<String>,
+    /// Hace falta en la vista: sin el plano no se sabe **cuántas unidades sale cada carrera**, y
+    /// valorar un trabajo por `runs` en vez de por unidades producidas se queda corto por un factor
+    /// que puede ser de 100 (un plano de munición). El dato sale de `bp_industry.json`.
+    pub blueprint_type_id: i64,
     pub product_name: Option<String>,
     pub product_type_id: Option<i64>,
     pub start_date: Option<String>,
@@ -9879,6 +9885,7 @@ pub async fn get_industry_history(
             cost: r.cost,
             status: r.status,
             blueprint_name: names.get(&r.blueprint_type_id).cloned(),
+            blueprint_type_id: r.blueprint_type_id,
             product_name: r.product_type_id.and_then(|p| names.get(&p).cloned()),
             product_type_id: r.product_type_id,
             start_date: r.start_date,
@@ -9915,6 +9922,553 @@ pub async fn get_pi_history(
         storage,
         total_programs,
         since,
+    })
+}
+
+// ---- CON QUIÉN VUELAS (deducido de los killmails; sin scope de flotas y RETROACTIVO) ----
+
+/// Un compañero de vuelo: alguien que aparece como atacante en TUS kills.
+#[derive(Debug, Serialize)]
+pub struct Wingmate {
+    pub character_id: i64,
+    pub name: Option<String>,
+    pub corporation_id: Option<i64>,
+    pub alliance_id: Option<i64>,
+    /// Kills en los que estuvisteis los dos.
+    pub kills: i64,
+    /// De esos, cuántos fueron en banda pequeña (≤ `BANDA_PEQUENA` atacantes).
+    pub kills_banda: i64,
+    /// ★ DÍAS DISTINTOS en que volasteis juntos. Es la cifra que separa a un compañero de una
+    /// coincidencia: 227 kills en UN día es una op enorme donde estabais los dos; 40 kills en 18
+    /// días es alguien con quien vuelas. Sin esto, una sola noche de flota de 200 Ravens llenaba la
+    /// tabla de desconocidos con números altísimos.
+    pub dias: i64,
+    /// La nave que más le has visto pilotar en esos kills, y cuántas veces.
+    pub ship_type_id: Option<i64>,
+    pub ship_name: Option<String>,
+    pub first_seen: Option<String>,
+    pub last_seen: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Wingmates {
+    pub mates: Vec<Wingmate>,
+    /// Compañeros DISTINTOS que han salido, antes de recortar la lista al top.
+    ///
+    /// ⚠️ Existe porque `mates.len()` mentía: la UI enseñaba «40 compañeros distintos» y 40 era el
+    /// límite de la lista, no la cuenta. Un número recortado que se presenta como un total es peor
+    /// que no dar el total — parecía un dato y era el tamaño de la tabla.
+    pub total_mates: i64,
+    /// Kills tuyos que se han mirado (los que tienen JSON completo).
+    pub kills_mirados: i64,
+    /// De esos, cuántos fueron en solitario: no dan compañeros y explican un ranking corto.
+    pub kills_solo: i64,
+    /// El más antiguo que se ha mirado: la ceguera, otra vez. Antes de esto no es que volaras solo.
+    pub desde: Option<String>,
+    /// Umbral de «banda pequeña», para que la UI lo diga en vez de esconderlo.
+    pub banda_pequena: i64,
+    /// Kills tuyos que quedaron FUERA de la ventana pedida. Sin esto, acotar a un año se lee como
+    /// «solo has hecho 300 kills en tu vida».
+    pub kills_fuera: i64,
+}
+
+/// Umbral de «banda pequeña». Es ARBITRARIO y por eso viaja hasta la pantalla en vez de quedarse
+/// aquí: sirve para separar a quien vuela contigo de quien estaba en el mismo blob, no para
+/// establecer una verdad. En una pelea de 200, doscientos azules «vuelan contigo».
+const BANDA_PEQUENA: usize = 5;
+
+/// Campos que hacen falta de cada parte del killmail. `KmParty` no vale: no trae la nave.
+#[derive(serde::Deserialize)]
+struct KmAtacante {
+    #[serde(default)]
+    character_id: Option<i64>,
+    #[serde(default)]
+    corporation_id: Option<i64>,
+    #[serde(default)]
+    alliance_id: Option<i64>,
+    #[serde(default)]
+    ship_type_id: Option<i64>,
+}
+#[derive(serde::Deserialize)]
+struct KmAtacantes {
+    #[serde(default)]
+    attackers: Vec<KmAtacante>,
+}
+
+/// **Con quién vuelas**, sacado de los killmails que ya tienes guardados.
+///
+/// ## Por qué de aquí y no de `/fleets/`
+/// La sonda de flotas contestó (2026-08-19) que **el roster solo lo lee el FC**: a un miembro ESI le
+/// devuelve 404. Así que ESI no puede decir con quién volabas — ni hoy ni, mucho menos, en 2019.
+/// Pero **quien comparte killmail contigo estaba contigo**, y el JSON entero está en `killmails.raw`
+/// desde el primer día. Esto es el espejo de Rivales: allí los atacantes de tus PÉRDIDAS son
+/// enemigos; aquí los de tus KILLS, quitando los tuyos, son compañeros.
+///
+/// ## Las tres honestidades
+/// 1. **La banda.** Estar en el mismo killmail que 200 personas no es volar con ellas. Por eso cada
+///    compañero lleva **cuántos de esos kills fueron en banda pequeña**, y el umbral se enseña.
+/// 2. **Tus propios personajes NO entran en el ranking.** Con 9 alts en multibox coparían el podio y
+///    taparían a la gente. La cuenta de kills compartidos entre los tuyos es otra pregunta.
+/// 3. **La ceguera.** Se devuelve `desde`: antes de esa fecha no es que volaras solo, es que no hay
+///    killmails guardados.
+///
+/// `character_id` = None → todos tus personajes juntos.
+/// `desde_dias` = None → todo el histórico. Con ventana, la tabla pasa a significar «con quién
+/// vuelas AHORA» en vez de mezclar 2008 con 2026 en la misma columna de totales.
+#[tauri::command]
+pub async fn get_wingmates(
+    character_id: Option<i64>,
+    limit: Option<i64>,
+    desde_dias: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<Wingmates> {
+    use std::collections::{HashMap, HashSet};
+
+    // ⚠️ La ventana se corta por la parte de FECHA (`YYYY-MM-DD`), no comparando cadenas enteras ni
+    // milisegundos. `killed_at` es texto RFC3339 y no todas las fuentes lo escriben igual
+    // (`...Z` vs `...+00:00`), así que comparar la cadena completa puede fallar en silencio. Es el
+    // mismo tropiezo que dejó un disparador mudo para siempre en el motor humano.
+    let corte: Option<String> = desde_dias.map(|d| {
+        (chrono::Utc::now() - chrono::Duration::days(d.max(1)))
+            .format("%Y-%m-%d")
+            .to_string()
+    });
+
+    let own: HashSet<i64> = state
+        .db
+        .list_characters()?
+        .into_iter()
+        .map(|c| c.character_id)
+        .collect();
+
+    struct Acc {
+        kills: i64,
+        banda: i64,
+        /// Días distintos (`YYYY-MM-DD`). Un conjunto y no un contador: el mismo día aparece una vez
+        /// por cada kill de esa noche, y sumarlos daría otra vez la cuenta de kills.
+        dias: HashSet<String>,
+        corp: Option<i64>,
+        alli: Option<i64>,
+        naves: HashMap<i64, i64>,
+        primero: Option<String>,
+        ultimo: Option<String>,
+    }
+    let mut acc: HashMap<i64, Acc> = HashMap::new();
+    let mut kills_mirados = 0i64;
+    let mut kills_solo = 0i64;
+    let mut kills_fuera = 0i64;
+    let mut desde: Option<String> = None;
+
+    for (is_loss, killed_at, raw) in state.db.killmails_raw_dated()? {
+        // En una PÉRDIDA tuya los atacantes son los enemigos. Mezclarlas invertiría el significado
+        // del ranking entero y nadie lo notaría: los nombres seguirían siendo plausibles.
+        if is_loss {
+            continue;
+        }
+        let km: KmAtacantes = match serde_json::from_str(&raw) {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+        // ¿Estaba el sujeto en este kill? Se mira en los ATACANTES, no en la columna de la tabla:
+        // ver el porqué en `killmails_raw_dated`.
+        let mios: Vec<i64> = km
+            .attackers
+            .iter()
+            .filter_map(|a| a.character_id)
+            .filter(|c| own.contains(c))
+            .collect();
+        match character_id {
+            Some(cid) if !mios.contains(&cid) => continue,
+            None if mios.is_empty() => continue,
+            _ => {}
+        }
+        // La ventana se aplica AQUÍ, después de saber que el kill es tuyo. Filtrar antes haría que
+        // «kills fuera» contase también los de otros personajes, y el número diría otra cosa de la
+        // que dice su etiqueta.
+        if let Some(ref c) = corte {
+            let dentro = killed_at
+                .as_deref()
+                .map(|k| k.len() >= 10 && &k[..10] >= c.as_str())
+                .unwrap_or(false);
+            if !dentro {
+                kills_fuera += 1;
+                continue;
+            }
+        }
+        kills_mirados += 1;
+        if let Some(ref d) = killed_at {
+            if desde.as_ref().map(|x| d < x).unwrap_or(true) {
+                desde = Some(d.clone());
+            }
+        }
+        let banda = km.attackers.len();
+        // Solo = nadie más que tú (o que los tuyos). No es un caso raro y explica rankings cortos.
+        let ajenos: Vec<&KmAtacante> = km
+            .attackers
+            .iter()
+            .filter(|a| a.character_id.map(|c| !own.contains(&c)).unwrap_or(false))
+            .collect();
+        if ajenos.is_empty() {
+            kills_solo += 1;
+            continue;
+        }
+        // Dedup por killmail: un atacante puede aparecer dos veces (nave y dron/estructura).
+        let mut vistos: HashSet<i64> = HashSet::new();
+        for a in ajenos {
+            let Some(c) = a.character_id else { continue };
+            if !vistos.insert(c) {
+                continue;
+            }
+            let e = acc.entry(c).or_insert_with(|| Acc {
+                kills: 0,
+                banda: 0,
+                dias: HashSet::new(),
+                corp: None,
+                alli: None,
+                naves: HashMap::new(),
+                primero: None,
+                ultimo: None,
+            });
+            e.kills += 1;
+            if banda <= BANDA_PEQUENA {
+                e.banda += 1;
+            }
+            if let Some(k) = killed_at.as_deref() {
+                if k.len() >= 10 {
+                    e.dias.insert(k[..10].to_string());
+                }
+            }
+            // La corp/alianza se quedan con la MÁS RECIENTE que se le vio: la gente cambia de corp,
+            // y enseñar la de 2019 sería un dato viejo con cara de dato actual.
+            if let Some(ref d) = killed_at {
+                if e.ultimo.as_ref().map(|x| d > x).unwrap_or(true) {
+                    e.ultimo = Some(d.clone());
+                    e.corp = a.corporation_id;
+                    e.alli = a.alliance_id;
+                }
+                if e.primero.as_ref().map(|x| d < x).unwrap_or(true) {
+                    e.primero = Some(d.clone());
+                }
+            } else {
+                e.corp = e.corp.or(a.corporation_id);
+                e.alli = e.alli.or(a.alliance_id);
+            }
+            if let Some(s) = a.ship_type_id {
+                *e.naves.entry(s).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // ORDEN: banda pequeña → DÍAS distintos → kills.
+    //
+    // El segundo criterio es el que salvó la tabla. Con solo (banda, kills), una noche de flota de
+    // 200 Ravens llenaba las 40 filas de gente con «0 en banda / 220 kills juntos» y todos con la
+    // misma fecha: 249 kills en 90 días habían producido 752 «compañeros». Ordenar por días
+    // distintos manda arriba a quien vuela contigo MUCHAS VECES y deja abajo al que coincidió una
+    // sola noche, por muchos killmails que saliera esa noche.
+    let mut lista: Vec<(i64, Acc)> = acc.into_iter().collect();
+    // Contar ANTES de recortar: es la diferencia entre «cuánta gente ha volado contigo» y «cuántas
+    // filas caben en la tabla».
+    let total_mates = lista.len() as i64;
+    lista.sort_by(|a, b| {
+        b.1.banda
+            .cmp(&a.1.banda)
+            .then(b.1.dias.len().cmp(&a.1.dias.len()))
+            .then(b.1.kills.cmp(&a.1.kills))
+    });
+    lista.truncate(limit.unwrap_or(40).max(1) as usize);
+
+    // Nombres: los pilotos y sus naves, en una sola resolución.
+    let mut ids: HashSet<i64> = HashSet::new();
+    for (cid, e) in &lista {
+        ids.insert(*cid);
+        if let Some((&s, _)) = e.naves.iter().max_by_key(|(_, &n)| n) {
+            ids.insert(s);
+        }
+    }
+    let names = state
+        .esi
+        .resolve_names(&ids.into_iter().collect::<Vec<_>>())
+        .await
+        .unwrap_or_default();
+
+    let mates = lista
+        .into_iter()
+        .map(|(cid, e)| {
+            let nave = e.naves.iter().max_by_key(|(_, &n)| n).map(|(&s, _)| s);
+            Wingmate {
+                character_id: cid,
+                name: names.get(&cid).cloned(),
+                corporation_id: e.corp,
+                alliance_id: e.alli,
+                kills: e.kills,
+                kills_banda: e.banda,
+                dias: e.dias.len() as i64,
+                ship_type_id: nave,
+                ship_name: nave.and_then(|s| names.get(&s).cloned()),
+                first_seen: e.primero,
+                last_seen: e.ultimo,
+            }
+        })
+        .collect();
+
+    Ok(Wingmates {
+        mates,
+        total_mates,
+        kills_mirados,
+        kills_solo,
+        desde,
+        banda_pequena: BANDA_PEQUENA as i64,
+        kills_fuera,
+    })
+}
+
+// ---- SONDA DE FLOTAS (experimento, no feature) ----
+
+/// Lo que ESI contestó a UNA pregunta. Se guarda el estado y un resumen del cuerpo, no el cuerpo
+/// entero: la lista de miembros lleva los `character_id` de OTRA gente y esto acaba pegado en un
+/// chat. Para decidir el diseño hace falta saber **si se puede leer y qué campos trae**, no quién
+/// estaba en la flota.
+#[derive(Debug, Serialize)]
+pub struct ProbeStep {
+    pub path: String,
+    pub status: u16,
+    /// Resumen legible de la respuesta. Nunca el JSON crudo de los miembros.
+    pub resumen: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FleetProbe {
+    pub character_id: i64,
+    pub steps: Vec<ProbeStep>,
+    /// Lo que se ha OBSERVADO, en una línea. No una conclusión sobre lo que ESI «puede» hacer:
+    /// una sola prueba no demuestra una regla, y este texto se lee como si lo fuera.
+    pub observado: String,
+}
+
+/// Pregunta a ESI las tres cosas que deciden si «Flotas» es posible, y devuelve lo que contestó
+/// **sin interpretarlo**.
+///
+/// Existe por la regla que más cara nos ha salido: no concluir nada que no se haya comprobado. La
+/// pregunta que bloquea el diseño es si `/fleets/{id}/members/` responde a un miembro que NO es el
+/// FC. Si responde, «con quién vuelas» se puede construir sondeando. Si da 403, la única fuente de
+/// «con quién volabas» que tenemos son los killmails, y la idea es otra cosa.
+///
+/// No usa `get_cached` a propósito: una caché de 5 s aquí convertiría un experimento en un
+/// recuerdo, y lo que se quiere ver es el estado HTTP tal cual, incluido el error.
+#[tauri::command]
+pub async fn probe_fleet(character_id: i64, state: State<'_, AppState>) -> AppResult<FleetProbe> {
+    let valid = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await
+        .map_err(|_| AppError::Other("no hay sesión válida para ese personaje".into()))?;
+
+    let http = state.esi.http().clone();
+    let token = valid.access_token.clone();
+    let mut steps: Vec<ProbeStep> = Vec::new();
+
+    // Petición cruda: estado + cuerpo, sin caché y sin que un error se coma el detalle.
+    async fn pedir(
+        http: &reqwest::Client,
+        token: &str,
+        path: &str,
+    ) -> (u16, String) {
+        let url = format!("{}{}", config::ESI_BASE_URL, path);
+        match http
+            .get(&url)
+            .header("X-Compatibility-Date", config::ESI_COMPATIBILITY_DATE)
+            .header("Accept", "application/json")
+            .bearer_auth(token)
+            .send()
+            .await
+        {
+            Ok(r) => {
+                let s = r.status().as_u16();
+                let b = r.text().await.unwrap_or_default();
+                (s, b)
+            }
+            // Un fallo de red no es un 0 de ESI; se marca como 0 y se dice que es de red.
+            Err(e) => (0, format!("error de red: {e}")),
+        }
+    }
+
+    // 1) ¿Estás en flota? 404 aquí NO es un fallo: es la respuesta «no estoy en ninguna».
+    //
+    // ⚠️ EL `character_id` NO SE ENSEÑA. Va en la URL de verdad, pero en el texto que se copia se
+    // sustituye por «tú»: un id de personaje se resuelve a su NOMBRE con una llamada pública a ESI,
+    // así que pegar esto en un foro sería publicar quién eres — justo lo que el alias evita.
+    let p1 = format!("/characters/{character_id}/fleet/");
+    let p1_vis = "/characters/{tú}/fleet/".to_string();
+    let (s1, b1) = pedir(&http, &token, &p1).await;
+    let v1: serde_json::Value = serde_json::from_str(&b1).unwrap_or(serde_json::Value::Null);
+    let fleet_id = v1.get("fleet_id").and_then(|v| v.as_i64());
+    let role = v1
+        .get("role")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?")
+        .to_string();
+    steps.push(ProbeStep {
+        path: p1_vis,
+        status: s1,
+        resumen: match s1 {
+            200 => format!(
+                "en flota · rol: {role} · wing: {} · squad: {}",
+                v1.get("wing_id").and_then(|v| v.as_i64()).unwrap_or(-1),
+                v1.get("squad_id").and_then(|v| v.as_i64()).unwrap_or(-1),
+            ),
+            404 => "no estás en flota ahora mismo (respuesta normal, no un error)".into(),
+            // 401 es lo que devuelve ESI cuando el TOKEN no lleva el scope, y 403 cuando lo lleva
+            // pero no te deja. Son cosas distintas y llevan a pasos distintos: uno se arregla
+            // volviendo a iniciar sesión, el otro no se arregla.
+            401 => "el personaje NO tiene el scope de flotas: hay que concedérselo (login «Flotas»)"
+                .into(),
+            403 => "tiene el scope pero ESI no le deja este recurso".into(),
+            _ => b1.chars().take(300).collect(),
+        },
+    });
+
+    let Some(fid) = fleet_id else {
+        return Ok(FleetProbe {
+            character_id,
+            steps,
+            // Cada final tiene su siguiente paso. «Mira el primer paso» no es una instrucción: el
+            // primer paso es justo lo que el usuario no sabe interpretar.
+            observado: match s1 {
+                404 => "Sin flota: entra en una (aunque sea de dos) y repite la sonda.".into(),
+                401 => "Falta el scope. Márcalo en el portal de desarrollo, espera unos minutos y \
+                        haz el login «Flotas» con este personaje (⚠️ ese login le deja SOLO ese \
+                        scope: hazlo en un alt y luego devuélvele el «Set completo»)."
+                    .into(),
+                _ => format!("Respuesta {s1} al preguntar si estás en flota. No está previsto."),
+            },
+        });
+    };
+
+    // 2) La flota en sí (motd y free-move). Barato y dice si el token vale para el recurso.
+    let p2 = format!("/fleets/{fid}/");
+    let (s2, b2) = pedir(&http, &token, &p2).await;
+    let v2: serde_json::Value = serde_json::from_str(&b2).unwrap_or(serde_json::Value::Null);
+    steps.push(ProbeStep {
+        path: p2,
+        status: s2,
+        resumen: match s2 {
+            200 => format!(
+                "free_move: {} · registered: {} · voice: {} · motd: {} caracteres",
+                v2.get("is_free_move").and_then(|v| v.as_bool()).unwrap_or(false),
+                v2.get("is_registered").and_then(|v| v.as_bool()).unwrap_or(false),
+                v2.get("is_voice_enabled").and_then(|v| v.as_bool()).unwrap_or(false),
+                v2.get("motd").and_then(|v| v.as_str()).unwrap_or("").len(),
+            ),
+            _ => b2.chars().take(300).collect(),
+        },
+    });
+
+    // 3) ★ LA PREGUNTA. Del cuerpo solo sale CUÁNTOS y QUÉ CAMPOS: los `character_id` de los demás
+    //    no hacen falta para decidir el diseño y esto se pega en un chat.
+    //
+    // ⚠️ LOS CAMPOS SE UNEN DE TODOS LOS MIEMBROS, no se leen del primero. Los opcionales solo
+    // aparecen cuando aplican —`station_id` únicamente si ESE miembro está atracado—, así que mirar
+    // solo el primero da una lista incompleta y parece la lista entera. Ya pasó: la primera sonda
+    // dijo 9 campos y el esquema tiene 10.
+    let p3 = format!("/fleets/{fid}/members/");
+    let (s3, b3) = pedir(&http, &token, &p3).await;
+    let v3: serde_json::Value = serde_json::from_str(&b3).unwrap_or(serde_json::Value::Null);
+    let resumen3 = if s3 == 200 {
+        let arr = v3.as_array().cloned().unwrap_or_default();
+        let mut campos: Vec<String> = arr
+            .iter()
+            .filter_map(|m| m.as_object())
+            .flat_map(|o| o.keys().cloned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if campos.is_empty() {
+            campos.push("(lista vacía)".into());
+        }
+        // Cuántos van en cada nave: es lo que decide si «composición de flota» es dibujable.
+        let naves = arr
+            .iter()
+            .filter_map(|m| m.get("ship_type_id").and_then(|v| v.as_i64()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        let sistemas = arr
+            .iter()
+            .filter_map(|m| m.get("solar_system_id").and_then(|v| v.as_i64()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        format!(
+            "LEÍDA · {} miembros · {naves} tipos de nave · {sistemas} sistemas · campos: {}",
+            arr.len(),
+            campos.join(", ")
+        )
+    } else {
+        b3.chars().take(300).collect()
+    };
+    steps.push(ProbeStep {
+        path: p3,
+        status: s3,
+        resumen: resumen3,
+    });
+
+    // 4) Las ALAS y sus escuadrones: el árbol de la flota CON SUS NOMBRES («DPS», «Logi»…). Es lo
+    //    que convierte una lista de pilotos en una composición legible, y es el único endpoint de
+    //    lectura de la familia que no habíamos probado.
+    let p4 = format!("/fleets/{fid}/wings/");
+    let (s4, b4) = pedir(&http, &token, &p4).await;
+    let v4: serde_json::Value = serde_json::from_str(&b4).unwrap_or(serde_json::Value::Null);
+    let resumen4 = if s4 == 200 {
+        let alas = v4.as_array().cloned().unwrap_or_default();
+        let escuadrones: usize = alas
+            .iter()
+            .filter_map(|w| w.get("squads").and_then(|s| s.as_array()))
+            .map(|s| s.len())
+            .sum();
+        let campos = alas
+            .iter()
+            .filter_map(|w| w.as_object())
+            .flat_map(|o| o.keys().cloned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "LEÍDA · {} alas · {escuadrones} escuadrones · campos: {campos}",
+            alas.len()
+        )
+    } else {
+        b4.chars().take(300).collect()
+    };
+    steps.push(ProbeStep {
+        path: p4,
+        status: s4,
+        resumen: resumen4,
+    });
+
+    // Ya sabemos la respuesta (2026-08-19): el roster es SOLO del FC y al miembro ESI le contesta
+    // 404, no 403 — le oculta que la flota exista. Esto queda para detectar si algún día CAMBIA.
+    let observado = match (s3, role.as_str()) {
+        (200, "fleet_commander") => {
+            "Como se esperaba: mandando tú, se lee todo. Lo de arriba es lo que Koru podría guardar."
+                .into()
+        }
+        (200, _) => format!(
+            "★ CAMBIO respecto a lo medido el 2026-08-19: miembros leídos con rol «{role}» sin ser \
+             el FC. Habría que rehacer el diseño — se podría sondear el roster desde cualquier alt."
+        ),
+        (404, _) => format!(
+            "Confirmado: con rol «{role}» ESI devuelve 404 y oculta hasta que la flota exista. El \
+             roster es solo del FC, así que «con quién vuelas» sale de los killmails, no de aquí."
+        ),
+        (_, _) => format!(
+            "Respuesta {s3} al leer los miembros (rol «{role}»). Sin conclusión: no estaba previsto."
+        ),
+    };
+
+    Ok(FleetProbe {
+        character_id,
+        steps,
+        observado,
     })
 }
 

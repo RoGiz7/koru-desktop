@@ -1,9 +1,9 @@
 // Sección PvP · Batallas (clusters de killmails por sistema/momento) y Rivales (a quién matas /
 // quién te mata, por personaje y corp). Extraído de App.tsx. RivalList (lista rankeada) es interno.
 import { tr } from "./i18n";
-import { fmtIsk } from "./format";
-import { Bars } from "./charts";
-import type { Battle, Rivals, RivalEntry } from "./types";
+import { fmtIsk, fmtSp, typeIcon } from "./format";
+import { Bars, Kpi } from "./charts";
+import type { Battle, Rivals, RivalEntry, Wingmates } from "./types";
 import { openExternal } from "./openExternal";
 
 function RivalList(props: { title: string; items: RivalEntry[]; kind: "char" | "corp" }) {
@@ -78,6 +78,195 @@ export function BattlesView(props: { data: Battle[] | null; busy: boolean }) {
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+/**
+ * **Con quién vuelas** — la gente que aparece como atacante en TUS kills.
+ *
+ * No sale de `/fleets/`: la sonda demostró que el roster **solo lo lee el FC**, así que ESI no puede
+ * decir con quién volabas, y menos aún en 2019. Esto sí puede, porque el JSON completo de cada
+ * killmail lleva años guardado.
+ *
+ * **La columna que hace honesta a la tabla es «en banda»**: estar en el mismo killmail que doscientas
+ * personas no es volar con ellas. Por eso el orden es por banda pequeña primero y no por total — si
+ * no, la gente con la que de verdad haces gang quedaría enterrada bajo los blobs.
+ */
+export function WingmatesView(props: {
+  data: Wingmates | null;
+  busy: boolean;
+  /** Ventana activa en días (0 = todo) y cómo cambiarla. El filtrado es del backend: los totales
+   *  por compañero se agregan allí, así que recortar en el frontend daría columnas que no suman. */
+  dias: number;
+  onDias: (d: number) => void;
+}) {
+  const { data, busy, dias, onDias } = props;
+  const ventanas: { d: number; label: string }[] = [
+    { d: 0, label: tr("Todo") },
+    { d: 730, label: tr("2 años") },
+    { d: 365, label: tr("1 año") },
+    { d: 90, label: tr("90 días") },
+  ];
+  const selector = (
+    <div className="rateo-controls">
+      <div className="seg seg-sm">
+        {ventanas.map((v) => (
+          <button key={v.d} className={dias === v.d ? "active" : ""} onClick={() => onDias(v.d)}>
+            {v.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  if (!data && busy)
+    return (
+      <>
+        {selector}
+        <p className="muted">{tr("Cargando…")}</p>
+      </>
+    );
+  if (!data) return <p className="muted small">{tr("Sin datos. Sincroniza killmails y pulsa \"Reprocesar daño\".")}</p>;
+  const fecha = (s: string | null) => (s ? s.slice(0, 10) : "—");
+  if (data.kills_mirados === 0)
+    return (
+      <>
+        {selector}
+        <p className="muted small">
+          {data.kills_fuera > 0
+            ? tr("En esta ventana no hay ningún kill tuyo. Fuera de ella hay FUERA.").replace(
+                "FUERA",
+                fmtSp(data.kills_fuera),
+              )
+            : tr(
+                "No hay kills con el JSON completo. Pulsa «Reprocesar daño» en PvP: sin el detalle no se sabe quién más estaba.",
+              )}
+        </p>
+      </>
+    );
+
+  return (
+    <>
+      <p className="muted small">
+        {tr(
+          "Quien aparece contigo en un killmail estaba contigo. Sale de tus kills guardados, no de la API de flotas: esa solo la puede leer quien manda la flota.",
+        )}
+      </p>
+      {selector}
+
+      <div className="kpis">
+        <Kpi label={tr("Kills mirados")} value={fmtSp(data.kills_mirados)} />
+        <Kpi label={tr("Compañeros distintos")} value={fmtSp(data.total_mates)} />
+        <Kpi label={tr("Kills en solitario")} value={fmtSp(data.kills_solo)} />
+      </div>
+
+      {/* La ceguera y el umbral, juntos y arriba: los dos corrigen una lectura que ya se ha hecho
+          al mirar los KPI. Y el umbral de banda es ARBITRARIO — esconderlo lo disfrazaría de
+          verdad. */}
+      <p className="muted small prod-ceguera">
+        {dias > 0 && data.kills_fuera > 0 && (
+          <>
+            {tr("Ventana activa: quedan FUERA kills tuyos anteriores.").replace(
+              "FUERA",
+              fmtSp(data.kills_fuera),
+            )}{" "}
+          </>
+        )}
+        {data.desde && (
+          <>
+            {dias > 0
+              ? tr("El kill más antiguo de esta ventana es del")
+              : tr("El killmail más antiguo guardado es del")}{" "}
+            <strong>{fecha(data.desde)}</strong>.{" "}
+            {dias === 0 && tr("Antes de eso no es que volaras solo: es que no hay datos.")}{" "}
+          </>
+        )}
+        {tr("«En banda» = kills con SIGNO atacantes o menos.").replace(
+          "SIGNO",
+          String(data.banda_pequena),
+        )}{" "}
+        {tr("Tus propios personajes no salen en la lista: con multibox coparían el podio.")}
+        {data.total_mates > data.mates.length && (
+          <>
+            {" "}
+            {tr("Se enseñan los TOP de LARGO compañeros.")
+              .replace("TOP", String(data.mates.length))
+              .replace("LARGO", fmtSp(data.total_mates))}
+          </>
+        )}
+      </p>
+
+      {data.mates.length === 0 ? (
+        <p className="muted small">
+          {tr("Todos tus kills fueron en solitario (o sin nadie más identificable).")}
+        </p>
+      ) : (
+        <table className="km-table">
+          <thead>
+            <tr>
+              <th>{tr("Piloto")}</th>
+              <th>{tr("En banda")}</th>
+              {/* «Días» va ANTES que «kills juntos» a propósito: es la columna que distingue a un
+                  compañero de vuelo de alguien que estuvo en la misma op enorme una noche. */}
+              <th>{tr("Días juntos")}</th>
+              <th>{tr("Kills juntos")}</th>
+              <th>{tr("Su nave habitual")}</th>
+              <th>{tr("Desde")}</th>
+              <th>{tr("Última vez")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.mates.map((m) => (
+              <tr
+                key={m.character_id}
+                className="clickable"
+                title={tr("Abrir en zKillboard")}
+                onClick={() => openExternal(`https://zkillboard.com/character/${m.character_id}/`)}
+              >
+                <td className="wm-pilot">
+                  <img
+                    className="rival-img"
+                    src={`https://images.evetech.net/characters/${m.character_id}/portrait?size=32`}
+                    alt=""
+                    loading="lazy"
+                  />
+                  {m.name ?? `#${m.character_id}`}
+                </td>
+                <td>
+                  <strong>{m.kills_banda}</strong>
+                </td>
+                <td>{m.dias}</td>
+                <td
+                  className="muted"
+                  title={
+                    m.dias === 1
+                      ? tr("Todo en un solo día: coincidisteis en una operación, no es que voléis juntos.")
+                      : undefined
+                  }
+                >
+                  {m.kills}
+                  {m.dias === 1 && m.kills > 10 && <span className="prod-falta"> ·1d</span>}
+                </td>
+                <td>
+                  {m.ship_type_id && (
+                    <img
+                      className="wm-ship"
+                      src={typeIcon(m.ship_type_id, 32) ?? undefined}
+                      alt=""
+                      width={20}
+                      height={20}
+                      loading="lazy"
+                    />
+                  )}
+                  {m.ship_name ?? "—"}
+                </td>
+                <td className="muted">{fecha(m.first_seen)}</td>
+                <td className="muted">{fecha(m.last_seen)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

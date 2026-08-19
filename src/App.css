@@ -9058,3 +9058,67 @@ h4 {
 .fac-wiz .warn {
   color: var(--warn, #d29922);
 }
+
+/* ---------- F3 · Producción (histórico de industria) ---------- */
+.prod-block {
+  margin-top: 1.4rem;
+}
+/* La CEGUERA y el AVISO de que esto no es beneficio van pegados a los números, con un filete a la
+   izquierda para que no se lean como pie de página decorativo: los dos corrigen una lectura que
+   el usuario ya ha hecho al ver los KPI de arriba. */
+.prod-ceguera,
+.prod-aviso {
+  border-left: 2px solid var(--border);
+  padding-left: 0.6rem;
+  margin: 0.4rem 0 0.7rem;
+  max-width: 62rem;
+  line-height: 1.45;
+}
+.prod-aviso {
+  border-left-color: var(--warn, #d29922);
+}
+/* Lo que NO entra en el total. Ámbar: no es un fallo, es un dato que falta — y callarlo sería
+   dar un total incompleto con cara de exacto. */
+.prod-falta {
+  color: var(--warn, #d29922);
+}
+/* Variables del TEMA, no colores a mano: hay 12 temas por facción y un panel con su propio gris
+   se vería como un parche en once de ellos. */
+.prod-inv {
+  margin: 0.8rem 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-2);
+}
+.prod-inv h5 {
+  margin: 0 0 0.5rem;
+}
+/* Desplegar el detalle es un control, no un botón de acción: sin caja, del tamaño del texto. */
+.prod-fold {
+  margin: 0.6rem 0 0.3rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-text);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+/* Histórico de la PI (R1d). Separado de las tarjetas de colonia: aquello es el AHORA, esto es la
+   película. Sin caja propia para que no compita con las tarjetas, que son lo primero que se mira. */
+.pi-hist {
+  margin-top: 1.6rem;
+}
+
+/* ---------- Con quién vuelas ---------- */
+.wm-pilot {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+.wm-ship {
+  vertical-align: middle;
+  margin-right: 0.35rem;
+}

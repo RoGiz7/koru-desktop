@@ -5,6 +5,7 @@ export type Tab =
   | "pvp"
   | "actividad"
   | "rivales"
+  | "vuelas"
   | "batallas"
   | "cazador"
   | "mapa"
@@ -101,6 +102,9 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "actividad", label: "Actividad", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "rivales", label: "Rivales", scopes: ["esi-killmails.read_killmails.v1"] },
       { key: "batallas", label: "Batallas", scopes: ["esi-killmails.read_killmails.v1"] },
+      // «Con quién vuelas» sale de los MISMOS killmails que Rivales — es su espejo—, así que vive
+      // aquí y depende del mismo scope. NO necesita el de flotas: ese solo lo puede usar el FC.
+      { key: "vuelas", label: "Con quién vuelas", scopes: ["esi-killmails.read_killmails.v1"] },
       // Cazador: análisis de hostiles desde el intel local (no depende de scopes ESI).
       { key: "cazador", label: "Cazador" },
     ],
@@ -216,6 +220,9 @@ export const FEATURES = [
   // ancho que la feature), pero la etiqueta dice «Campañas militares» para no chocar con la
   // sección Actividad, que es otra cosa (actividad diaria y horas calientes).
   { key: "actividad", label: "Campañas militares (tu contribución)" },
+  // Sonda de flotas: se concede suelto porque HOY no hay ninguna sección que lo use — solo el
+  // botón de Ajustes que pregunta a ESI si esta idea es siquiera posible.
+  { key: "flota", label: "Flotas (sonda, aún sin sección)" },
   { key: "location", label: "Ubicación (sistema actual)" },
   { key: "identity", label: "Solo identidad (0 scopes)" },
 ];
@@ -280,6 +287,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   pvp: { title: "PvP", subtitle: "Killmails, eficacia ISK y actividad de combate" },
   actividad: { title: "Actividad", subtitle: "Actividad diaria y horas calientes (UTC EVE)" },
   rivales: { title: "Rivales", subtitle: "A quién matas y quién te mata (por personaje y corp)" },
+  vuelas: { title: "Con quién vuelas", subtitle: "Quién aparece contigo en tus kills, y en bandas de cuántos" },
   batallas: { title: "Batallas", subtitle: "Concentraciones de killmails por sistema y momento" },
   cazador: { title: "Cazador", subtitle: "Fichas de hostiles del intel: horas activas, sistemas, naves y rastro" },
   patrimonio: { title: "Patrimonio", subtitle: "Líquido + valor de assets y su evolución en el tiempo" },

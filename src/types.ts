@@ -378,6 +378,38 @@ export type Rivals = {
   kills_you_chars: RivalEntry[];
   kills_you_corps: RivalEntry[];
 };
+/** Con quién vuelas: deducido de los ATACANTES de tus kills, no de `/fleets/` (que solo lee el FC).
+ *  `kills_banda` son los que ocurrieron con pocos atacantes — la diferencia entre un compañero de
+ *  vuelo y alguien que estaba en el mismo blob. */
+export type Wingmate = {
+  character_id: number;
+  name: string | null;
+  corporation_id: number | null;
+  alliance_id: number | null;
+  kills: number;
+  kills_banda: number;
+  /** Días DISTINTOS en que volasteis juntos. 227 kills en un día es una op enorme donde coincidisteis;
+   *  40 kills en 18 días es un compañero de vuelo. */
+  dias: number;
+  ship_type_id: number | null;
+  ship_name: string | null;
+  first_seen: string | null;
+  last_seen: string | null;
+};
+export type Wingmates = {
+  mates: Wingmate[];
+  /** Compañeros distintos EN TOTAL. `mates` viene recortado al top: contar sus filas daría el
+   *  tamaño de la tabla disfrazado de dato. */
+  total_mates: number;
+  kills_mirados: number;
+  kills_solo: number;
+  /** Ceguera: antes de esta fecha no es que volaras solo, es que no hay killmails guardados. */
+  desde: string | null;
+  banda_pequena: number;
+  /** Kills tuyos que la ventana dejó fuera. Se enseña: acotar a un año no puede leerse como
+   *  «solo has hecho tantos kills en tu vida». */
+  kills_fuera: number;
+};
 // New Eden desde el SDE local (public/neweden.json)
 export type NeSystem = {
   id: number;

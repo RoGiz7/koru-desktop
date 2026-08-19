@@ -24,7 +24,7 @@ import { ContactosView } from "./contactos";
 import { ResumenView } from "./resumen";
 import { ActividadView } from "./actividad";
 import { IndustryView } from "./industry";
-import { BattlesView, RivalsView } from "./rivals";
+import { BattlesView, RivalsView, WingmatesView } from "./rivals";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
@@ -79,6 +79,7 @@ import type {
   SysActivity,
   Battle,
   Rivals,
+  Wingmates,
   AssetSystem,
   IntelStatus,
   PiSystem,
@@ -966,8 +967,68 @@ function App() {
    *  El Rust reúne el entorno (sistema, sesión, GPU, cómo se instaló) y AQUÍ se le añade el estado
    *  de Koru — pero **solo contadores y sí/no**, jamás contenido: cuántos personajes, no quiénes;
    *  cuántos canales, no cuáles. Ver el aviso de privacidad en `src-tauri/src/diagnostico.rs`. */
-  const [diag, setDiag] = useState<string | null>(null);
+  /** El modal es genérico (título + aviso + texto) porque lo usan DOS cosas: el diagnóstico de
+   *  soporte y la sonda de flotas. Las dos generan un texto para pegar, y las dos lo enseñan antes
+   *  de copiar — nada va al portapapeles a ciegas. */
+  const [diag, setDiag] = useState<{ titulo: string; nota: string; texto: string } | null>(null);
   const [diagCopiado, setDiagCopiado] = useState(false);
+
+  /** ---- SONDA DE FLOTAS (experimento, no feature) ----
+   *  Pregunta a ESI si un miembro que NO es el FC puede leer la lista de miembros. De esa respuesta
+   *  depende que «con quién vuelas» se pueda construir o haya que deducirlo de otra cosa. Se
+   *  pregunta ANTES de diseñar nada: ver `config::scopes::FLOTA`. */
+  async function probarFlota() {
+    const cid =
+      typeof subject === "number"
+        ? subject
+        : characters.find((c) => c.scopes?.includes("esi-fleets.read_fleet.v1"))?.character_id;
+    if (!cid) {
+      setError(
+        tr("Elige primero un personaje (o concédele el scope de flotas desde «Añadir personaje»)."),
+      );
+      return;
+    }
+    // Comprobar el scope ANTES de llamar. ESI contesta 401 y ahí acaba la historia, pero el 401 no
+    // dice CÓMO se arregla — y el camino es contraintuitivo: «Set completo» NO trae este scope (está
+    // fuera del set a propósito mientras sea un experimento), así que quien reintente por ahí va a
+    // dar vueltas para siempre. Decir el menú exacto vale más que repetir el error de ESI.
+    const quien = characters.find((c) => c.character_id === cid);
+    if (quien && !quien.scopes?.includes("esi-fleets.read_fleet.v1")) {
+      setDiag({
+        titulo: `🛰 ${tr("Sonda de flotas")}`,
+        nota: tr("Todavía no se ha preguntado nada a ESI: falta un paso previo."),
+        texto:
+          `${quien.name} ${tr("no tiene el scope esi-fleets.read_fleet.v1.")}\n\n` +
+          `${tr("«Set completo» NO lo incluye: está fuera del set mientras sea un experimento. Hay que concederlo suelto.")}\n\n` +
+          `1. ${tr("Márcalo en tu aplicación del portal de desarrollo de EVE y espera unos minutos a que el SSO lo propague.")}\n` +
+          `2. ${tr("Barra superior → «＋ Conceder acceso» → Acceso a: «Flotas (sonda, aún sin sección)» → Iniciar sesión.")}\n` +
+          `3. ${tr("⚠️ Ese login deja al personaje SOLO con ese scope. Hazlo en un ALT y devuélvele después el «Set completo».")}\n\n` +
+          `${tr("Scopes que tiene ahora")}: ${quien.scopes?.length ?? 0}`,
+      });
+      setDiagCopiado(false);
+      return;
+    }
+    try {
+      const r = await invoke<{
+        character_id: number;
+        steps: { path: string; status: number; resumen: string }[];
+        observado: string;
+      }>("probe_fleet", { characterId: cid });
+      const cuerpo = r.steps
+        .map((s) => `${s.status}  ${s.path}\n      ${s.resumen}`)
+        .join("\n");
+      setDiag({
+        titulo: `🛰 ${tr("Sonda de flotas")}`,
+        nota: tr(
+          "No lleva la lista de miembros: solo cuántos son y qué campos trae cada uno, que es lo único que hace falta para decidir. Tampoco se envía a ningún sitio.",
+        ),
+        texto: `${cuerpo}\n\n${r.observado}`,
+      });
+      setDiagCopiado(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   async function abrirDiagnostico() {
     // ---- Lo que SOLO sabe el navegador, y que en Windows es casi todo lo útil ----
     // El `userAgent` trae en una línea la versión de Windows Y la de WebView2 (`Edg/…`), que es el
@@ -1003,7 +1064,13 @@ function App() {
     ];
     try {
       const r = await invoke<{ texto: string }>("diagnostico", { estado });
-      setDiag(r.texto);
+      setDiag({
+        titulo: `🩺 ${tr("Diagnóstico para soporte")}`,
+        nota: tr(
+          "Esto es TODO lo que se comparte. No incluye nombres de personaje, corporación, sistemas ni rutas con tu nombre de usuario. No se envía a ningún sitio: lo copias tú y lo pegas donde quieras.",
+        ),
+        texto: r.texto,
+      });
       setDiagCopiado(false);
     } catch (e) {
       setError(String(e));
@@ -1024,6 +1091,10 @@ function App() {
   const [agentDetails, setAgentDetails] = useState<Map<number, { id: number; name: string; level: number }[]> | null>(null); // sys_id -> tus agentes ahí
   const [corpDetails, setCorpDetails] = useState<Map<number, { id: number; name: string; lp: number }[]> | null>(null); // sys_id -> tus corps (LP) ahí
   const [rivalsData, setRivalsData] = useState<Rivals | null>(null);
+  const [wingData, setWingData] = useState<Wingmates | null>(null);
+  /** Ventana de «Con quién vuelas» en días (0 = todo). Vive en App porque la recarga la hace
+   *  el mismo efecto que carga la sección: el filtrado es del backend. */
+  const [wingDias, setWingDias] = useState(0);
   const [battlesData, setBattlesData] = useState<Battle[] | null>(null);
 
   // Tabla de killmails paginada/filtrada
@@ -1296,6 +1367,30 @@ function App() {
     }
   }
 
+  /** Recarga «Con quién vuelas» con otra ventana.
+   *
+   *  Existe en vez de dejar que lo haga el efecto de la sección por una razón concreta: `loadTab`
+   *  leería `wingDias` del CIERRE anterior y pediría la ventana vieja — el clásico «he pulsado 1 año
+   *  y me ha salido lo de antes», que además parecería un fallo del backend. Aquí el valor viaja
+   *  como argumento y no hay estado desfasado que valga. */
+  async function loadWingmates(d: number) {
+    setWingDias(d);
+    setWingData(null);
+    setSectionBusy(true);
+    try {
+      setWingData(
+        await invoke<Wingmates>("get_wingmates", {
+          characterId: subject === "global" ? null : subject,
+          desdeDias: d > 0 ? d : null,
+        }),
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSectionBusy(false);
+    }
+  }
+
   // `silent` = refresco en segundo plano (tras un sync): NO muestra el skeleton de carga ni
   // borra/lanza errores, para no resetear scroll/selección ni interrumpir al usuario.
   async function loadTab(subj: number | "global", t: Tab, silent = false) {
@@ -1310,6 +1405,13 @@ function App() {
           setPvpTrend(await invoke<PvpTrendPoint[]>("get_pvp_trend_global"));
         }
         if (t === "rivales") setRivalsData(await invoke<Rivals>("get_rivals", { characterId: null }));
+        if (t === "vuelas")
+          setWingData(
+            await invoke<Wingmates>("get_wingmates", {
+              characterId: null,
+              desdeDias: wingDias > 0 ? wingDias : null,
+            }),
+          );
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId: null }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth_global"));
         if (t === "wallet") {
@@ -1347,6 +1449,13 @@ function App() {
           setPvpTrend(await invoke<PvpTrendPoint[]>("get_pvp_trend", { characterId }));
         }
         if (t === "rivales") setRivalsData(await invoke<Rivals>("get_rivals", { characterId }));
+        if (t === "vuelas")
+          setWingData(
+            await invoke<Wingmates>("get_wingmates", {
+              characterId,
+              desdeDias: wingDias > 0 ? wingDias : null,
+            }),
+          );
         if (t === "batallas") setBattlesData(await invoke<Battle[]>("get_battles", { characterId }));
         if (t === "patrimonio") setNetworthData(await invoke<NetworthView>("get_networth", { characterId }));
         if (t === "wallet") {
@@ -1792,21 +1901,19 @@ function App() {
         <div className="modal-backdrop" onClick={() => setDiag(null)}>
           <div className="diag-modal" onClick={(e) => e.stopPropagation()}>
             <div className="intel-detail-head">
-              <strong>🩺 {tr("Diagnóstico para soporte")}</strong>
+              <strong>{diag.titulo}</strong>
               <button className="sys-close" onClick={() => setDiag(null)}>✕</button>
             </div>
             <p className="small muted" style={{ margin: "0.2rem 0 0.5rem" }}>
-              {tr(
-                "Esto es TODO lo que se comparte. No incluye nombres de personaje, corporación, sistemas ni rutas con tu nombre de usuario. No se envía a ningún sitio: lo copias tú y lo pegas donde quieras.",
-              )}
+              {diag.nota}
             </p>
-            <textarea className="diag-texto" readOnly value={diag} rows={14} />
+            <textarea className="diag-texto" readOnly value={diag.texto} rows={14} />
             <div className="ida-btn-row">
               <button
                 className="ida-btn ida-primary"
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(diag);
+                    await navigator.clipboard.writeText(diag.texto);
                     setDiagCopiado(true);
                   } catch {
                     // Sin permiso de portapapeles no se pierde nada: el texto está a la vista y
@@ -2059,6 +2166,20 @@ function App() {
                   <span className="small muted">
                     {tr(
                       "Reúne los datos técnicos de tu equipo para pegarlos al pedir ayuda. Lo verás antes de copiarlo, y no se envía a ningún sitio.",
+                    )}
+                  </span>
+                </span>
+              </button>
+              {/* SONDA DE FLOTAS. Está en Ajustes y no en una sección porque NO ES UNA FEATURE:
+                  es una pregunta a ESI cuya respuesta decide si «Flotas» se puede construir o no.
+                  Cuando la conteste, este botón se va con ella. */}
+              <button className="tb-settings-item" onClick={probarFlota}>
+                <span className="tb-si-ic">🛰</span>
+                <span className="tb-si-tx">
+                  <strong>{tr("Sonda de flotas (experimento)")}</strong>
+                  <span className="small muted">
+                    {tr(
+                      "Estando en flota, pregunta a ESI qué deja leer. Sirve para saber si Koru podrá contar con quién vuelas; todavía no hay ninguna sección que lo use.",
                     )}
                   </span>
                 </span>
@@ -2497,6 +2618,14 @@ function App() {
             />
           )}
           {tab === "rivales" && <RivalsView data={rivalsData} busy={sectionBusy} />}
+          {tab === "vuelas" && (
+            <WingmatesView
+              data={wingData}
+              busy={sectionBusy}
+              dias={wingDias}
+              onDias={loadWingmates}
+            />
+          )}
           {tab === "batallas" && <BattlesView data={battlesData} busy={sectionBusy} />}
           {tab === "cazador" && (
             <CazadorView
@@ -2556,7 +2685,12 @@ function App() {
             />
           )}
           {tab === "planetologia" && (
-            <PlanetologiaView planets={planets} busy={sectionBusy} syncTick={syncTick} />
+            <PlanetologiaView
+              planets={planets}
+              busy={sectionBusy}
+              syncTick={syncTick}
+              subject={subject}
+            />
           )}
           {tab === "bitacora" && (
             <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} syncTick={syncTick} />

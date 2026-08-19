@@ -141,6 +141,29 @@ pub mod scopes {
     /// relogin del set entero — mismo criterio que INDUSTRIA.
     pub const ACTIVIDAD: &[&str] = &["esi.activity.char:read"];
 
+    /// FLOTAS — «con quién vuelas y a qué».
+    ///
+    /// ⚠️ SE CONCEDE PARA UNA SONDA, NO PARA UNA FEATURE. Antes de diseñar nada hay que contestar
+    /// una pregunta que decide la forma entera de la idea: **¿puede un miembro que NO es el FC leer
+    /// la lista de miembros de la flota?** La documentación histórica de ESI decía que
+    /// `/fleets/{id}/members/` es solo para el BOSS. Si eso sigue siendo cierto:
+    ///   - no hay histórico de flotas en ESI, solo una foto del instante;
+    ///   - y esa foto solo la ve quien manda, así que «con quién vuelas» habría que construirlo
+    ///     sondeando, o deducirlo de otra cosa (los killmails ya dicen con quién estabas).
+    /// La respuesta cambia el diseño, así que se pregunta a ESI antes de escribirlo: `probe_fleet`.
+    ///
+    /// ✅ YA ESTÁ EN `core_v1()` (2026-08-19). Nació fuera, para una sonda, porque meterlo en el set
+    /// **sin marcarlo antes en el portal de desarrollo** haría que el SSO respondiera
+    /// `invalid_scope` a **TODOS** los logins, no solo a este. Ese riesgo ya no existe: el scope
+    /// está marcado en la aplicación —lo demuestra la sonda, que devolvió 200— y el marcado es de la
+    /// APLICACIÓN, así que vale para todo el mundo, no solo para quien lo probó.
+    ///
+    /// ⚠️ SI SE CONCEDE SUELTO, EL PERSONAJE SE QUEDA SOLO CON ESTE SCOPE: `upsert_character`
+    /// REEMPLAZA la lista, no la fusiona (lo mismo que muerde en INDUSTRIA). Con él dentro del set,
+    /// el camino bueno es siempre **«Set completo»**; el grupo suelto se queda por si hay que volver
+    /// a sondear algo sin tocar al resto.
+    pub const FLOTA: &[&str] = &["esi-fleets.read_fleet.v1"];
+
     /// Conjunto v1 (las 4 features + ubicación + bitácora + actividad).
     pub fn core_v1() -> Vec<&'static str> {
         let mut v = Vec::new();
@@ -156,6 +179,7 @@ pub mod scopes {
         v.extend_from_slice(LOCATION);
         v.extend_from_slice(BITACORA);
         v.extend_from_slice(ACTIVIDAD);
+        v.extend_from_slice(FLOTA);
         v
     }
 }

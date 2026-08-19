@@ -2761,6 +2761,32 @@ impl Db {
         Ok(rows)
     }
 
+    /// Igual que `killmails_raw` pero con la FECHA, y **siempre de todos los personajes**.
+    ///
+    /// El filtro por `character_id` se hace fuera a propósito, y no es un capricho: `killmails` tiene
+    /// **una fila por killmail** (`killmail_id` es la PK), así que cuando varios de tus personajes
+    /// están en el mismo kill la fila queda atribuida a UNO solo. Filtrar por esa columna perdería
+    /// los kills en los que estuviste pero que se guardaron a nombre de un alt — justo los de
+    /// multibox, que son los que más importan aquí. Mirando los ATACANTES del JSON no se pierde
+    /// ninguno.
+    pub fn killmails_raw_dated(&self) -> AppResult<Vec<(bool, Option<String>, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT is_loss, killed_at, raw FROM killmails
+              WHERE raw IS NOT NULL AND raw != ''",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)? != 0,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Página de killmails con filtro (kind: "all" | "kill" | "loss") y paginación.
     /// `character_id` None = global (todos los personajes). Devuelve (filas, total).
     pub fn killmails_page(

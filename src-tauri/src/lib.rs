@@ -303,6 +303,8 @@ pub fn run() {
             commands::get_industry_global,
             commands::get_industry_history,
             commands::get_pi_history,
+            commands::probe_fleet,
+            commands::get_wingmates,
             commands::get_haul_ledger,
             commands::get_my_ships,
             commands::open_external,
