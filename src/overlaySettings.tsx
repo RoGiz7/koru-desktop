@@ -246,6 +246,9 @@ const ESQUINAS = [
 ] as const;
 
 export function OverlaySettings() {
+  /** ¿Lo movió a mano? Entonces las esquinas no mandan, y hay que poder volver atrás: si no, un
+   *  arrastre accidental deja los controles de Ajustes muertos para siempre y sin explicación. */
+  const [libre, setLibre] = useState(() => localStorage.getItem("koru-overlay-libre"));
   const [on, setOn] = useState(() => localStorage.getItem("koru-overlay") === "1");
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [mon, setMon] = useState(() => Number(localStorage.getItem("koru-overlay-mon") ?? 0));
@@ -274,6 +277,29 @@ export function OverlaySettings() {
   return (
     <>
       <div className="tb-settings-title small muted">{tr("Avisos sobre el juego")}</div>
+      {libre && (
+        <div className="tb-settings-item">
+          <span className="tb-si-ic">✋</span>
+          <span className="tb-si-tx">
+            <strong>{tr("El aviso está colocado a mano")}</strong>
+            <span className="small muted">
+              {tr("Lo arrastraste a un sitio concreto, así que el monitor y la esquina de abajo no se aplican.")}
+            </span>
+            <div className="ovs-row">
+              <button
+                onClick={() => {
+                  localStorage.removeItem("koru-overlay-libre");
+                  setLibre(null);
+                  void invoke("overlay_pos_libre", { x: null, y: null }).catch(() => {});
+                  aplicar();
+                }}
+              >
+                {tr("Volver a la esquina")}
+              </button>
+            </div>
+          </span>
+        </div>
+      )}
 
       <label className="tb-settings-item" style={{ cursor: "pointer" }}>
         <span className="tb-si-ic">🔔</span>

@@ -36,6 +36,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { tr, setLang, getLang, type Lang } from "./i18n";
 import { typeIcon } from "./format";
 import "./overlay.css";
@@ -168,6 +169,65 @@ export function Overlay() {
   /** Reloj de 1 s: refresca las edades y retira lo caducado. */
   const [, tick] = useState(0);
   const stackRef = useRef<HTMLDivElement>(null);
+
+  /** ---- ARRASTRAR EL AVISO CON LA MANO (idea de RoGiz7, 2026-08-19) ----
+   *
+   *  Elegir «monitor + esquina» es pedirle al usuario que traduzca a coordenadas lo que en realidad
+   *  quiere señalar con el dedo. Con el agarre lo pone donde le apetece y ya está.
+   *
+   *  ⚠️ POR QUÉ UNA ZONA DE AGARRE Y NO LA TARJETA ENTERA: pulsar el aviso **abre Koru en ese
+   *  sistema**, que es lo que más se usa. Si el mismo gesto arrastrase, o se pierde esa función o
+   *  se vuelve incómoda. Con un asa aparte, cada gesto tiene un sitio.
+   *
+   *  ⚠️ Y EN WAYLAND ES LA ÚNICA VÍA QUE FUNCIONA: allí una ventana no puede colocarse a sí misma
+   *  —`set_position` no hace nada y ni siquiera da error—, pero arrastrar usa el mecanismo del
+   *  propio compositor. Lo que Wayland no deja es LEER dónde quedó, así que allí se moverá pero no
+   *  se recordará al reiniciar. Se avisa en Ajustes en vez de fingir que funciona.
+   */
+  const agarrar = useCallback((e: React.MouseEvent) => {
+    // Sin esto, soltar el ratón cuenta como clic en la tarjeta y Koru se pone delante al mover.
+    e.preventDefault();
+    e.stopPropagation();
+    // ⚠️ EL ERROR NO SE TRAGA. La primera versión llevaba un `.catch(() => {})` y el asa «no hacía
+    // nada»: faltaba `core:window:allow-start-dragging` en `capabilities/overlay.json`, y el
+    // rechazo del permiso se iba por el desagüe. Es el mismo pecado que hemos estado persiguiendo
+    // todo el día en otras pantallas.
+    void getCurrentWindow()
+      .startDragging()
+      .catch((e) => console.error("overlay: no se pudo arrastrar —", e));
+  }, []);
+
+  // Al soltarlo, se guarda dónde quedó. Se escucha el evento de la ventana en vez de intentar
+  // adivinar cuándo acaba el arrastre: durante el arrastre nativo el ratón deja de ser nuestro.
+  useEffect(() => {
+    const w = getCurrentWindow();
+    let quieto: number | undefined;
+    const un = w.onMoved(({ payload }) => {
+      // Antirrebote: al arrastrar llegan decenas de eventos y solo importa el último.
+      window.clearTimeout(quieto);
+      quieto = window.setTimeout(() => {
+        // (0,0) suele ser Wayland diciendo «no te lo puedo decir». Guardarlo mandaría el aviso a la
+        // esquina de la pantalla en el siguiente arranque, que es peor que no recordar nada.
+        if (payload.x === 0 && payload.y === 0) return;
+        localStorage.setItem("koru-overlay-libre", `${payload.x},${payload.y}`);
+        void invoke("overlay_pos_libre", { x: payload.x, y: payload.y }).catch(() => {});
+      }, 400);
+    });
+    return () => {
+      window.clearTimeout(quieto);
+      void un.then((f) => f());
+    };
+  }, []);
+
+  // Al abrir, recuperar la posición guardada: el Rust no puede leer el `localStorage`.
+  useEffect(() => {
+    const g = localStorage.getItem("koru-overlay-libre");
+    if (!g) return;
+    const [x, y] = g.split(",").map(Number);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      void invoke("overlay_pos_libre", { x, y }).catch(() => {});
+    }
+  }, []);
 
   // El idioma no viaja entre ventanas: esta webview es un proceso aparte y no ve el estado de App.
   // Se lee del mismo localStorage (compartido por origen) para que el aviso hable como la app.
@@ -473,6 +533,17 @@ export function Overlay() {
 
   return (
     <div className="ov-stack" ref={stackRef}>
+      {/* EL ASA. Va en la pila y no en cada tarjeta porque lo que se mueve es la VENTANA, no un
+          aviso suelto. Discreta hasta que pasas el ratón por encima: esto vive sobre el juego y
+          cualquier adorno permanente estorba. */}
+      <button
+        className="ov-asa"
+        onMouseDown={agarrar}
+        title={tr("Arrastra para mover el aviso donde quieras")}
+        aria-label={tr("Arrastra para mover el aviso donde quieras")}
+      >
+        ✋
+      </button>
       {reloj()}
       {abierta && tarjeta(abierta)}
       {resto.map(renglon)}

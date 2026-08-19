@@ -66,6 +66,26 @@ html.koru-overlay #root {
 
 /* Franja de color a la izquierda = gravedad. Tres niveles, no uno: si «a 5 saltos» y «en tu
    sistema» se ven igual, el ojo aprende a ignorar los dos. */
+/* EL ASA para mover el aviso. Discreta a propósito: esto vive encima del juego, así que se insinúa
+   y solo se hace visible cuando el ratón anda cerca. `cursor: move` es la pista real de que se
+   puede arrastrar — el icono solo dice dónde agarrar. */
+.ov-asa {
+  align-self: flex-end;
+  margin: 0 1px -2px 0;
+  padding: 0 4px;
+  line-height: 1;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: #e8e8e8;
+  opacity: 0.25;
+  cursor: move;
+  transition: opacity 0.15s ease;
+}
+.ov-stack:hover .ov-asa {
+  opacity: 0.8;
+}
+
 .ov-bar {
   width: 4px;
   flex: 0 0 4px;

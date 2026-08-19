@@ -7424,7 +7424,11 @@ fn mostrar_overlay(app: &tauri::AppHandle) {
         if let Some(h) = OVERLAY_ALTO.lock().ok().and_then(|g| *g) {
             let _ = w.set_size(tauri::LogicalSize::new(430.0, h));
         }
-        if let Some((monitor, corner, margin)) = colocacion_guardada() {
+        // La posición LIBRE manda sobre la esquina: si el usuario lo movió a mano, respetarlo es lo
+        // único razonable — ha dicho dónde lo quiere con el dedo.
+        if let Some((x, y)) = OVERLAY_LIBRE.lock().ok().and_then(|g| *g) {
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        } else if let Some((monitor, corner, margin)) = colocacion_guardada() {
             aplicar_colocacion(&w, monitor, &corner, margin);
         }
         let _ = w.show();
@@ -10604,6 +10608,27 @@ static OVERLAY_POS: std::sync::Mutex<Option<(usize, String, i32)>> = std::sync::
 /// así que nadie lo reintenta nunca.
 static OVERLAY_ALTO: std::sync::Mutex<Option<f64>> = std::sync::Mutex::new(None);
 
+/// Posición LIBRE: dónde lo dejó el usuario arrastrándolo, en píxeles físicos. `None` = manda la
+/// esquina elegida en Ajustes.
+///
+/// Existe porque elegir «monitor + esquina» es pedirle al usuario que traduzca a coordenadas lo que
+/// en realidad quiere señalar con el dedo. Idea de RoGiz7: **pincharlo y soltarlo donde te apetezca**.
+/// Y en Wayland es además lo ÚNICO que funciona: allí una ventana no puede colocarse a sí misma
+/// (`set_position` no hace nada), pero arrastrar usa el mecanismo del propio compositor.
+static OVERLAY_LIBRE: std::sync::Mutex<Option<(i32, i32)>> = std::sync::Mutex::new(None);
+
+/// Guarda dónde ha quedado el overlay tras arrastrarlo. Lo llama la propia ventana del aviso al
+/// detectar que se ha movido. `None` = volver a la esquina.
+#[tauri::command]
+pub fn overlay_pos_libre(x: Option<i32>, y: Option<i32>) {
+    if let Ok(mut g) = OVERLAY_LIBRE.lock() {
+        *g = match (x, y) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None,
+        };
+    }
+}
+
 fn colocacion_guardada() -> Option<(usize, String, i32)> {
     OVERLAY_POS.lock().ok().and_then(|g| g.clone())
 }
@@ -10748,6 +10773,12 @@ pub fn overlay_fit(
         *g = Some(h);
     }
     let _ = w.set_size(tauri::LogicalSize::new(ancho, h));
+
+    // Si el usuario lo colocó a mano, NO se recoloca al crecer o menguar la pila: moverle el aviso
+    // de donde lo puso sería desobedecerle cada vez que llega un hostil más.
+    if OVERLAY_LIBRE.lock().ok().and_then(|g| *g).is_some() {
+        return Ok(());
+    }
 
     // ⚠️ La posición se calcula con el tamaño que ACABAMOS de pedir, NO releyendo `outer_size()`.
     // `set_size` no es instantáneo en Windows: releer justo después devuelve a menudo el tamaño

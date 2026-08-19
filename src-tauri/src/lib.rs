@@ -130,6 +130,7 @@ pub fn run() {
             commands::overlay_enable,
             commands::overlay_monitors,
             commands::overlay_place,
+            commands::overlay_pos_libre,
             commands::overlay_hide,
             commands::overlay_abyss,
             commands::overlay_fit,

@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay",
-  "description": "Permisos de la ventana del overlay de avisos. SIN ESTO NO RECIBE EVENTOS: en Tauri v2 las capacidades se conceden POR ETIQUETA DE VENTANA, y `capabilities/default.json` solo cubre `main`. `listen()` es un comando del nucleo y necesita permiso; sin el, el listener no se registra y el aviso nunca llega. Sintoma exacto que dio: la ventana se veia y pintaba (la comprobacion de etiqueta y el CSS no pasan por IPC, asi que funcionaban), pero se quedaba para siempre en 'esperando avisos'. Se le da `core:default` y nada mas: no necesita dialogos, ni proceso, ni updater, ni notificaciones.",
+  "description": "Permisos de la ventana del overlay de avisos. SIN ESTO NO RECIBE EVENTOS: en Tauri v2 las capacidades se conceden POR ETIQUETA DE VENTANA, y `capabilities/default.json` solo cubre `main`. `listen()` es un comando del nucleo y necesita permiso; sin el, el listener no se registra y el aviso nunca llega. Sintoma exacto que dio: la ventana se veia y pintaba (la comprobacion de etiqueta y el CSS no pasan por IPC, asi que funcionaban), pero se quedaba para siempre en 'esperando avisos'. Se le da `core:default` y nada mas: no necesita dialogos, ni proceso, ni updater, ni notificaciones. | 2026-08-19: ademas de `core:default` necesita `core:window:allow-start-dragging` para el ASA que mueve el aviso. `core:default` trae los comandos de ventana de LECTURA (tamano, posicion, escala) pero NO los que actuan, y arrastrar actua. Sintoma: el asa se veia, el cursor cambiaba, y no pasaba nada — el rechazo del permiso iba a la promesa y un `.catch` vacio lo borraba.",
   "windows": [
     "overlay"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-start-dragging"
   ]
 }
