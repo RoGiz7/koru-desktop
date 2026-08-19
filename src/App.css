@@ -3687,6 +3687,39 @@ h4 {
   border-color: var(--accent-border);
 }
 
+/* ---- DIAGNÓSTICO PARA SOPORTE ----
+   El texto se enseña ENTERO y en un `textarea` de solo lectura: si el portapapeles falla (permisos,
+   entornos raros), se puede seleccionar a mano. Un botón de copiar sin salida alternativa deja
+   tirado justo a quien más lo necesita. */
+.diag-modal {
+  width: min(680px, 94vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, #161b22);
+}
+.diag-texto {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+}
+.ida-btn-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
 /* ---- VIAJES (2026-08-12): lo que hiciste de verdad, con lo que pasó por el camino ----
    Misma gramática que el feed de intel en vivo —franja de color a la izquierda y fondo del mismo
    color muy atenuado—, pero en AZUL: el rojo del feed significa amenaza AHORA, y un viaje ya

@@ -962,6 +962,54 @@ function App() {
       setError(String(e));
     }
   }
+  /** ---- DIAGNÓSTICO PARA SOPORTE ----
+   *  El Rust reúne el entorno (sistema, sesión, GPU, cómo se instaló) y AQUÍ se le añade el estado
+   *  de Koru — pero **solo contadores y sí/no**, jamás contenido: cuántos personajes, no quiénes;
+   *  cuántos canales, no cuáles. Ver el aviso de privacidad en `src-tauri/src/diagnostico.rs`. */
+  const [diag, setDiag] = useState<string | null>(null);
+  const [diagCopiado, setDiagCopiado] = useState(false);
+  async function abrirDiagnostico() {
+    // ---- Lo que SOLO sabe el navegador, y que en Windows es casi todo lo útil ----
+    // El `userAgent` trae en una línea la versión de Windows Y la de WebView2 (`Edg/…`), que es el
+    // dato número uno cuando algo falla en Windows: el motor lo actualiza el sistema por su cuenta,
+    // así que dos usuarios con la misma Koru pueden tener motores distintos.
+    const ua = navigator.userAgent;
+    const motor = /Edg\/([\d.]+)/.exec(ua)?.[1] ?? /Chrome\/([\d.]+)/.exec(ua)?.[1] ?? "?";
+    const so = /\(([^)]+)\)/.exec(ua)?.[1] ?? "";
+    // Pantallas y escalado: el fallo del overlay de esta semana era exactamente de esto, y no
+    // teníamos forma de saberlo sin preguntar.
+    let pantallas = `${window.screen.width}×${window.screen.height} @${window.devicePixelRatio}x`;
+    try {
+      const ms = await invoke<{ width: number; height: number; is_primary: boolean }[]>("overlay_monitors");
+      if (ms.length > 0) {
+        pantallas = `${ms.length} · ${ms
+          .map((m) => `${m.width}×${m.height}${m.is_primary ? "*" : ""}`)
+          .join(" ")} @${window.devicePixelRatio}x`;
+      }
+    } catch {
+      // El overlay puede no existir todavía; con lo del navegador basta.
+    }
+    const estado: [string, string][] = [
+      ["Motor", `WebView ${motor}`],
+      ["Plataforma", so],
+      ["Pantallas", pantallas],
+      ["Personajes", String(characters.length)],
+      ["Carpeta de intel", intelFolder ? "definida" : "sin definir"],
+      ["Canales detectados", String(intelAvailChannels.length)],
+      ["Canales vigilados", String(intelChannels.length)],
+      ["Overlay", localStorage.getItem("koru-overlay") === "1" ? "encendido" : "apagado"],
+      ["Idioma", localStorage.getItem("koru-lang") ?? "es"],
+      ["Tema", localStorage.getItem("koru-theme") ?? "(por defecto)"],
+    ];
+    try {
+      const r = await invoke<{ texto: string }>("diagnostico", { estado });
+      setDiag(r.texto);
+      setDiagCopiado(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function pickIntelFolder() {
     try {
       const dir = await openDialog({ title: "Carpeta de Chatlogs", directory: true, multiple: false });
@@ -1738,6 +1786,45 @@ function App() {
           </button>
         </div>
       )}
+      {/* Vista previa del diagnóstico. Se ENSEÑA antes de copiar a propósito: nada va al
+          portapapeles a ciegas, y así se ve exactamente qué se comparte. */}
+      {diag !== null && (
+        <div className="modal-backdrop" onClick={() => setDiag(null)}>
+          <div className="diag-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="intel-detail-head">
+              <strong>🩺 {tr("Diagnóstico para soporte")}</strong>
+              <button className="sys-close" onClick={() => setDiag(null)}>✕</button>
+            </div>
+            <p className="small muted" style={{ margin: "0.2rem 0 0.5rem" }}>
+              {tr(
+                "Esto es TODO lo que se comparte. No incluye nombres de personaje, corporación, sistemas ni rutas con tu nombre de usuario. No se envía a ningún sitio: lo copias tú y lo pegas donde quieras.",
+              )}
+            </p>
+            <textarea className="diag-texto" readOnly value={diag} rows={14} />
+            <div className="ida-btn-row">
+              <button
+                className="ida-btn ida-primary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(diag);
+                    setDiagCopiado(true);
+                  } catch {
+                    // Sin permiso de portapapeles no se pierde nada: el texto está a la vista y
+                    // se puede seleccionar a mano. Decirlo es mejor que un botón que no hace nada.
+                    setDiagCopiado(false);
+                    setError(tr("No se pudo copiar solo. Selecciona el texto y cópialo a mano."));
+                  }
+                }}
+              >
+                {diagCopiado ? `✓ ${tr("Copiado")}` : tr("Copiar")}
+              </button>
+              <button className="ida-btn" onClick={() => setDiag(null)}>
+                {tr("Cerrar")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ----- BARRA SUPERIOR (antes rail) ----- */}
       <header className="topbar">
         <div className="tb-brand">
@@ -1959,6 +2046,20 @@ function App() {
                   <strong>{tr("Restaurar copia de seguridad")}</strong>
                   <span className="small muted">
                     {tr("Reemplaza tus datos actuales por los de una copia y reinicia la app.")}
+                  </span>
+                </span>
+              </button>
+              {/* DIAGNÓSTICO. Va en «Datos» y no en un rincón de ayuda porque es lo primero que
+                  se pide cuando algo falla, y quien lo necesita ya está nervioso.
+                  ⚠️ NO ENVÍA NADA: genera el texto, lo enseña, y copiar lo decide el usuario. */}
+              <button className="tb-settings-item" onClick={abrirDiagnostico}>
+                <span className="tb-si-ic">🩺</span>
+                <span className="tb-si-tx">
+                  <strong>{tr("Diagnóstico para soporte")}</strong>
+                  <span className="small muted">
+                    {tr(
+                      "Reúne los datos técnicos de tu equipo para pegarlos al pedir ayuda. Lo verás antes de copiarlo, y no se envía a ningún sitio.",
+                    )}
                   </span>
                 </span>
               </button>

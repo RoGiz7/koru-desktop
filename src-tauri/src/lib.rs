@@ -5,6 +5,7 @@
 
 mod chatlog;
 mod commands;
+mod diagnostico;
 mod config;
 mod db;
 mod error;
@@ -123,6 +124,7 @@ pub fn run() {
             commands::poll_positions,
             commands::get_track,
             commands::get_trips,
+            diagnostico::diagnostico,
             graphics::ui_lista,
             graphics::grafico_modo_seguro,
             commands::overlay_enable,
