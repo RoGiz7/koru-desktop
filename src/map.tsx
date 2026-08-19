@@ -1174,6 +1174,116 @@ export function MapView(props: {
       .catch(() => setTrips([]));
   }, [overlay, horasTrack, hereCharId, track.length]);
 
+  /** ---- VIAJES AGRUPADOS: un movimiento, no N pilotos ----
+   *
+   *  El Rust trocea POR PILOTO, y tiene que hacerlo: si mezclara personajes se inventaría viajes
+   *  saltando de un alt a otro. Pero al enseñarlo, tres alts moviéndose juntos **no son tres
+   *  viajes**: son una flota tuya. Con 9 personajes la lista se llenaba de repetidos idénticos.
+   *
+   *  ⚠️ CUÁNDO SON «EL MISMO»: mismo recorrido exacto (la lista de sistemas, en orden) **y**
+   *  ventanas de tiempo que se solapan. Las dos condiciones hacen falta: solo el recorrido juntaría
+   *  el viaje de hoy con el mismo trayecto de la semana pasada; solo el tiempo juntaría a dos alts
+   *  que casualmente volaban a la vez por sitios distintos.
+   *
+   *  Los INCIDENTES se suman entre pilotos a propósito: si a uno de la flota le mataron, eso pasó
+   *  en el viaje, no «en el viaje de otro».
+   */
+  type ViajeGrupo = {
+    key: string;
+    base: Trip;
+    pilotos: string[];
+    events: Trip["events"];
+  };
+  const viajesAgrupados = useMemo<ViajeGrupo[]>(() => {
+    const out: ViajeGrupo[] = [];
+    for (const v of trips) {
+      const ruta = v.legs.map((l) => l.system_id).join(">");
+      const g = out.find(
+        (x) =>
+          x.base.legs.map((l) => l.system_id).join(">") === ruta &&
+          // Solapan si ninguno acaba antes de que el otro empiece.
+          x.base.started_ms <= v.ended_ms &&
+          v.started_ms <= x.base.ended_ms,
+      );
+      if (g) {
+        if (!g.pilotos.includes(v.name)) g.pilotos.push(v.name);
+        g.events = [...g.events, ...v.events].sort((a, b) => a.ts_ms - b.ts_ms);
+      } else {
+        out.push({ key: `${v.character_id}-${v.started_ms}`, base: v, pilotos: [v.name], events: v.events });
+      }
+    }
+    return out;
+  }, [trips]);
+
+  /** El rótulo de un viaje. En una IDA Y VUELTA, «C-J6MT → C-J6MT» no dice nada: lo que quieres
+   *  saber es **hasta dónde llegaste**, no que volviste a casa. Se usa el punto medio del recorrido,
+   *  que en un trayecto de ida y vuelta ES el punto de retorno. */
+  const rotuloViaje = useCallback(
+    (v: Trip): { txt: string; vuelta: boolean } => {
+      if (v.from_system !== v.to_system || v.legs.length < 3) {
+        return { txt: `${nameOf(v.from_system)} → ${nameOf(v.to_system)}`, vuelta: false };
+      }
+      // El punto MÁS ADENTRADO del recorrido, no el del medio. El medio falla en cuanto el viaje
+      // pasa por casa a mitad de camino —dos vueltas cortas seguidas— y entonces el rótulo repite
+      // el origen y no dice nada, que es justo lo que veníamos a arreglar.
+      // «Adentrado» = lo lejos que está de CUALQUIERA de los dos extremos: `min(i, últimos-i)`.
+      const n = v.legs.length - 1;
+      let lejos: number | null = null;
+      let mejor = -1;
+      v.legs.forEach((l, i) => {
+        if (l.system_id === v.from_system) return; // casa no cuenta como destino
+        const hondura = Math.min(i, n - i);
+        if (hondura > mejor) {
+          mejor = hondura;
+          lejos = l.system_id;
+        }
+      });
+      if (lejos == null) {
+        // Todo el viaje fue dentro del mismo sistema: raro, pero no vamos a inventar un destino.
+        return { txt: `${nameOf(v.from_system)} ↻`, vuelta: true };
+      }
+      return { txt: `${nameOf(v.from_system)} ↻ ${nameOf(lejos)}`, vuelta: true };
+    },
+    [nameOf],
+  );
+
+  /** EL VIAJE ELEGIDO, listo para pintar. `tripOpen` es el `started_ms` del que está desplegado en
+   *  la pestaña Viajes: abrir uno y verlo en el mapa son la misma acción, no dos.
+   *
+   *  El recorrido de un viaje se pinta APARTE del rastro general y encima de él: el rastro dice
+   *  «por aquí anduviste estas horas», y el viaje dice «ESTE trayecto, con lo que pasó». Si
+   *  compartieran trazo no se distinguiría uno del otro. */
+  const grupoSel = useMemo(
+    () => (tripOpen == null ? null : (viajesAgrupados.find((g) => g.base.started_ms === tripOpen) ?? null)),
+    [viajesAgrupados, tripOpen],
+  );
+  const viajeSel = grupoSel?.base ?? null;
+
+  const viajeSegs = useMemo(() => {
+    if (!geo || !viajeSel) return null;
+    const segs: { key: string; a: number; b: number; ciego: boolean }[] = [];
+    for (let i = 1; i < viajeSel.legs.length; i++) {
+      const prev = viajeSel.legs[i - 1];
+      const cur = viajeSel.legs[i];
+      segs.push({
+        key: `vj-${i}`,
+        a: prev.system_id,
+        b: cur.system_id,
+        // La ceguera se dibuja distinta SIEMPRE: un tramo con hueco no es un salto observado, y
+        // pintarlo igual sería afirmar un camino que nadie vio. Misma regla que el rastro.
+        ciego: cur.blind_before_ms > 0,
+      });
+    }
+    // Los incidentes, agrupados por sistema: en uno pueden pasar varias cosas.
+    const porSistema = new Map<number, { intel: number; loss: number; kill: number }>();
+    for (const e of (grupoSel?.events ?? viajeSel.events)) {
+      const x = porSistema.get(e.system_id) ?? { intel: 0, loss: 0, kill: 0 };
+      x[e.kind] += 1;
+      porSistema.set(e.system_id, x);
+    }
+    return { segs, porSistema };
+  }, [geo, viajeSel, grupoSel]);
+
   /** Tramos del recorrido, por piloto y en orden. Cada uno sabe si viene de un salto real
    *  (sistemas vecinos en el grafo), de un tramo que no vimos entero, o de un rato ciego. */
   const trackSegs = useMemo(() => {
@@ -3347,6 +3457,68 @@ export function MapView(props: {
                   </line>
                 );
               })}
+            {/* EL VIAJE ELEGIDO, por encima del rastro. En AZUL —el mismo de su tarjeta— y más
+                grueso: el rastro es «por dónde anduviste», el viaje es «ESTE trayecto». */}
+            {viajeSegs &&
+              viajeSegs.segs.map((sg) => {
+                const a = geo.idx.get(sg.a);
+                const b = geo.idx.get(sg.b);
+                if (!a || !b) return null;
+                const pa = geo.proj(a);
+                const pb = geo.proj(b);
+                return (
+                  <line
+                    key={sg.key}
+                    x1={pa.px}
+                    y1={pa.py}
+                    x2={pb.px}
+                    y2={pb.py}
+                    stroke="#4aa3df"
+                    strokeWidth={3 / view.z}
+                    strokeLinecap="round"
+                    opacity={sg.ciego ? 0.35 : 0.95}
+                    strokeDasharray={sg.ciego ? `${2 / view.z} ${5 / view.z}` : undefined}
+                  >
+                    <title>
+                      {sg.ciego
+                        ? `${a.n} → ${b.n}\n${tr("Sin cobertura: Koru estaba cerrado o el piloto desconectado.")}`
+                        : `${a.n} → ${b.n}`}
+                    </title>
+                  </line>
+                );
+              })}
+            {/* Los INCIDENTES, sobre el sistema donde pasaron. Es lo que convierte el trazo en una
+                historia: aquí te cantaron, aquí perdiste la nave. */}
+            {viajeSegs &&
+              [...viajeSegs.porSistema.entries()].map(([sid, n]) => {
+                const s2 = geo.idx.get(sid);
+                if (!s2) return null;
+                const p = geo.proj(s2);
+                return (
+                  <g key={`vi-${sid}`} pointerEvents="none">
+                    {n.intel > 0 && (
+                      <circle
+                        cx={p.px}
+                        cy={p.py}
+                        r={8 / view.z}
+                        fill="none"
+                        stroke="#ff3b3b"
+                        strokeWidth={2}
+                        vectorEffect="non-scaling-stroke"
+                        opacity={0.95}
+                      />
+                    )}
+                    {/* Una pérdida no es un aviso: se pinta RELLENA para que se vea de lejos, y en
+                        un anillo más grande para que no la tape el del intel si coinciden. */}
+                    {n.loss > 0 && (
+                      <circle cx={p.px} cy={p.py} r={4.5 / view.z} fill="#e5534b" stroke="#0a0d12" strokeWidth={0.8 / view.z} />
+                    )}
+                    {n.kill > 0 && n.loss === 0 && (
+                      <circle cx={p.px} cy={p.py} r={4 / view.z} fill="#3fb950" stroke="#0a0d12" strokeWidth={0.8 / view.z} />
+                    )}
+                  </g>
+                );
+              })}
             {/* Paradas: el tamaño es el tiempo OBSERVADO allí, nunca «hasta ahora». */}
             {overlay === "recorrido" &&
               trackSegs &&
@@ -3602,6 +3774,19 @@ export function MapView(props: {
                     : []),
                   ...(trackSegs.segs.some((s) => s.kind === "ciego")
                     ? [{ color: "#5a6675", label: tr("Sin cobertura"), dash: true }]
+                    : []),
+                ]
+              : []),
+            // El viaje elegido y sus incidentes. Solo aparecen cuando hay uno abierto: una leyenda
+            // que explica algo que no está en pantalla es ruido.
+            ...(viajeSegs
+              ? [
+                  { color: "#4aa3df", label: tr("Viaje elegido") },
+                  ...([...viajeSegs.porSistema.values()].some((n) => n.intel > 0)
+                    ? [{ color: "#ff3b3b", label: tr("Aviso de intel") }]
+                    : []),
+                  ...([...viajeSegs.porSistema.values()].some((n) => n.loss > 0)
+                    ? [{ color: "#e5534b", label: tr("Nave perdida") }]
                     : []),
                 ]
               : []),
@@ -4172,24 +4357,29 @@ export function MapView(props: {
               <img className="rt-ico" src={typeIcon(439, 32)} alt="" width={16} height={16} loading="lazy" />
               {tr("Viajes")} <span className="muted small">({trips.length})</span>
             </span>
+            {trips.length > 0 && (
+              <span className="muted small">{tr("Pincha uno para verlo en el mapa.")}</span>
+            )}
             {trips.length === 0 && (
               <span className="muted small">
                 {tr("Ningún viaje en esta ventana. Un viaje son 3 saltos o más sin pararte 20 minutos.")}
               </span>
             )}
-            {trips.map((v) => {
+            {viajesAgrupados.map((g) => {
+              const v = g.base;
               const abierto = tripOpen === v.started_ms;
-              const avisos = v.events.filter((e) => e.kind === "intel").length;
-              const perdidas = v.events.filter((e) => e.kind === "loss").length;
-              const kills = v.events.filter((e) => e.kind === "kill").length;
+              const avisos = g.events.filter((e) => e.kind === "intel").length;
+              const perdidas = g.events.filter((e) => e.kind === "loss").length;
+              const kills = g.events.filter((e) => e.kind === "kill").length;
+              const rot = rotuloViaje(v);
               return (
-                <div key={`${v.character_id}-${v.started_ms}`} className="trip">
+                <div key={g.key} className="trip">
                   <button
                     className="trip-head"
                     onClick={() => setTripOpen(abierto ? null : v.started_ms)}
                   >
-                    <span className="trip-ruta">
-                      {nameOf(v.from_system)} <span className="trip-flecha">→</span> {nameOf(v.to_system)}
+                    <span className="trip-ruta" title={rot.vuelta ? tr("Ida y vuelta: se enseña hasta dónde llegaste, no que volviste a casa.") : undefined}>
+                      {rot.txt}
                     </span>
                     <span className="muted small trip-when">{fmtAgo(Date.now() - v.ended_ms)}</span>
                   </button>
@@ -4237,14 +4427,18 @@ export function MapView(props: {
                         {fmtMin(v.blind_ms / 60000)}
                       </span>
                     )}
-                    <span className="muted small trip-quien">{v.name}</span>
+                    {/* Con varios, el número manda y los nombres van en el tooltip: «3 pilotos» se
+                        lee de un vistazo y tres nombres largos rompen la fila. */}
+                    <span className="muted small trip-quien" title={g.pilotos.join(" · ")}>
+                      {g.pilotos.length > 1 ? `${g.pilotos.length} ${tr("pilotos")}` : g.pilotos[0]}
+                    </span>
                   </div>
                   {abierto && (
                     <div className="trip-body">
-                      {v.events.length === 0 && (
+                      {g.events.length === 0 && (
                         <div className="muted small">{tr("Sin incidentes: ni un aviso ni un disparo.")}</div>
                       )}
-                      {v.events.map((e, i) => (
+                      {g.events.map((e, i) => (
                         <div key={i} className={`trip-ev ${e.kind}`}>
                           <span className="ri-salto">{nameOf(e.system_id)}</span>
                           {e.kind === "intel" ? (
