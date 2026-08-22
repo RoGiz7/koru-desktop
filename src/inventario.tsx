@@ -29,7 +29,7 @@ type Volumenes = { packed: Record<string, number>; asm: Record<string, number> }
 
 // ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
 // La sección se desmonta al salir de la pestaña, así que cada visita arrancaba EN BLANCO esperando
-// las 7.000+ pilas del backend. Con 9 personajes se nota; con 2 no — lo cazó Zigor (2026-08-22).
+// las 7.000+ pilas del backend. Con 9 personajes se nota; con 2 no — lo cazó RoGiz7 (2026-08-22).
 // El trato: al entrar se PINTA al instante la última respuesta conocida, y se re-pide DETRÁS
 // exactamente igual que antes. Misma fidelidad (cada visita relee), cero espera en blanco.
 const cacheAssets = new Map<string, AssetRow[]>();

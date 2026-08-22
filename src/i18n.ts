@@ -2632,6 +2632,11 @@ const EN: Record<string, string> = {
   "Esto son conversaciones privadas: las tuyas y las de quienes hablaron contigo. Se quedan en tu ordenador y no se envían a ningún sitio — y son lo último que debería salir en una captura.":
     "These are private conversations: yours and those of the people who talked to you. They stay on your computer and are never sent anywhere — and they are the last thing that should ever appear in a screenshot.",
 
+  "Tu flota EN VIVO: cuántos de los tuyos hay en cada sistema, del grabador de ops (sección Flotas). Solo pinta mientras hay una grabación en marcha.":
+    "Your fleet LIVE: how many of yours are in each system, from the op recorder (Fleets section). Only draws while a recording is running.",
+  "Tu flota (op en vivo)": "Your fleet (live op)",
+  Flota: "Fleet",
+
   // --- FLOTAS: composición en vivo ---
   Composición: "Composition",
   "a bordo": "aboard",

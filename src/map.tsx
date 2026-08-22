@@ -320,6 +320,9 @@ export function MapView(props: {
   /** Petición de CENTRAR un sistema, desde otra sección (inventario, naves, assets…). El `nonce`
    *  fuerza el re-disparo si pides dos veces el mismo sistema — mismo patrón que openTrack. */
   focusReq?: { sysId: number; nonce: number } | null;
+  /** Capa «flota»: cuántos de los tuyos hay en cada sistema, de la op EN VIVO del grabador.
+   *  null = no hay op grabándose (la capa se pinta vacía y el texto de contexto lo dice). */
+  fleetSystems?: Map<number, number> | null;
   /** Aviso a abrir en la ficha, pedido desde el overlay flotante. Ver el efecto más abajo. */
   openIntelReq?: {
     sysId: number;
@@ -344,6 +347,7 @@ export function MapView(props: {
     onOpenIntelSettings,
     openTrack,
     focusReq,
+    fleetSystems,
     openIntelReq,
     assetsBySystem,
     miningBySystem,
@@ -815,7 +819,7 @@ export function MapView(props: {
     setView({ z: nz, x: MAP_W / 2 - wx * nz, y: MAP_H / 2 - wy * nz });
   }
 
-  // ★ CENTRAR EL MAPA EN UN SISTEMA (idea de Zigor, 2026-08-22) — LA ÚNICA PUERTA para hacerlo.
+  // ★ CENTRAR EL MAPA EN UN SISTEMA (idea de RoGiz7, 2026-08-22) — LA ÚNICA PUERTA para hacerlo.
   // Todos los llamantes (feed de intel, saltos calientes de la ruta, buscadores…) pasan por aquí:
   // separar «centrar desde intel» de «centrar desde ruta» sería la vía segura para que diverjan
   // sin que nadie se entere — misma lección que las dos tarjetas del mapa.
@@ -2214,6 +2218,8 @@ export function MapView(props: {
       ? liveKills
       : overlay === "jumps"
       ? liveJumps
+      : overlay === "flota"
+      ? fleetSystems ?? null
       : overlay === "assets"
       ? assetsBySystem ?? null
       : overlay === "mineria"
@@ -2288,6 +2294,8 @@ export function MapView(props: {
       ? "Conexiones de wormhole a Thera/Turnur (datos de eve-scout): sistemas k-space con salida (cian = Thera, naranja = Turnur). El tooltip muestra tipo, tamaño máx y horas restantes."
       : overlay === "firmas"
       ? "Tus firmas del escáner de sondas, por sistema (violeta = wormhole con destino anotado · cian = wormhole sin destino · ámbar = firmas sin identificar · gris = todo identificado). Se pegan y guardan en Ajustes → Firmas."
+      : overlay === "flota"
+      ? "Tu flota EN VIVO: cuántos de los tuyos hay en cada sistema, del grabador de ops (sección Flotas). Solo pinta mientras hay una grabación en marcha."
       : overlay === "kills"
       ? "Kills de jugadores en la última hora (datos en vivo de ESI)."
       : overlay === "jumps"

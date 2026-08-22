@@ -1380,6 +1380,27 @@ function App() {
   const [opEstado, setOpEstado] = useState<OpEstado | null>(null);
   const [opBusy, setOpBusy] = useState(false);
   const [opErr, setOpErr] = useState<string | null>(null);
+  // Capa «flota» del mapa: recuento de los tuyos por sistema, refrescado con cada sondeo de la op.
+  // Vive AQUÍ y no en el mapa por lo mismo que el intervalo de grabación: la op no es del mapa.
+  const [fleetSystems, setFleetSystems] = useState<Map<number, number> | null>(null);
+  useEffect(() => {
+    if (!opEstado?.grabando) {
+      setFleetSystems(null); // sin op no hay capa: vacío honesto, no el eco de la op anterior
+      return;
+    }
+    invoke<{ members: { system_id: number | null; present: boolean }[] }>("fleet_op_roster", {
+      opId: opEstado.op_id,
+    })
+      .then((r) => {
+        const m = new Map<number, number>();
+        for (const mm of r.members)
+          if (mm.present && mm.system_id != null)
+            m.set(mm.system_id, (m.get(mm.system_id) ?? 0) + 1);
+        setFleetSystems(m);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opEstado?.grabando, opEstado?.op_id, opEstado?.ticks]);
 
   // Al arrancar: ¿quedó una grabación abierta? Si Koru se cerró a mitad de una op, la op sigue viva
   // y hay que retomarla, no perderla.
@@ -2578,6 +2599,7 @@ function App() {
           incursions={incursions}
           theraConns={theraConns}
           focusReq={mapFocusReq}
+          fleetSystems={fleetSystems}
           onNeedThera={() => {
             if (!theraConns) loadThera();
           }}

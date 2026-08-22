@@ -58,7 +58,7 @@ function galon(role: string | null): string {
   return "";
 }
 
-/** COMPOSICIÓN EN VIVO (idea de Zigor, 2026-08-22, nada más ver grabar la primera op): el FC ve
+/** COMPOSICIÓN EN VIVO (idea de RoGiz7, 2026-08-22, nada más ver grabar la primera op): el FC ve
  *  aquí mismo quién va con quién y dónde está cada uno, sin abrir la ventana de flota del juego.
  *  Lee lo que el grabador YA guarda — cero llamadas extra a ESI por pintarla — y se refresca con
  *  cada sondeo (la prop `ticks` es la señal). La capa «flota en el mapa» queda para después. */
