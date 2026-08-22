@@ -9737,3 +9737,164 @@ h4 {
   border-bottom: 1px solid var(--border);
   padding-bottom: 0;
 }
+
+/* E2/E3 en el visor de ops. */
+.ops-logi-con {
+  margin-top: 12px;
+}
+.ops-intel-zona {
+  background: rgba(229, 83, 75, 0.08);
+  border-left: 3px solid #e5534b;
+  padding-left: 6px;
+}
+
+/* ============ E4: el reproductor de op sobre el mapa ============ */
+.pb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pb-reloj {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-align: center;
+  color: #3fb950; /* el verde de la flota: es SU reloj */
+}
+.pb-controles {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.pb-barra-zona {
+  position: relative;
+  padding-bottom: 10px;
+}
+.pb-barra {
+  width: 100%;
+}
+.pb-marcas {
+  position: relative;
+  height: 8px;
+}
+.pb-marca {
+  position: absolute;
+  top: 0;
+  width: 4px;
+  height: 8px;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+.pb-marca.kill {
+  background: #3fb950;
+}
+.pb-marca.perdida {
+  background: #e5534b;
+}
+.pb-marca.intel {
+  background: #d29922;
+  height: 5px;
+  top: 3px;
+}
+/* Pulso rojo de un canto de intel durante la reproducción. */
+.pb-intel circle {
+  fill: rgba(229, 83, 75, 0.15);
+  stroke: #e5534b;
+  stroke-width: 2;
+  animation: fp-ring 1200ms ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ops-play {
+  margin: 10px 0 2px;
+}
+
+/* El narrador del reproductor (panel izquierdo durante la reproducción). */
+.pb-narrador .intel-feed {
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.pb-linea {
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+.pb-l-ico {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+}
+.pb-l-kill {
+  color: #3fb950;
+  font-weight: 600;
+}
+.pb-l-perdida {
+  color: #e5534b;
+  font-weight: 600;
+}
+.pb-l-intel {
+  color: #d29922;
+}
+.pb-l-move {
+  color: #7fb0ff;
+}
+
+/* Narrador con iconografía EVE: retrato circular + icono de nave en línea. */
+.pb-cara {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+  vertical-align: -3px;
+  margin: 0 3px 0 4px;
+}
+.pb-l-quien {
+  font-weight: 600;
+}
+.pb-l-nave {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  margin-left: 2px;
+}
+.pb-l-sys {
+  color: #7fb0ff;
+}
+
+/* La composición en T dentro de la tarjeta Op del reproductor. */
+.pb-comp {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.pb-comp-fila {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pb-comp-fila.fuera {
+  opacity: 0.45;
+}
+.pb-comp-quien {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-comp-nave {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}

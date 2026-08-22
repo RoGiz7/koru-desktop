@@ -50,6 +50,34 @@ export type RosterMember = {
 };
 export type Roster = { members: RosterMember[]; wings: [number, number, string][] };
 
+/** La carga de un REPRODUCTOR de op (E4): todo lo que el mapa necesita para rebobinar una
+ *  grabación. Lo arma el visor (que ya tiene los datos cargados) y viaja entero a App→MapView:
+ *  una sola fuente, cero peticiones nuevas. */
+export type OpPlayback = {
+  op_id: number;
+  name: string;
+  t0: number; // epoch ms
+  t1: number;
+  /** Eventos del grabador, ya ordenados: de aquí salen las posiciones en el instante T. */
+  events: {
+    at: string;
+    character_id: number;
+    kind: string;
+    system_id: number | null;
+    ship_type_id: number | null;
+  }[];
+  names: Record<string, string>;
+  /** Para las marcas de la barra Y el narrador del feed (quién murió/mató, con retrato). */
+  kills: {
+    at: string;
+    loss: boolean;
+    victim_id: number | null;
+    victim_name: string | null;
+    victim_ship: number | null;
+  }[];
+  intel: { ts_ms: number; name: string; system_id: number }[];
+};
+
 /** La estrella del mando: FC > ala > escuadra. Del `role` que da ESI. Lo usan la sección y la
  *  pestaña Flota de la tarjeta del mapa — el mismo símbolo en los dos sitios, a propósito. */
 export function galon(role: string | null): string {
@@ -115,6 +143,12 @@ function RosterPanel({ opId, ticks }: { opId: number; ticks: number }) {
       grupos.set(clave, { titulo: [tw, ts].filter(Boolean).join(" · ") || tr("Sin encuadrar"), filas: [] });
     }
     grupos.get(clave)!.filas.push(m);
+  }
+  // La raíz de la flota (sin ala ni escuadra) es el asiento del COMANDANTE: si todos los de ese
+  // grupo llevan la ★, se titula por lo que ES — «Mando de flota» (lo vio RoGiz7 en el visor).
+  const raiz = grupos.get("-1:-1");
+  if (raiz && raiz.filas.every((m) => m.role === "fleet_commander")) {
+    raiz.titulo = tr("Mando de flota");
   }
 
   return (

@@ -14,7 +14,7 @@ import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
-import { galon, loadShipNames, type Roster } from "./flotas";
+import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import type { Character } from "./types";
 import type { Tab } from "./constants";
 
@@ -80,7 +80,16 @@ type OpCharStats = {
   mining_units: number;
   files: number;
 };
-type OpStatsResp = { chars: OpCharStats[]; rivals: OpRival[] };
+type OpLogiPair = {
+  pilot: string;
+  is_char: boolean;
+  given_hp: number;
+  given_n: number;
+  recv_hp: number;
+  recv_n: number;
+};
+type OpStatsResp = { chars: OpCharStats[]; rivals: OpRival[]; logi_pairs: OpLogiPair[] };
+type OpIntelRow = { ts_ms: number; name: string; system_id: number; en_vuestra_zona: boolean };
 
 function fmtDur(ms: number): string {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -177,10 +186,13 @@ function Cinta({
 export function OpsView({
   characters,
   onIrA,
+  onReproducir,
 }: {
   characters: Character[];
   /** Saltar a otra sección (Rateo, Minería…): el detalle PvE vive en su casa, no aquí. */
   onIrA?: (tab: Tab) => void;
+  /** E4: lanzar el REPRODUCTOR de esta op sobre el mapa grande. */
+  onReproducir?: (pb: OpPlayback) => void;
 }) {
   const [ops, setOps] = useState<OpSummary[] | null>(null);
   const [abierta, setAbierta] = useState<number | null>(null);
@@ -194,6 +206,7 @@ export function OpsView({
   // ningún dato accesible, y una pestaña vacía es una promesa rota (ver el diseño de E1).
   type DetTab = "pelicula" | "combate" | "logi" | "pve" | "roster";
   const [detTab, setDetTab] = useState<DetTab>("pelicula");
+  const [opIntel, setOpIntel] = useState<OpIntelRow[] | null>(null);
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
   const [err, setErr] = useState<string | null>(null);
@@ -212,16 +225,19 @@ export function OpsView({
     setRoster(null);
     setStats(null);
     setKills(null);
+    setOpIntel(null);
     setDetTab("pelicula");
     try {
-      const [ev, ro, ki] = await Promise.all([
+      const [ev, ro, ki, oi] = await Promise.all([
         invoke<OpEvents>("fleet_op_events", { opId: op.op_id }),
         invoke<Roster>("fleet_op_roster", { opId: op.op_id }),
         invoke<OpKill[]>("fleet_op_kills", { opId: op.op_id }),
+        invoke<OpIntelRow[]>("fleet_op_intel", { opId: op.op_id }),
       ]);
       setEventos(ev);
       setRoster(ro);
       setKills(ki);
+      setOpIntel(oi);
     } catch (e) {
       setErr(String(e));
     }
@@ -232,7 +248,7 @@ export function OpsView({
       folder: localStorage.getItem("koru-gamelog-folder") ?? "",
     })
       .then(setStats)
-      .catch(() => setStats({ chars: [], rivals: [] }));
+      .catch(() => setStats({ chars: [], rivals: [], logi_pairs: [] }));
   };
 
   const bossName = (id: number) =>
@@ -240,21 +256,33 @@ export function OpsView({
 
   const op = useMemo(() => ops?.find((o) => o.op_id === abierta) ?? null, [ops, abierta]);
 
-  /** La frase de un evento. El VERBO importa: «cambió algo» no cuenta ninguna película. */
+  /** La frase de un evento. El VERBO importa: «cambió algo» no cuenta ninguna película.
+   *  La NAVEGACIÓN va entera en la cronología (pregunta de RoGiz7): el `move` ya decía a dónde,
+   *  pero el `join` no decía DESDE dónde — y una crónica de movimiento sin punto de partida no se
+   *  puede seguir. El dato siempre estuvo (cada evento lleva el estado completo); era enseñarlo. */
+  const sys = (e: EventRow): string =>
+    e.system_id != null ? (sysNames.get(e.system_id) ?? `#${e.system_id}`) : "?";
   const frase = (e: EventRow): string => {
     switch (e.kind) {
       case "join":
-        return tr("entra en la flota");
+        // Sistema, nave Y si entró atracado: el punto de partida completo (pedidos de RoGiz7).
+        // El estado de atraque es CONTINUO en ESI (station_id en cada sondeo); la película guarda
+        // los cambios, y el join es el único momento donde el estado hay que decirlo entero.
+        return `${tr("entra en la flota")} · ${sys(e)}${
+          e.ship_type_id != null
+            ? ` · ${shipNames.get(e.ship_type_id) ?? `#${e.ship_type_id}`}`
+            : ""
+        }${e.station_id != null ? ` · ${tr("atracado")}` : ""}`;
       case "leave":
         return tr("sale de la flota");
       case "ship":
         return `${tr("cambia a")} ${e.ship_type_id != null ? (shipNames.get(e.ship_type_id) ?? `#${e.ship_type_id}`) : "?"}`;
       case "move":
-        return `${tr("salta a")} ${e.system_id != null ? (sysNames.get(e.system_id) ?? `#${e.system_id}`) : "?"}`;
+        return `${tr("salta a")} ${sys(e)}`;
       case "dock":
-        return tr("atraca");
+        return `${tr("atraca")} · ${sys(e)}`;
       case "undock":
-        return tr("desatraca");
+        return `${tr("desatraca")} · ${sys(e)}`;
       case "squad":
         return tr("cambia de puesto");
       default:
@@ -314,6 +342,46 @@ export function OpsView({
               <Kpi label={tr("Sistemas")} value={fmtSp(op.systems)} />
               <Kpi label={tr("Sondeos")} value={fmtSp(op.ticks)} />
             </div>
+
+            {/* E4: la misma historia, en movimiento sobre el mapa grande. El payload viaja entero
+                desde aquí (los datos ya están cargados): cero peticiones nuevas. */}
+            {onReproducir && eventos && (
+              <button
+                className="ida-btn ida-primary ops-play"
+                onClick={() =>
+                  onReproducir({
+                    op_id: op.op_id,
+                    name: op.name || fmtFechaHora(op.started_at),
+                    t0: Date.parse(op.started_at),
+                    t1: op.ended_at
+                      ? Date.parse(op.ended_at)
+                      : op.last_tick
+                        ? Date.parse(op.last_tick)
+                        : Date.now(),
+                    events: eventos.events.map((e) => ({
+                      at: e.at,
+                      character_id: e.character_id,
+                      kind: e.kind,
+                      system_id: e.system_id,
+                      ship_type_id: e.ship_type_id,
+                    })),
+                    names: eventos.names,
+                    kills: (kills ?? []).map((k) => ({
+                      at: k.at,
+                      loss: k.loss,
+                      victim_id: k.victim_id,
+                      victim_name: k.victim_name,
+                      victim_ship: k.victim_ship,
+                    })),
+                    intel: (opIntel ?? [])
+                      .filter((r) => r.en_vuestra_zona)
+                      .map((r) => ({ ts_ms: r.ts_ms, name: r.name, system_id: r.system_id })),
+                  })
+                }
+              >
+                ▶ {tr("Reproducir en el mapa")}
+              </button>
+            )}
 
             {/* LA CINTA, SIEMPRE visible: es el vistazo de la op entera y la identidad de la
                 vista — lo único que no se puede perder al cambiar de pestaña. */}
@@ -387,6 +455,12 @@ export function OpsView({
                       });
                     }
                     grupos.get(clave)!.filas.push(m);
+                  }
+                  // La raíz de la flota (sin ala ni escuadra) es el asiento del COMANDANTE: si
+                  // todos los de ese grupo llevan la ★, se titula por lo que ES (lo vio RoGiz7).
+                  const raiz = grupos.get("-1:-1");
+                  if (raiz && raiz.filas.every((m) => m.role === "fleet_commander")) {
+                    raiz.titulo = tr("Mando de flota");
                   }
                   return [...grupos.values()].map((g) => (
                     <div key={g.titulo} className="flt-grupo">
@@ -482,8 +556,6 @@ export function OpsView({
                       <th title={tr("quién comía la presión")}>{tr("Recibido")}</th>
                       <th>{tr("Pico/s")}</th>
                       <th title={tr("reparación remota dada · recibida (HP)")}>{tr("Reps")}</th>
-                      <th>{tr("Bounty")}</th>
-                      <th>{tr("Mineral")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -505,7 +577,7 @@ export function OpsView({
                         return (
                           <tr key={s.character_id}>
                             <td className="ops-st-nom">{nombre}</td>
-                            <td colSpan={7} className="muted small">
+                            <td colSpan={5} className="muted small">
                               {tr("sin log en la ventana — no es cero actividad, es que no se vio")}
                             </td>
                           </tr>
@@ -526,8 +598,6 @@ export function OpsView({
                               ? `${fmtSp(Math.round(s.rep_hp_given))} · ${fmtSp(Math.round(s.rep_hp_recv))}`
                               : "—"}
                           </td>
-                          <td>{s.bounty_isk > 0 ? fmtIsk(s.bounty_isk) : "—"}</td>
-                          <td>{s.mining_units > 0 ? fmtSp(s.mining_units) : "—"}</td>
                         </tr>
                       );
                     })}
@@ -575,8 +645,44 @@ export function OpsView({
                     ))}
                   </tbody>
                 </table>
+                {/* E2 — CON QUIÉN: la contraparte de cada rep. «X te reparó» es el crédito que
+                    los killmails jamás dan; aquí queda escrito con nombre. */}
+                {stats.logi_pairs.length > 0 && (
+                  <>
+                    <div className="flt-roster-head ops-logi-con">
+                      <strong>{tr("Con quién")}</strong>
+                    </div>
+                    <table className="ops-stats-tabla">
+                      <thead>
+                        <tr>
+                          <th>{tr("Contraparte")}</th>
+                          <th title={tr("HP que TÚ le reparaste")}>{tr("Le diste")}</th>
+                          <th title={tr("HP que te reparó a TI")}>{tr("Te dio")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stats.logi_pairs.slice(0, 15).map((p) => (
+                          <tr key={p.pilot}>
+                            <td className="ops-st-nom">{p.pilot}</td>
+                            <td>
+                              {p.given_n > 0
+                                ? `${fmtSp(Math.round(p.given_hp))} HP · ${fmtSp(p.given_n)}`
+                                : "—"}
+                            </td>
+                            <td>
+                              {p.recv_n > 0
+                                ? `${fmtSp(Math.round(p.recv_hp))} HP · ${fmtSp(p.recv_n)}`
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
               </div>
             )}
+
 
             {/* PVE: SUMATORIO y nada más — el detalle vive en su sección (decisión de RoGiz7).
                 Las secciones agregan POR DÍA: el salto lleva al día de la op, no al minuto, y
@@ -635,12 +741,17 @@ export function OpsView({
               {eventos == null && <p className="muted small">{tr("Cargando…")}</p>}
               {eventos &&
                 (() => {
-                  // Los kills se INTERCALAN con los eventos del grabador por hora: la película
-                  // pasa de logística a historia de combate («kills como indicador» — el reparto).
-                  type Item = { at: string; ev?: EventRow; kill?: OpKill };
+                  // Los kills Y EL INTEL se INTERCALAN con los eventos del grabador por hora
+                  // (decisión de RoGiz7 antes de la 0.46.0): el intel NO es una pestaña aparte —
+                  // es parte de la historia, y SOLO lo cantado en sistemas donde la flota estuvo.
+                  // Todo lo demás de New Eden es ruido para esta película.
+                  type Item = { at: string; ev?: EventRow; kill?: OpKill; intel?: OpIntelRow };
                   const items: Item[] = [
                     ...eventos.events.map((e) => ({ at: e.at, ev: e })),
                     ...(kills ?? []).map((k) => ({ at: k.at, kill: k })),
+                    ...(opIntel ?? [])
+                      .filter((r) => r.en_vuestra_zona)
+                      .map((r) => ({ at: new Date(r.ts_ms).toISOString(), intel: r })),
                   ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
                   return items.map((it, i) => {
                     const prev = i > 0 ? items[i - 1] : null;
@@ -655,6 +766,29 @@ export function OpsView({
                         {tr("sin cambios (o sin mirar: los huecos largos son Koru cerrado)")}
                       </div>
                     );
+                    if (it.intel) {
+                      const r = it.intel;
+                      return (
+                        <div key={`i-${r.ts_ms}-${i}`}>
+                          {sep}
+                          <div
+                            className="ops-ev ops-intel-zona"
+                            title={tr("cantado en el intel, en un sistema donde estaba la flota")}
+                          >
+                            <span className="ops-ev-hora small muted">
+                              [{new Date(r.ts_ms).toISOString().slice(11, 19)}]
+                            </span>
+                            <span className="ops-kill-ico">⚠</span>
+                            <span className="ops-ev-que">
+                              {r.name}{" "}
+                              <span className="muted">
+                                · {sysNames.get(r.system_id) ?? `#${r.system_id}`}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
                     if (it.kill) {
                       const k = it.kill;
                       const nave =
@@ -705,7 +839,7 @@ export function OpsView({
                           />
                           <span className="ops-ev-quien">{nombre}</span>
                           <span className="ops-ev-que">{frase(e)}</span>
-                          {e.kind === "ship" && e.ship_type_id != null && (
+                          {(e.kind === "ship" || e.kind === "join") && e.ship_type_id != null && (
                             <img
                               className="type-ico"
                               src={typeIcon(e.ship_type_id)}

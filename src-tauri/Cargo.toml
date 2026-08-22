@@ -1,6 +1,6 @@
 [package]
 name = "koru-desktop"
-version = "0.45.1"
+version = "0.46.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

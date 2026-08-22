@@ -12064,11 +12064,26 @@ pub struct OpRival {
     pub hits_recv: i64,
 }
 
+/// Una contraparte de logi en la op: quién te reparó y a quién reparaste (E2). El alcance de
+/// siempre: solo reps que TOCAN a tus personajes — es lo único que el gamelog ve.
+#[derive(Debug, Default, Serialize)]
+pub struct OpLogiPair {
+    pub pilot: String,
+    /// false = era una nave/dron sin firma de personaje (el gamelog no siempre da el piloto).
+    pub is_char: bool,
+    pub given_hp: f64,
+    pub given_n: i64,
+    pub recv_hp: f64,
+    pub recv_n: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct OpStats {
     pub chars: Vec<OpCharStats>,
     /// Cara a cara de la op, ordenado por daño cruzado total.
     pub rivals: Vec<OpRival>,
+    /// Con quién fue el logi (E2), ordenado por HP cruzado total.
+    pub logi_pairs: Vec<OpLogiPair>,
 }
 
 #[tauri::command]
@@ -12111,7 +12126,7 @@ pub async fn fleet_op_stats(
         .filter(|id| mios.contains(id))
         .collect();
     if en_op.is_empty() {
-        return Ok(OpStats { chars: Vec::new(), rivals: Vec::new() });
+        return Ok(OpStats { chars: Vec::new(), rivals: Vec::new(), logi_pairs: Vec::new() });
     }
 
     let dir = if folder.trim().is_empty() {
@@ -12130,6 +12145,9 @@ pub async fn fleet_op_stats(
         std::collections::HashMap::new();
     // cara a cara: rival (pilot, ship) → daño cruzado, sumado sobre todos tus personajes
     let mut rivales: std::collections::HashMap<(String, String), OpRival> =
+        std::collections::HashMap::new();
+    // logi por contraparte (E2): con quién fueron las reps
+    let mut logi_con: std::collections::HashMap<String, OpLogiPair> =
         std::collections::HashMap::new();
 
     let base = std::path::Path::new(&dir);
@@ -12213,6 +12231,20 @@ pub async fn fleet_op_stats(
                     st.rep_hp_recv += l.hp;
                     st.reps_recv += 1;
                 }
+                // Con quién (E2). El pilot puede venir vacío en líneas raras: cubo "?" honesto.
+                let quien = if l.pilot.is_empty() { "?".to_string() } else { l.pilot.clone() };
+                let par = logi_con.entry(quien.clone()).or_insert_with(|| OpLogiPair {
+                    pilot: quien,
+                    is_char: l.is_char,
+                    ..Default::default()
+                });
+                if l.direction == "given" {
+                    par.given_hp += l.hp;
+                    par.given_n += 1;
+                } else {
+                    par.recv_hp += l.hp;
+                    par.recv_n += 1;
+                }
             }
             for b in &batch.bounty {
                 if en_ventana(&b.date, b.sec) {
@@ -12236,7 +12268,72 @@ pub async fn fleet_op_stats(
     v.sort_by_key(|s| s.character_id);
     let mut r: Vec<OpRival> = rivales.into_values().collect();
     r.sort_by_key(|x| -(x.dmg_done + x.dmg_recv));
-    Ok(OpStats { chars: v, rivals: r })
+    let mut lp: Vec<OpLogiPair> = logi_con.into_values().collect();
+    lp.sort_by(|a, b| {
+        (b.given_hp + b.recv_hp)
+            .partial_cmp(&(a.given_hp + a.recv_hp))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(OpStats { chars: v, rivals: r, logi_pairs: lp })
+}
+
+/// Un canto del intel dentro de la ventana de la op (E3): qué se decía alrededor mientras la
+/// flota estaba fuera. `en_vuestra_zona` = el sistema cantado es uno por el que la flota PASÓ
+/// durante la op — la semilla de la autopsia («¿el aviso estaba y no lo vimos?»).
+#[derive(Debug, Serialize)]
+pub struct OpIntelRow {
+    pub ts_ms: i64,
+    pub name: String,
+    pub system_id: i64,
+    pub en_vuestra_zona: bool,
+}
+
+#[tauri::command]
+pub fn fleet_op_intel(op_id: i64, state: State<'_, AppState>) -> AppResult<Vec<OpIntelRow>> {
+    let ops = state.db.fleet_ops_list()?;
+    let op = ops
+        .iter()
+        .find(|o| o.op_id == op_id)
+        .ok_or_else(|| AppError::Other(format!("op {op_id} no existe")))?;
+    let parse = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| t.timestamp_millis())
+            .unwrap_or(0)
+    };
+    let t0 = parse(&op.started_at);
+    let t1 = match (&op.ended_at, &op.last_tick) {
+        (Some(e), _) => parse(e),
+        (None, Some(l)) => parse(l),
+        (None, None) => t0,
+    };
+    // Sistemas por los que pasó la flota en la op (estado + eventos): el «vuestra zona» del badge.
+    let mut zona: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    for (_, m) in state.db.fleet_state(op_id)? {
+        if let Some(s) = m.system_id {
+            zona.insert(s);
+        }
+    }
+    for e in state.db.fleet_op_events(op_id)? {
+        if let Some(s) = e.system_id {
+            zona.insert(s);
+        }
+    }
+    // Nombre visible desde el índice local (el intel guarda name_lower); si no está, tal cual.
+    let mut out = Vec::new();
+    for (nl, system_id, ts_ms) in state.db.sightings_range(t0, t1) {
+        let name = state
+            .db
+            .name_cache_get(&nl)
+            .and_then(|(_, disp, _)| disp)
+            .unwrap_or_else(|| nl.clone());
+        out.push(OpIntelRow {
+            ts_ms,
+            name,
+            system_id,
+            en_vuestra_zona: zona.contains(&system_id),
+        });
+    }
+    Ok(out)
 }
 
 /// Un kill (o pérdida) dentro de la ventana de una op — para pintarlo en la película.

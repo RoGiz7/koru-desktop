@@ -13,7 +13,7 @@ import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
 import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
-import { galon, loadShipNames, type Roster } from "./flotas";
+import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay, Tab } from "./constants";
@@ -325,6 +325,10 @@ export function MapView(props: {
    *  verdes de flota SOBRE cualquier capa (no es una capa: es una presencia, como la ruta) y
    *  llena la pestaña «Flota» de la tarjeta derecha — el roster junto al feed de intel. */
   fleetRoster?: Roster | null;
+  /** E4: REPRODUCIR una op grabada sobre el mapa. Mientras hay reproducción, los anillos verdes
+   *  leen el instante T (no el vivo) y la tarjeta derecha gana la pestaña «Op» con los mandos. */
+  playback?: OpPlayback | null;
+  onPlaybackClose?: () => void;
   /** Aviso a abrir en la ficha, pedido desde el overlay flotante. Ver el efecto más abajo. */
   openIntelReq?: {
     sysId: number;
@@ -350,6 +354,8 @@ export function MapView(props: {
     openTrack,
     focusReq,
     fleetRoster,
+    playback,
+    onPlaybackClose,
     openIntelReq,
     assetsBySystem,
     miningBySystem,
@@ -424,20 +430,82 @@ export function MapView(props: {
   const navRef = useRef<HTMLDivElement | null>(null);
   // La columna derecha es UNA tarjeta con pestañas (antes eran cuatro apiladas y tapaban el mapa).
   // `cardOpen` pliega la tarjeta entera dejando solo la barra de pestañas.
-  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema" | "viajes" | "flota";
+  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema" | "viajes" | "flota" | "op";
   const [rightTab, setRightTab] = useState<RightTab>("ruta");
   const [cardOpen, setCardOpen] = useState(true);
   // Nombres de nave para la pestaña Flota (promesa compartida con la sección Flotas).
   const [fltShipNames, setFltShipNames] = useState<Map<number, string>>(new Map());
   useEffect(() => {
-    if (!fleetRoster) return;
+    if (!fleetRoster && !playback) return;
     loadShipNames().then(setFltShipNames).catch(() => {});
-  }, [fleetRoster != null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fleetRoster != null, playback != null]); // eslint-disable-line react-hooks/exhaustive-deps
   // Si la op termina con la pestaña Flota abierta, la tarjeta no puede quedarse en un panel que
   // ya no existe: cae a Ruta (la pestaña por defecto).
   useEffect(() => {
     if (rightTab === "flota" && !fleetRoster) setRightTab("ruta");
   }, [rightTab, fleetRoster]);
+
+  // ---- E4: EL REPRODUCTOR de una op sobre el mapa ----
+  // El reloj vive aquí (no en App): es un asunto del mapa, como el zoom. 100 ms de tick para que
+  // el movimiento se vea fluido a cualquier velocidad; el trabajo por tick es trivial.
+  const [pbT, setPbT] = useState(0);
+  const [pbPlaying, setPbPlaying] = useState(false);
+  const [pbSpeed, setPbSpeed] = useState(30); // ×30: una op de 30 min cabe en un minuto
+  useEffect(() => {
+    if (!playback) {
+      setPbPlaying(false);
+      return;
+    }
+    setPbT(playback.t0);
+    setPbPlaying(true);
+    setRightTab("op");
+    setCardOpen(true);
+  }, [playback]);
+  useEffect(() => {
+    if (!pbPlaying || !playback) return;
+    const id = window.setInterval(() => {
+      setPbT((t) => {
+        const nx = t + 100 * pbSpeed;
+        if (nx >= playback.t1) {
+          setPbPlaying(false);
+          return playback.t1;
+        }
+        return nx;
+      });
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [pbPlaying, pbSpeed, playback]);
+  useEffect(() => {
+    if (rightTab === "op" && !playback) setRightTab("ruta");
+  }, [rightTab, playback]);
+  // Posiciones de la flota EN EL INSTANTE T, derivadas de los eventos (misma fuente que la cinta:
+  // cada evento lleva el estado nuevo; leave = ausencia). Los eventos vienen ordenados.
+  const pbState = useMemo(() => {
+    if (!playback) return null;
+    const per = new Map<
+      number,
+      { present: boolean; system: number | null; ship: number | null }
+    >();
+    for (const e of playback.events) {
+      if (Date.parse(e.at) > pbT) break;
+      if (e.kind === "leave")
+        per.set(e.character_id, { present: false, system: null, ship: per.get(e.character_id)?.ship ?? null });
+      else per.set(e.character_id, { present: true, system: e.system_id, ship: e.ship_type_id });
+    }
+    const porSys = new Map<number, number>();
+    for (const v of per.values())
+      if (v.present && v.system != null) porSys.set(v.system, (porSys.get(v.system) ?? 0) + 1);
+    // La composición EN T, para la tarjeta: quién iba con qué en este instante (cambia al
+    // reproducir — pedido de RoGiz7: «si cambió, que se vea de un golpe de vista»).
+    const personas = [...per.entries()]
+      .map(([charId, v]) => ({
+        charId,
+        quien: playback.names[String(charId)] ?? `#${charId}`,
+        ...v,
+      }))
+      .sort((a, b) => a.quien.localeCompare(b.quien));
+    return { porSys, personas };
+  }, [playback, pbT]);
   // Red de Ansiblex de la alianza (declarada por el piloto en Ajustes; ESI no la publica).
   const [ansiRows, setAnsiRows] = useState<AnsiblexRow[]>([]);
   useEffect(() => {
@@ -897,6 +965,61 @@ export function MapView(props: {
     focusReqDone.current = focusReq.nonce;
     focusSystem(focusReq.sysId);
   }, [focusReq, geo, focusSystem]);
+
+  // El NARRADOR (pedido de RoGiz7 al estrenar el reproductor): lo sucedido hasta T, lo último
+  // arriba — el feed de la izquierda contando la op mientras el mapa la mueve.
+  // Líneas ESTRUCTURADAS (no texto plano): el render pone iconografía EVE — retrato circular del
+  // piloto, icono real de la nave, y el sistema como enlace que CENTRA (focusSystem, la de
+  // siempre). Pedido de RoGiz7: «mejorar un pelín la estética hacia EVE».
+  const pbFeed = useMemo(() => {
+    if (!playback) return null;
+    type Linea = {
+      ts: number;
+      clase: string;
+      /** Marcador para lo que no es una persona de la flota (☠ ✝ ⚠). */
+      icon?: string;
+      /** Texto ANTES del sujeto («la flota mata a»). */
+      pre?: string;
+      charId?: number | null;
+      quien?: string | null;
+      /** El verbo, tras el sujeto («salta a», «entra en la flota ·»). */
+      verbo: string;
+      sysId?: number | null;
+      shipId?: number | null;
+    };
+    const out: Linea[] = [];
+    for (const e of playback.events) {
+      const ts = Date.parse(e.at);
+      if (ts > pbT) break;
+      const quien = playback.names[String(e.character_id)] ?? `#${e.character_id}`;
+      const base = { ts, clase: e.kind, charId: e.character_id, quien };
+      if (e.kind === "join")
+        out.push({ ...base, verbo: tr("entra en la flota"), sysId: e.system_id, shipId: e.ship_type_id });
+      else if (e.kind === "leave") out.push({ ...base, verbo: tr("sale de la flota") });
+      else if (e.kind === "move") out.push({ ...base, verbo: tr("salta a"), sysId: e.system_id });
+      else if (e.kind === "ship")
+        out.push({ ...base, verbo: tr("cambia a"), shipId: e.ship_type_id });
+      else if (e.kind === "dock") out.push({ ...base, verbo: tr("atraca"), sysId: e.system_id });
+      else if (e.kind === "undock")
+        out.push({ ...base, verbo: tr("desatraca"), sysId: e.system_id });
+    }
+    for (const k of playback.kills) {
+      const ts = Date.parse(k.at);
+      if (ts > pbT) continue;
+      out.push(
+        k.loss
+          ? { ts, clase: "perdida", icon: "✝", charId: k.victim_id, quien: k.victim_name ?? "?", verbo: tr("pierde su"), shipId: k.victim_ship }
+          : { ts, clase: "kill", icon: "☠", pre: tr("la flota mata a"), charId: k.victim_id, quien: k.victim_name ?? "?", verbo: "", shipId: k.victim_ship },
+      );
+    }
+    for (const r of playback.intel) {
+      if (r.ts_ms > pbT) continue;
+      out.push({ ts: r.ts_ms, clase: "intel", icon: "⚠", quien: r.name, verbo: "·", sysId: r.system_id });
+    }
+    out.sort((a, b) => b.ts - a.ts);
+    return out.slice(0, 14);
+  }, [playback, pbT]);
+
 
   // Red de Ansiblex proyectada sobre el mapa: aristas para el grafo + trazo para pintarlas.
   // Va en su PROPIO memo y no dentro de `geo` a propósito: geo recorre los ~5.000 sistemas y las
@@ -2188,6 +2311,8 @@ export function MapView(props: {
     // del mapa. 42530 = Skirmish Command Burst I, el mismo icono que la sección Flotas.
     if (fleetRoster && fleetRoster.members.some((m) => m.present))
       t.push({ id: "flota", label: tr("Flota"), typeId: 42530 });
+    // E4: los mandos del reproductor, mientras hay una op reproduciéndose.
+    if (playback) t.push({ id: "op", label: `▶ ${tr("Op")}` });
     // Los viajes solo tienen sentido mirando el Recorrido: es la misma capa, contada.
     // 439 = «1MN Afterburner I», verificado en `market_types.json` (grupo 542, Propulsion Module).
     // Lo eligió RoGiz7 y encaja solo: un viaje es movimiento, y el afterburner es EL módulo de
@@ -2195,7 +2320,7 @@ export function MapView(props: {
     if (overlay === "recorrido") t.push({ id: "viajes", label: tr("Viajes"), typeId: 439 });
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen, selected, geo, fleetRoster]);
+  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen, selected, geo, fleetRoster, playback]);
   // Pinchar un sistema en el mapa es un acto deliberado: la tarjeta salta a su pestaña. Sin esto
   // seleccionas un sistema, no ves nada cambiar y parece que el clic no ha hecho nada.
   useEffect(() => {
@@ -3812,12 +3937,19 @@ export function MapView(props: {
             {/* FLOTA EN VIVO, sobre CUALQUIER capa (no es una capa: es una presencia, como la
                 ruta). VERDE a propósito — pedido de RoGiz7 al ver la v1 naranja: en un mapa donde
                 el rojo/naranja significa pelea, los tuyos no pueden vestir de hostil. */}
-            {fleetRoster &&
+            {(playback ? pbState : fleetRoster) &&
               (() => {
-                const porSys = new Map<number, number>();
-                for (const m of fleetRoster.members)
-                  if (m.present && m.system_id != null)
-                    porSys.set(m.system_id, (porSys.get(m.system_id) ?? 0) + 1);
+                // Reproduciendo, los anillos leen el instante T; si no, la op EN VIVO. Nunca los
+                // dos: una sola verdad en pantalla.
+                let porSys: Map<number, number>;
+                if (playback && pbState) {
+                  porSys = pbState.porSys;
+                } else {
+                  porSys = new Map<number, number>();
+                  for (const m of fleetRoster!.members)
+                    if (m.present && m.system_id != null)
+                      porSys.set(m.system_id, (porSys.get(m.system_id) ?? 0) + 1);
+                }
                 return [...porSys.entries()].map(([sid, n]) => {
                   const s = geo.idx.get(sid);
                   if (!s) return null;
@@ -3836,6 +3968,25 @@ export function MapView(props: {
                   );
                 });
               })()}
+            {/* Reproducción: los cantos de intel de la op, como pulso rojo en su sistema durante
+                los ~20 s (de tiempo de juego) que siguen al canto. La autopsia, en movimiento. */}
+            {playback &&
+              playback.intel
+                .filter((r) => r.ts_ms <= pbT && r.ts_ms > pbT - 20000)
+                .map((r) => {
+                  const s = geo.idx.get(r.system_id);
+                  if (!s) return null;
+                  const p = geo.proj(s);
+                  return (
+                    <g
+                      key={`pbi-${r.ts_ms}-${r.system_id}`}
+                      className="pb-intel"
+                      transform={`translate(${p.px} ${p.py}) scale(${1 / view.z})`}
+                    >
+                      <circle r="12" />
+                    </g>
+                  );
+                })}
             {/* Pulso de llegada de focusSystem: DOS anillos que se expanden y se apagan solos
                 (CSS, una sola pasada). La `key` con el instante fuerza a React a recrear el nodo
                 si centras dos veces el mismo sistema — sin ella la animación no se relanza. */}
@@ -3958,12 +4109,65 @@ export function MapView(props: {
           <button onClick={() => setView({ z: 1, x: 0, y: 0 })} title="Reset">⟲</button>
         </div>
 
+        {/* EL NARRADOR del reproductor (izquierda): lo sucedido hasta T, lo último arriba.
+            Mientras se reproduce, este panel ES la izquierda — la ficha y el feed vivo se
+            apartan: rebobinar es un modo de análisis, y dos relojes a la vez confunden. */}
+        {playback && pbFeed && (
+          <div className="intel-panel pb-narrador">
+            <div className="intel-head">
+              <strong>🎞 {playback.name}</strong>
+            </div>
+            <div className="intel-feed">
+              {pbFeed.length === 0 && (
+                <div className="muted small intel-feed-vacio">{tr("Aún no ha pasado nada.")}</div>
+              )}
+              {pbFeed.map((l, i) => (
+                <div key={`${l.ts}-${i}`} className={`pb-linea pb-l-${l.clase}`}>
+                  <span className="ops-ev-hora small muted">
+                    [{new Date(l.ts).toISOString().slice(11, 19)}]
+                  </span>
+                  {l.icon && <span className="pb-l-ico">{l.icon}</span>}
+                  {l.pre && <span> {l.pre} </span>}
+                  {/* Retrato circular: iconografía EVE primero. El intel no lo lleva (⚠ basta:
+                      es un aviso, no una entrada de persona) y un caído sin id tampoco. */}
+                  {l.charId != null && l.clase !== "intel" && (
+                    <img
+                      className="pb-cara"
+                      src={`https://images.evetech.net/characters/${l.charId}/portrait?size=32`}
+                      alt=""
+                      loading="lazy"
+                    />
+                  )}
+                  {l.quien && <span className="pb-l-quien">{l.quien}</span>}
+                  {l.verbo && <span> {l.verbo} </span>}
+                  {l.sysId != null && (
+                    <span
+                      className="ver-mapa pb-l-sys"
+                      title={tr("Ver en el mapa")}
+                      onClick={() => focusSystem(l.sysId!)}
+                    >
+                      {geo?.idx.get(l.sysId)?.n ?? `#${l.sysId}`}
+                    </span>
+                  )}
+                  {l.shipId != null && (
+                    <>
+                      {l.sysId != null && <span className="muted"> · </span>}
+                      <img className="type-ico pb-l-nave" src={typeIcon(l.shipId)} alt="" loading="lazy" />
+                      <span> {fltShipNames.get(l.shipId) ?? `#${l.shipId}`}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* En las capas normales la ficha flota arriba a la izquierda, como siempre. En Intel no se
             pinta aquí: se pinta como pestaña de la tarjeta derecha (más abajo). */}
-        {overlay !== "intel" && fichaSistema}
+        {overlay !== "intel" && !playback && fichaSistema}
 
         {/* Panel de Intel: configuración + feed en vivo (izquierda) */}
-        {overlay === "intel" && intel && (
+        {overlay === "intel" && !playback && intel && (
           <div className="intel-panel">
             <div className="intel-head">
               <strong>🚨 {tr("Intel en vivo")}</strong>
@@ -4500,6 +4704,110 @@ export function MapView(props: {
         {rightTab === "sistema" && fichaSistema}
 
         {/* VIAJES: la lista de lo que hiciste de verdad, con lo que pasó por el camino. */}
+        {/* E4 — LOS MANDOS DEL REPRODUCTOR: play/pausa, velocidad, y la barra con las marcas de
+            lo que pasó (☠ kills · ✝ pérdidas · ⚠ intel). La cinta fina como scrubber, para v2. */}
+        {rightTab === "op" && playback && (
+          <div className="pb-card">
+            <div className="pb-head">
+              <strong>{playback.name}</strong>
+              <button
+                className="chip-fold"
+                title={tr("Cerrar")}
+                onClick={() => onPlaybackClose?.()}
+              >
+                ✕
+              </button>
+            </div>
+            {/* La composición EN EL INSTANTE T: quién iba con qué, y si cambió se ve cambiar
+                mientras la película corre. El que salió queda apagado, no borrado. */}
+            {pbState && pbState.personas.length > 0 && (
+              <div className="pb-comp">
+                {pbState.personas.map((p) => (
+                  <div key={p.charId} className={`pb-comp-fila${p.present ? "" : " fuera"}`}>
+                    <img
+                      className="pb-cara"
+                      src={`https://images.evetech.net/characters/${p.charId}/portrait?size=32`}
+                      alt=""
+                      loading="lazy"
+                    />
+                    <span className="pb-comp-quien">{p.quien}</span>
+                    {p.ship != null && (
+                      <span className="pb-comp-nave small">
+                        <img className="type-ico pb-l-nave" src={typeIcon(p.ship)} alt="" loading="lazy" />
+                        {fltShipNames.get(p.ship) ?? `#${p.ship}`}
+                      </span>
+                    )}
+                    {p.present && p.system != null && (
+                      <span
+                        className="ver-mapa pb-l-sys small"
+                        title={tr("Ver en el mapa")}
+                        onClick={() => focusSystem(p.system!)}
+                      >
+                        {geo?.idx.get(p.system)?.n ?? `#${p.system}`}
+                      </span>
+                    )}
+                    {!p.present && <span className="muted small">{tr("salió")}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="pb-reloj">{new Date(pbT).toISOString().slice(11, 19)}</div>
+            <div className="pb-controles">
+              <button
+                className="ida-btn"
+                onClick={() => {
+                  if (!pbPlaying && pbT >= playback.t1) setPbT(playback.t0); // rebobinar al final
+                  setPbPlaying((p) => !p);
+                }}
+              >
+                {pbPlaying ? "⏸" : "▶"}
+              </button>
+              <button
+                className="ida-btn"
+                title={tr("Velocidad")}
+                onClick={() =>
+                  setPbSpeed((s) => (s === 10 ? 30 : s === 30 ? 60 : s === 60 ? 120 : 10))
+                }
+              >
+                ×{pbSpeed}
+              </button>
+            </div>
+            <div className="pb-barra-zona">
+              <input
+                type="range"
+                className="pb-barra"
+                min={playback.t0}
+                max={playback.t1}
+                step={1000}
+                value={pbT}
+                onChange={(e) => setPbT(Number(e.target.value))}
+              />
+              <div className="pb-marcas">
+                {playback.kills.map((k, i) => (
+                  <span
+                    key={`mk-${i}`}
+                    className={`pb-marca ${k.loss ? "perdida" : "kill"}`}
+                    style={{
+                      left: `${(((Date.parse(k.at) - playback.t0) / Math.max(1, playback.t1 - playback.t0)) * 100).toFixed(1)}%`,
+                    }}
+                    title={k.loss ? "✝" : "☠"}
+                  />
+                ))}
+                {playback.intel.map((r, i) => (
+                  <span
+                    key={`mi-${i}`}
+                    className="pb-marca intel"
+                    style={{
+                      left: `${(((r.ts_ms - playback.t0) / Math.max(1, playback.t1 - playback.t0)) * 100).toFixed(1)}%`,
+                    }}
+                    title={`⚠ ${r.name}`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* FLOTA EN VIVO: el roster del FC junto al feed — quién, con qué y dónde, agrupado por
             SISTEMA (que es la pregunta táctica: «¿qué tengo AHÍ?»), frente a lo que canta el
             intel alrededor. El nombre del sistema centra el mapa: misma focusSystem de siempre. */}

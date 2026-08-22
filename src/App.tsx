@@ -25,7 +25,7 @@ import { ResumenView } from "./resumen";
 import { ActividadView } from "./actividad";
 import { IndustryView } from "./industry";
 import { BattlesView, RivalsView, WingmatesView } from "./rivals";
-import { FlotasView, TICK_SEG, type OpEstado, type Roster } from "./flotas";
+import { FlotasView, TICK_SEG, type OpEstado, type Roster, type OpPlayback } from "./flotas";
 import { SocialView } from "./social";
 import { OpsView } from "./ops";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
@@ -552,6 +552,8 @@ function App() {
   const [mapTrackReq, setMapTrackReq] = useState<{ name: string; nonce: number } | null>(null);
   // Petición de CENTRAR un sistema en el mapa desde otra sección (fase 2 del centrado).
   const [mapFocusReq, setMapFocusReq] = useState<{ sysId: number; nonce: number } | null>(null);
+  // E4: el reproductor de una op sobre el mapa. El payload lo arma el visor con lo ya cargado.
+  const [opPlayback, setOpPlayback] = useState<OpPlayback | null>(null);
   /** Aviso que hay que abrir en la ficha del mapa, pedido desde el overlay. El `nonce` es lo que
    *  permite volver a pedir EL MISMO aviso: sin él, pinchar dos veces el mismo no haría nada. */
   /** Ref a `changeTab` (definido más abajo) para el listener del aviso flotante. Se declara aquí,
@@ -2594,6 +2596,8 @@ function App() {
           theraConns={theraConns}
           focusReq={mapFocusReq}
           fleetRoster={fleetRoster}
+          playback={opPlayback}
+          onPlaybackClose={() => setOpPlayback(null)}
           onNeedThera={() => {
             if (!theraConns) loadThera();
           }}
@@ -2870,7 +2874,16 @@ function App() {
           {/* Social se alimenta de la MISMA carpeta que el intel: los chatlogs son una sola cosa
               en disco, y pedir la ruta dos veces sería inventarse un ajuste. */}
           {tab === "social" && <SocialView folder={intelFolder} />}
-          {tab === "ops" && <OpsView characters={characters} onIrA={changeTab} />}
+          {tab === "ops" && (
+            <OpsView
+              characters={characters}
+              onIrA={changeTab}
+              onReproducir={(pb) => {
+                setOpPlayback(pb);
+                verEnMapa(0); // 0 = sin centrar sistema; solo saltar al mapa y hacer scroll
+              }}
+            />
+          )}
           {tab === "rateo" && (
             <RateoView
               data={ratting}
