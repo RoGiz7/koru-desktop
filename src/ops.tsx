@@ -188,6 +188,12 @@ export function OpsView({
   const [roster, setRoster] = useState<Roster | null>(null);
   const [stats, setStats] = useState<OpStatsResp | null>(null);
   const [kills, setKills] = useState<OpKill[] | null>(null);
+  // Pestañas del detalle (idea de RoGiz7: que la pantalla no crezca sin fin y lo demás de la
+  // flota no se pierda). KPIs y cinta quedan SIEMPRE visibles — son el vistazo; el resto, por
+  // pestañas. «Bufos» NO existe a propósito: los command bursts no dejan rastro medible en
+  // ningún dato accesible, y una pestaña vacía es una promesa rota (ver el diseño de E1).
+  type DetTab = "pelicula" | "combate" | "logi" | "pve" | "roster";
+  const [detTab, setDetTab] = useState<DetTab>("pelicula");
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
   const [err, setErr] = useState<string | null>(null);
@@ -206,6 +212,7 @@ export function OpsView({
     setRoster(null);
     setStats(null);
     setKills(null);
+    setDetTab("pelicula");
     try {
       const [ev, ro, ki] = await Promise.all([
         invoke<OpEvents>("fleet_op_events", { opId: op.op_id }),
@@ -308,8 +315,55 @@ export function OpsView({
               <Kpi label={tr("Sondeos")} value={fmtSp(op.ticks)} />
             </div>
 
+            {/* LA CINTA, SIEMPRE visible: es el vistazo de la op entera y la identidad de la
+                vista — lo único que no se puede perder al cambiar de pestaña. */}
+            {eventos && eventos.events.length > 0 && (
+              <div className="ops-cinta-bloque">
+                <div className="flt-roster-head">
+                  <strong>{tr("La cinta")}</strong>
+                  <span className="muted small">
+                    {tr("cada color, una nave; cada corte, un cambio")}
+                  </span>
+                </div>
+                <Cinta
+                  eventos={eventos}
+                  t0={Date.parse(op.started_at)}
+                  t1={
+                    op.ended_at
+                      ? Date.parse(op.ended_at)
+                      : op.last_tick
+                        ? Date.parse(op.last_tick)
+                        : Date.now()
+                  }
+                  shipNames={shipNames}
+                />
+              </div>
+            )}
+
+            {/* Pestañas del detalle (idea de RoGiz7): la pantalla no crece sin fin y lo demás de
+                la flota no se pierde. Sin pestaña «Bufos» a propósito — no se puede medir. */}
+            <div className="sig-btabs ops-dettabs">
+              {(
+                [
+                  ["pelicula", tr("Película")],
+                  ["combate", tr("Combate")],
+                  ["logi", tr("Logi")],
+                  ["pve", tr("PvE")],
+                  ["roster", tr("Roster")],
+                ] as [typeof detTab, string][]
+              ).map(([k, l]) => (
+                <button
+                  key={k}
+                  className={`sig-btab${detTab === k ? " on" : ""}`}
+                  onClick={() => setDetTab(k)}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+
             {/* Roster FINAL de la op, agrupado por ala/escuadra — la foto de quién fue. */}
-            {roster && (
+            {detTab === "roster" && roster && (
               <div className="ops-roster">
                 {(() => {
                   const wingName = new Map<number, string>();
@@ -367,34 +421,10 @@ export function OpsView({
               </div>
             )}
 
-            {/* LA CINTA: la op de un vistazo — cada corte de color es un reship o una salida. */}
-            {eventos && eventos.events.length > 0 && (
-              <div className="ops-cinta-bloque">
-                <div className="flt-roster-head">
-                  <strong>{tr("La cinta")}</strong>
-                  <span className="muted small">
-                    {tr("cada color, una nave; cada corte, un cambio")}
-                  </span>
-                </div>
-                <Cinta
-                  eventos={eventos}
-                  t0={Date.parse(op.started_at)}
-                  t1={
-                    op.ended_at
-                      ? Date.parse(op.ended_at)
-                      : op.last_tick
-                        ? Date.parse(op.last_tick)
-                        : Date.now()
-                  }
-                  shipNames={shipNames}
-                />
-              </div>
-            )}
-
             {/* CARA A CARA DE LA OP: daño cruzado por rival CONCRETO (jugador/dron/estructura),
                 sumado sobre tus personajes. El detalle de la op es para el PVP — decisión de
                 RoGiz7: lo PvE va en sumatorio y su detalle vive en Rateo/Minería. */}
-            {stats && stats.rivals.length > 0 && (
+            {detTab === "combate" && stats && stats.rivals.length > 0 && (
               <div className="ops-stats">
                 <div className="flt-roster-head">
                   <strong>{tr("Cara a cara de la op")}</strong>
@@ -434,7 +464,7 @@ export function OpsView({
             {/* TUS PILOTOS: el balance del gamelog, golpe a golpe. SOLO tus personajes — es la
                 frase limpia del reparto («kills como indicador, el resto del gamelog»): sin letra
                 pequeña porque el alcance va en el título. files=0 → «sin log», JAMÁS cero. */}
-            {stats && stats.chars.length > 0 && (
+            {detTab === "combate" && stats && stats.chars.length > 0 && (
               <div className="ops-stats">
                 <div className="flt-roster-head">
                   <strong>{tr("Tus pilotos")}</strong>
@@ -502,9 +532,81 @@ export function OpsView({
                     })}
                   </tbody>
                 </table>
-                {/* El detalle PvE vive en su casa: aquí solo los sumatorios de arriba. Las
-                    secciones agregan POR DÍA, así que el salto lleva al día de la op — el minuto
-                    a minuto PvE no existe allí, y no se finge. */}
+              </div>
+            )}
+
+            {/* LOGI: lo que YA se mide (el embrión de E2), con el alcance dicho en el subtítulo:
+                el gamelog solo ve las reps que TOCAN a tus personajes. */}
+            {detTab === "logi" && stats && stats.chars.length > 0 && (
+              <div className="ops-stats">
+                <div className="flt-roster-head">
+                  <strong>{tr("Logi")}</strong>
+                  <span className="muted small">
+                    {tr("reps que tocan a TUS personajes — lo que un tercero reparó a otros queda fuera de tu vista")}
+                  </span>
+                </div>
+                <table className="ops-stats-tabla">
+                  <thead>
+                    <tr>
+                      <th>{tr("Piloto")}</th>
+                      <th>{tr("Dadas")}</th>
+                      <th>{tr("Recibidas")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.chars.map((s) => (
+                      <tr key={s.character_id}>
+                        <td className="ops-st-nom">
+                          {characters.find((c) => c.character_id === s.character_id)?.name ??
+                            `#${s.character_id}`}
+                        </td>
+                        <td>
+                          {s.reps_given > 0
+                            ? `${fmtSp(Math.round(s.rep_hp_given))} HP · ${fmtSp(s.reps_given)}`
+                            : "—"}
+                        </td>
+                        <td>
+                          {s.reps_recv > 0
+                            ? `${fmtSp(Math.round(s.rep_hp_recv))} HP · ${fmtSp(s.reps_recv)}`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* PVE: SUMATORIO y nada más — el detalle vive en su sección (decisión de RoGiz7).
+                Las secciones agregan POR DÍA: el salto lleva al día de la op, no al minuto, y
+                no se finge lo contrario. */}
+            {detTab === "pve" && stats && stats.chars.length > 0 && (
+              <div className="ops-stats">
+                <div className="flt-roster-head">
+                  <strong>{tr("PvE")}</strong>
+                  <span className="muted small">{tr("sumatorio de la op")}</span>
+                </div>
+                <table className="ops-stats-tabla">
+                  <thead>
+                    <tr>
+                      <th>{tr("Piloto")}</th>
+                      <th>{tr("Bounty")}</th>
+                      <th>{tr("Mineral")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.chars.map((s) => (
+                      <tr key={s.character_id}>
+                        <td className="ops-st-nom">
+                          {characters.find((c) => c.character_id === s.character_id)?.name ??
+                            `#${s.character_id}`}
+                        </td>
+                        <td>{s.bounty_isk > 0 ? fmtIsk(s.bounty_isk) : "—"}</td>
+                        <td>{s.mining_units > 0 ? fmtSp(s.mining_units) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
                 {onIrA && (
                   <p className="small muted ops-pve-links">
                     {tr("El detalle PvE de ese día, en su sección")}:{" "}
@@ -521,6 +623,7 @@ export function OpsView({
             )}
 
             {/* LA PELÍCULA: los eventos por orden, con los huecos DECLARADOS. */}
+            {detTab === "pelicula" && (
             <div className="ops-peli">
               <div className="flt-roster-head">
                 <strong>{tr("La película")}</strong>
@@ -615,6 +718,7 @@ export function OpsView({
                   });
                 })()}
             </div>
+            )}
           </>
         )}
       </div>

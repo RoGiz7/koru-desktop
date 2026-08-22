@@ -2671,6 +2671,13 @@ const EN: Record<string, string> = {
   "reparación remota dada · recibida (HP)": "remote reps given · received (HP)",
   "sin log en la ventana — no es cero actividad, es que no se vio":
     "no log in the window — not zero activity, just not seen",
+  Película: "Movie",
+  Roster: "Roster",
+  Dadas: "Given",
+  Recibidas: "Received",
+  "sumatorio de la op": "op totals",
+  "reps que tocan a TUS personajes — lo que un tercero reparó a otros queda fuera de tu vista":
+    "reps touching YOUR characters — what a third party repaired on others is outside your view",
   "Cara a cara de la op": "The op face to face",
   "daño cruzado con cada rival, visto por tus personajes":
     "damage traded with each rival, as seen by your characters",
