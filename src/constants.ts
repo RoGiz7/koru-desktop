@@ -167,10 +167,11 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     // AHORA (grabado mientras mandas, que es lo único que ve a los logi).
     group: "Flotas",
     icon: "🛰",
-    // Skillbook «Fleet Command» (24764), verificado en market_types.json. Un casco habría sido más
-    // vistoso, pero una Damnation es amarr y con doce temas de facción elegir nave es tomar partido
-    // — mismo criterio que Comercio, que lleva el skillbook de Trade y no una nave.
-    typeId: 24764,
+    // Skirmish Command Burst I (42530), verificado en market_types.json. Antes iba el skillbook
+    // «Fleet Command» (24764) y RoGiz7 pidió algo más de flota: el Command Burst ES el módulo de
+    // flota por excelencia. Skirmish y no Armor/Shield a propósito — elegir uno de esos sería
+    // tomar partido en la guerra de doctrinas, mismo criterio que no elegir casco de facción.
+    typeId: 42530,
     subs: [
       { key: "flotas", label: "Grabar una op", scopes: ["esi-fleets.read_fleet.v1"] },
       // El visor: la película de cada grabación. Sin scope — lee lo YA grabado en local.

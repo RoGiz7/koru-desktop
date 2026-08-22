@@ -349,7 +349,8 @@ export function OpsView({
                   ["combate", tr("Combate")],
                   ["logi", tr("Logi")],
                   ["pve", tr("PvE")],
-                  ["roster", tr("Roster")],
+                  // «Composición», como en la sección en vivo — el mismo nombre para la misma cosa.
+                  ["roster", tr("Composición")],
                 ] as [typeof detTab, string][]
               ).map(([k, l]) => (
                 <button

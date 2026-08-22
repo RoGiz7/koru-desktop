@@ -2672,7 +2672,6 @@ const EN: Record<string, string> = {
   "sin log en la ventana — no es cero actividad, es que no se vio":
     "no log in the window — not zero activity, just not seen",
   Película: "Movie",
-  Roster: "Roster",
   Dadas: "Given",
   Recibidas: "Received",
   "sumatorio de la op": "op totals",

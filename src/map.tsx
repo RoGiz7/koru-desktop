@@ -2185,9 +2185,9 @@ export function MapView(props: {
       t.push({ id: "habituales", label: `👥 ${tr("Habituales")}` });
     if (routeActive) t.push({ id: "ruta", label: tr("Ruta"), typeId: 439 });
     // La op EN VIVO: el roster del FC junto al feed de intel — quién, con qué y dónde, sin salir
-    // del mapa. 24764 = skillbook Fleet Command, el mismo icono que la sección Flotas.
+    // del mapa. 42530 = Skirmish Command Burst I, el mismo icono que la sección Flotas.
     if (fleetRoster && fleetRoster.members.some((m) => m.present))
-      t.push({ id: "flota", label: tr("Flota"), typeId: 24764 });
+      t.push({ id: "flota", label: tr("Flota"), typeId: 42530 });
     // Los viajes solo tienen sentido mirando el Recorrido: es la misma capa, contada.
     // 439 = «1MN Afterburner I», verificado en `market_types.json` (grupo 542, Propulsion Module).
     // Lo eligió RoGiz7 y encaja solo: un viaje es movimiento, y el afterburner es EL módulo de
