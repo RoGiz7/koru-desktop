@@ -358,6 +358,7 @@ pub fn run() {
             commands::set_intel_graph,
             commands::start_intel_watch,
             commands::stop_intel_watch,
+            commands::fleet_op_roster,
             commands::social_scan,
             commands::social_overview,
             commands::social_thread,

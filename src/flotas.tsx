@@ -15,10 +15,12 @@
 // ★ SE GRABA CON UN BOTÓN, A PROPÓSITO. Decisión suya: «mejor ser explícitos que quedarnos cortos».
 //   Aquí se registran las posiciones de otras personas a lo largo del tiempo, y eso debe ser un acto
 //   deliberado, no algo que ocurra porque la app estaba abierta.
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
-import { fmtSp } from "./format";
+import { fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
+import { loadNewEden } from "./neweden";
 import type { Character } from "./types";
 
 export type OpEstado = {
@@ -34,6 +36,119 @@ export type OpEstado = {
 };
 
 export const SCOPE_FLOTA = "esi-fleets.read_fleet.v1";
+
+type RosterMember = {
+  character_id: number;
+  name: string | null;
+  ship_type_id: number | null;
+  system_id: number | null;
+  station_id: number | null;
+  wing_id: number | null;
+  squad_id: number | null;
+  role: string | null;
+  present: boolean;
+};
+type Roster = { members: RosterMember[]; wings: [number, number, string][] };
+
+/** La estrella del mando: FC > ala > escuadra. Del `role` que da ESI. */
+function galon(role: string | null): string {
+  if (role === "fleet_commander") return "★ ";
+  if (role === "wing_commander") return "☆ ";
+  if (role === "squad_commander") return "▸ ";
+  return "";
+}
+
+/** COMPOSICIÓN EN VIVO (idea de Zigor, 2026-08-22, nada más ver grabar la primera op): el FC ve
+ *  aquí mismo quién va con quién y dónde está cada uno, sin abrir la ventana de flota del juego.
+ *  Lee lo que el grabador YA guarda — cero llamadas extra a ESI por pintarla — y se refresca con
+ *  cada sondeo (la prop `ticks` es la señal). La capa «flota en el mapa» queda para después. */
+function RosterPanel({ opId, ticks }: { opId: number; ticks: number }) {
+  const [roster, setRoster] = useState<Roster | null>(null);
+  const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
+  const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    loadNewEden()
+      .then((ne) => setSysNames(new Map(ne.systems.map((s) => [s.id, s.n]))))
+      .catch(() => {});
+    fetch("/ships.json")
+      .then((r) => r.json())
+      .then((rows: { i: number; n: string }[]) =>
+        setShipNames(new Map(rows.map((r) => [r.i, r.n]))),
+      )
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    invoke<Roster>("fleet_op_roster", { opId })
+      .then(setRoster)
+      .catch(() => {});
+  }, [opId, ticks]);
+
+  if (!roster || roster.members.length === 0) return null;
+
+  // Nombres de ala/escuadra: la última versión vista gana (el orden ya viene por seen_at).
+  const wingName = new Map<number, string>();
+  const squadName = new Map<string, string>();
+  for (const [w, s, n] of roster.wings) {
+    if (s === 0) wingName.set(w, n);
+    else squadName.set(`${w}:${s}`, n);
+  }
+  // Agrupar: ala → escuadra → miembros (el roster ya viene ordenado así del backend).
+  const grupos = new Map<string, { titulo: string; filas: RosterMember[] }>();
+  for (const m of roster.members) {
+    const w = m.wing_id ?? -1;
+    const s = m.squad_id ?? -1;
+    const clave = `${w}:${s}`;
+    if (!grupos.has(clave)) {
+      const tw = wingName.get(w) ?? (w >= 0 ? `${tr("Ala")} ${w}` : "");
+      const ts = squadName.get(clave) ?? (s > 0 ? `${tr("Escuadra")} ${s}` : "");
+      grupos.set(clave, { titulo: [tw, ts].filter(Boolean).join(" · ") || tr("Sin encuadrar"), filas: [] });
+    }
+    grupos.get(clave)!.filas.push(m);
+  }
+
+  return (
+    <div className="flt-roster">
+      <div className="flt-roster-head">
+        <strong>{tr("Composición")}</strong>
+        <span className="muted small">
+          {fmtSp(roster.members.filter((m) => m.present).length)} {tr("a bordo")}
+        </span>
+      </div>
+      {[...grupos.values()].map((g) => (
+        <div key={g.titulo} className="flt-grupo">
+          <div className="flt-grupo-tit small muted">{g.titulo}</div>
+          {g.filas.map((m) => (
+            <div key={m.character_id} className={`flt-miembro${m.present ? "" : " fuera"}`}>
+              <img
+                className="flt-cara"
+                src={`https://images.evetech.net/characters/${m.character_id}/portrait?size=32`}
+                alt=""
+                loading="lazy"
+              />
+              <span className="flt-nombre">
+                {galon(m.role)}
+                {m.name ?? `#${m.character_id}`}
+              </span>
+              {m.ship_type_id != null && (
+                <span className="flt-nave small">
+                  <img className="type-ico" src={typeIcon(m.ship_type_id)} alt="" loading="lazy" />
+                  {shipNames.get(m.ship_type_id) ?? `#${m.ship_type_id}`}
+                </span>
+              )}
+              <span className="flt-sys small muted">
+                {m.system_id != null ? (sysNames.get(m.system_id) ?? `#${m.system_id}`) : ""}
+                {m.station_id != null ? ` · ${tr("atracado")}` : ""}
+                {!m.present ? ` · ${tr("salió")}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** Cada cuánto se sondea, en segundos.
  *
@@ -123,6 +238,9 @@ export function FlotasView({
           <button className="ida-btn danger" onClick={onStop} disabled={busy}>
             {tr("Terminar la grabación")}
           </button>
+          {/* La composición, debajo de los KPI: el «quién va con quién y dónde» que en el juego
+              obliga a tener la ventana de flota abierta. Se refresca con cada sondeo. */}
+          <RosterPanel opId={estado!.op_id} ticks={estado!.ticks} />
         </div>
       ) : (
         <div className="flt-arranque">

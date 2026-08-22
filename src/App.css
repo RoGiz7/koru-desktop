@@ -9420,3 +9420,57 @@ h4 {
 .ver-mapa:hover {
   color: var(--accent-text);
 }
+
+/* Composición de flota en vivo (sección Flotas): alas/escuadras con sus miembros. */
+.flt-roster {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.flt-roster-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.flt-grupo {
+  margin: 8px 0;
+}
+.flt-grupo-tit {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.flt-miembro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+.flt-miembro:hover {
+  background: var(--bg-surface-2);
+}
+.flt-miembro.fuera {
+  opacity: 0.45; /* salió de la flota: sigue en el histórico de la op, pero apagado */
+}
+.flt-cara {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+}
+.flt-nombre {
+  min-width: 160px;
+  font-weight: 600;
+}
+.flt-nave {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 140px;
+}
+.flt-nave .type-ico {
+  width: 18px;
+  height: 18px;
+}

@@ -11929,3 +11929,57 @@ pub fn social_thread(
 ) -> AppResult<Vec<crate::db::SocialMsgRow>> {
     crate::social::thread(&state.db, &quienes)
 }
+
+/// Un miembro del roster de una op, con su nombre resuelto. Para la composición EN VIVO.
+#[derive(Debug, Serialize)]
+pub struct FleetRosterMember {
+    pub character_id: i64,
+    /// Resuelto por /universe/names (best-effort): si ESI no lo da, el frontend enseña el retrato
+    /// por ID igualmente y el nombre queda como «#id» — la composición no se rompe por un nombre.
+    pub name: Option<String>,
+    pub ship_type_id: Option<i64>,
+    pub system_id: Option<i64>,
+    pub station_id: Option<i64>,
+    pub wing_id: Option<i64>,
+    pub squad_id: Option<i64>,
+    pub role: Option<String>,
+    pub present: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FleetRoster {
+    pub members: Vec<FleetRosterMember>,
+    /// (wing_id, squad_id, name); squad_id = 0 es el ala. Última versión del nombre, ya resuelta.
+    pub wings: Vec<(i64, i64, String)>,
+}
+
+/// La composición de la op: quién va con quién (alas/escuadras), en qué nave y dónde. Lee lo que
+/// el grabador YA guarda (fleet_member_state + fleet_wing) — cero llamadas extra a la flota de
+/// ESI; solo /universe/names para los nombres, público y en lote.
+#[tauri::command]
+pub async fn fleet_op_roster(op_id: i64, state: State<'_, AppState>) -> AppResult<FleetRoster> {
+    let st = state.db.fleet_state(op_id)?;
+    let wings = state.db.fleet_wings(op_id)?;
+    let ids: Vec<i64> = st.keys().copied().collect();
+    let nombres = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let mut members: Vec<FleetRosterMember> = st
+        .into_iter()
+        .map(|(character_id, m)| FleetRosterMember {
+            character_id,
+            name: nombres.get(&character_id).cloned(),
+            ship_type_id: m.ship_type_id,
+            system_id: m.system_id,
+            station_id: m.station_id,
+            wing_id: m.wing_id,
+            squad_id: m.squad_id,
+            role: m.role,
+            present: m.present,
+        })
+        .collect();
+    // Orden estable: ala → escuadra → nombre. Un roster que baila entre sondeos no se puede leer.
+    members.sort_by(|a, b| {
+        (a.wing_id, a.squad_id, a.name.as_deref().unwrap_or(""))
+            .cmp(&(b.wing_id, b.squad_id, b.name.as_deref().unwrap_or("")))
+    });
+    Ok(FleetRoster { members, wings })
+}

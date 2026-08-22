@@ -2984,6 +2984,22 @@ impl Db {
         Ok(m)
     }
 
+    /// Alas y escuadras vistas en una op: (wing_id, squad_id, name); squad_id = 0 es el ala.
+    /// Ordenado por seen_at: si un ala cambió de nombre a mitad de op, la ÚLTIMA versión gana en
+    /// el mapa que construya el llamante (el histórico completo sigue en la tabla).
+    pub fn fleet_wings(&self, op_id: i64) -> AppResult<Vec<(i64, i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT wing_id, squad_id, name FROM fleet_wing WHERE op_id = ?1 ORDER BY seen_at",
+        )?;
+        let rows = st
+            .query_map(rusqlite::params![op_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Escribe un cambio: el evento + el estado nuevo. Los dos juntos porque son la misma verdad
     /// vista de dos formas, y dejarlos separados abriría la puerta a un estado que no cuadra con su
     /// propio histórico.

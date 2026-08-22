@@ -2631,6 +2631,15 @@ const EN: Record<string, string> = {
   "Sin mensajes.": "No messages.",
   "Esto son conversaciones privadas: las tuyas y las de quienes hablaron contigo. Se quedan en tu ordenador y no se envían a ningún sitio — y son lo último que debería salir en una captura.":
     "These are private conversations: yours and those of the people who talked to you. They stay on your computer and are never sent anywhere — and they are the last thing that should ever appear in a screenshot.",
+
+  // --- FLOTAS: composición en vivo ---
+  Composición: "Composition",
+  "a bordo": "aboard",
+  Ala: "Wing",
+  Escuadra: "Squad",
+  "Sin encuadrar": "Unassigned",
+  atracado: "docked",
+  salió: "left",
 };
 
 export function t(s: string, lang: Lang): string {
