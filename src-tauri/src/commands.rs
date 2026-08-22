@@ -11983,3 +11983,30 @@ pub async fn fleet_op_roster(op_id: i64, state: State<'_, AppState>) -> AppResul
     });
     Ok(FleetRoster { members, wings })
 }
+
+/// La lista de grabaciones para el visor de ops. Sin red: los nombres de los boss son personajes
+/// TUYOS y el frontend ya los tiene.
+#[tauri::command]
+pub fn fleet_ops_list(state: State<'_, AppState>) -> AppResult<Vec<crate::db::FleetOpSummary>> {
+    state.db.fleet_ops_list()
+}
+
+#[derive(Debug, Serialize)]
+pub struct FleetOpEvents {
+    pub events: Vec<crate::db::FleetEventRow>,
+    /// character_id → nombre, resuelto en lote (/universe/names, best-effort). Quien no resuelva
+    /// sale como «#id» en el visor — la película no se rompe por un nombre.
+    pub names: std::collections::HashMap<i64, String>,
+}
+
+/// La película de una op: todos sus eventos por orden, con los nombres ya resueltos.
+#[tauri::command]
+pub async fn fleet_op_events(
+    op_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<FleetOpEvents> {
+    let events = state.db.fleet_op_events(op_id)?;
+    let ids: Vec<i64> = events.iter().map(|e| e.character_id).collect();
+    let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    Ok(FleetOpEvents { events, names })
+}

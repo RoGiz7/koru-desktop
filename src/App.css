@@ -9526,3 +9526,100 @@ h4 {
   white-space: nowrap;
   font-weight: 600;
 }
+
+/* ============ TUS OPS: el visor (la película) ============ */
+.ops-cols {
+  display: grid;
+  grid-template-columns: minmax(230px, 320px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .ops-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.ops-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 66vh;
+  overflow-y: auto;
+}
+.ops-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: inherit;
+}
+.ops-item:hover {
+  border-color: var(--border-2);
+}
+.ops-item.on {
+  border-color: var(--accent-border);
+  background: var(--bg-panel-accent);
+}
+.ops-item-nom {
+  font-weight: 700;
+}
+.ops-viva {
+  color: #e5534b;
+  font-style: normal;
+}
+.ops-roster {
+  margin: 12px 0;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ops-peli {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ops-ev {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+.ops-ev:hover {
+  background: var(--bg-surface-2);
+}
+.ops-ev-hora {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+}
+.ops-ev-cara {
+  width: 20px;
+  height: 20px;
+}
+.ops-ev-quien {
+  font-weight: 600;
+}
+/* El verbo, con su color: la película se hojea por colores antes que leyendo. */
+.ops-ev-join .ops-ev-que {
+  color: #3fb950;
+}
+.ops-ev-leave .ops-ev-que {
+  color: #e5534b;
+}
+.ops-ev-ship .ops-ev-que {
+  color: #d29922;
+}
+.ops-ev-move .ops-ev-que {
+  color: #7fb0ff;
+}
+.ops-hueco {
+  text-align: center;
+  margin: 6px 0;
+  border-top: 1px dashed var(--border);
+  padding-top: 4px;
+}

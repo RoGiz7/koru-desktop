@@ -37,7 +37,8 @@ export type Tab =
   | "lealtad"
   | "naves"
   | "inventario"
-  | "social";
+  | "social"
+  | "ops";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
@@ -172,6 +173,8 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     typeId: 24764,
     subs: [
       { key: "flotas", label: "Grabar una op", scopes: ["esi-fleets.read_fleet.v1"] },
+      // El visor: la película de cada grabación. Sin scope — lee lo YA grabado en local.
+      { key: "ops", label: "Tus ops" },
       { key: "vuelas", label: "Con quién vuelas", scopes: ["esi-killmails.read_killmails.v1"] },
     ],
   },
@@ -369,6 +372,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   social: {
     title: "Social",
     subtitle: "Tus conversaciones privadas, reconstruidas de los chatlogs — el histórico que el juego escribe y no enseña",
+  },
+  ops: {
+    title: "Tus ops",
+    subtitle: "La película de cada flota que grabaste: quién fue, qué pasó y cuándo",
   },
 };
 

@@ -3000,6 +3000,67 @@ impl Db {
         Ok(rows)
     }
 
+    /// Las grabaciones, la más reciente primero — la lista del visor de ops. Los agregados van en
+    /// subconsultas: habrá decenas de ops como mucho, y así la lista no necesita N+1 llamadas.
+    pub fn fleet_ops_list(&self) -> AppResult<Vec<FleetOpSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT o.op_id, o.fleet_id, o.boss_id, o.name, o.started_at, o.ended_at,
+                    o.last_tick, o.ticks,
+                    (SELECT COUNT(*) FROM fleet_member_state s WHERE s.op_id = o.op_id),
+                    (SELECT COUNT(DISTINCT e.system_id) FROM fleet_member_event e
+                      WHERE e.op_id = o.op_id AND e.system_id IS NOT NULL),
+                    (SELECT COUNT(*) FROM fleet_member_event e WHERE e.op_id = o.op_id)
+               FROM fleet_op o
+              ORDER BY o.started_at DESC",
+        )?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(FleetOpSummary {
+                    op_id: r.get(0)?,
+                    fleet_id: r.get(1)?,
+                    boss_id: r.get(2)?,
+                    name: r.get(3)?,
+                    started_at: r.get(4)?,
+                    ended_at: r.get(5)?,
+                    last_tick: r.get(6)?,
+                    ticks: r.get(7)?,
+                    members: r.get(8)?,
+                    systems: r.get(9)?,
+                    events: r.get(10)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// La película entera de una op: sus eventos por orden. Cada fila lleva el estado NUEVO tras
+    /// el cambio (así «ship» dice a qué nave cambió, «move» a qué sistema saltó).
+    pub fn fleet_op_events(&self, op_id: i64) -> AppResult<Vec<FleetEventRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT at, character_id, kind, ship_type_id, system_id, station_id, wing_id, squad_id
+               FROM fleet_member_event
+              WHERE op_id = ?1
+              ORDER BY at, id",
+        )?;
+        let rows = st
+            .query_map(rusqlite::params![op_id], |r| {
+                Ok(FleetEventRow {
+                    at: r.get(0)?,
+                    character_id: r.get(1)?,
+                    kind: r.get(2)?,
+                    ship_type_id: r.get(3)?,
+                    system_id: r.get(4)?,
+                    station_id: r.get(5)?,
+                    wing_id: r.get(6)?,
+                    squad_id: r.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Escribe un cambio: el evento + el estado nuevo. Los dos juntos porque son la misma verdad
     /// vista de dos formas, y dejarlos separados abriría la puerta a un estado que no cuadra con su
     /// propio histórico.
@@ -6821,6 +6882,36 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+}
+
+/// Resumen de una grabación de flota, para la lista del visor de ops.
+#[derive(Debug, serde::Serialize)]
+pub struct FleetOpSummary {
+    pub op_id: i64,
+    pub fleet_id: i64,
+    pub boss_id: i64,
+    pub name: Option<String>,
+    pub started_at: String,
+    /// None = grabándose ahora mismo.
+    pub ended_at: Option<String>,
+    pub last_tick: Option<String>,
+    pub ticks: i64,
+    pub members: i64,
+    pub systems: i64,
+    pub events: i64,
+}
+
+/// Un evento de la película de una op (estado NUEVO tras el cambio).
+#[derive(Debug, serde::Serialize)]
+pub struct FleetEventRow {
+    pub at: String,
+    pub character_id: i64,
+    pub kind: String,
+    pub ship_type_id: Option<i64>,
+    pub system_id: Option<i64>,
+    pub station_id: Option<i64>,
+    pub wing_id: Option<i64>,
+    pub squad_id: Option<i64>,
 }
 
 /// Un mensaje del hilo de Social. `me` = lo escribió uno de tus personajes.

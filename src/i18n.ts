@@ -2635,6 +2635,29 @@ const EN: Record<string, string> = {
   // «Flota» = pestaña de la tarjeta derecha del mapa (el roster en vivo junto al intel).
   Flota: "Fleet",
 
+  // --- TUS OPS: el visor (la película) ---
+  "Tus ops": "Your ops",
+  "La película de cada flota que grabaste: quién fue, qué pasó y cuándo":
+    "The movie of every fleet you recorded: who came, what happened and when",
+  "Todavía no hay ninguna op grabada. Se graban desde «Grabar una op», mientras mandas una flota.":
+    "No ops recorded yet. They are recorded from “Record an op”, while you command a fleet.",
+  "Op del": "Op from",
+  "grabando ahora": "recording now",
+  // «pilotos», «sistemas», «Duración», «Pilotos», «Sistemas» ya existían más arriba.
+  eventos: "events",
+  "Elige una op de la lista.": "Pick an op from the list.",
+  "en curso": "ongoing",
+  "La película": "The movie",
+  "entra en la flota": "joins the fleet",
+  "sale de la flota": "leaves the fleet",
+  "cambia a": "switches to",
+  "salta a": "jumps to",
+  atraca: "docks",
+  desatraca: "undocks",
+  "cambia de puesto": "changes position",
+  "sin cambios (o sin mirar: los huecos largos son Koru cerrado)":
+    "without changes (or without watching: long gaps mean Koru was closed)",
+
   // --- FLOTAS: composición en vivo ---
   Composición: "Composition",
   "a bordo": "aboard",

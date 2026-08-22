@@ -359,6 +359,8 @@ pub fn run() {
             commands::start_intel_watch,
             commands::stop_intel_watch,
             commands::fleet_op_roster,
+            commands::fleet_ops_list,
+            commands::fleet_op_events,
             commands::social_scan,
             commands::social_overview,
             commands::social_thread,
