@@ -549,6 +549,8 @@ function App() {
   const [cazadorPilot, setCazadorPilot] = useState<string | null>(null);
   // Petición de "pintar rastro en el mapa" desde la sección Cazador (nonce fuerza re-disparo).
   const [mapTrackReq, setMapTrackReq] = useState<{ name: string; nonce: number } | null>(null);
+  // Petición de CENTRAR un sistema en el mapa desde otra sección (fase 2 del centrado).
+  const [mapFocusReq, setMapFocusReq] = useState<{ sysId: number; nonce: number } | null>(null);
   /** Aviso que hay que abrir en la ficha del mapa, pedido desde el overlay. El `nonce` es lo que
    *  permite volver a pedir EL MISMO aviso: sin él, pinchar dos veces el mismo no haría nada. */
   /** Ref a `changeTab` (definido más abajo) para el listener del aviso flotante. Se declara aquí,
@@ -1625,6 +1627,9 @@ function App() {
   function changeSubject(subj: number | "global") {
     setSubject(subj);
     resetData();
+    // resetData acaba de vaciar TODO el estado → lo «visitado» ya no tiene datos detrás. Sin esta
+    // línea, volver a una pestaña tras cambiar de sujeto refrescaría en silencio sobre la nada.
+    tabsVisitadas.current.clear();
     loadMap(subj);
     loadHeadline(subj);
     loadTab(subj, tab);
@@ -1634,10 +1639,31 @@ function App() {
     if (mapOverlay === "corps_npc") loadMyCorps(subj);
   }
 
+  /** Pestañas ya visitadas con el sujeto actual. Volver a una NO enseña el esqueleto de carga:
+   *  se refresca en SILENCIO con los datos de la última visita delante (mismo `silent` que usa el
+   *  auto-sync). El esqueleto solo tiene sentido cuando aún no hay nada que enseñar — y el
+   *  parpadeo de `sectionBusy` re-renderizaba el árbol entero dos veces, mapa de 5.000 nodos
+   *  incluido: era LO LENTO de cambiar de pestaña, no los datos. */
+  const tabsVisitadas = useRef(new Set<string>());
   function changeTab(t: Tab) {
     setTab(t);
     if (t === "pvp") loadKillmails(subject, kmKind, 0);
-    loadTab(subject, t);
+    const clave = `${subject}:${t}`;
+    const silencioso = tabsVisitadas.current.has(clave);
+    tabsVisitadas.current.add(clave);
+    loadTab(subject, t, silencioso);
+  }
+
+  /** «Ver en el mapa» desde cualquier sección: salta a la pestaña Mapa y centra el sistema
+   *  (focusSystem, con su animación y su pulso). El scroll arriba es porque el mapa vive en la
+   *  parte alta del stage y las tablas de las secciones suelen dejarte abajo. */
+  function verEnMapa(sysId: number) {
+    changeTab("mapa");
+    setMapFocusReq({ sysId, nonce: Date.now() });
+    window.setTimeout(
+      () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60,
+    );
   }
 
   // Latidos de datos: las vistas piden parte de sus datos con `invoke` propio, y esos efectos
@@ -2551,6 +2577,7 @@ function App() {
           }}
           incursions={incursions}
           theraConns={theraConns}
+          focusReq={mapFocusReq}
           onNeedThera={() => {
             if (!theraConns) loadThera();
           }}
@@ -2780,6 +2807,7 @@ function App() {
               busy={sectionBusy}
               charId={isGlobal ? null : subjectId}
               presetQuery={assetQuery}
+              onVerEnMapa={verEnMapa}
             />
           )}
           {tab === "industria" && (
@@ -2807,8 +2835,8 @@ function App() {
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "logis" && <LogisView subject={subject} />}
-          {tab === "naves" && <NavesView subject={subject} />}
-          {tab === "inventario" && <InventarioView subject={subject} />}
+          {tab === "naves" && <NavesView subject={subject} onVerEnMapa={verEnMapa} />}
+          {tab === "inventario" && <InventarioView subject={subject} onVerEnMapa={verEnMapa} />}
           {tab === "exploracion" && (
             <ExplorationView
               hereSystemId={isGlobal ? null : cards[subjectId]?.system_id ?? null}

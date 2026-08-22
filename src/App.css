@@ -9409,3 +9409,14 @@ h4 {
     opacity: 0;
   }
 }
+
+/* «Ver en el mapa» (fase 2 del centrado): el nombre del sistema, clicable donde aparezca.
+   Subrayado punteado — bastante para decir «esto lleva a algún sitio» sin gritar en cada fila. */
+.ver-mapa {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.ver-mapa:hover {
+  color: var(--accent-text);
+}

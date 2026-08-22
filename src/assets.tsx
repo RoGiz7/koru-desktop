@@ -15,8 +15,10 @@ export function AssetsView(props: {
   busy: boolean;
   charId: number | null;
   presetQuery?: string;
+  /** «Ver en el mapa»: centra el sistema en la pestaña Mapa (fase 2 del centrado). */
+  onVerEnMapa?: (sysId: number) => void;
 }) {
-  const { data, detail, busy, charId, presetQuery } = props;
+  const { data, detail, busy, charId, presetQuery, onVerEnMapa } = props;
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // "" = Todos
   // Datos para el skill-check del fit al abrir una nave.
@@ -241,7 +243,19 @@ export function AssetsView(props: {
                       <span>{r.type_name ?? `#${r.type_id}`}</span>
                     </td>
                     <td>{fmtSp(r.quantity)}</td>
-                    <td>{r.system_name ?? (r.system_id ? `#${r.system_id}` : "—")}</td>
+                    <td>
+                      {r.system_id && onVerEnMapa ? (
+                        <span
+                          className="ver-mapa"
+                          title={tr("Ver en el mapa")}
+                          onClick={() => onVerEnMapa(r.system_id!)}
+                        >
+                          {r.system_name ?? `#${r.system_id}`}
+                        </span>
+                      ) : (
+                        (r.system_name ?? (r.system_id ? `#${r.system_id}` : "—"))
+                      )}
+                    </td>
                     <td className="muted small">{r.location_name || "—"}</td>
                     <td className="muted small">
                       {r.container ?? ""}

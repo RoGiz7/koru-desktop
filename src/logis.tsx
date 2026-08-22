@@ -126,6 +126,14 @@ function PilotList({ title, pilots, shipTid }: { title: string; pilots: LogiPilo
   );
 }
 
+// Caché de módulo por sujeto: la sección se desmonta al salir y cada visita arrancaba en blanco
+// esperando cuatro consultas. Al entrar se pinta lo último conocido y se re-pide detrás (misma
+// fidelidad, sin espera). Ver el porqué completo en inventario.tsx.
+const cacheLogi = new Map<
+  number,
+  { sum: LogiSummary | null; series: LogiSeries | null; given: LogiPilot[]; recv: LogiPilot[] }
+>();
+
 export function LogisView({ subject }: { subject?: number | "global" }) {
   const subjectId = typeof subject === "number" ? subject : 0;
   const [sum, setSum] = useState<LogiSummary | null>(null);
@@ -147,10 +155,30 @@ export function LogisView({ subject }: { subject?: number | "global" }) {
     localStorage.setItem("koru-logi-gran", gran);
   }, [gran]);
   useEffect(() => {
-    invoke<LogiSummary>("get_logi_summary", { subjectId }).then(setSum).catch(() => setSum(null));
-    invoke<LogiSeries>("get_logi_series", { subjectId }).then(setSeries).catch(() => setSeries(null));
-    invoke<LogiPilot[]>("get_logi_pilots", { subjectId, direction: "given" }).then(setGiven).catch(() => setGiven([]));
-    invoke<LogiPilot[]>("get_logi_pilots", { subjectId, direction: "received" }).then(setRecv).catch(() => setRecv([]));
+    // Lo último conocido al instante (si hay); el backend se re-pide detrás igual que siempre.
+    const c = cacheLogi.get(subjectId);
+    if (c) {
+      setSum(c.sum);
+      setSeries(c.series);
+      setGiven(c.given);
+      setRecv(c.recv);
+    }
+    const guarda = (parte: Partial<NonNullable<typeof c>>) => {
+      const prev = cacheLogi.get(subjectId) ?? { sum: null, series: null, given: [], recv: [] };
+      cacheLogi.set(subjectId, { ...prev, ...parte });
+    };
+    invoke<LogiSummary>("get_logi_summary", { subjectId })
+      .then((v) => { guarda({ sum: v }); setSum(v); })
+      .catch(() => setSum(null));
+    invoke<LogiSeries>("get_logi_series", { subjectId })
+      .then((v) => { guarda({ series: v }); setSeries(v); })
+      .catch(() => setSeries(null));
+    invoke<LogiPilot[]>("get_logi_pilots", { subjectId, direction: "given" })
+      .then((v) => { guarda({ given: v }); setGiven(v); })
+      .catch(() => setGiven([]));
+    invoke<LogiPilot[]>("get_logi_pilots", { subjectId, direction: "received" })
+      .then((v) => { guarda({ recv: v }); setRecv(v); })
+      .catch(() => setRecv([]));
   }, [subjectId]);
   // Desglose por dimensión: se pide al backend cuando el modo no es "type".
   useEffect(() => {

@@ -351,7 +351,18 @@ function FichaNave({
   );
 }
 
-export function NavesView({ subject }: { subject: number | "global" }) {
+// Caché de módulo: la última lista de naves (es global, se filtra por sujeto en cliente). La
+// sección se desmonta al salir → sin esto, cada visita arrancaba en blanco. Ver inventario.tsx.
+let cacheShips: MyShip[] | null = null;
+
+export function NavesView({
+  subject,
+  onVerEnMapa,
+}: {
+  subject: number | "global";
+  /** «Ver en el mapa»: centra el sistema en la pestaña Mapa (fase 2 del centrado). */
+  onVerEnMapa?: (sysId: number) => void;
+}) {
   const [ships, setShips] = useState<MyShip[] | null>(null);
   const [cargo, setCargo] = useState<Record<string, CargoEntry>>({});
   const [niveles, setNiveles] = useState<Record<number, Record<number, number>>>({});
@@ -390,8 +401,14 @@ export function NavesView({ subject }: { subject: number | "global" }) {
 
   useEffect(() => {
     let vivo = true;
+    // Última respuesta conocida al instante; el backend se re-pide detrás igual que siempre
+    // (misma fidelidad, sin arrancar en blanco). Ver el porqué en inventario.tsx.
+    if (cacheShips) setShips(cacheShips);
     invoke<MyShip[]>("get_my_ships")
-      .then((v) => vivo && setShips(v))
+      .then((v) => {
+        cacheShips = v;
+        if (vivo) setShips(v);
+      })
       .catch((e) => vivo && setError(String(e)));
     return () => {
       vivo = false;
@@ -593,7 +610,21 @@ export function NavesView({ subject }: { subject: number | "global" }) {
                   )}
                 </div>
                 <div className="muted small">
-                  {s.character} · {s.system_name ?? tr("sistema desconocido")}
+                  {s.character} ·{" "}
+                  {s.system_id && onVerEnMapa ? (
+                    <span
+                      className="ver-mapa"
+                      title={tr("Ver en el mapa")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onVerEnMapa(s.system_id);
+                      }}
+                    >
+                      {s.system_name ?? `#${s.system_id}`}
+                    </span>
+                  ) : (
+                    (s.system_name ?? tr("sistema desconocido"))
+                  )}
                   {s.location_name ? ` · ${s.location_name}` : ""}
                 </div>
                 {/* La bodega MAYOR manda en la tarjeta: en una Epithal la general son 550 m³ y la

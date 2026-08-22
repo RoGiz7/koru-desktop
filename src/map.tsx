@@ -317,6 +317,9 @@ export function MapView(props: {
    *  un callback por sección sería una prop nueva cada vez. */
   onOpenTab?: (tab: Tab) => void;
   openTrack?: { name: string; nonce: number } | null;
+  /** Petición de CENTRAR un sistema, desde otra sección (inventario, naves, assets…). El `nonce`
+   *  fuerza el re-disparo si pides dos veces el mismo sistema — mismo patrón que openTrack. */
+  focusReq?: { sysId: number; nonce: number } | null;
   /** Aviso a abrir en la ficha, pedido desde el overlay flotante. Ver el efecto más abajo. */
   openIntelReq?: {
     sysId: number;
@@ -340,6 +343,7 @@ export function MapView(props: {
     onOpenTab,
     onOpenIntelSettings,
     openTrack,
+    focusReq,
     openIntelReq,
     assetsBySystem,
     miningBySystem,
@@ -864,6 +868,18 @@ export function MapView(props: {
     },
     [geo, layout],
   );
+
+  // Petición de centrado desde OTRA sección (fase 2 del centrado: inventario, naves, assets…).
+  // ⚠️ La guarda de `geo` importa: si vienes de otra pestaña el mapa puede estar recién montado y
+  // sin geometría todavía — sin ella, la petición se perdería en silencio. El nonce consumido se
+  // recuerda para no re-centrar cuando `geo` cambie por otros motivos.
+  const focusReqDone = useRef(0);
+  useEffect(() => {
+    if (!focusReq || !geo) return;
+    if (focusReq.nonce === focusReqDone.current) return;
+    focusReqDone.current = focusReq.nonce;
+    focusSystem(focusReq.sysId);
+  }, [focusReq, geo, focusSystem]);
 
   // Red de Ansiblex proyectada sobre el mapa: aristas para el grafo + trazo para pintarlas.
   // Va en su PROPIO memo y no dentro de `geo` a propósito: geo recorre los ~5.000 sistemas y las

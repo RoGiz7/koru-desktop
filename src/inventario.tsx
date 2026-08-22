@@ -27,6 +27,23 @@ type AssetRow = {
 
 type Volumenes = { packed: Record<string, number>; asm: Record<string, number> };
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// La sección se desmonta al salir de la pestaña, así que cada visita arrancaba EN BLANCO esperando
+// las 7.000+ pilas del backend. Con 9 personajes se nota; con 2 no — lo cazó Zigor (2026-08-22).
+// El trato: al entrar se PINTA al instante la última respuesta conocida, y se re-pide DETRÁS
+// exactamente igual que antes. Misma fidelidad (cada visita relee), cero espera en blanco.
+const cacheAssets = new Map<string, AssetRow[]>();
+// Los volúmenes son estáticos por sesión (JSON del SDE): una promesa cacheada, como loadNewEden.
+let volsPromise: Promise<Volumenes> | null = null;
+function loadVols(): Promise<Volumenes> {
+  if (!volsPromise)
+    volsPromise = Promise.all([
+      fetch("/type_volumes.json").then((r) => r.json()),
+      fetch("/type_volumes_assembled.json").then((r) => r.json()),
+    ]).then(([packed, asm]) => ({ packed, asm }));
+  return volsPromise;
+}
+
 /** m³ de una pila. Montado ocupa su volumen real; empaquetado, el reempaquetado. `null` = no
  *  sabemos el volumen de ese tipo, y eso se propaga en vez de contarlo como cero. */
 function m3De(r: AssetRow, v: Volumenes): number | null {
@@ -52,6 +69,7 @@ type Ubicacion = {
   location_id: number;
   location_name: string;
   system_name: string | null;
+  system_id: number;
   filas: AssetRow[];
   /** m³ de lo que SÍ es carga. Es el número que manda: el que decide viajes. */
   m3: number;
@@ -61,7 +79,14 @@ type Ubicacion = {
   sinVolumen: number;
 };
 
-export function InventarioView({ subject }: { subject: number | "global" }) {
+export function InventarioView({
+  subject,
+  onVerEnMapa,
+}: {
+  subject: number | "global";
+  /** «Ver en el mapa»: centra el sistema en la pestaña Mapa (fase 2 del centrado). */
+  onVerEnMapa?: (sysId: number) => void;
+}) {
   // 0 = Global, igual que en el resto de la app. Lo usan las notas de cada ubicación.
   const subjectId = typeof subject === "number" ? subject : 0;
   const [rows, setRows] = useState<AssetRow[] | null>(null);
@@ -79,23 +104,25 @@ export function InventarioView({ subject }: { subject: number | "global" }) {
   // enseñaba lo de los nueve aunque seleccionaras uno.
   useEffect(() => {
     let vivo = true;
-    setRows(null);
+    const clave = String(subject);
+    // Lo último conocido, al instante; null (esqueleto) solo si es la primera vez de verdad.
+    setRows(cacheAssets.get(clave) ?? null);
     const p =
       subject === "global"
         ? invoke<AssetRow[]>("get_assets_detail_global")
         : invoke<AssetRow[]>("get_assets_detail", { characterId: subject });
-    p.then((v) => vivo && setRows(v)).catch((e) => vivo && setError(String(e)));
+    p.then((v) => {
+      cacheAssets.set(clave, v); // la caché se actualiza AUNQUE la vista ya no esté montada
+      if (vivo) setRows(v);
+    }).catch((e) => vivo && setError(String(e)));
     return () => {
       vivo = false;
     };
   }, [subject]);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/type_volumes.json").then((r) => r.json()),
-      fetch("/type_volumes_assembled.json").then((r) => r.json()),
-    ])
-      .then(([packed, asm]) => setVols({ packed, asm }))
+    loadVols()
+      .then(setVols)
       .catch(() => {});
   }, []);
 
@@ -122,6 +149,7 @@ export function InventarioView({ subject }: { subject: number | "global" }) {
           location_id: r.location_id,
           location_name: r.location_name,
           system_name: r.system_name,
+          system_id: r.system_id,
           filas: [],
           m3: 0,
           m3Flota: 0,
@@ -218,7 +246,22 @@ export function InventarioView({ subject }: { subject: number | "global" }) {
                 <span className="inv-ubi-nom">
                   {u.location_name || tr("ubicación desconocida")}
                 </span>
-                <span className="muted small">{u.system_name ?? ""}</span>
+                {/* span y no button: la cabecera entera YA es un botón (plegar/desplegar) y un
+                    botón dentro de otro es HTML inválido. El stopPropagation evita plegar. */}
+                {u.system_id && onVerEnMapa ? (
+                  <span
+                    className="muted small ver-mapa"
+                    title={tr("Ver en el mapa")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onVerEnMapa(u.system_id);
+                    }}
+                  >
+                    {u.system_name ?? `#${u.system_id}`}
+                  </span>
+                ) : (
+                  <span className="muted small">{u.system_name ?? ""}</span>
+                )}
                 <span className="inv-ubi-m3">{fmtSp(Math.round(u.m3))} m³</span>
                 <span className="muted small">
                   {u.m3Flota > 0 ? `+${fmtSp(Math.round(u.m3Flota))} ${tr("flota")}` : ""}
