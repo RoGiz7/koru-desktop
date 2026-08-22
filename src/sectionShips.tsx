@@ -80,6 +80,10 @@ const BASE: Partial<Record<Tab, number>> = {
   exploracion: 33468,
   exploracion_log: 33468,
 };
+// Social NO está en BASE a propósito: lleva CAPTURA PROPIA de un hangar (public/social-hangar.jpg,
+// suya del 2026-08-22, sin UI) vía <SectionArt src> en App.tsx — el interior de estación que el
+// Image Server no puede dar (arte de cliente, misma conclusión que el interior de Jita para la
+// Bitácora). Primera sección con arte real de dentro de una estación.
 
 /** Qué secciones siguen a la facción, y con qué rol. Las que no están aquí mantienen su nave fija. */
 const ROL: Partial<Record<Tab, Rol>> = {

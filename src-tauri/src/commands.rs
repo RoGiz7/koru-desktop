@@ -11898,3 +11898,34 @@ pub fn overlay_open_main(
     }
     Ok(())
 }
+
+// ------------------------- SOCIAL (conversaciones privadas) -------------------------
+// El diseño y sus porqués viven en `social.rs` y junto al CREATE TABLE de `db/mod.rs`.
+
+/// Escanea la carpeta de chatlogs (la MISMA que usa el intel) e ingiere los chats privados.
+/// Es un botón, no un vigilante: leer conversaciones privadas es un acto deliberado — el mismo
+/// criterio que el grabador de flotas. `async` porque la primera pasada mira 4 KB de cada fichero
+/// de la carpeta y eso no debe congelar la UI.
+#[tauri::command]
+pub async fn social_scan(
+    folder: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::social::SocialScanStats> {
+    crate::social::scan(&state.db, &folder)
+}
+
+/// Resumen por interlocutor/grupo (quienes=[] = el cubo solo-tú / entre-tus-personajes).
+#[tauri::command]
+pub fn social_overview(state: State<'_, AppState>) -> AppResult<Vec<crate::social::SocialConvo>> {
+    crate::social::overview(&state.db)
+}
+
+/// El hilo de una entrada del resumen: las conversaciones cuya firma de interlocutores coincide
+/// EXACTAMENTE. Un grupo no se mezcla con el 1:1 de uno de sus miembros.
+#[tauri::command]
+pub fn social_thread(
+    quienes: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::SocialMsgRow>> {
+    crate::social::thread(&state.db, &quienes)
+}

@@ -13,6 +13,7 @@ mod esi;
 mod gamelog;
 mod graphics;
 mod medals;
+mod social;
 mod sso;
 
 use commands::AppState;
@@ -357,6 +358,9 @@ pub fn run() {
             commands::set_intel_graph,
             commands::start_intel_watch,
             commands::stop_intel_watch,
+            commands::social_scan,
+            commands::social_overview,
+            commands::social_thread,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

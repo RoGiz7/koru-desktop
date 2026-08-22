@@ -5,6 +5,7 @@ pub mod bitacora;
 
 use crate::error::AppResult;
 use rusqlite::Connection;
+use rusqlite::OptionalExtension; // social_file_fresh: query_row().optional()
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -492,6 +493,54 @@ impl Db {
                  seen_at   TEXT NOT NULL,
                  PRIMARY KEY (op_id, wing_id, squad_id, name)
              );",
+        );
+        // SOCIAL — el historial de conversaciones privadas, desde los chatlogs locales (2026-08-22).
+        // EVE genera un log por cada chat privado y no deja releerlos desde el juego; Koru sí.
+        //
+        // ★ EL HALLAZGO QUE SOSTIENE EL DISEÑO, medido contra el corpus real (49.372 chatlogs,
+        //   2020→2026) ANTES de escribir esto: el `Channel ID` de un privado (`private_{uuid}`) es
+        //   EL MISMO EN LOS DOS LADOS. Si dos personajes tuyos hablan entre sí (multibox), los dos
+        //   logs espejo llevan el mismo UUID → la identidad de una conversación es el UUID, y el
+        //   dedupe es una clave exacta, no una heurística temporal. En el corpus: 56 espejos, y la
+        //   única asimetría es que quien abre la ventana guarda 1 mensaje que al otro aún no se le
+        //   registró — por eso se ingiere la UNIÓN de los dos lados y la PK de social_message mata
+        //   los duplicados exactos (72 de 5.584 en la validación).
+        //
+        // ⚠️ LO QUE NO VALE, aprendido midiendo (no suponer otra vez):
+        //   · El nombre de fichero NO identifica: los 1:1 se llaman «Private Chat (N)» / «Chat
+        //     privado (N)» — LOCALIZADO y con N = número de ventana. Detectar por nombre rompería
+        //     con el idioma del cliente.
+        //   · El prefijo `player_` del Channel ID NO significa privado: canales públicos viejos
+        //     llevan `player_{entero}` y nuevos `player_{uuid}` — refleja CUÁNDO se creó el canal.
+        //   · El interlocutor SOLO sale del cuerpo (el autor que no eres tú). En 85 sesiones del
+        //     corpus solo hablas tú → interlocutor NULL, cubo «sin identificar»: no se adivina.
+        //
+        // `social_file` registra TODO fichero examinado (privado o no) con su mtime: así el
+        // re-escaneo solo decodifica lo nuevo o cambiado, no 49.000 cabeceras cada vez.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS social_file (
+                 file        TEXT PRIMARY KEY,
+                 mtime       INTEGER NOT NULL,
+                 private     INTEGER NOT NULL DEFAULT 0,
+                 ingested_at TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS social_session (
+                 channel_uuid TEXT NOT NULL,     -- private_{uuid}: identidad real de la conversacion
+                 file         TEXT NOT NULL,
+                 listener     TEXT NOT NULL,     -- cual de TUS personajes escribio este log
+                 listener_id  INTEGER,           -- charID del nombre de fichero (los viejos no lo llevan)
+                 started_at   INTEGER NOT NULL,  -- epoch del arranque de sesion (nombre de fichero)
+                 PRIMARY KEY (channel_uuid, file)
+             );
+             CREATE INDEX IF NOT EXISTS idx_ss_uuid ON social_session(channel_uuid);
+             CREATE TABLE IF NOT EXISTS social_message (
+                 channel_uuid TEXT NOT NULL,
+                 ts           INTEGER NOT NULL,
+                 author       TEXT NOT NULL,
+                 text         TEXT NOT NULL,
+                 PRIMARY KEY (channel_uuid, ts, author, text)
+             ) WITHOUT ROWID;
+             CREATE INDEX IF NOT EXISTS idx_sm_ts ON social_message(channel_uuid, ts);",
         );
         // EL MOTOR HUMANO (N1 de documentacion/SPEC_MOTOR_HUMANO.md). Todo lo demás que guarda Koru
         // lo genera el juego; esto lo escribe el jugador, y es lo único que ESI no puede contradecir.
@@ -6628,4 +6677,141 @@ impl Db {
         )?;
         Ok(r)
     }
+
+    // ------------------------- SOCIAL (conversaciones privadas) -------------------------
+    // El porqué del modelo está junto al CREATE TABLE, arriba. Las consultas de aquí se probaron
+    // LITERALES contra SQLite con el corpus real antes de escribirse (outputs/social_verificar_sql.py).
+
+    /// ¿Este fichero ya se examinó con este mtime? (privado o no — se registra todo para que el
+    /// re-escaneo no vuelva a decodificar 49.000 cabeceras).
+    pub fn social_file_fresh(&self, file: &str, mtime: i64) -> AppResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let r: Option<i64> = conn
+            .query_row(
+                "SELECT mtime FROM social_file WHERE file = ?1",
+                rusqlite::params![file],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(r == Some(mtime))
+    }
+
+    /// Registra un fichero examinado. Si es privado, va acompañado de `social_ingest_session`.
+    pub fn social_mark_file(&self, file: &str, mtime: i64, private: bool) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO social_file (file, mtime, private, ingested_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(file) DO UPDATE SET mtime = ?2, private = ?3, ingested_at = datetime('now')",
+            rusqlite::params![file, mtime, private as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Ingesta una sesión privada entera (fila de sesión + sus mensajes) en UNA transacción.
+    /// `INSERT OR IGNORE` en los mensajes = el dedupe de los logs espejo del multibox: los dos
+    /// lados comparten UUID y los mensajes comunes chocan en la PK. Devuelve mensajes NUEVOS.
+    pub fn social_ingest_session(
+        &self,
+        channel_uuid: &str,
+        file: &str,
+        listener: &str,
+        listener_id: Option<i64>,
+        started_at: i64,
+        msgs: &[(i64, String, String)],
+    ) -> AppResult<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT OR IGNORE INTO social_session
+               (channel_uuid, file, listener, listener_id, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![channel_uuid, file, listener, listener_id, started_at],
+        )?;
+        let mut nuevos = 0usize;
+        {
+            let mut st = tx.prepare(
+                "INSERT OR IGNORE INTO social_message (channel_uuid, ts, author, text)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for (ts, author, text) in msgs {
+                nuevos += st.execute(rusqlite::params![channel_uuid, ts, author, text])?;
+            }
+        }
+        tx.commit()?;
+        Ok(nuevos)
+    }
+
+    /// «Mis» personajes = todo listener conocido (no la lista de altas de Koru, a propósito: un
+    /// personaje que ya no está dado de alta sigue siendo tuyo en 2021).
+    pub fn social_listeners(&self) -> AppResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare("SELECT DISTINCT listener FROM social_session")?;
+        let rows = st
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Por (conversación, autor): mensajes y ventana temporal. La agregación por interlocutor se
+    /// hace en Rust (`social::overview`), a propósito: el orden de GROUP_CONCAT de SQLite no está
+    /// garantizado y una firma de grupo que a veces sale «A,B» y a veces «B,A» partiría la misma
+    /// conversación en dos filas sin que nadie lo viera.
+    pub fn social_authors(&self) -> AppResult<Vec<(String, String, i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT channel_uuid, author, COUNT(*), MIN(ts), MAX(ts)
+               FROM social_message
+              GROUP BY channel_uuid, author",
+        )?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Los mensajes de un conjunto de conversaciones, fusionados por tiempo.
+    /// `me` = el autor es un listener conocido (uno de tus personajes).
+    pub fn social_msgs_for_uuids(&self, uuids: &[String]) -> AppResult<Vec<SocialMsgRow>> {
+        if uuids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        // IN dinámico con placeholders — los uuid vienen de la propia BD, pero se ligan igual.
+        let holes = std::iter::repeat("?")
+            .take(uuids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "WITH mios AS (SELECT DISTINCT listener AS name FROM social_session)
+             SELECT m.ts, m.author, m.text,
+                    CASE WHEN m.author IN (SELECT name FROM mios) THEN 1 ELSE 0 END AS me
+               FROM social_message m
+              WHERE m.channel_uuid IN ({holes})
+              ORDER BY m.ts, m.author"
+        );
+        let mut st = conn.prepare(&sql)?;
+        let rows = st
+            .query_map(rusqlite::params_from_iter(uuids.iter()), |r| {
+                Ok(SocialMsgRow {
+                    ts: r.get(0)?,
+                    author: r.get(1)?,
+                    text: r.get(2)?,
+                    me: r.get::<_, i64>(3)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+}
+
+/// Un mensaje del hilo de Social. `me` = lo escribió uno de tus personajes.
+#[derive(Debug, serde::Serialize)]
+pub struct SocialMsgRow {
+    pub ts: i64,
+    pub author: String,
+    pub text: String,
+    pub me: bool,
 }

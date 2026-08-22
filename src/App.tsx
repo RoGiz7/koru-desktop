@@ -26,6 +26,7 @@ import { ActividadView } from "./actividad";
 import { IndustryView } from "./industry";
 import { BattlesView, RivalsView, WingmatesView } from "./rivals";
 import { FlotasView, TICK_SEG, type OpEstado } from "./flotas";
+import { SocialView } from "./social";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
@@ -1680,6 +1681,12 @@ function App() {
       loadTab(subject, tab, true);
       setSyncTick((t) => t + 1); // y las peticiones internas de la vista abierta (minería, tops…)
       void tailGamelog(); // el gamelog también late (ver abajo); en segundo plano, no bloquea el sync
+      // SOCIAL: mantener fresco lo que él ya abrió. El PRIMER escaneo es un botón a propósito
+      // (leer conversaciones privadas es un acto deliberado); una vez dado ese paso, refrescar en
+      // cada sync es mantenimiento — y barato: con social_file+mtime solo se decodifica lo nuevo.
+      if (intelFolder && localStorage.getItem("koru-social-scanned") === "1") {
+        invoke("social_scan", { folder: intelFolder }).catch(() => {});
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -2679,6 +2686,8 @@ function App() {
           </div>
 
           <div className="panel-art-wrap">
+          {/* Social lleva captura propia de hangar (interior real, que el Image Server no sirve). */}
+          {tab === "social" && <SectionArt src="/social-hangar.jpg" wide />}
           {shipForSection(tab, theme) != null && <SectionArt typeId={shipForSection(tab, theme)} />}
 
           {tab === "pvp" && (
@@ -2814,6 +2823,9 @@ function App() {
           {tab === "campanas" && <CampanasView characters={characters} />}
           {tab === "lealtad" && <LealtadView subject={subject} />}
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
+          {/* Social se alimenta de la MISMA carpeta que el intel: los chatlogs son una sola cosa
+              en disco, y pedir la ruta dos veces sería inventarse un ajuste. */}
+          {tab === "social" && <SocialView folder={intelFolder} />}
           {tab === "rateo" && (
             <RateoView
               data={ratting}

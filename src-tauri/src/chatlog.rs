@@ -28,7 +28,7 @@ pub struct Presence {
 
 /// Decodifica solo el principio del fichero. La cabecera (con el `Listener:`) cabe de sobra en 4 KB y
 /// así no leemos enteros los 34 MB de Local antiguos solo para averiguar de quién son.
-fn decode_head(path: &Path) -> Option<String> {
+pub fn decode_head(path: &Path) -> Option<String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).ok()?;
     let mut b = vec![0u8; 4096];
@@ -38,7 +38,7 @@ fn decode_head(path: &Path) -> Option<String> {
 }
 
 /// Decodifica un chatlog. EVE los escribe en UTF-16LE con BOM; los muy antiguos pueden ser UTF-8.
-fn decode(path: &Path) -> Option<String> {
+pub fn decode(path: &Path) -> Option<String> {
     Some(decode_bytes(std::fs::read(path).ok()?))
 }
 

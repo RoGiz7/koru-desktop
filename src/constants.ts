@@ -36,7 +36,8 @@ export type Tab =
   | "recon"
   | "lealtad"
   | "naves"
-  | "inventario";
+  | "inventario"
+  | "social";
 
 // Navegación en grupos → subsecciones. `soon` = placeholder "Próximamente".
 // `scopes` = habilitada si el personaje tiene ALGUNO de esos scopes (en global siempre habilitada).
@@ -138,6 +139,9 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     subs: [
       { key: "skills", label: "Skills", scopes: ["esi-skills.read_skills.v1"] },
       { key: "contactos", label: "Contactos", scopes: ["esi-characters.read_contacts.v1"] },
+      // Social: conversaciones privadas de los chatlogs locales — sin scope, como Cazador o CRAB.
+      // Es el hermano hablado de «Con quién vuelas»: allí con quién VUELAS, aquí con quién HABLAS.
+      { key: "social", label: "Social" },
       { key: "fiteos", label: "Fiteos" },
     ],
   },
@@ -362,6 +366,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
   contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },
   fiteos: { title: "Fiteos", subtitle: "Tus fits guardados (importados por EFT)" },
+  social: {
+    title: "Social",
+    subtitle: "Tus conversaciones privadas, reconstruidas de los chatlogs — el histórico que el juego escribe y no enseña",
+  },
 };
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.

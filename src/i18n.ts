@@ -2604,6 +2604,33 @@ const EN: Record<string, string> = {
   "cada visita": "every visit",
   "Una vez avisa y archiva la nota; siempre la deja abierta":
     "Once reminds you and files the note away; every visit keeps it open",
+
+  // --- SOCIAL: historial de conversaciones privadas ---
+  "Tus conversaciones privadas, reconstruidas de los chatlogs — el histórico que el juego escribe y no enseña":
+    "Your private conversations, rebuilt from the chatlogs — the history the game writes but never shows",
+  "Tus conversaciones privadas, reconstruidas de los chatlogs que el juego escribe y luego no deja releer. Solo lectura: Koru no puede escribir en un chat, y no quiere.":
+    "Your private conversations, rebuilt from the chatlogs the game writes and then never lets you reread. Read-only: Koru cannot write into a chat, and doesn't want to.",
+  // «Escaneando…» ya existía más arriba.
+  "Escanear conversaciones": "Scan conversations",
+  "Falta la carpeta de chats: es la misma del intel, en Ajustes → Intel.":
+    "The chat folder is missing: it's the same one intel uses, in Settings → Intel.",
+  "FICHEROS ficheros mirados · PRIV privados · NUEVOS mensajes nuevos":
+    "FICHEROS files checked · PRIV private · NUEVOS new messages",
+  "Todavía no hay nada: pulsa «Escanear conversaciones». La primera pasada mira toda la carpeta; las siguientes solo lo nuevo.":
+    "Nothing here yet: press “Scan conversations”. The first pass reads the whole folder; later ones only what changed.",
+  "Buscar piloto…": "Search pilot…",
+  "Entre tus personajes / sin respuesta": "Between your characters / unanswered",
+  Grupo: "Group",
+  msgs: "msgs",
+  "Elige una conversación de la lista.": "Pick a conversation from the list.",
+  "Cambiar el orden de la lista": "Change list order",
+  "Cambiar el orden de los mensajes": "Change message order",
+  "Recientes primero": "Recent first",
+  "Antiguas primero": "Oldest first",
+  Cronológico: "Chronological",
+  "Sin mensajes.": "No messages.",
+  "Esto son conversaciones privadas: las tuyas y las de quienes hablaron contigo. Se quedan en tu ordenador y no se envían a ningún sitio — y son lo último que debería salir en una captura.":
+    "These are private conversations: yours and those of the people who talked to you. They stay on your computer and are never sent anywhere — and they are the last thing that should ever appear in a screenshot.",
 };
 
 export function t(s: string, lang: Lang): string {
