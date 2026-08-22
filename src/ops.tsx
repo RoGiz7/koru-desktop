@@ -41,6 +41,14 @@ type EventRow = {
   squad_id: number | null;
 };
 type OpEvents = { events: EventRow[]; names: Record<string, string> };
+type OpKill = {
+  at: string;
+  loss: boolean;
+  victim_id: number | null;
+  victim_name: string | null;
+  victim_ship: number | null;
+  attackers_flota: number;
+};
 type OpCharStats = {
   character_id: number;
   dmg_done_npc: number;
@@ -160,6 +168,7 @@ export function OpsView({ characters }: { characters: Character[] }) {
   const [eventos, setEventos] = useState<OpEvents | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
   const [stats, setStats] = useState<OpCharStats[] | null>(null);
+  const [kills, setKills] = useState<OpKill[] | null>(null);
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
   const [err, setErr] = useState<string | null>(null);
@@ -177,13 +186,16 @@ export function OpsView({ characters }: { characters: Character[] }) {
     setEventos(null);
     setRoster(null);
     setStats(null);
+    setKills(null);
     try {
-      const [ev, ro] = await Promise.all([
+      const [ev, ro, ki] = await Promise.all([
         invoke<OpEvents>("fleet_op_events", { opId: op.op_id }),
         invoke<Roster>("fleet_op_roster", { opId: op.op_id }),
+        invoke<OpKill[]>("fleet_op_kills", { opId: op.op_id }),
       ]);
       setEventos(ev);
       setRoster(ro);
+      setKills(ki);
     } catch (e) {
       setErr(String(e));
     }
@@ -444,43 +456,90 @@ export function OpsView({ characters }: { characters: Character[] }) {
               </div>
               {eventos == null && <p className="muted small">{tr("Cargando…")}</p>}
               {eventos &&
-                eventos.events.map((e, i) => {
-                  const prev = i > 0 ? eventos.events[i - 1] : null;
-                  const hueco =
-                    prev != null && Date.parse(e.at) - Date.parse(prev.at) > HUECO_MS
-                      ? Date.parse(e.at) - Date.parse(prev.at)
-                      : null;
-                  const nombre = eventos.names[String(e.character_id)] ?? `#${e.character_id}`;
-                  return (
-                    <div key={`${e.at}-${e.character_id}-${i}`}>
-                      {hueco != null && (
-                        <div className="ops-hueco small muted">
-                          {/* Ceguera declarada: media hora sin eventos NO es media hora quieta. */}
-                          ⋯ {fmtDur(hueco)} {tr("sin cambios (o sin mirar: los huecos largos son Koru cerrado)")}
+                (() => {
+                  // Los kills se INTERCALAN con los eventos del grabador por hora: la película
+                  // pasa de logística a historia de combate («kills como indicador» — el reparto).
+                  type Item = { at: string; ev?: EventRow; kill?: OpKill };
+                  const items: Item[] = [
+                    ...eventos.events.map((e) => ({ at: e.at, ev: e })),
+                    ...(kills ?? []).map((k) => ({ at: k.at, kill: k })),
+                  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+                  return items.map((it, i) => {
+                    const prev = i > 0 ? items[i - 1] : null;
+                    const hueco =
+                      prev != null && Date.parse(it.at) - Date.parse(prev.at) > HUECO_MS
+                        ? Date.parse(it.at) - Date.parse(prev.at)
+                        : null;
+                    const sep = hueco != null && (
+                      <div className="ops-hueco small muted">
+                        {/* Ceguera declarada: media hora sin eventos NO es media hora quieta. */}
+                        ⋯ {fmtDur(hueco)}{" "}
+                        {tr("sin cambios (o sin mirar: los huecos largos son Koru cerrado)")}
+                      </div>
+                    );
+                    if (it.kill) {
+                      const k = it.kill;
+                      const nave =
+                        k.victim_ship != null
+                          ? (shipNames.get(k.victim_ship) ?? `#${k.victim_ship}`)
+                          : "?";
+                      return (
+                        <div key={`k-${k.at}-${i}`}>
+                          {sep}
+                          <div className={`ops-ev ops-kill${k.loss ? " perdida" : ""}`}>
+                            <span className="ops-ev-hora small muted">[{fmtHoraEv(k.at)}]</span>
+                            <span className="ops-kill-ico">{k.loss ? "✝" : "☠"}</span>
+                            <span className="ops-ev-que">
+                              {k.loss
+                                ? `${k.victim_name ?? "?"} ${tr("pierde su")} ${nave}`
+                                : `${tr("la flota mata a")} ${k.victim_name ?? "?"} (${nave})`}
+                              {!k.loss && k.attackers_flota > 0 && (
+                                <span className="muted small">
+                                  {" "}
+                                  · {fmtSp(k.attackers_flota)} {tr("de la flota en el kill")}
+                                </span>
+                              )}
+                            </span>
+                            {k.victim_ship != null && (
+                              <img
+                                className="type-ico"
+                                src={typeIcon(k.victim_ship)}
+                                alt=""
+                                loading="lazy"
+                              />
+                            )}
+                          </div>
                         </div>
-                      )}
-                      <div className={`ops-ev ops-ev-${e.kind}`}>
-                        <span className="ops-ev-hora small muted">[{fmtHoraEv(e.at)}]</span>
-                        <img
-                          className="flt-cara ops-ev-cara"
-                          src={`https://images.evetech.net/characters/${e.character_id}/portrait?size=32`}
-                          alt=""
-                          loading="lazy"
-                        />
-                        <span className="ops-ev-quien">{nombre}</span>
-                        <span className="ops-ev-que">{frase(e)}</span>
-                        {e.kind === "ship" && e.ship_type_id != null && (
+                      );
+                    }
+                    const e = it.ev!;
+                    const nombre = eventos.names[String(e.character_id)] ?? `#${e.character_id}`;
+                    return (
+                      <div key={`${e.at}-${e.character_id}-${i}`}>
+                        {sep}
+                        <div className={`ops-ev ops-ev-${e.kind}`}>
+                          <span className="ops-ev-hora small muted">[{fmtHoraEv(e.at)}]</span>
                           <img
-                            className="type-ico"
-                            src={typeIcon(e.ship_type_id)}
+                            className="flt-cara ops-ev-cara"
+                            src={`https://images.evetech.net/characters/${e.character_id}/portrait?size=32`}
                             alt=""
                             loading="lazy"
                           />
-                        )}
+                          <span className="ops-ev-quien">{nombre}</span>
+                          <span className="ops-ev-que">{frase(e)}</span>
+                          {e.kind === "ship" && e.ship_type_id != null && (
+                            <img
+                              className="type-ico"
+                              src={typeIcon(e.ship_type_id)}
+                              alt=""
+                              loading="lazy"
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
             </div>
           </>
         )}

@@ -12191,3 +12191,89 @@ pub async fn fleet_op_stats(
     v.sort_by_key(|s| s.character_id);
     Ok(v)
 }
+
+/// Un kill (o pérdida) dentro de la ventana de una op — para pintarlo en la película.
+/// El reparto de RoGiz7: «si hay algún kill de la flota, indicarlo» — los killmails son el
+/// INDICADOR; los números finos los pone el gamelog (fleet_op_stats).
+#[derive(Debug, Serialize)]
+pub struct OpKill {
+    /// killed_at normalizado a RFC3339 UTC (para intercalarlo con los eventos del grabador).
+    pub at: String,
+    /// true = la víctima estaba EN la flota (pérdida propia); false = kill de la flota.
+    pub loss: bool,
+    pub victim_id: Option<i64>,
+    pub victim_name: Option<String>,
+    pub victim_ship: Option<i64>,
+    /// Cuántos miembros del roster aparecen como atacantes (0 en pérdidas).
+    pub attackers_flota: i64,
+}
+
+/// Killmails cuya hora cae en la ventana de la op. Se filtra en Rust parseando `killed_at`
+/// (comparar las cadenas a pelo falla con `Z` vs `+00:00` — la lección de get_wingmates), y el
+/// JSON solo se abre para los que caen dentro. Dedupe por killmail_id: el mismo kill se ingiere
+/// una vez por personaje involucrado.
+#[tauri::command]
+pub async fn fleet_op_kills(op_id: i64, state: State<'_, AppState>) -> AppResult<Vec<OpKill>> {
+    let ops = state.db.fleet_ops_list()?;
+    let op = ops
+        .iter()
+        .find(|o| o.op_id == op_id)
+        .ok_or_else(|| AppError::Other(format!("op {op_id} no existe")))?;
+    let parse = |s: &str| chrono::DateTime::parse_from_rfc3339(s).map(|t| t.timestamp());
+    let t0 = parse(&op.started_at).map_err(|e| AppError::Other(format!("op sin fecha: {e}")))?;
+    let t1 = match (&op.ended_at, &op.last_tick) {
+        (Some(e), _) => parse(e).unwrap_or(t0),
+        (None, Some(l)) => parse(l).unwrap_or(t0),
+        (None, None) => t0,
+    };
+    let roster: std::collections::HashSet<i64> =
+        state.db.fleet_state(op_id)?.keys().copied().collect();
+
+    let mut vistos: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut kills: Vec<OpKill> = Vec::new();
+    for (_is_loss, killed_at, raw) in state.db.killmails_raw_dated()? {
+        let Some(ka) = killed_at else { continue };
+        let Ok(t) = parse(&ka) else { continue };
+        if t < t0 || t > t1 {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let kid = v.get("killmail_id").and_then(|x| x.as_i64()).unwrap_or(0);
+        if kid != 0 && !vistos.insert(kid) {
+            continue; // ya contado (ingerido por otro personaje)
+        }
+        let victim_id = v.pointer("/victim/character_id").and_then(|x| x.as_i64());
+        let victim_ship = v.pointer("/victim/ship_type_id").and_then(|x| x.as_i64());
+        let attackers_flota = v
+            .get("attackers")
+            .and_then(|a| a.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.get("character_id").and_then(|c| c.as_i64()))
+                    .filter(|c| roster.contains(c))
+                    .count() as i64
+            })
+            .unwrap_or(0);
+        let loss = victim_id.map(|id| roster.contains(&id)).unwrap_or(false);
+        kills.push(OpKill {
+            at: chrono::DateTime::from_timestamp(t, 0)
+                .map(|d| d.to_rfc3339())
+                .unwrap_or(ka),
+            loss,
+            victim_id,
+            victim_name: None, // se rellena abajo, en lote
+            victim_ship,
+            attackers_flota,
+        });
+    }
+    // Nombres de víctimas en UNA llamada (best-effort, como siempre).
+    let ids: Vec<i64> = kills.iter().filter_map(|k| k.victim_id).collect();
+    if !ids.is_empty() {
+        let nombres = state.esi.resolve_names(&ids).await.unwrap_or_default();
+        for k in &mut kills {
+            k.victim_name = k.victim_id.and_then(|id| nombres.get(&id).cloned());
+        }
+    }
+    kills.sort_by(|a, b| a.at.cmp(&b.at));
+    Ok(kills)
+}

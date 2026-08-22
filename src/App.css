@@ -9693,3 +9693,25 @@ h4 {
 .ops-st-nom {
   font-weight: 600;
 }
+
+/* Kills en la película: el momento fuerte de la op, con su peso visual. */
+.ops-kill {
+  font-weight: 600;
+  background: rgba(63, 185, 80, 0.08);
+  border-left: 3px solid #3fb950;
+  padding-left: 6px;
+}
+.ops-kill .ops-ev-que {
+  color: #3fb950;
+}
+.ops-kill.perdida {
+  background: rgba(229, 83, 75, 0.08);
+  border-left-color: #e5534b;
+}
+.ops-kill.perdida .ops-ev-que {
+  color: #e5534b;
+}
+.ops-kill-ico {
+  width: 20px;
+  text-align: center;
+}
