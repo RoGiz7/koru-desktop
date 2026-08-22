@@ -9474,3 +9474,55 @@ h4 {
   width: 18px;
   height: 18px;
 }
+
+/* Flota en vivo sobre el mapa: anillo VERDE (los tuyos nunca visten de hostil) + recuento. */
+.flota-anillo {
+  fill: rgba(63, 185, 80, 0.16);
+  stroke: #3fb950;
+  stroke-width: 2;
+}
+.flota-n {
+  fill: #3fb950;
+  font-size: 11px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 3px;
+}
+/* Pestaña Flota de la tarjeta derecha: roster agrupado por sistema. */
+.flota-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.flota-card-sys {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.flota-card-sys:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.flota-card-sysname {
+  background: none;
+  border: none;
+  color: #3fb950;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 0 3px;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.flota-card-fila {
+  padding: 2px 4px;
+}
+.flota-card-nombre {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}

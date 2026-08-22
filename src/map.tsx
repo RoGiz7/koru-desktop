@@ -13,6 +13,7 @@ import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
 import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
+import { galon, loadShipNames, type Roster } from "./flotas";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay, Tab } from "./constants";
@@ -320,9 +321,10 @@ export function MapView(props: {
   /** Petición de CENTRAR un sistema, desde otra sección (inventario, naves, assets…). El `nonce`
    *  fuerza el re-disparo si pides dos veces el mismo sistema — mismo patrón que openTrack. */
   focusReq?: { sysId: number; nonce: number } | null;
-  /** Capa «flota»: cuántos de los tuyos hay en cada sistema, de la op EN VIVO del grabador.
-   *  null = no hay op grabándose (la capa se pinta vacía y el texto de contexto lo dice). */
-  fleetSystems?: Map<number, number> | null;
+  /** La op EN VIVO del grabador, entera. null = no hay op. Con ella el mapa pinta los anillos
+   *  verdes de flota SOBRE cualquier capa (no es una capa: es una presencia, como la ruta) y
+   *  llena la pestaña «Flota» de la tarjeta derecha — el roster junto al feed de intel. */
+  fleetRoster?: Roster | null;
   /** Aviso a abrir en la ficha, pedido desde el overlay flotante. Ver el efecto más abajo. */
   openIntelReq?: {
     sysId: number;
@@ -347,7 +349,7 @@ export function MapView(props: {
     onOpenIntelSettings,
     openTrack,
     focusReq,
-    fleetSystems,
+    fleetRoster,
     openIntelReq,
     assetsBySystem,
     miningBySystem,
@@ -422,9 +424,20 @@ export function MapView(props: {
   const navRef = useRef<HTMLDivElement | null>(null);
   // La columna derecha es UNA tarjeta con pestañas (antes eran cuatro apiladas y tapaban el mapa).
   // `cardOpen` pliega la tarjeta entera dejando solo la barra de pestañas.
-  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema" | "viajes";
+  type RightTab = "ruta" | "rastro" | "aviso" | "habituales" | "sistema" | "viajes" | "flota";
   const [rightTab, setRightTab] = useState<RightTab>("ruta");
   const [cardOpen, setCardOpen] = useState(true);
+  // Nombres de nave para la pestaña Flota (promesa compartida con la sección Flotas).
+  const [fltShipNames, setFltShipNames] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    if (!fleetRoster) return;
+    loadShipNames().then(setFltShipNames).catch(() => {});
+  }, [fleetRoster != null]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Si la op termina con la pestaña Flota abierta, la tarjeta no puede quedarse en un panel que
+  // ya no existe: cae a Ruta (la pestaña por defecto).
+  useEffect(() => {
+    if (rightTab === "flota" && !fleetRoster) setRightTab("ruta");
+  }, [rightTab, fleetRoster]);
   // Red de Ansiblex de la alianza (declarada por el piloto en Ajustes; ESI no la publica).
   const [ansiRows, setAnsiRows] = useState<AnsiblexRow[]>([]);
   useEffect(() => {
@@ -2171,6 +2184,10 @@ export function MapView(props: {
     if (overlay === "intel" && habitualOpen)
       t.push({ id: "habituales", label: `👥 ${tr("Habituales")}` });
     if (routeActive) t.push({ id: "ruta", label: tr("Ruta"), typeId: 439 });
+    // La op EN VIVO: el roster del FC junto al feed de intel — quién, con qué y dónde, sin salir
+    // del mapa. 24764 = skillbook Fleet Command, el mismo icono que la sección Flotas.
+    if (fleetRoster && fleetRoster.members.some((m) => m.present))
+      t.push({ id: "flota", label: tr("Flota"), typeId: 24764 });
     // Los viajes solo tienen sentido mirando el Recorrido: es la misma capa, contada.
     // 439 = «1MN Afterburner I», verificado en `market_types.json` (grupo 542, Propulsion Module).
     // Lo eligió RoGiz7 y encaja solo: un viaje es movimiento, y el afterburner es EL módulo de
@@ -2178,7 +2195,7 @@ export function MapView(props: {
     if (overlay === "recorrido") t.push({ id: "viajes", label: tr("Viajes"), typeId: 439 });
     return t;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen, selected, geo]);
+  }, [routeActive, overlay, huntPilots, intelDetail, habitualOpen, selected, geo, fleetRoster]);
   // Pinchar un sistema en el mapa es un acto deliberado: la tarjeta salta a su pestaña. Sin esto
   // seleccionas un sistema, no ves nada cambiar y parece que el clic no ha hecho nada.
   useEffect(() => {
@@ -2218,8 +2235,6 @@ export function MapView(props: {
       ? liveKills
       : overlay === "jumps"
       ? liveJumps
-      : overlay === "flota"
-      ? fleetSystems ?? null
       : overlay === "assets"
       ? assetsBySystem ?? null
       : overlay === "mineria"
@@ -2294,8 +2309,6 @@ export function MapView(props: {
       ? "Conexiones de wormhole a Thera/Turnur (datos de eve-scout): sistemas k-space con salida (cian = Thera, naranja = Turnur). El tooltip muestra tipo, tamaño máx y horas restantes."
       : overlay === "firmas"
       ? "Tus firmas del escáner de sondas, por sistema (violeta = wormhole con destino anotado · cian = wormhole sin destino · ámbar = firmas sin identificar · gris = todo identificado). Se pegan y guardan en Ajustes → Firmas."
-      : overlay === "flota"
-      ? "Tu flota EN VIVO: cuántos de los tuyos hay en cada sistema, del grabador de ops (sección Flotas). Solo pinta mientras hay una grabación en marcha."
       : overlay === "kills"
       ? "Kills de jugadores en la última hora (datos en vivo de ESI)."
       : overlay === "jumps"
@@ -3796,6 +3809,33 @@ export function MapView(props: {
                 })}
               </>
             )}
+            {/* FLOTA EN VIVO, sobre CUALQUIER capa (no es una capa: es una presencia, como la
+                ruta). VERDE a propósito — pedido de RoGiz7 al ver la v1 naranja: en un mapa donde
+                el rojo/naranja significa pelea, los tuyos no pueden vestir de hostil. */}
+            {fleetRoster &&
+              (() => {
+                const porSys = new Map<number, number>();
+                for (const m of fleetRoster.members)
+                  if (m.present && m.system_id != null)
+                    porSys.set(m.system_id, (porSys.get(m.system_id) ?? 0) + 1);
+                return [...porSys.entries()].map(([sid, n]) => {
+                  const s = geo.idx.get(sid);
+                  if (!s) return null;
+                  const p = geo.proj(s);
+                  return (
+                    <g
+                      key={`fl-${sid}`}
+                      className="flota-marca"
+                      transform={`translate(${p.px} ${p.py}) scale(${1 / view.z})`}
+                    >
+                      <circle className="flota-anillo" r="9" />
+                      <text className="flota-n" y="-13" textAnchor="middle">
+                        {n}
+                      </text>
+                    </g>
+                  );
+                });
+              })()}
             {/* Pulso de llegada de focusSystem: DOS anillos que se expanden y se apagan solos
                 (CSS, una sola pasada). La `key` con el instante fuerza a React a recrear el nodo
                 si centras dos veces el mismo sistema — sin ella la animación no se relanza. */}
@@ -4460,6 +4500,62 @@ export function MapView(props: {
         {rightTab === "sistema" && fichaSistema}
 
         {/* VIAJES: la lista de lo que hiciste de verdad, con lo que pasó por el camino. */}
+        {/* FLOTA EN VIVO: el roster del FC junto al feed — quién, con qué y dónde, agrupado por
+            SISTEMA (que es la pregunta táctica: «¿qué tengo AHÍ?»), frente a lo que canta el
+            intel alrededor. El nombre del sistema centra el mapa: misma focusSystem de siempre. */}
+        {rightTab === "flota" && fleetRoster && (
+          <div className="flota-card">
+            {(() => {
+              const porSys = new Map<number, typeof fleetRoster.members>();
+              for (const m of fleetRoster.members) {
+                if (!m.present) continue;
+                const k = m.system_id ?? -1;
+                if (!porSys.has(k)) porSys.set(k, []);
+                porSys.get(k)!.push(m);
+              }
+              return [...porSys.entries()].map(([sid, ms]) => (
+                <div key={`flc-${sid}`} className="flota-card-sys">
+                  <button
+                    className="flota-card-sysname"
+                    onClick={() => sid >= 0 && focusSystem(sid)}
+                    title={tr("Ver en el mapa")}
+                  >
+                    {sid >= 0 ? (geo?.idx.get(sid)?.n ?? `#${sid}`) : tr("sistema desconocido")}
+                    <span className="muted small"> · {ms.length}</span>
+                  </button>
+                  {ms.map((m) => (
+                    <div key={m.character_id} className="flt-miembro flota-card-fila">
+                      <img
+                        className="flt-cara"
+                        src={`https://images.evetech.net/characters/${m.character_id}/portrait?size=32`}
+                        alt=""
+                        loading="lazy"
+                      />
+                      <span className="flota-card-nombre">
+                        {galon(m.role)}
+                        {m.name ?? `#${m.character_id}`}
+                      </span>
+                      {m.ship_type_id != null && (
+                        <span className="flt-nave small">
+                          <img
+                            className="type-ico"
+                            src={typeIcon(m.ship_type_id)}
+                            alt=""
+                            loading="lazy"
+                          />
+                          {fltShipNames.get(m.ship_type_id) ?? `#${m.ship_type_id}`}
+                        </span>
+                      )}
+                      {m.station_id != null && (
+                        <span className="muted small">{tr("atracado")}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ));
+            })()}
+          </div>
+        )}
         {rightTab === "viajes" && overlay === "recorrido" && (
           <>
             <span className="chip-head">

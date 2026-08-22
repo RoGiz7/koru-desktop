@@ -37,7 +37,7 @@ export type OpEstado = {
 
 export const SCOPE_FLOTA = "esi-fleets.read_fleet.v1";
 
-type RosterMember = {
+export type RosterMember = {
   character_id: number;
   name: string | null;
   ship_type_id: number | null;
@@ -48,14 +48,26 @@ type RosterMember = {
   role: string | null;
   present: boolean;
 };
-type Roster = { members: RosterMember[]; wings: [number, number, string][] };
+export type Roster = { members: RosterMember[]; wings: [number, number, string][] };
 
-/** La estrella del mando: FC > ala > escuadra. Del `role` que da ESI. */
-function galon(role: string | null): string {
+/** La estrella del mando: FC > ala > escuadra. Del `role` que da ESI. Lo usan la sección y la
+ *  pestaña Flota de la tarjeta del mapa — el mismo símbolo en los dos sitios, a propósito. */
+export function galon(role: string | null): string {
   if (role === "fleet_commander") return "★ ";
   if (role === "wing_commander") return "☆ ";
   if (role === "squad_commander") return "▸ ";
   return "";
+}
+
+/** Nombres de nave (ships.json), con promesa cacheada: lo comparten la composición de la sección
+ *  y la pestaña Flota del mapa sin descargar el fichero dos veces. */
+let shipNamesPromise: Promise<Map<number, string>> | null = null;
+export function loadShipNames(): Promise<Map<number, string>> {
+  if (!shipNamesPromise)
+    shipNamesPromise = fetch("/ships.json")
+      .then((r) => r.json())
+      .then((rows: { i: number; n: string }[]) => new Map(rows.map((r) => [r.i, r.n])));
+  return shipNamesPromise;
 }
 
 /** COMPOSICIÓN EN VIVO (idea de RoGiz7, 2026-08-22, nada más ver grabar la primera op): el FC ve
@@ -71,11 +83,8 @@ function RosterPanel({ opId, ticks }: { opId: number; ticks: number }) {
     loadNewEden()
       .then((ne) => setSysNames(new Map(ne.systems.map((s) => [s.id, s.n]))))
       .catch(() => {});
-    fetch("/ships.json")
-      .then((r) => r.json())
-      .then((rows: { i: number; n: string }[]) =>
-        setShipNames(new Map(rows.map((r) => [r.i, r.n]))),
-      )
+    loadShipNames()
+      .then(setShipNames)
       .catch(() => {});
   }, []);
 

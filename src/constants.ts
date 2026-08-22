@@ -222,8 +222,7 @@ export type MapOverlay =
   | "wormholes"
   | "firmas"
   | "recorrido"
-  | "intel"
-  | "flota";
+  | "intel";
 
 export type Poi = { name: string; kind: "hub" | "historico" | "pvp"; note: string };
 
@@ -468,8 +467,9 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   // Mismo ID que el tema pirata de `themePicker.tsx`.
   { key: "incursion", label: "Incursiones (Sansha)", short: "Incursiones", icon: "🌀", factionId: 500019, cat: "vivo" },
   { key: "wormholes", label: "Wormholes Thera/Turnur", short: "Wormholes", icon: "🕳️", cat: "vivo" },
-  // La op EN VIVO del grabador de flotas, proyectada: cuántos de los tuyos hay en cada sistema.
-  // Mismo icono que la sección Flotas (skillbook Fleet Command) — son la misma cosa en dos sitios.
-  { key: "flota", label: "Tu flota (op en vivo)", short: "Flota", icon: "🛰", typeId: 24764, cat: "vivo" },
+  // La flota en vivo NO es una capa: se pinta SOBRE cualquier capa mientras hay op grabándose
+  // (anillos verdes, patrón de los saltos calientes de la ruta) y tiene su pestaña en la tarjeta
+  // derecha. Fue capa un commit (1f9ccda) y RoGiz7 lo corrigió al verla: competía con el intel,
+  // que es justo al lado de quien quieres verla.
   { key: "firmas", label: "Firmas escaneadas (tuyas)", short: "Firmas", icon: "📡", typeId: 30488, cat: "vivo" }, // Sisters Core Scanner Probe
 ];
