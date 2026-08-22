@@ -2671,6 +2671,11 @@ const EN: Record<string, string> = {
   "reparación remota dada · recibida (HP)": "remote reps given · received (HP)",
   "sin log en la ventana — no es cero actividad, es que no se vio":
     "no log in the window — not zero activity, just not seen",
+  "Cara a cara de la op": "The op face to face",
+  "daño cruzado con cada rival, visto por tus personajes":
+    "damage traded with each rival, as seen by your characters",
+  Rival: "Rival",
+  "El detalle PvE de ese día, en su sección": "That day's PvE detail, in its own section",
   "la flota mata a": "the fleet kills",
   "pierde su": "loses their",
   "de la flota en el kill": "from the fleet on the kill",

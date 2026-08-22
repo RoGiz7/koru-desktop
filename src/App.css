@@ -9715,3 +9715,18 @@ h4 {
   width: 20px;
   text-align: center;
 }
+
+/* Enlaces del detalle PvE (visor de ops) — botón que parece enlace, como .ver-mapa. */
+.ops-pve-links {
+  margin-top: 8px;
+}
+.ops-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-text);
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  font-size: inherit;
+}

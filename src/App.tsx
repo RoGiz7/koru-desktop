@@ -2870,7 +2870,7 @@ function App() {
           {/* Social se alimenta de la MISMA carpeta que el intel: los chatlogs son una sola cosa
               en disco, y pedir la ruta dos veces sería inventarse un ajuste. */}
           {tab === "social" && <SocialView folder={intelFolder} />}
-          {tab === "ops" && <OpsView characters={characters} />}
+          {tab === "ops" && <OpsView characters={characters} onIrA={changeTab} />}
           {tab === "rateo" && (
             <RateoView
               data={ratting}

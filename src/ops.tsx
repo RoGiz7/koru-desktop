@@ -16,6 +16,7 @@ import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster } from "./flotas";
 import type { Character } from "./types";
+import type { Tab } from "./constants";
 
 type OpSummary = {
   op_id: number;
@@ -49,6 +50,16 @@ type OpKill = {
   victim_ship: number | null;
   attackers_flota: number;
 };
+type OpRival = {
+  pilot: string;
+  ticker: string;
+  ship: string;
+  kind: number; // 1 nave · 2 dron/fighter · 3 estructura
+  dmg_done: number;
+  dmg_recv: number;
+  hits_done: number;
+  hits_recv: number;
+};
 type OpCharStats = {
   character_id: number;
   dmg_done_npc: number;
@@ -69,6 +80,7 @@ type OpCharStats = {
   mining_units: number;
   files: number;
 };
+type OpStatsResp = { chars: OpCharStats[]; rivals: OpRival[] };
 
 function fmtDur(ms: number): string {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -162,12 +174,19 @@ function Cinta({
   );
 }
 
-export function OpsView({ characters }: { characters: Character[] }) {
+export function OpsView({
+  characters,
+  onIrA,
+}: {
+  characters: Character[];
+  /** Saltar a otra sección (Rateo, Minería…): el detalle PvE vive en su casa, no aquí. */
+  onIrA?: (tab: Tab) => void;
+}) {
   const [ops, setOps] = useState<OpSummary[] | null>(null);
   const [abierta, setAbierta] = useState<number | null>(null);
   const [eventos, setEventos] = useState<OpEvents | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
-  const [stats, setStats] = useState<OpCharStats[] | null>(null);
+  const [stats, setStats] = useState<OpStatsResp | null>(null);
   const [kills, setKills] = useState<OpKill[] | null>(null);
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
@@ -201,12 +220,12 @@ export function OpsView({ characters }: { characters: Character[] }) {
     }
     // El balance del gamelog aparte: relee ficheros y puede tardar un par de segundos — que no
     // retrase la película. La carpeta es la MISMA del escaneo de gamelogs (koru-gamelog-folder).
-    invoke<OpCharStats[]>("fleet_op_stats", {
+    invoke<OpStatsResp>("fleet_op_stats", {
       opId: op.op_id,
       folder: localStorage.getItem("koru-gamelog-folder") ?? "",
     })
       .then(setStats)
-      .catch(() => setStats([]));
+      .catch(() => setStats({ chars: [], rivals: [] }));
   };
 
   const bossName = (id: number) =>
@@ -372,10 +391,50 @@ export function OpsView({ characters }: { characters: Character[] }) {
               </div>
             )}
 
+            {/* CARA A CARA DE LA OP: daño cruzado por rival CONCRETO (jugador/dron/estructura),
+                sumado sobre tus personajes. El detalle de la op es para el PVP — decisión de
+                RoGiz7: lo PvE va en sumatorio y su detalle vive en Rateo/Minería. */}
+            {stats && stats.rivals.length > 0 && (
+              <div className="ops-stats">
+                <div className="flt-roster-head">
+                  <strong>{tr("Cara a cara de la op")}</strong>
+                  <span className="muted small">
+                    {tr("daño cruzado con cada rival, visto por tus personajes")}
+                  </span>
+                </div>
+                <table className="ops-stats-tabla">
+                  <thead>
+                    <tr>
+                      <th>{tr("Rival")}</th>
+                      <th>{tr("Nave")}</th>
+                      <th>{tr("Daño")}</th>
+                      <th>{tr("Recibido")}</th>
+                      <th>{tr("Golpes")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.rivals.slice(0, 20).map((r) => (
+                      <tr key={`${r.pilot}:${r.ship}`}>
+                        <td className="ops-st-nom">
+                          {r.kind === 3 ? "🏗 " : ""}
+                          {r.pilot}
+                          {r.ticker ? <span className="muted small"> [{r.ticker}]</span> : null}
+                        </td>
+                        <td>{r.ship || "—"}</td>
+                        <td>{r.dmg_done > 0 ? fmtSp(r.dmg_done) : "—"}</td>
+                        <td>{r.dmg_recv > 0 ? fmtSp(r.dmg_recv) : "—"}</td>
+                        <td>{fmtSp(r.hits_done + r.hits_recv)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {/* TUS PILOTOS: el balance del gamelog, golpe a golpe. SOLO tus personajes — es la
                 frase limpia del reparto («kills como indicador, el resto del gamelog»): sin letra
                 pequeña porque el alcance va en el título. files=0 → «sin log», JAMÁS cero. */}
-            {stats && stats.length > 0 && (
+            {stats && stats.chars.length > 0 && (
               <div className="ops-stats">
                 <div className="flt-roster-head">
                   <strong>{tr("Tus pilotos")}</strong>
@@ -397,7 +456,7 @@ export function OpsView({ characters }: { characters: Character[] }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.map((s) => {
+                    {stats.chars.map((s) => {
                       const durS = Math.max(
                         1,
                         Math.round(
@@ -443,6 +502,21 @@ export function OpsView({ characters }: { characters: Character[] }) {
                     })}
                   </tbody>
                 </table>
+                {/* El detalle PvE vive en su casa: aquí solo los sumatorios de arriba. Las
+                    secciones agregan POR DÍA, así que el salto lleva al día de la op — el minuto
+                    a minuto PvE no existe allí, y no se finge. */}
+                {onIrA && (
+                  <p className="small muted ops-pve-links">
+                    {tr("El detalle PvE de ese día, en su sección")}:{" "}
+                    <button className="ops-link" onClick={() => onIrA("rateo")}>
+                      {tr("Ingresos PvE")}
+                    </button>
+                    {" · "}
+                    <button className="ops-link" onClick={() => onIrA("mineria")}>
+                      {tr("Minería")}
+                    </button>
+                  </p>
+                )}
               </div>
             )}
 

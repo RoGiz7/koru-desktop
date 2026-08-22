@@ -12048,12 +12048,35 @@ pub struct OpCharStats {
 /// de la ventana con los parsers v19 (curtidos en tres eras) es barato y exacto al segundo.
 /// Selección de ficheros VALIDADA en Python contra el corpus real (outputs/op_ventana_validar):
 /// sesión más larga vista 9h04m → margen de 24h, cero ficheros perdidos en las ventanas de prueba.
+/// Un rival concreto de la op (jugador, dron o estructura): daño cruzado con él, sumado sobre
+/// TODOS tus personajes. El reparto de RoGiz7 refinado: el detalle de la op es para el PVP;
+/// el detalle PvE vive en sus secciones (Rateo/Minería) y aquí solo van los sumatorios.
+#[derive(Debug, Default, Serialize)]
+pub struct OpRival {
+    pub pilot: String,
+    pub ticker: String,
+    pub ship: String,
+    /// 1 = nave de jugador · 2 = dron/fighter · 3 = estructura (el nombre lleva su sistema).
+    pub kind: u8,
+    pub dmg_done: i64,
+    pub dmg_recv: i64,
+    pub hits_done: i64,
+    pub hits_recv: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpStats {
+    pub chars: Vec<OpCharStats>,
+    /// Cara a cara de la op, ordenado por daño cruzado total.
+    pub rivals: Vec<OpRival>,
+}
+
 #[tauri::command]
 pub async fn fleet_op_stats(
     op_id: i64,
     folder: String,
     state: State<'_, AppState>,
-) -> AppResult<Vec<OpCharStats>> {
+) -> AppResult<OpStats> {
     // La ventana. t1 de una op viva = last_tick (lo mirado), no `now`: más allá del último sondeo
     // no hay roster que cruzar y el gamelog solo diría verdades a medias.
     let ops = state.db.fleet_ops_list()?;
@@ -12088,7 +12111,7 @@ pub async fn fleet_op_stats(
         .filter(|id| mios.contains(id))
         .collect();
     if en_op.is_empty() {
-        return Ok(Vec::new());
+        return Ok(OpStats { chars: Vec::new(), rivals: Vec::new() });
     }
 
     let dir = if folder.trim().is_empty() {
@@ -12104,6 +12127,9 @@ pub async fn fleet_op_stats(
     }
     // por personaje: dmg hecho por segundo (secs activos + pico)
     let mut por_seg: std::collections::HashMap<i64, std::collections::HashMap<i64, i64>> =
+        std::collections::HashMap::new();
+    // cara a cara: rival (pilot, ship) → daño cruzado, sumado sobre todos tus personajes
+    let mut rivales: std::collections::HashMap<(String, String), OpRival> =
         std::collections::HashMap::new();
 
     let base = std::path::Path::new(&dir);
@@ -12150,6 +12176,25 @@ pub async fn fleet_op_stats(
                     if c.kind == 0 { st.dmg_recv_npc += c.dmg } else { st.dmg_recv_pvp += c.dmg }
                     st.hits_recv += 1;
                 }
+                // Cara a cara: solo el otro lado JUGADOR (kind 1-3). Las ratas no tienen cara.
+                if c.kind > 0 && !c.pilot.is_empty() {
+                    let e = rivales
+                        .entry((c.pilot.clone(), c.pship.clone()))
+                        .or_insert_with(|| OpRival {
+                            pilot: c.pilot.clone(),
+                            ticker: c.ticker.clone(),
+                            ship: c.pship.clone(),
+                            kind: c.kind,
+                            ..Default::default()
+                        });
+                    if c.done {
+                        e.dmg_done += c.dmg;
+                        e.hits_done += 1;
+                    } else {
+                        e.dmg_recv += c.dmg;
+                        e.hits_recv += 1;
+                    }
+                }
             }
             for m in &batch.misses {
                 if !en_ventana(&m.date, m.sec) {
@@ -12189,7 +12234,9 @@ pub async fn fleet_op_stats(
     }
     let mut v: Vec<OpCharStats> = out.into_values().collect();
     v.sort_by_key(|s| s.character_id);
-    Ok(v)
+    let mut r: Vec<OpRival> = rivales.into_values().collect();
+    r.sort_by_key(|x| -(x.dmg_done + x.dmg_recv));
+    Ok(OpStats { chars: v, rivals: r })
 }
 
 /// Un kill (o pérdida) dentro de la ventana de una op — para pintarlo en la película.
