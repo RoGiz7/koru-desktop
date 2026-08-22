@@ -9382,3 +9382,30 @@ h4 {
   border-top: 1px solid var(--border);
   padding-top: 8px;
 }
+
+/* Pulso de llegada de focusSystem (mapa): dos anillos que se expanden y se desvanecen, UNA vez.
+   El <g> ya viene escalado 1/z, así que los radios son constantes en pantalla a cualquier zoom. */
+.focus-pulse circle {
+  fill: none;
+  stroke: var(--accent-border);
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+.focus-pulse .fp-a {
+  animation: fp-ring 900ms ease-out 1 forwards;
+}
+.focus-pulse .fp-b {
+  animation: fp-ring 900ms ease-out 300ms 1 forwards;
+}
+@keyframes fp-ring {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}

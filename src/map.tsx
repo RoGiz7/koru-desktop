@@ -549,6 +549,12 @@ export function MapView(props: {
   }, [ne]);
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    // Empezar a arrastrar CORTA la animación de focusSystem: si no, el rAF y el drag se pelean
+    // por la cámara durante ~300 ms y el mapa tiembla. El usuario manda, siempre.
+    if (focusRaf.current != null) {
+      cancelAnimationFrame(focusRaf.current);
+      focusRaf.current = null;
+    }
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
     movedRef.current = false;
     forceActive(); // interactuar (clic/arrastre) arma el zoom de inmediato
@@ -804,6 +810,60 @@ export function MapView(props: {
     const nz = Math.min(Math.max(z, 1), 24);
     setView({ z: nz, x: MAP_W / 2 - wx * nz, y: MAP_H / 2 - wy * nz });
   }
+
+  // ★ CENTRAR EL MAPA EN UN SISTEMA (idea de Zigor, 2026-08-22) — LA ÚNICA PUERTA para hacerlo.
+  // Todos los llamantes (feed de intel, saltos calientes de la ruta, buscadores…) pasan por aquí:
+  // separar «centrar desde intel» de «centrar desde ruta» sería la vía segura para que diverjan
+  // sin que nadie se entere — misma lección que las dos tarjetas del mapa.
+  // Las cuatro reglas, decididas a propósito:
+  //  1. Centrar NO cambia el marco mental: el zoom no baja nunca; solo sube si estabas lejísimos
+  //     (mismo criterio y misma cifra que el clic de región, 2.6).
+  //  2. Se ANIMA corto (~280 ms): un salto instantáneo te deja sin saber de dónde venías — la
+  //     ceguera de cámara. rAF sobre el estado `view`, cancelando la animación anterior.
+  //  3. La llegada se MARCA con un pulso que se apaga solo: centrar sin que se distinga cuál de
+  //     los puntos es no es centrar nada.
+  //  4. Solo se llama desde ACCIONES del usuario (clics) — un aviso de intel jamás mueve la
+  //     cámara por su cuenta.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const focusRaf = useRef<number | null>(null);
+  const [focusPulse, setFocusPulse] = useState<{ sid: number; k: number } | null>(null);
+  const focusSystem = useCallback(
+    (sid: number | null | undefined) => {
+      if (sid == null || !geo) return;
+      const s = geo.idx.get(sid);
+      if (!s) return;
+      // En la vista de regiones, el sistema no existe en pantalla si su región está plegada:
+      // centrar ahí sería mover la cámara hacia nada. Se despliega su región primero.
+      if (layout === "regions") {
+        setOpenRegions((prev) => {
+          const nx = new Set(prev);
+          nx.add(s.r);
+          return nx;
+        });
+      }
+      const p = geo.proj(s);
+      const from = viewRef.current;
+      const nz = Math.min(Math.max(from.z, 2.6), 24);
+      const to = { z: nz, x: MAP_W / 2 - p.px * nz, y: MAP_H / 2 - p.py * nz };
+      if (focusRaf.current != null) cancelAnimationFrame(focusRaf.current);
+      const t0 = performance.now();
+      const DUR = 280;
+      const paso = (t: number) => {
+        const k = Math.min((t - t0) / DUR, 1);
+        const e = 1 - Math.pow(1 - k, 3); // easeOutCubic: llega suave, sin frenazo
+        setView({
+          z: from.z + (to.z - from.z) * e,
+          x: from.x + (to.x - from.x) * e,
+          y: from.y + (to.y - from.y) * e,
+        });
+        focusRaf.current = k < 1 ? requestAnimationFrame(paso) : null;
+      };
+      focusRaf.current = requestAnimationFrame(paso);
+      setFocusPulse({ sid, k: Date.now() });
+    },
+    [geo, layout],
+  );
 
   // Red de Ansiblex proyectada sobre el mapa: aristas para el grafo + trazo para pintarlas.
   // Va en su PROPIO memo y no dentro de `geo` a propósito: geo recorre los ~5.000 sistemas y las
@@ -1608,6 +1668,10 @@ export function MapView(props: {
     setIntelTrackPilot(null);
     setRightTab("aviso"); // al abrir un aviso, la tarjeta salta a su pestaña
     setCardOpen(true); // y se despliega, si estaba plegada
+    // Y CENTRAR el mapa en el sistema del aviso: por aquí pasan el feed, el aviso flotante y los
+    // saltos calientes de la ruta — un solo enganche cubre a los tres. Siempre es un clic del
+    // usuario, así que la regla de «la cámara solo se mueve si se le pide» se cumple sola.
+    focusSystem(r.sysId);
   }
 
   // Clic en el aviso FLOTANTE → abre aquí su ficha completa (seguir, interceptar, ficha del
@@ -2660,7 +2724,10 @@ export function MapView(props: {
               systems={ne.systems}
               value={jumpOrigin}
               placeholder={tr("Sistema de salto…")}
-              onPick={(id) => setJumpOrigin(id)}
+              onPick={(id) => {
+                setJumpOrigin(id);
+                focusSystem(id); // buscar un sistema ES querer verlo
+              }}
             />
           </div>
           <div className="route-stop">
@@ -2669,7 +2736,10 @@ export function MapView(props: {
               systems={ne.systems}
               value={jumpDest}
               placeholder={tr("Destino (para el fuel)…")}
-              onPick={(id) => setJumpDest(id)}
+              onPick={(id) => {
+                setJumpDest(id);
+                focusSystem(id); // buscar un sistema ES querer verlo
+              }}
             />
           </div>
           {jumpFuel && (
@@ -3702,6 +3772,21 @@ export function MapView(props: {
                 })}
               </>
             )}
+            {/* Pulso de llegada de focusSystem: DOS anillos que se expanden y se apagan solos
+                (CSS, una sola pasada). La `key` con el instante fuerza a React a recrear el nodo
+                si centras dos veces el mismo sistema — sin ella la animación no se relanza. */}
+            {focusPulse &&
+              (() => {
+                const s = geo.idx.get(focusPulse.sid);
+                if (!s) return null;
+                const p = geo.proj(s);
+                return (
+                  <g key={focusPulse.k} className="focus-pulse" transform={`translate(${p.px} ${p.py}) scale(${1 / view.z})`}>
+                    <circle className="fp-a" r="10" />
+                    <circle className="fp-b" r="10" />
+                  </g>
+                );
+              })()}
           </g>
         </svg>
 
@@ -4992,13 +5077,14 @@ export function MapView(props: {
                     systems={ne.systems}
                     value={stop}
                     placeholder={tr("Escribe un sistema…")}
-                    onPick={(id) =>
+                    onPick={(id) => {
                       setRouteStops((prev) => {
                         const copy = [...prev];
                         copy[i] = id;
                         return copy;
-                      })
-                    }
+                      });
+                      focusSystem(id); // buscar un sistema ES querer verlo
+                    }}
                   />
                   {/* Reordenar con flechas en vez de arrastrar: es fiable, accesible y no depende
                       de una librería de drag&drop para mover 3 paradas. */}
