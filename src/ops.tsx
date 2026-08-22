@@ -57,6 +57,83 @@ function fmtHoraEv(iso: string): string {
  *  sondeos y pico — por debajo de eso sería ruido, por encima es Koru sin mirar. */
 const HUECO_MS = 150 * 1000;
 
+/** Tono ESTABLE por nave (hash del typeID → hue), como los autores de Social: que el Ishtar sea
+ *  siempre del mismo color en cualquier op — un color que baila no identifica. */
+function hueNave(typeId: number): number {
+  let h = 0;
+  const s = String(typeId);
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+type Tramo = { desde: number; hasta: number; ship: number | null };
+
+/** LA CINTA DE PRESENCIA — la firma del visor. Cada piloto una fila; banda coloreada POR NAVE a
+ *  lo largo de la op: los joins, reships y salidas se VEN como cortes de color, sin leer nada.
+ *  Sale de los eventos ya cargados (cada evento lleva el estado NUEVO completo, nave incluida):
+ *  cero backend nuevo. Es puro roster → SIMÉTRICA para todos los pilotos, sin asteriscos — la
+ *  única métrica de la op que lo es, y por eso va la primera (ver koru-op-estadisticas-diseno). */
+function Cinta({
+  eventos,
+  t0,
+  t1,
+  shipNames,
+}: {
+  eventos: OpEvents;
+  t0: number;
+  t1: number;
+  shipNames: Map<number, string>;
+}) {
+  const total = Math.max(1, t1 - t0);
+  // Tramos por piloto: cada evento abre uno con su estado nuevo; leave lo cierra (ausencia).
+  const porChar = new Map<number, Tramo[]>();
+  const abierto = new Map<number, Tramo>();
+  for (const e of eventos.events) {
+    const t = Date.parse(e.at);
+    const prev = abierto.get(e.character_id);
+    if (prev) {
+      prev.hasta = t;
+      // Solo se corta la banda si CAMBIA lo visible (nave) o se va: move/dock no cortan color.
+      if (e.kind === "leave" || prev.ship !== (e.ship_type_id ?? null)) {
+        abierto.delete(e.character_id);
+      }
+    }
+    if (e.kind !== "leave" && !abierto.has(e.character_id)) {
+      const nuevo: Tramo = { desde: t, hasta: t1, ship: e.ship_type_id ?? null };
+      abierto.set(e.character_id, nuevo);
+      if (!porChar.has(e.character_id)) porChar.set(e.character_id, []);
+      porChar.get(e.character_id)!.push(nuevo);
+    }
+  }
+  if (porChar.size === 0) return null;
+  return (
+    <div className="ops-cinta">
+      {[...porChar.entries()].map(([cid, tramos]) => (
+        <div key={cid} className="ops-cinta-fila">
+          <span className="ops-cinta-quien small">
+            {eventos.names[String(cid)] ?? `#${cid}`}
+          </span>
+          <div className="ops-cinta-banda">
+            {tramos.map((tr, i) => (
+              <span
+                key={i}
+                className="ops-cinta-tramo"
+                style={{
+                  left: `${(((tr.desde - t0) / total) * 100).toFixed(2)}%`,
+                  width: `${Math.max(0.8, ((tr.hasta - tr.desde) / total) * 100).toFixed(2)}%`,
+                  background:
+                    tr.ship != null ? `hsl(${hueNave(tr.ship)} 45% 38%)` : "var(--bg-control)",
+                }}
+                title={`${tr.ship != null ? (shipNames.get(tr.ship) ?? `#${tr.ship}`) : "?"} · ${fmtHoraEv(new Date(tr.desde).toISOString())} → ${fmtHoraEv(new Date(tr.hasta).toISOString())}`}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function OpsView({ characters }: { characters: Character[] }) {
   const [ops, setOps] = useState<OpSummary[] | null>(null);
   const [abierta, setAbierta] = useState<number | null>(null);
@@ -226,6 +303,30 @@ export function OpsView({ characters }: { characters: Character[] }) {
                     </div>
                   ));
                 })()}
+              </div>
+            )}
+
+            {/* LA CINTA: la op de un vistazo — cada corte de color es un reship o una salida. */}
+            {eventos && eventos.events.length > 0 && (
+              <div className="ops-cinta-bloque">
+                <div className="flt-roster-head">
+                  <strong>{tr("La cinta")}</strong>
+                  <span className="muted small">
+                    {tr("cada color, una nave; cada corte, un cambio")}
+                  </span>
+                </div>
+                <Cinta
+                  eventos={eventos}
+                  t0={Date.parse(op.started_at)}
+                  t1={
+                    op.ended_at
+                      ? Date.parse(op.ended_at)
+                      : op.last_tick
+                        ? Date.parse(op.last_tick)
+                        : Date.now()
+                  }
+                  shipNames={shipNames}
+                />
               </div>
             )}
 

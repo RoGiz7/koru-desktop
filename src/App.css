@@ -9623,3 +9623,41 @@ h4 {
   border-top: 1px dashed var(--border);
   padding-top: 4px;
 }
+
+/* La cinta de presencia (visor de ops): una fila por piloto, banda coloreada por nave. */
+.ops-cinta-bloque {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ops-cinta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ops-cinta-fila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ops-cinta-quien {
+  flex: 0 0 130px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ops-cinta-banda {
+  position: relative;
+  flex: 1 1 auto;
+  height: 16px;
+  background: var(--bg-surface); /* el fondo ES la ausencia: lo que no tiene banda no estaba */
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ops-cinta-tramo {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}

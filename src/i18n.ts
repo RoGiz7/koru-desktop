@@ -2657,6 +2657,8 @@ const EN: Record<string, string> = {
   "cambia de puesto": "changes position",
   "sin cambios (o sin mirar: los huecos largos son Koru cerrado)":
     "without changes (or without watching: long gaps mean Koru was closed)",
+  "La cinta": "The ribbon",
+  "cada color, una nave; cada corte, un cambio": "each colour a ship; each cut a change",
 
   // --- FLOTAS: composición en vivo ---
   Composición: "Composition",
