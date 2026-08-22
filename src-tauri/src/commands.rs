@@ -12010,3 +12010,184 @@ pub async fn fleet_op_events(
     let names = state.esi.resolve_names(&ids).await.unwrap_or_default();
     Ok(FleetOpEvents { events, names })
 }
+
+/// El balance de UN personaje tuyo en la ventana de una op — E1 de las estadísticas de op.
+/// Todo sale del GAMELOG (reparto decidido con RoGiz7: «kills como indicador, el resto del
+/// gamelog»): dps continuo, presión recibida, reps, fallos, bounty y minería. Con la etiqueta de
+/// alcance implícita en el nombre: son TUS pilotos, medidos golpe a golpe — la frase limpia.
+#[derive(Debug, Default, Serialize)]
+pub struct OpCharStats {
+    pub character_id: i64,
+    /// Daño HECHO, partido por el otro lado: NPC (kind 0) vs jugador/dron/estructura (1-3).
+    pub dmg_done_npc: i64,
+    pub dmg_done_pvp: i64,
+    /// Daño RECIBIDO — «quién comía la presión», la métrica que ningún killmail cuenta.
+    pub dmg_recv_npc: i64,
+    pub dmg_recv_pvp: i64,
+    pub hits_done: i64,
+    pub hits_recv: i64,
+    pub misses_done: i64,
+    pub misses_recv: i64,
+    /// Segundos con al menos un golpe HECHO → dps real = dmg_done / secs de la op; pico = peor
+    /// segundo. Dividir DESPUÉS de agregar (promediar promedios miente — lección del DPS de Rateo).
+    pub secs_activos: i64,
+    pub dps_pico: i64,
+    pub rep_hp_given: f64,
+    pub rep_hp_recv: f64,
+    pub reps_given: i64,
+    pub reps_recv: i64,
+    pub bounty_isk: i64,
+    pub mining_units: i64,
+    /// Ficheros de gamelog leídos para este personaje (diagnóstico: 0 = sin log en la ventana,
+    /// que se pinta como «sin datos», JAMÁS como cero actividad).
+    pub files: i64,
+}
+
+/// Balance de la op desde el gamelog, BAJO DEMANDA — sin tabla nueva ni reescaneo, a propósito:
+/// una op son minutos y los agregados diarios (gamelog_pvp/combat) no sirven; releer los ficheros
+/// de la ventana con los parsers v19 (curtidos en tres eras) es barato y exacto al segundo.
+/// Selección de ficheros VALIDADA en Python contra el corpus real (outputs/op_ventana_validar):
+/// sesión más larga vista 9h04m → margen de 24h, cero ficheros perdidos en las ventanas de prueba.
+#[tauri::command]
+pub async fn fleet_op_stats(
+    op_id: i64,
+    folder: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<OpCharStats>> {
+    // La ventana. t1 de una op viva = last_tick (lo mirado), no `now`: más allá del último sondeo
+    // no hay roster que cruzar y el gamelog solo diría verdades a medias.
+    let ops = state.db.fleet_ops_list()?;
+    let op = ops
+        .iter()
+        .find(|o| o.op_id == op_id)
+        .ok_or_else(|| AppError::Other(format!("op {op_id} no existe")))?;
+    let parse = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| t.timestamp())
+            .map_err(|e| AppError::Other(format!("fecha de op ilegible: {e}")))
+    };
+    let t0 = parse(&op.started_at)?;
+    let t1 = match (&op.ended_at, &op.last_tick) {
+        (Some(e), _) => parse(e)?,
+        (None, Some(l)) => parse(l)?,
+        (None, None) => t0,
+    };
+
+    // TUS personajes que estuvieron en la op (el gamelog solo habla de los tuyos).
+    let mios: std::collections::HashSet<i64> = state
+        .db
+        .list_characters()?
+        .into_iter()
+        .map(|c| c.character_id)
+        .collect();
+    let en_op: std::collections::HashSet<i64> = state
+        .db
+        .fleet_state(op_id)?
+        .keys()
+        .copied()
+        .filter(|id| mios.contains(id))
+        .collect();
+    if en_op.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let dir = if folder.trim().is_empty() {
+        default_gamelogs_dir()
+    } else {
+        folder
+    };
+    const MARGEN: i64 = 24 * 3600; // 2,6× la sesión más larga jamás vista (9h04m)
+
+    let mut out: std::collections::HashMap<i64, OpCharStats> = std::collections::HashMap::new();
+    for cid in &en_op {
+        out.insert(*cid, OpCharStats { character_id: *cid, ..Default::default() });
+    }
+    // por personaje: dmg hecho por segundo (secs activos + pico)
+    let mut por_seg: std::collections::HashMap<i64, std::collections::HashMap<i64, i64>> =
+        std::collections::HashMap::new();
+
+    let base = std::path::Path::new(&dir);
+    for sub in [base.to_path_buf(), base.join("old")] {
+        let Ok(rd) = std::fs::read_dir(&sub) else { continue };
+        for e in rd.flatten() {
+            let fname = e.file_name().to_string_lossy().into_owned();
+            let Some(stem) = fname.strip_suffix(".txt") else { continue };
+            // charID del nombre (los gamelogs de la era de las ops siempre lo llevan).
+            let Some(cid) = stem
+                .rsplit('_')
+                .next()
+                .filter(|t| t.len() > 6 && t.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|t| t.parse::<i64>().ok())
+            else {
+                continue;
+            };
+            if !en_op.contains(&cid) {
+                continue;
+            }
+            let Some(arranque) = crate::chatlog::session_secs(stem) else { continue };
+            if arranque > t1 || arranque < t0 - MARGEN {
+                continue;
+            }
+            let Ok((_, batch)) = crate::gamelog::scan_file(&e.path(), 0) else { continue };
+            let st = out.get_mut(&cid).unwrap();
+            st.files += 1;
+            let en_ventana = |date: &str, sec: i64| -> bool {
+                sec >= 0
+                    && crate::chatlog::event_secs(date, sec)
+                        .map(|t| t >= t0 && t <= t1)
+                        .unwrap_or(false)
+            };
+            for c in &batch.combat {
+                if !en_ventana(&c.date, c.sec) {
+                    continue;
+                }
+                if c.done {
+                    if c.kind == 0 { st.dmg_done_npc += c.dmg } else { st.dmg_done_pvp += c.dmg }
+                    st.hits_done += 1;
+                    let t = crate::chatlog::event_secs(&c.date, c.sec).unwrap_or(0);
+                    *por_seg.entry(cid).or_default().entry(t).or_insert(0) += c.dmg;
+                } else {
+                    if c.kind == 0 { st.dmg_recv_npc += c.dmg } else { st.dmg_recv_pvp += c.dmg }
+                    st.hits_recv += 1;
+                }
+            }
+            for m in &batch.misses {
+                if !en_ventana(&m.date, m.sec) {
+                    continue;
+                }
+                if m.done { st.misses_done += 1 } else { st.misses_recv += 1 }
+            }
+            for l in &batch.logi {
+                if !en_ventana(&l.date, l.sec) {
+                    continue;
+                }
+                if l.direction == "given" {
+                    st.rep_hp_given += l.hp;
+                    st.reps_given += 1;
+                } else {
+                    st.rep_hp_recv += l.hp;
+                    st.reps_recv += 1;
+                }
+            }
+            for b in &batch.bounty {
+                if en_ventana(&b.date, b.sec) {
+                    st.bounty_isk += b.isk;
+                }
+            }
+            for m in &batch.mining {
+                if en_ventana(&m.date, m.sec) {
+                    st.mining_units += m.units;
+                }
+            }
+        }
+    }
+    for (cid, mapa) in por_seg {
+        if let Some(st) = out.get_mut(&cid) {
+            st.secs_activos = mapa.len() as i64;
+            st.dps_pico = mapa.values().copied().max().unwrap_or(0);
+        }
+    }
+    let mut v: Vec<OpCharStats> = out.into_values().collect();
+    v.sort_by_key(|s| s.character_id);
+    Ok(v)
+}

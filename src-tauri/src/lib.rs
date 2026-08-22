@@ -361,6 +361,7 @@ pub fn run() {
             commands::fleet_op_roster,
             commands::fleet_ops_list,
             commands::fleet_op_events,
+            commands::fleet_op_stats,
             commands::social_scan,
             commands::social_overview,
             commands::social_thread,

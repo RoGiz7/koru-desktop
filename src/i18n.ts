@@ -2659,6 +2659,18 @@ const EN: Record<string, string> = {
     "without changes (or without watching: long gaps mean Koru was closed)",
   "La cinta": "The ribbon",
   "cada color, una nave; cada corte, un cambio": "each colour a ship; each cut a change",
+  "Tus pilotos": "Your pilots",
+  "del gamelog, golpe a golpe — solo tus personajes":
+    "from the gamelog, hit by hit — your characters only",
+  DPS: "DPS",
+  "Pico/s": "Peak/s",
+  Reps: "Reps",
+  Bounty: "Bounty",
+  "daño hecho / duración de la op": "damage done / op duration",
+  "quién comía la presión": "who was eating the pressure",
+  "reparación remota dada · recibida (HP)": "remote reps given · received (HP)",
+  "sin log en la ventana — no es cero actividad, es que no se vio":
+    "no log in the window — not zero activity, just not seen",
 
   // --- FLOTAS: composición en vivo ---
   Composición: "Composition",

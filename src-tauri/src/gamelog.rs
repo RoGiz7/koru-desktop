@@ -10,6 +10,9 @@ use std::path::Path;
 /// Un evento de reparación remota (logi) parseado de una línea.
 pub struct LogiEvent {
     pub date: String,      // "AAAA-MM-DD"
+    /// Segundo del día. Nació para el balance de op (E1): las reps se agregaban por día y una op
+    /// son minutos. -1 si la línea no trae hora (no se ha visto, pero no se inventa).
+    pub sec: i64,
     pub kind: String,      // shield | armor | hull
     pub direction: String, // given | received
     pub hp: f64,
@@ -311,6 +314,7 @@ pub fn parse_logi_line(line: &str) -> Option<LogiEvent> {
         .unwrap_or_default();
     Some(LogiEvent {
         date,
+        sec: line_secs(line).unwrap_or(-1),
         kind: kind.to_string(),
         direction: direction.to_string(),
         hp,

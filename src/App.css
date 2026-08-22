@@ -9661,3 +9661,35 @@ h4 {
   top: 0;
   bottom: 0;
 }
+
+/* Tus pilotos (balance de op del gamelog): tabla compacta, números tabulares. */
+.ops-stats {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ops-stats-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.ops-stats-tabla th {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-muted, #8b949e);
+  font-size: 0.8rem;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ops-stats-tabla th:first-child,
+.ops-stats-tabla td:first-child {
+  text-align: left;
+}
+.ops-stats-tabla td {
+  text-align: right;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ops-st-nom {
+  font-weight: 600;
+}

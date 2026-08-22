@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
-import { fmtSp, typeIcon } from "./format";
+import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster } from "./flotas";
@@ -41,6 +41,26 @@ type EventRow = {
   squad_id: number | null;
 };
 type OpEvents = { events: EventRow[]; names: Record<string, string> };
+type OpCharStats = {
+  character_id: number;
+  dmg_done_npc: number;
+  dmg_done_pvp: number;
+  dmg_recv_npc: number;
+  dmg_recv_pvp: number;
+  hits_done: number;
+  hits_recv: number;
+  misses_done: number;
+  misses_recv: number;
+  secs_activos: number;
+  dps_pico: number;
+  rep_hp_given: number;
+  rep_hp_recv: number;
+  reps_given: number;
+  reps_recv: number;
+  bounty_isk: number;
+  mining_units: number;
+  files: number;
+};
 
 function fmtDur(ms: number): string {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -139,6 +159,7 @@ export function OpsView({ characters }: { characters: Character[] }) {
   const [abierta, setAbierta] = useState<number | null>(null);
   const [eventos, setEventos] = useState<OpEvents | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
+  const [stats, setStats] = useState<OpCharStats[] | null>(null);
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
   const [err, setErr] = useState<string | null>(null);
@@ -155,6 +176,7 @@ export function OpsView({ characters }: { characters: Character[] }) {
     setAbierta(op.op_id);
     setEventos(null);
     setRoster(null);
+    setStats(null);
     try {
       const [ev, ro] = await Promise.all([
         invoke<OpEvents>("fleet_op_events", { opId: op.op_id }),
@@ -165,6 +187,14 @@ export function OpsView({ characters }: { characters: Character[] }) {
     } catch (e) {
       setErr(String(e));
     }
+    // El balance del gamelog aparte: relee ficheros y puede tardar un par de segundos — que no
+    // retrase la película. La carpeta es la MISMA del escaneo de gamelogs (koru-gamelog-folder).
+    invoke<OpCharStats[]>("fleet_op_stats", {
+      opId: op.op_id,
+      folder: localStorage.getItem("koru-gamelog-folder") ?? "",
+    })
+      .then(setStats)
+      .catch(() => setStats([]));
   };
 
   const bossName = (id: number) =>
@@ -327,6 +357,80 @@ export function OpsView({ characters }: { characters: Character[] }) {
                   }
                   shipNames={shipNames}
                 />
+              </div>
+            )}
+
+            {/* TUS PILOTOS: el balance del gamelog, golpe a golpe. SOLO tus personajes — es la
+                frase limpia del reparto («kills como indicador, el resto del gamelog»): sin letra
+                pequeña porque el alcance va en el título. files=0 → «sin log», JAMÁS cero. */}
+            {stats && stats.length > 0 && (
+              <div className="ops-stats">
+                <div className="flt-roster-head">
+                  <strong>{tr("Tus pilotos")}</strong>
+                  <span className="muted small">
+                    {tr("del gamelog, golpe a golpe — solo tus personajes")}
+                  </span>
+                </div>
+                <table className="ops-stats-tabla">
+                  <thead>
+                    <tr>
+                      <th>{tr("Piloto")}</th>
+                      <th title={tr("daño hecho / duración de la op")}>{tr("DPS")}</th>
+                      <th>{tr("Daño")}</th>
+                      <th title={tr("quién comía la presión")}>{tr("Recibido")}</th>
+                      <th>{tr("Pico/s")}</th>
+                      <th title={tr("reparación remota dada · recibida (HP)")}>{tr("Reps")}</th>
+                      <th>{tr("Bounty")}</th>
+                      <th>{tr("Mineral")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.map((s) => {
+                      const durS = Math.max(
+                        1,
+                        Math.round(
+                          ((op.ended_at ? Date.parse(op.ended_at) : Date.now()) -
+                            Date.parse(op.started_at)) /
+                            1000,
+                        ),
+                      );
+                      const done = s.dmg_done_npc + s.dmg_done_pvp;
+                      const recv = s.dmg_recv_npc + s.dmg_recv_pvp;
+                      const nombre =
+                        characters.find((c) => c.character_id === s.character_id)?.name ??
+                        `#${s.character_id}`;
+                      if (s.files === 0)
+                        return (
+                          <tr key={s.character_id}>
+                            <td className="ops-st-nom">{nombre}</td>
+                            <td colSpan={7} className="muted small">
+                              {tr("sin log en la ventana — no es cero actividad, es que no se vio")}
+                            </td>
+                          </tr>
+                        );
+                      return (
+                        <tr key={s.character_id}>
+                          <td className="ops-st-nom">{nombre}</td>
+                          <td>{fmtSp(Math.round(done / durS))}</td>
+                          <td title={`NPC ${fmtSp(s.dmg_done_npc)} · PvP ${fmtSp(s.dmg_done_pvp)}`}>
+                            {fmtSp(done)}
+                          </td>
+                          <td title={`NPC ${fmtSp(s.dmg_recv_npc)} · PvP ${fmtSp(s.dmg_recv_pvp)}`}>
+                            {fmtSp(recv)}
+                          </td>
+                          <td>{fmtSp(s.dps_pico)}</td>
+                          <td>
+                            {s.reps_given + s.reps_recv > 0
+                              ? `${fmtSp(Math.round(s.rep_hp_given))} · ${fmtSp(Math.round(s.rep_hp_recv))}`
+                              : "—"}
+                          </td>
+                          <td>{s.bounty_isk > 0 ? fmtIsk(s.bounty_isk) : "—"}</td>
+                          <td>{s.mining_units > 0 ? fmtSp(s.mining_units) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
 
