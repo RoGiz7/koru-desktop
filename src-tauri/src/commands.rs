@@ -12444,3 +12444,131 @@ pub async fn fleet_op_kills(op_id: i64, state: State<'_, AppState>) -> AppResult
     kills.sort_by(|a, b| a.at.cmp(&b.at));
     Ok(kills)
 }
+
+/// Un destacado de la op: quién ganó una FACETA. Nunca hay corona única — mezclar unidades
+/// incomparables y competir contra los logi (invisibles por construcción) sería la trampa.
+#[derive(Debug, Serialize)]
+pub struct Destacado {
+    pub character_id: i64,
+    pub name: Option<String>,
+    pub valor: i64,
+}
+
+/// Los DESTACADOS de una op (diseño de koru-bitacora-fc-y-mvp): SOLO métricas SIMÉTRICAS —
+/// válidas por igual para TODOS los miembros del roster, tuyos o no:
+///   · daño dentro de los killmails de la flota (el km lista a todos con su damage_done),
+///   · golpes finales,
+///   · minutos a bordo (roster),
+///   · daño RECIBIDO en las pérdidas (damage_taken de la víctima — el tanque tiene su línea).
+/// El gamelog y el logi NO entran aquí a propósito: solo ven a tus personajes, y un «MVP» con
+/// datos asimétricos coronaría siempre a tus alts y humillaría al logi invisible.
+#[derive(Debug, Serialize)]
+pub struct OpDestacados {
+    pub dmg_kills: Option<Destacado>,
+    pub final_blows: Option<Destacado>,
+    pub presencia_min: Option<Destacado>,
+    pub recepcion: Option<Destacado>,
+}
+
+#[tauri::command]
+pub async fn fleet_op_destacados(
+    op_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<OpDestacados> {
+    let ops = state.db.fleet_ops_list()?;
+    let op = ops
+        .iter()
+        .find(|o| o.op_id == op_id)
+        .ok_or_else(|| AppError::Other(format!("op {op_id} no existe")))?;
+    let parse = |s: &str| chrono::DateTime::parse_from_rfc3339(s).map(|t| t.timestamp());
+    let t0 = parse(&op.started_at).map_err(|e| AppError::Other(format!("op sin fecha: {e}")))?;
+    let t1 = match (&op.ended_at, &op.last_tick) {
+        (Some(e), _) => parse(e).unwrap_or(t0),
+        (None, Some(l)) => parse(l).unwrap_or(t0),
+        (None, None) => t0,
+    };
+    let roster: std::collections::HashSet<i64> =
+        state.db.fleet_state(op_id)?.keys().copied().collect();
+
+    // Facetas de killmail (dedupe por killmail_id: se ingiere una vez por personaje involucrado).
+    let mut dmg: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut fb: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut recep: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut vistos: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    for (_, killed_at, raw) in state.db.killmails_raw_dated()? {
+        let Some(ka) = killed_at else { continue };
+        let Ok(t) = parse(&ka) else { continue };
+        if t < t0 || t > t1 {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let kid = v.get("killmail_id").and_then(|x| x.as_i64()).unwrap_or(0);
+        if kid != 0 && !vistos.insert(kid) {
+            continue;
+        }
+        let victim_id = v.pointer("/victim/character_id").and_then(|x| x.as_i64());
+        let es_perdida = victim_id.map(|id| roster.contains(&id)).unwrap_or(false);
+        if es_perdida {
+            if let (Some(id), Some(dt)) =
+                (victim_id, v.pointer("/victim/damage_taken").and_then(|x| x.as_i64()))
+            {
+                *recep.entry(id).or_insert(0) += dt;
+            }
+            continue; // en una pérdida, los atacantes son los enemigos: su daño no puntúa aquí
+        }
+        if let Some(atacantes) = v.get("attackers").and_then(|a| a.as_array()) {
+            for a in atacantes {
+                let Some(cid) = a.get("character_id").and_then(|c| c.as_i64()) else { continue };
+                if !roster.contains(&cid) {
+                    continue;
+                }
+                *dmg.entry(cid).or_insert(0) +=
+                    a.get("damage_done").and_then(|d| d.as_i64()).unwrap_or(0);
+                if a.get("final_blow").and_then(|f| f.as_bool()).unwrap_or(false) {
+                    *fb.entry(cid).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // Presencia por tramos, de los eventos (misma derivación que la cinta): join abre, leave
+    // cierra, el final de la ventana cierra lo abierto.
+    let mut pres: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut abierto: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    for e in state.db.fleet_op_events(op_id)? {
+        let Ok(t) = parse(&e.at) else { continue };
+        if e.kind == "leave" {
+            if let Some(desde) = abierto.remove(&e.character_id) {
+                *pres.entry(e.character_id).or_insert(0) += t - desde;
+            }
+        } else {
+            abierto.entry(e.character_id).or_insert(t);
+        }
+    }
+    for (cid, desde) in abierto {
+        *pres.entry(cid).or_insert(0) += t1 - desde;
+    }
+
+    let top = |m: &std::collections::HashMap<i64, i64>| -> Option<(i64, i64)> {
+        m.iter()
+            .filter(|(_, v)| **v > 0)
+            .max_by_key(|(id, v)| (**v, -**id)) // empate: id menor, para que no baile entre vistas
+            .map(|(id, v)| (*id, *v))
+    };
+    let ganadores = [top(&dmg), top(&fb), top(&pres), top(&recep)];
+    let ids: Vec<i64> = ganadores.iter().flatten().map(|(id, _)| *id).collect();
+    let nombres = state.esi.resolve_names(&ids).await.unwrap_or_default();
+    let arma = |g: Option<(i64, i64)>, escala: i64| {
+        g.map(|(id, v)| Destacado {
+            character_id: id,
+            name: nombres.get(&id).cloned(),
+            valor: v / escala,
+        })
+    };
+    Ok(OpDestacados {
+        dmg_kills: arma(ganadores[0], 1),
+        final_blows: arma(ganadores[1], 1),
+        presencia_min: arma(ganadores[2], 60),
+        recepcion: arma(ganadores[3], 1),
+    })
+}

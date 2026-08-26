@@ -90,6 +90,13 @@ type OpLogiPair = {
 };
 type OpStatsResp = { chars: OpCharStats[]; rivals: OpRival[]; logi_pairs: OpLogiPair[] };
 type OpIntelRow = { ts_ms: number; name: string; system_id: number; en_vuestra_zona: boolean };
+type Destacado = { character_id: number; name: string | null; valor: number };
+type OpDestacados = {
+  dmg_kills: Destacado | null;
+  final_blows: Destacado | null;
+  presencia_min: Destacado | null;
+  recepcion: Destacado | null;
+};
 
 function fmtDur(ms: number): string {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -207,6 +214,7 @@ export function OpsView({
   type DetTab = "pelicula" | "combate" | "logi" | "pve" | "roster";
   const [detTab, setDetTab] = useState<DetTab>("pelicula");
   const [opIntel, setOpIntel] = useState<OpIntelRow[] | null>(null);
+  const [destacados, setDestacados] = useState<OpDestacados | null>(null);
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
   const [err, setErr] = useState<string | null>(null);
@@ -226,18 +234,21 @@ export function OpsView({
     setStats(null);
     setKills(null);
     setOpIntel(null);
+    setDestacados(null);
     setDetTab("pelicula");
     try {
-      const [ev, ro, ki, oi] = await Promise.all([
+      const [ev, ro, ki, oi, de] = await Promise.all([
         invoke<OpEvents>("fleet_op_events", { opId: op.op_id }),
         invoke<Roster>("fleet_op_roster", { opId: op.op_id }),
         invoke<OpKill[]>("fleet_op_kills", { opId: op.op_id }),
         invoke<OpIntelRow[]>("fleet_op_intel", { opId: op.op_id }),
+        invoke<OpDestacados>("fleet_op_destacados", { opId: op.op_id }),
       ]);
       setEventos(ev);
       setRoster(ro);
       setKills(ki);
       setOpIntel(oi);
+      setDestacados(de);
     } catch (e) {
       setErr(String(e));
     }
@@ -407,6 +418,54 @@ export function OpsView({
                 />
               </div>
             )}
+
+            {/* DESTACADOS: el «MVP» por FACETAS, nunca corona única — y SOLO métricas simétricas
+                (killmails de la flota + presencia del roster), porque el gamelog/logi solo ven a
+                tus personajes y coronarían siempre a tus alts. Ver koru-bitacora-fc-y-mvp. */}
+            {destacados &&
+              (destacados.dmg_kills ||
+                destacados.final_blows ||
+                destacados.presencia_min ||
+                destacados.recepcion) && (
+                <div className="ops-dest">
+                  {/* Iconos REALES de EVE (typeIDs verificados en market_types.json, regla de la
+                      casa): 484 autocannon = daño · 12709 target painter = marcar el final ·
+                      439 afterburner = aguantar de principio a fin (precedente: Ruta/Viajes) ·
+                      2046 Damage Control = encajar (precedente: capa Seguridad). */}
+                  {(
+                    [
+                      [484, tr("Más daño en los kills"), destacados.dmg_kills, ""],
+                      [12709, tr("Golpes finales"), destacados.final_blows, ""],
+                      [439, tr("De principio a fin"), destacados.presencia_min, " min"],
+                      [2046, tr("Más presión encajada"), destacados.recepcion, ""],
+                    ] as [number, string, Destacado | null, string][]
+                  ).map(
+                    ([tid, label, d, sufijo]) =>
+                      d && (
+                        <div key={label} className="ops-dest-chip" title={label}>
+                          <img
+                            className="type-ico ops-dest-ico"
+                            src={typeIcon(tid)}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <img
+                            className="pb-cara"
+                            src={`https://images.evetech.net/characters/${d.character_id}/portrait?size=32`}
+                            alt=""
+                            loading="lazy"
+                          />
+                          <span className="ops-dest-quien">{d.name ?? `#${d.character_id}`}</span>
+                          <span className="ops-dest-valor">
+                            {fmtSp(d.valor)}
+                            {sufijo}
+                          </span>
+                          <span className="ops-dest-label small muted">{label}</span>
+                        </div>
+                      ),
+                  )}
+                </div>
+              )}
 
             {/* Pestañas del detalle (idea de RoGiz7): la pantalla no crece sin fin y lo demás de
                 la flota no se pierde. Sin pestaña «Bufos» a propósito — no se puede medir. */}

@@ -9898,3 +9898,35 @@ h4 {
   gap: 3px;
   flex-shrink: 0;
 }
+
+/* Destacados de la op: el podio por facetas. */
+.ops-dest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ops-dest-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.ops-dest-ico {
+  width: 20px;
+  height: 20px;
+}
+.ops-dest-quien {
+  font-weight: 700;
+}
+.ops-dest-valor {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.ops-dest-label {
+  margin-left: 2px;
+}
