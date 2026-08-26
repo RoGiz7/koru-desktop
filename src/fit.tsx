@@ -183,6 +183,25 @@ function FitDisplay({
   );
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx). `list_fits` no lleva argumentos → una sola caché;
+// las skills van por personaje, que es su único argumento. Y los tres JSON del SDE
+// (huecos de módulo, requisitos y nombres de skill) pasan a promesa cacheada: son estáticos y se
+// releían enteros en cada visita, como pasaba con `agents.json` en Misiones.
+let cacheFits: Fit[] | null = null;
+const cacheSkills = new Map<string, Record<number, number>>();
+const jsonCache = new Map<string, Promise<unknown>>();
+function loadJson<T>(url: string): Promise<T> {
+  let p = jsonCache.get(url);
+  if (!p) {
+    p = fetch(url)
+      .then((r) => r.json())
+      .catch(() => ({}));
+    jsonCache.set(url, p);
+  }
+  return p as Promise<T>;
+}
+
 export function FitsView({ charId, charName }: { charId: number | null; charName: string | null }) {
   const [fits, setFits] = useState<Fit[]>([]);
   const [slots, setSlots] = useState<Record<string, string>>({});
@@ -195,18 +214,30 @@ export function FitsView({ charId, charName }: { charId: number | null; charName
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState<Fit | null>(null);
   useEffect(() => {
-    invoke<Fit[]>("list_fits").then(setFits).catch(() => {});
-    fetch("/module_slots.json").then((r) => r.json()).then(setSlots).catch(() => {});
-    fetch("/skill_reqs.json").then((r) => r.json()).then(setReqs).catch(() => {});
-    fetch("/skill_names.json").then((r) => r.json()).then(setSkillNames).catch(() => {});
+    if (cacheFits) setFits(cacheFits);
+    invoke<Fit[]>("list_fits")
+      .then((d) => {
+        cacheFits = d; // se guarda aunque la vista ya no esté montada
+        setFits(d);
+      })
+      .catch(() => {});
+    // Los tres JSON del SDE, una vez por SESIÓN en vez de una por visita.
+    loadJson<Record<string, string>>("/module_slots.json").then(setSlots);
+    loadJson<Record<string, [number, number][]>>("/skill_reqs.json").then(setReqs);
+    loadJson<Record<string, string>>("/skill_names.json").then(setSkillNames);
   }, []);
   useEffect(() => {
     if (charId == null) {
       setCharSkills(null);
       return;
     }
+    const clave = String(charId);
+    setCharSkills(cacheSkills.get(clave) ?? null);
     invoke<Record<number, number>>("get_char_skill_levels", { characterId: charId })
-      .then(setCharSkills)
+      .then((d) => {
+        cacheSkills.set(clave, d);
+        setCharSkills(d);
+      })
       .catch(() => setCharSkills(null));
   }, [charId]);
   async function importGame() {

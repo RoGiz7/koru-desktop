@@ -36,7 +36,19 @@ export type LootParse = {
 /** Carga market_types.json (EN) + type_names_es.json (ES) y construye el índice nombre→typeID.
  *  Una sola vez; el llamante lo cachea. Si falla, devuelve un mapa vacío (el parser sigue dando el
  *  total por la columna de EVE, solo pierde la resolución de typeID). */
-export async function buildLootIndex(): Promise<LootIndex> {
+// El índice se monta con `market_types.json` (1,1 MB) + `type_names_es.json` (0,9 MB): DOS MEGAS.
+// Lo llaman TRES sitios (Abyssals, Histórico de exploración y el panel de firmas) y cada uno lo
+// pedía desde un efecto sin caché, así que se releían enteros en CADA visita a cada sección.
+// Ahora es una promesa cacheada —como `loadNewEden`— y se monta UNA vez por sesión: se arregla
+// para todos los llamantes de golpe, en vez de parchear cada sección por su lado.
+// Son ficheros estáticos del SDE que viajan dentro de la app: no cambian mientras corre.
+let lootIndexPromise: Promise<LootIndex> | null = null;
+export function buildLootIndex(): Promise<LootIndex> {
+  if (!lootIndexPromise) lootIndexPromise = construirLootIndex();
+  return lootIndexPromise;
+}
+
+async function construirLootIndex(): Promise<LootIndex> {
   const idx: LootIndex = new Map();
   try {
     const [mt, esRaw] = await Promise.all([

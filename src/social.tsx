@@ -98,6 +98,16 @@ function Avatar({
   );
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx). `social_overview` no lleva argumentos → una sola
+// caché; los hilos van por FIRMA (`quienes.join(",")`), que es exactamente su argumento — y esa
+// firma es la identidad de la conversación, la decisión de diseño que no se rediscute.
+// Los nombres resueltos a id (retratos) también se guardan: son una llamada a ESI en lote que no
+// tiene ningún sentido repetir por visita.
+let cacheConvos: SocialConvo[] | null = null;
+const cacheHilos = new Map<string, SocialMsg[]>();
+const cacheIds: Record<string, number> = {};
+
 export function SocialView({
   folder,
   onFicha,
@@ -109,7 +119,7 @@ export function SocialView({
   /** Deep-link desde la ficha de piloto: «léeme lo de ESTA persona». Ver el efecto abajo. */
   focusReq?: { nombre: string; nonce: number } | null;
 }) {
-  const [convos, setConvos] = useState<SocialConvo[] | null>(null);
+  const [convos, setConvos] = useState<SocialConvo[] | null>(cacheConvos);
   const [abierta, setAbierta] = useState<string | null>(null); // clave = quienes.join(",")
   const [hilo, setHilo] = useState<SocialMsg[] | null>(null);
   const [filtro, setFiltro] = useState("");
@@ -125,20 +135,19 @@ export function SocialView({
   // nombre → character_id, para los retratos. Se resuelve en LOTE con el mismo comando que usa el
   // intel (caché local + ESI + caché negativa): cero red la segunda vez. Lo que no resuelve
   // (renombrado, biomasado) se queda sin entrada y el Avatar cae a la inicial con su color.
-  const [ids, setIds] = useState<Record<string, number>>({});
+  const [ids, setIds] = useState<Record<string, number>>({ ...cacheIds });
 
   const resolver = (nombres: string[]) => {
-    const faltan = [...new Set(nombres.filter((n) => n && ids[n] === undefined))];
+    const faltan = [...new Set(nombres.filter((n) => n && cacheIds[n] === undefined))];
     if (faltan.length === 0) return;
     invoke<{ characters: { id: number; name: string }[] }>("resolve_intel_entities", {
       names: faltan,
     })
       .then((r) => {
-        setIds((prev) => {
-          const nx = { ...prev };
-          for (const c of r.characters) nx[c.name] = c.id;
-          return nx;
-        });
+        // La caché de módulo es la fuente: así lo resuelto sobrevive a salir de la sección y a
+        // los avatares no les toca volver a preguntarse quién es quién en cada visita.
+        for (const c of r.characters) cacheIds[c.name] = c.id;
+        setIds({ ...cacheIds });
       })
       .catch(() => {}); // sin red no hay retratos, pero la sección sigue entera
   };
@@ -146,6 +155,7 @@ export function SocialView({
   const cargar = () => {
     invoke<SocialConvo[]>("social_overview")
       .then((cs) => {
+        cacheConvos = cs; // se guarda aunque la vista ya no esté montada
         setConvos(cs);
         resolver(cs.flatMap((c) => c.quienes));
       })
@@ -171,12 +181,16 @@ export function SocialView({
   };
 
   const abrir = async (c: SocialConvo) => {
-    setAbierta(c.quienes.join(","));
-    setHilo(null);
+    const firma = c.quienes.join(",");
+    setAbierta(firma);
+    // El hilo cacheado se pinta ya y se re-pide detrás: un escaneo nuevo puede haber traído
+    // mensajes que aún no estaban, así que abrir SIEMPRE relee.
+    setHilo(cacheHilos.get(firma) ?? null);
     try {
       // La firma viaja ENTERA: el hilo son las conversaciones con exactamente esta gente.
       // Un grupo no se mezcla con el 1:1 de uno de sus miembros.
       const ms = await invoke<SocialMsg[]>("social_thread", { quienes: c.quienes });
+      cacheHilos.set(firma, ms);
       setHilo(ms);
       resolver(ms.map((m) => m.author)); // también TUS personajes: cada uno con su cara
     } catch (e) {

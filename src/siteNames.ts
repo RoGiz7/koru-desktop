@@ -14,13 +14,16 @@
 export type DungeonIndex = Map<string, string>;
 
 /** Carga `public/dungeon_names.json` una vez (cachéalo en el llamante). Mapa vacío si falla. */
-export async function buildDungeonIndex(): Promise<DungeonIndex> {
-  try {
-    const raw = (await fetch("/dungeon_names.json").then((r) => r.json())) as Record<string, string>;
-    return new Map(Object.entries(raw));
-  } catch {
-    return new Map();
-  }
+// Promesa cacheada, por lo mismo que `buildLootIndex`: `dungeon_names.json` son 60 KB estáticos
+// que dos secciones releían en cada visita. Se monta una vez por sesión.
+let dungeonPromise: Promise<DungeonIndex> | null = null;
+export function buildDungeonIndex(): Promise<DungeonIndex> {
+  if (!dungeonPromise)
+    dungeonPromise = fetch("/dungeon_names.json")
+      .then((r) => r.json())
+      .then((raw: Record<string, string>) => new Map(Object.entries(raw)))
+      .catch(() => new Map<string, string>());
+  return dungeonPromise;
 }
 
 /** Nombre del sitio en inglés si lo conocemos; si no, el mismo nombre (que ya puede estar en inglés). */

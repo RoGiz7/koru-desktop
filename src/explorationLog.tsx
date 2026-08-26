@@ -36,6 +36,10 @@ function kindMeta(kind: string): { icon: string; label: string; tid?: number } {
   return KIND_META[kind as SigKind] ?? { icon: "❔", label: kind };
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// Lo CRUDO de `exploration_log_list` (sin filtrar por personaje: la consulta no lleva argumentos).
+let cacheExploracion: ExplorationLogRow[] | null = null;
+
 export function ExplorationLogView({ charId }: Props) {
   const [rows, setRows] = useState<ExplorationLogRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -82,21 +86,26 @@ export function ExplorationLogView({ charId }: Props) {
   const tabRows =
     histTab === "all" ? periodRows : periodRows.filter((r) => kindsOf(histTab).includes(r.kind as SigKind));
 
+  // El filtro por personaje se hace AQUÍ, no en la consulta: `exploration_log_list` no lleva
+  // argumentos y devuelve todo. Por eso la caché guarda lo CRUDO y el filtro se aplica al pintar
+  // — la clave de la caché tiene que corresponderse con lo que de verdad cambia la consulta, y
+  // aquí no cambia nada. Guardar lo ya filtrado habría metido el personaje en un sitio donde no
+  // pinta nada y sería la puerta a enseñar lo de otro.
+  const filtrar = (all: ExplorationLogRow[]) =>
+    charId == null ? all : all.filter((r) => r.character_id === charId || r.character_id == null);
+
   async function load() {
     try {
       const all = await invoke<ExplorationLogRow[]>("exploration_log_list");
-      // En Global (charId null) se ve todo; con personaje activo, solo lo suyo (y lo sin dueño).
-      setRows(
-        charId == null
-          ? all
-          : all.filter((r) => r.character_id === charId || r.character_id == null),
-      );
+      cacheExploracion = all; // se guarda aunque la vista ya no esté montada
+      setRows(filtrar(all));
     } catch (e) {
       setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
     }
   }
 
   useEffect(() => {
+    if (cacheExploracion) setRows(filtrar(cacheExploracion));
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charId]);

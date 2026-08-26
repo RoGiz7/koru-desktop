@@ -30,6 +30,29 @@ type PilotProfile = {
   by_hour: number[];
 };
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx): pintar lo conocido al instante, re-pedir detrás.
+// La lista de habituales no lleva argumentos → una sola caché, sin clave. Las fichas van por
+// NOMBRE, que es su único argumento.
+// ⚠️ `ship_names.json` NO es `ships.json`: éste va de nombre (en minúsculas, con los alias en
+// castellano del parser) a typeID, y aquí se invierte para enseñar. Son ficheros distintos con
+// semánticas distintas — no se unifican con `loadShipNames()` de flotas.tsx por parecerse.
+let cacheHabituales: Habitual[] | null = null;
+const cachePerfil = new Map<string, PilotProfile>();
+let shipByIdPromise: Promise<Map<number, string>> | null = null;
+function loadShipNamesPorId(): Promise<Map<number, string>> {
+  if (!shipByIdPromise)
+    shipByIdPromise = fetch("/ship_names.json")
+      .then((r) => r.json())
+      .then((d: Record<string, number>) => {
+        const m = new Map<number, string>();
+        for (const [n, id] of Object.entries(d)) if (!m.has(id)) m.set(id, n);
+        return m;
+      })
+      .catch(() => new Map<number, string>());
+  return shipByIdPromise;
+}
+
 // Sección PvP → "Cazador": análisis de hostiles aprendidos del intel local. Lista buscable/ordenable
 // de todos los pilotos conocidos + ficha amplia del seleccionado (horas UTC, sistemas, naves,
 // frecuencia). El rastro se sigue pintando en el mapa; `onTrackOnMap` (si se pasa) hace el puente.
@@ -49,27 +72,30 @@ export function CazadorView({
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
 
   useEffect(() => {
+    // Lo último conocido, al instante; se re-pide detrás. La consulta no lleva argumentos
+    // (siempre minCount 1 / limit 500), así que hay UNA sola caché y no hace falta clave.
+    setList(cacheHabituales ?? null);
     invoke<Habitual[]>("get_habitual_hostiles", { minCount: 1, limit: 500 })
-      .then(setList)
+      .then((d) => {
+        cacheHabituales = d; // se guarda aunque la vista ya no esté montada
+        setList(d);
+      })
       .catch(() => setList([]));
     loadNewEden()
       .then((ne) => setSysNames(new Map(ne.systems.map((s) => [s.id, s.n]))))
       .catch(() => {});
-    fetch("/ship_names.json")
-      .then((r) => r.json())
-      .then((d: Record<string, number>) => {
-        const m = new Map<number, string>();
-        for (const [n, id] of Object.entries(d)) if (!m.has(id)) m.set(id, n);
-        setShipNames(m);
-      })
-      .catch(() => {});
+    loadShipNamesPorId().then(setShipNames);
   }, []);
 
   async function select(name: string) {
     setSel(name);
-    setProfile(null);
+    // La ficha cacheada se pinta YA y se re-pide siempre: los avistamientos son dato vivo y el
+    // rastro de un piloto crece mientras miras. Pintar lo viejo sin releer sería petrificarlo.
+    setProfile(cachePerfil.get(name) ?? null);
     try {
-      setProfile(await invoke<PilotProfile>("get_pilot_profile", { name }));
+      const p = await invoke<PilotProfile>("get_pilot_profile", { name });
+      cachePerfil.set(name, p);
+      setProfile(p);
     } catch {
       setProfile(null);
     }
