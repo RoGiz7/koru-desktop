@@ -62,6 +62,11 @@ export const ACH_UI: Record<string, { icon: string; label: string; desc: string;
   iskh_record: { icon: "⚡", label: "Racha dorada", desc: "Tu mejor ISK/hora en una run", tid: 17715 }, // Gila
   racha_sin_morir: { icon: "🍀", label: "Piel dura", desc: "Runs seguidas sin perder una nave", tid: 2048 }, // Damage Control II
   abismo_dificultad: { icon: "☠️", label: "Sin retorno", desc: "Dificultad más alta superada con vida (Furioso / Caótico / Cataclísmico)", tid: 56140 }, // Cataclysmic Dark Filament
+  // --- Mando de flota (del grabador de ops; miden desde que grabas con Koru, no tu carrera) ---
+  ops_mandadas: { icon: "🪑", label: "Primera silla", desc: "Ops de flota grabadas al mando", tid: 15632 }, // Republic Fleet Commander Insignia I
+  horas_mando: { icon: "⏱️", label: "Al mando", desc: "Horas acumuladas mandando una flota grabada", tid: 24764 }, // Fleet Command (skillbook)
+  pastor_gatos: { icon: "🐈", label: "Pastor de gatos", desc: "Pico de pilotos simultáneos en una op", tid: 3348 }, // Leadership (skillbook)
+  serie_negra: { icon: "🎖️", label: "Serie negra", desc: "Kills de la flota acumulados en tus ops grabadas", tid: 43556 }, // Skirmish Command Burst II
 };
 
 /** Iconos EVE de la propia sección (regla de la casa: nada de emoji donde hay un ítem que lo diga).
@@ -123,6 +128,13 @@ const CATS: Cat[] = [
     color: "#2eb8b8", // cian sanador
     tid: 11978, // Scimitar (logi)
     ids: ["logi_shield", "logi_armor", "logi_hull", "boost_miembros"],
+  },
+  {
+    key: "mando",
+    label: "Mando",
+    color: "#3fb950", // el verde de la flota en el mapa: el mismo color cuenta la misma historia
+    tid: 42530, // Skirmish Command Burst I — el icono de la sección Flotas
+    ids: ["ops_mandadas", "horas_mando", "pastor_gatos", "serie_negra"],
   },
 ];
 

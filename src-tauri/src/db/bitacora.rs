@@ -139,6 +139,166 @@ fn week_idx(date: &str) -> Option<i64> {
     Some(monday.num_days_from_ce() as i64 / 7)
 }
 
+// ==================== MANDO DE FLOTA: helpers compartidos ====================
+// Los usan el motor de medallas Y bitacora_series: si la medalla y su gráfica calcularan
+// cada una por su cuenta, contarían ops distintas — el mismo bug que la CTE compartida
+// del abismo evita. Fuente: SOLO las tablas del grabador de flotas.
+
+/// Epoch de un RFC3339 (started_at / killed_at). Las fechas NO se comparan como texto:
+/// killed_at de ESI acaba en "Z" y las del grabador en "+00:00" — como texto no ordenan.
+fn ts_rfc(s: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|t| t.timestamp())
+}
+
+/// Las ops grabadas del sujeto: (op_id, fecha YYYY-MM-DD, t0, t1) en orden cronológico.
+/// `ticks > 0` a propósito: una op sin un solo sondeo con éxito no vio NADA — no puntúa.
+/// El filtro por personaje va por `boss_id` (quién la mandaba): la medalla es del FC,
+/// y los kills que puntúan son de la FLOTA, no del personaje.
+fn fleet_ops_grabadas(
+    conn: &rusqlite::Connection,
+    character_id: Option<i64>,
+) -> Vec<(i64, String, i64, i64)> {
+    let who_boss = character_id
+        .map(|c| format!("AND boss_id = {c}"))
+        .unwrap_or_default();
+    let sql = format!(
+        "SELECT op_id, started_at, COALESCE(ended_at, last_tick)
+         FROM fleet_op WHERE ticks > 0 {who_boss} ORDER BY started_at ASC"
+    );
+    let mut out = Vec::new();
+    let Ok(mut st) = conn.prepare(&sql) else {
+        return out;
+    };
+    if let Ok(rows) = st.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+        ))
+    }) {
+        for (op_id, started, fin) in rows.flatten() {
+            let Some(t0) = ts_rfc(&started) else { continue };
+            let t1 = fin.as_deref().and_then(ts_rfc).unwrap_or(t0).max(t0);
+            let date = started.get(..10).unwrap_or("").to_string();
+            out.push((op_id, date, t0, t1));
+        }
+    }
+    out
+}
+
+/// Pico de pilotos SIMULTÁNEOS de una op: barrido de los tramos de presencia
+/// (first_seen → last_seen; si seguía a bordo, el tramo se cierra en el fin de la op).
+fn fleet_op_pico(conn: &rusqlite::Connection, op_id: i64, t1: i64) -> i64 {
+    let Ok(mut st) = conn.prepare(
+        "SELECT first_seen, last_seen, present FROM fleet_member_state WHERE op_id = ?1",
+    ) else {
+        return 0;
+    };
+    let mut marcas: Vec<(i64, i64)> = Vec::new();
+    if let Ok(rows) = st.query_map([op_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    }) {
+        for (fs, ls, present) in rows.flatten() {
+            let Some(a) = ts_rfc(&fs) else { continue };
+            let b = if present != 0 { t1 } else { ts_rfc(&ls).unwrap_or(a) };
+            marcas.push((a, 1));
+            // El cierre va UN segundo después: quien llega en el mismo segundo en que otro
+            // se va cuenta JUNTO (el sondeo los vio a la vez), y el sort procesa llegadas
+            // antes que salidas en el mismo instante.
+            marcas.push((b.max(a) + 1, -1));
+        }
+    }
+    marcas.sort_unstable();
+    let (mut vivo, mut pico) = (0i64, 0i64);
+    for (_, d) in marcas {
+        vivo += d;
+        pico = pico.max(vivo);
+    }
+    pico
+}
+
+/// «Serie negra»: los kills de la FLOTA en las ventanas de esas ops — killmails con algún
+/// atacante del roster y víctima de FUERA (mismo criterio que la película de la op), dedupe
+/// global por killmail_id (si dos ops se solapan por multibox, un kill puntúa UNA vez).
+/// Devuelve el epoch de cada kill, ordenados.
+fn fleet_serie_negra(conn: &rusqlite::Connection, ops: &[(i64, String, i64, i64)]) -> Vec<i64> {
+    if ops.is_empty() {
+        return Vec::new();
+    }
+    // UN paseo por los killmails: (epoch, kid, víctima, atacantes) ya parseados; luego cada
+    // op solo filtra su ventana. Parsear el raw dentro del bucle de ops sería O(ops × kms).
+    let Ok(mut st) = conn.prepare(
+        "SELECT killed_at, raw FROM killmails WHERE killed_at IS NOT NULL AND raw IS NOT NULL",
+    ) else {
+        return Vec::new();
+    };
+    let mut kms: Vec<(i64, i64, Option<i64>, Vec<i64>)> = Vec::new();
+    if let Ok(rows) = st.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        for (ka, raw) in rows.flatten() {
+            let Some(t) = ts_rfc(&ka) else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let kid = v.get("killmail_id").and_then(|x| x.as_i64()).unwrap_or(0);
+            let victim = v.pointer("/victim/character_id").and_then(|x| x.as_i64());
+            let ataca: Vec<i64> = v
+                .get("attackers")
+                .and_then(|a| a.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.get("character_id").and_then(|c| c.as_i64()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            kms.push((t, kid, victim, ataca));
+        }
+    }
+    let Ok(mut str_) =
+        conn.prepare("SELECT character_id FROM fleet_member_state WHERE op_id = ?1")
+    else {
+        return Vec::new();
+    };
+    let mut vistos: std::collections::HashSet<i64> = Default::default();
+    let mut hits: Vec<i64> = Vec::new();
+    for (op_id, _date, t0, t1) in ops {
+        let roster: std::collections::HashSet<i64> = str_
+            .query_map([op_id], |r| r.get::<_, i64>(0))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default();
+        if roster.is_empty() {
+            continue;
+        }
+        for (t, kid, victim, ataca) in &kms {
+            if t < t0 || t > t1 {
+                continue;
+            }
+            if *kid != 0 && vistos.contains(kid) {
+                continue;
+            }
+            if victim.map(|v| roster.contains(&v)).unwrap_or(false) {
+                continue; // pérdida de la flota, no un kill
+            }
+            if !ataca.iter().any(|a| roster.contains(a)) {
+                continue; // un km de otro alt en la ventana: no era de ESTA flota
+            }
+            if *kid != 0 {
+                vistos.insert(*kid);
+            }
+            hits.push(*t);
+        }
+    }
+    hits.sort_unstable();
+    hits
+}
+
 impl Db {
     /// Evalúa retos + logros del sujeto (None = global) y persiste desbloqueos nuevos.
     pub fn bitacora(&self, character_id: Option<i64>) -> AppResult<Bitacora> {
@@ -728,6 +888,37 @@ impl Db {
             ach.push(dific.state("abismo_dificultad", "count"));
         }
 
+        // ==================== MANDO DE FLOTA (tus ops grabadas) ====================
+        // La Bitácora del FC — las pidió RoGiz7 la noche de la v0.46.0, con la bendición del
+        // tono juguetón («Pastor de gatos»): un guiño que dentro de EVE no se puede dar.
+        // Fuente: SOLO las tablas del grabador; el pico y la serie negra viven en los helpers
+        // compartidos con bitacora_series (mismo cálculo, mismos números). Honestidad: el
+        // grabador nació en la v0.45 — esto mide «desde que grabas con Koru», no tu carrera.
+        {
+            let mut sillas = Cross::new([1.0, 10.0, 50.0]); // bronce = tu PRIMERA silla
+            let mut horas = Cross::new([1.0, 10.0, 50.0]);
+            let mut gatos = Cross::new([5.0, 10.0, 25.0]);
+            let mut serie = Cross::new([10.0, 100.0, 1000.0]);
+            let ops = fleet_ops_grabadas(&conn, character_id);
+            for (op_id, date, t0, t1) in &ops {
+                sillas.add(date, 1.0);
+                if t1 > t0 {
+                    horas.add(date, (t1 - t0) as f64 / 3600.0);
+                }
+                gatos.peak(date, fleet_op_pico(&conn, *op_id, *t1) as f64);
+            }
+            for t in fleet_serie_negra(&conn, &ops) {
+                let date = chrono::DateTime::from_timestamp(t, 0)
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                serie.add(&date, 1.0);
+            }
+            ach.push(sillas.state("ops_mandadas", "count"));
+            ach.push(horas.state("horas_mando", "count"));
+            ach.push(gatos.state("pastor_gatos", "count"));
+            ach.push(serie.state("serie_negra", "count"));
+        }
+
         // ---------- Persistir desbloqueos y marcar los nuevos (✨) ----------
         let now = chrono::Utc::now().to_rfc3339();
         for a in ach.iter_mut() {
@@ -1015,6 +1206,48 @@ impl Db {
                 push_mes(&mut per_month, date[..cut].to_string(), streak);
             }
             m.insert("racha_semanas".into(), running_max(per_month));
+        }
+
+        // ---------------------------------------------------------------------------------
+        // Series de MANDO DE FLOTA. Las dos primeras en SQL (julianday digiere el RFC3339
+        // del grabador); el pico y la serie negra REUSAN los helpers del motor
+        // (fleet_op_pico / fleet_serie_negra): mismo cálculo, mismos números.
+        // ---------------------------------------------------------------------------------
+        {
+            let who_boss = character_id
+                .map(|c| format!("AND boss_id = {c}"))
+                .unwrap_or_default();
+            m.insert("ops_mandadas".into(), cumulative(q(&format!(
+                "SELECT substr(started_at,1,7), COUNT(*) FROM fleet_op WHERE ticks > 0 {who_boss} GROUP BY 1 ORDER BY 1"))));
+            m.insert("horas_mando".into(), cumulative(q(&format!(
+                "SELECT substr(started_at,1,7), SUM(MAX((julianday(COALESCE(ended_at,last_tick))-julianday(started_at))*24, 0)) FROM fleet_op WHERE ticks > 0 AND COALESCE(ended_at,last_tick) IS NOT NULL {who_boss} GROUP BY 1 ORDER BY 1"))));
+
+            let ops = fleet_ops_grabadas(&conn, character_id);
+            let mut per_month: Vec<(String, f64)> = Vec::new();
+            for (op_id, date, _t0, t1) in &ops {
+                let cut = std::cmp::min(7usize, date.len());
+                push_mes(
+                    &mut per_month,
+                    date[..cut].to_string(),
+                    fleet_op_pico(&conn, *op_id, *t1) as f64,
+                );
+            }
+            m.insert("pastor_gatos".into(), running_max(per_month));
+
+            // Kills por mes → acumulada. En dos pasos (last() y luego last_mut()), como
+            // push_mes y por la misma razón: el match natural no compila (E0499, NLL caso 3).
+            let mut por_mes: Vec<(String, f64)> = Vec::new();
+            for t in fleet_serie_negra(&conn, &ops) {
+                let mes = chrono::DateTime::from_timestamp(t, 0)
+                    .map(|d| d.format("%Y-%m").to_string())
+                    .unwrap_or_default();
+                if matches!(por_mes.last(), Some((mm, _)) if *mm == mes) {
+                    por_mes.last_mut().expect("acabamos de comprobarlo").1 += 1.0;
+                } else {
+                    por_mes.push((mes, 1.0));
+                }
+            }
+            m.insert("serie_negra".into(), cumulative(por_mes));
         }
 
         Ok(m)
