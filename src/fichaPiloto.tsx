@@ -94,15 +94,16 @@ export function FichaPiloto({
   characterId,
   onClose,
   onVerMapa,
-  onIrA,
+  onAbrirSocial,
 }: {
   name: string;
   characterId?: number | null;
   onClose: () => void;
   /** Centrar el mapa en un sistema (el puente que ya existe). */
   onVerMapa?: (sysId: number) => void;
-  /** Saltar a una sección (Social) — el detalle vive en su casa, no aquí. */
-  onIrA?: (tab: string) => void;
+  /** Ir a Social CON ESTA PERSONA: filtra la lista por su nombre y abre el 1:1 si existe.
+   *  El detalle vive en su casa; lo que cruza el puente es a quién quieres leer. */
+  onAbrirSocial?: (nombre: string) => void;
 }) {
   const [data, setData] = useState<FichaPilotoData | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -239,11 +240,18 @@ export function FichaPiloto({
                   · {año(data.primer_msg_ts).slice(0, 4)} → {año(data.ultimo_msg_ts).slice(0, 4)}
                 </span>
               )}
-              {onIrA && (
+              {onAbrirSocial && (
                 <>
                   {" "}
-                  <button className="ops-link" onClick={() => onIrA("social")}>
-                    {tr("Abrir Social")}
+                  {/* «Ver en Social», no «Abrir Social»: el mismo lenguaje que «Ver en el mapa»
+                      para sistemas. Y es literal — te deja la lista filtrada por esta persona,
+                      con su 1:1 abierto si lo hay. Si solo habéis coincidido en grupos, verás
+                      esos grupos: prometer «la conversación» sería prometer una que no existe. */}
+                  <button
+                    className="ops-link"
+                    onClick={() => onAbrirSocial(data.name || name)}
+                  >
+                    {tr("Ver en Social")}
                   </button>
                 </>
               )}

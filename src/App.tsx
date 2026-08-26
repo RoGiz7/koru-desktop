@@ -1678,6 +1678,18 @@ function App() {
   const [fichaPiloto, setFichaPiloto] = useState<{ name: string; id?: number | null } | null>(null);
   const abrirFicha = (name: string, id?: number | null) => setFichaPiloto({ name, id });
 
+  /** Ir a Social CON UNA PERSONA (deep-link desde la ficha): salta a la sección y le pasa el
+   *  nombre para que filtre la lista y abra el 1:1 si existe. Mismo patrón que `mapFocusReq`:
+   *  petición con nonce, porque la sección puede montarse DESPUÉS de pedirlo y una petición
+   *  perdida en silencio es peor que ninguna. */
+  const [socialFocusReq, setSocialFocusReq] = useState<{ nombre: string; nonce: number } | null>(
+    null,
+  );
+  function verEnSocial(nombre: string) {
+    changeTab("social");
+    setSocialFocusReq({ nombre, nonce: Date.now() });
+  }
+
   /** «Ver en el mapa» desde cualquier sección: salta a la pestaña Mapa y centra el sistema
    *  (focusSystem, con su animación y su pulso). El scroll arriba es porque el mapa vive en la
    *  parte alta del stage y las tablas de las secciones suelen dejarte abajo. */
@@ -2883,7 +2895,9 @@ function App() {
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {/* Social se alimenta de la MISMA carpeta que el intel: los chatlogs son una sola cosa
               en disco, y pedir la ruta dos veces sería inventarse un ajuste. */}
-          {tab === "social" && <SocialView folder={intelFolder} onFicha={abrirFicha} />}
+          {tab === "social" && (
+            <SocialView folder={intelFolder} onFicha={abrirFicha} focusReq={socialFocusReq} />
+          )}
           {tab === "ops" && (
             <OpsView
               characters={characters}
@@ -3065,9 +3079,9 @@ function App() {
             setFichaPiloto(null);
             verEnMapa(sid);
           }}
-          onIrA={(t) => {
+          onAbrirSocial={(nombre) => {
             setFichaPiloto(null);
-            changeTab(t as Tab);
+            verEnSocial(nombre);
           }}
         />
       )}

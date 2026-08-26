@@ -2721,6 +2721,8 @@ const EN: Record<string, string> = {
   "mensajes en": "messages across",
   "conversaciones": "conversations",
   "Abrir Social": "Open Social",
+  "Ver en Social": "See in Social",
+  "Ninguna conversación con ese nombre.": "No conversation with that name.",
   "De tus chatlogs — cuentan los dos lados de cada conversación.":
     "From your chatlogs — both sides of each conversation count.",
   "Cantado en el intel": "Called in intel",

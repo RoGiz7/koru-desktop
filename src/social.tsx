@@ -11,7 +11,7 @@
 //     externo: charlas entre tus propios personajes y mensajes que nadie contestó.
 //   · Escanear es un BOTÓN, no un vigilante: leer conversaciones privadas es un acto deliberado
 //     (mismo criterio que el grabador de flotas).
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtSp } from "./format";
@@ -37,7 +37,7 @@ function fmtHora(ts: number): string {
   return d.toISOString().slice(11, 19);
 }
 
-/** Tono ESTABLE por nombre de autor (hash → hue). Estable a propósito: que Zigor77 sea siempre
+/** Tono ESTABLE por nombre de autor (hash → hue). Estable a propósito: que RoGiz7 sea siempre
  *  del mismo color, en cualquier hilo y en cualquier sesión — un color que baila no identifica. */
 function hueDe(nombre: string): number {
   let h = 0;
@@ -101,10 +101,13 @@ function Avatar({
 export function SocialView({
   folder,
   onFicha,
+  focusReq,
 }: {
   folder: string;
   /** Abrir LA FICHA del interlocutor (quién es para ti, más allá de lo hablado). */
   onFicha?: (name: string, id?: number | null) => void;
+  /** Deep-link desde la ficha de piloto: «léeme lo de ESTA persona». Ver el efecto abajo. */
+  focusReq?: { nombre: string; nonce: number } | null;
 }) {
   const [convos, setConvos] = useState<SocialConvo[] | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null); // clave = quienes.join(",")
@@ -181,6 +184,28 @@ export function SocialView({
     }
   };
 
+  // DEEP-LINK DESDE LA FICHA DE PILOTO. Dos decisiones que no son evidentes:
+  // 1. La guarda es `convos`: la sección puede montarse DESPUÉS de que se pida el foco (se cambia
+  //    de pestaña y se pide en el mismo gesto) y la lista llega asíncrona. Sin la guarda, la
+  //    petición se perdería EN SILENCIO — la misma trampa que el `geo` del mapa.
+  // 2. Se FILTRA por el nombre además de abrir el 1:1: la ficha cuenta también los grupos, así que
+  //    si solo habéis coincidido en grupales hay que enseñar ESOS, no dejar la lista entera como
+  //    si no hubiera nada suyo. El nonce consumido se recuerda para no reabrir al re-renderizar.
+  const focusDone = useRef(0);
+  useEffect(() => {
+    if (!focusReq || !convos) return;
+    if (focusReq.nonce === focusDone.current) return;
+    focusDone.current = focusReq.nonce;
+    setFiltro(focusReq.nombre);
+    // El 1:1 exacto, sin distinguir mayúsculas (el nombre viene de la ficha, que resuelve por
+    // name_cache/ESI, y el chatlog lo escribió el juego: pueden no coincidir en caja).
+    const n = focusReq.nombre.trim().toLowerCase();
+    const uno = convos.find(
+      (c) => c.quienes.length === 1 && c.quienes[0].trim().toLowerCase() === n,
+    );
+    if (uno) abrir(uno);
+  }, [focusReq, convos]);
+
   const lista = useMemo(() => {
     if (!convos) return [];
     const f = filtro.trim().toLowerCase();
@@ -246,6 +271,13 @@ export function SocialView({
             >
               {recientes ? `↓ ${tr("Recientes primero")}` : `↑ ${tr("Antiguas primero")}`}
             </button>
+            {/* Un filtro que no casa deja la columna en blanco, y en blanco parece roto —
+                más ahora que el filtro puede ponerlo la ficha, no solo el teclado. */}
+            {lista.length === 0 && (
+              <p className="muted small">
+                {tr("Ninguna conversación con ese nombre.")}
+              </p>
+            )}
             {lista.map((c) => {
               const clave = c.quienes.join(",");
               return (
