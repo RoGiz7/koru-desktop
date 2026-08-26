@@ -11,6 +11,8 @@
 // separador de MILES y la COMA el decimal. Validado contra DOS pegados reales (RoGiz7, 2026-07-23):
 // con tabs y con los tabs convertidos en espacios (peor caso) el total y los items salen idénticos.
 
+import { loadJson } from "./staticJson";
+
 /** Índice nombre-en-minúsculas → typeID (EN de market_types + ES de type_names_es). */
 export type LootIndex = Map<string, number>;
 

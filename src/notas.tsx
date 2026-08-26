@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { typeIcon, bpIcon } from "./format";
 import type { Note, Character } from "./types";
+import { loadJson } from "./staticJson";
 
 /** Iconografía EVE primero (regla de RoGiz7, 2026-07-29): antes de poner un emoji, buscar qué ítem
  *  de EVE representa la cosa. `3814` = «informes», un trade good viejo y genérico cuyo icono es un
