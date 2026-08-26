@@ -1,8 +1,8 @@
 {
-  "captured_at": "2026-08-04T16:22:29.117Z",
-  "compatibility_date": "2026-08-04",
-  "spec_version": "2026-08-04",
-  "count": 225,
+  "captured_at": "2026-08-26T13:04:18.918Z",
+  "compatibility_date": "2026-08-26",
+  "spec_version": "2026-08-18",
+  "count": 233,
   "endpoints": [
     {
       "method": "DELETE",
@@ -354,6 +354,30 @@
     },
     {
       "method": "GET",
+      "path": "/characters/{character_id}/cosmetics/skinr",
+      "operationId": "GetCharactersCosmeticsSkinr",
+      "summary": "List a character's owned SKINR licenses",
+      "tags": [
+        "Cosmetics"
+      ],
+      "scopes": [
+        "esi.cosmetic.char:read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/characters/{character_id}/cosmetics/skinr/components",
+      "operationId": "GetCharactersCosmeticsSkinrComponents",
+      "summary": "List a character's owned SKINR component licenses",
+      "tags": [
+        "Cosmetics"
+      ],
+      "scopes": [
+        "esi.cosmetic.char:read"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/characters/{character_id}/fatigue",
       "operationId": "GetCharactersCharacterIdFatigue",
       "summary": "Get jump fatigue",
@@ -662,6 +686,18 @@
       ],
       "scopes": [
         "esi-markets.read_character_orders.v1"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/characters/{character_id}/paragon-hub/skinr",
+      "operationId": "GetCharactersParagonHubSkinr",
+      "summary": "List a character's Paragon Hub SKINR listings",
+      "tags": [
+        "Paragon Hub"
+      ],
+      "scopes": [
+        "esi.cosmetic.char:read"
       ]
     },
     {
@@ -1466,6 +1502,16 @@
     },
     {
       "method": "GET",
+      "path": "/cosmetics/skinr/{skinr_id}",
+      "operationId": "GetCosmeticsSkinr",
+      "summary": "Get SKINR attributes",
+      "tags": [
+        "Cosmetics"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
       "path": "/dogma/attributes",
       "operationId": "GetDogmaAttributes",
       "summary": "Get attributes",
@@ -1844,6 +1890,52 @@
     },
     {
       "method": "GET",
+      "path": "/paragon-hub/skinr",
+      "operationId": "GetParagonHubSkinr",
+      "summary": "List public Paragon Hub SKINR listings",
+      "tags": [
+        "Paragon Hub"
+      ],
+      "scopes": []
+    },
+    {
+      "method": "GET",
+      "path": "/paragon-hub/skinr/alliances/{alliance_id}",
+      "operationId": "GetParagonHubSkinrAlliances",
+      "summary": "List Paragon Hub SKINR listings targeted at an alliance",
+      "tags": [
+        "Paragon Hub"
+      ],
+      "scopes": [
+        "esi.cosmetic.char:read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/paragon-hub/skinr/characters/{character_id}",
+      "operationId": "GetParagonHubSkinrCharacters",
+      "summary": "List Paragon Hub SKINR listings targeted at a character",
+      "tags": [
+        "Paragon Hub"
+      ],
+      "scopes": [
+        "esi.cosmetic.char:read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/paragon-hub/skinr/corporations/{corporation_id}",
+      "operationId": "GetParagonHubSkinrCorporations",
+      "summary": "List Paragon Hub SKINR listings targeted at a corporation",
+      "tags": [
+        "Paragon Hub"
+      ],
+      "scopes": [
+        "esi.cosmetic.char:read"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/skyhooks/raidable",
       "operationId": "GetSkyhooksRaidable",
       "summary": "List (upcoming) raidable Skyhooks",
@@ -1876,7 +1968,7 @@
       "method": "GET",
       "path": "/status",
       "operationId": "GetStatus",
-      "summary": "Retrieve the uptime and player counts",
+      "summary": "Get the server's status",
       "tags": [
         "Status"
       ],
