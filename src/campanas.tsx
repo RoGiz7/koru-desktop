@@ -71,10 +71,30 @@ const METHOD_LABEL: Record<string, string> = {
 
 const factionLogo = (id: number) => `https://images.evetech.net/corporations/${id}/logo?size=64`;
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// Mismo trato que en inventario.tsx y Trabajos: se pinta lo último conocido al instante y se
+// re-pide DETRÁS. Aquí las campañas son ESI EN VIVO y los objetivos se piden campaña a campaña,
+// así que sin esto cada visita empezaba por «Cargando campañas…» y perdía lo que tuvieras abierto.
+// ⚠️ Cada caché con la clave de SU consulta: las campañas no llevan argumentos (una sola), los
+// objetivos van por UUID de campaña, y la participación por QUIÉN se pregunta — si esa última
+// compartiera clave, cambiar de personajes pintaría el aporte de otro sin dar ningún error.
+// Las DEFINICIONES son un JSON del SDE: estáticas por sesión, promesa cacheada como loadNewEden.
+let campsCache: MilitaryCampaign[] | null = null;
+const objsCache = new Map<string, CampaignObjective[]>();
+const mineCache = new Map<string, MyCampaignParticipation[]>();
+let defsPromise: Promise<CampDefs | null> | null = null;
+function loadDefs(): Promise<CampDefs | null> {
+  if (!defsPromise)
+    defsPromise = fetch("/military_campaigns.json")
+      .then((r) => r.json())
+      .catch(() => null);
+  return defsPromise;
+}
+
 export function CampanasView({ characters = [] }: { characters?: Character[] }) {
   const [defs, setDefs] = useState<CampDefs | null>(null);
-  const [camps, setCamps] = useState<MilitaryCampaign[] | null>(null);
-  const [objs, setObjs] = useState<Map<string, CampaignObjective[]>>(new Map());
+  const [camps, setCamps] = useState<MilitaryCampaign[] | null>(campsCache);
+  const [objs, setObjs] = useState<Map<string, CampaignObjective[]>>(new Map(objsCache));
   const [open, setOpen] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   // Fase 2: mi participación, agrupada por UUID de objetivo.
@@ -91,9 +111,12 @@ export function CampanasView({ characters = [] }: { characters?: Character[] }) 
     characters.find((c) => c.character_id === id)?.name ?? String(id);
 
   useEffect(() => {
-    fetch("/military_campaigns.json").then((r) => r.json()).then(setDefs).catch(() => setDefs(null));
+    loadDefs().then(setDefs);
     invoke<MilitaryCampaign[]>("get_military_campaigns")
-      .then(setCamps)
+      .then((d) => {
+        campsCache = d;
+        setCamps(d);
+      })
       .catch((e) => {
         setCamps([]);
         setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
@@ -107,15 +130,24 @@ export function CampanasView({ characters = [] }: { characters?: Character[] }) 
       setMine(new Map());
       return;
     }
+    // La clave es QUIÉN se pregunta, ordenado: si mañana concedes el permiso con otro personaje,
+    // la consulta cambia y tiene que cambiar la clave con ella.
+    const clave = [...ids].sort((a, b) => a - b).join(",");
+    const porObjetivo = (rows: MyCampaignParticipation[]) => {
+      const m = new Map<string, MyCampaignParticipation[]>();
+      for (const r of rows) {
+        const arr = m.get(r.objective_id) ?? [];
+        arr.push(r);
+        m.set(r.objective_id, arr);
+      }
+      return m;
+    };
+    const previo = mineCache.get(clave);
+    if (previo) setMine(porObjetivo(previo));
     invoke<MyCampaignParticipation[]>("get_my_campaign_participation", { characterIds: ids })
       .then((rows) => {
-        const m = new Map<string, MyCampaignParticipation[]>();
-        for (const r of rows) {
-          const arr = m.get(r.objective_id) ?? [];
-          arr.push(r);
-          m.set(r.objective_id, arr);
-        }
-        setMine(m);
+        mineCache.set(clave, rows);
+        setMine(porObjetivo(rows));
       })
       .catch(() => setMine(new Map()));
   }, [withScope]);
@@ -126,15 +158,19 @@ export function CampanasView({ characters = [] }: { characters?: Character[] }) 
       return;
     }
     setOpen(id);
-    if (!objs.has(id)) {
-      try {
-        const list = await invoke<CampaignObjective[]>("get_military_campaign_objectives", {
-          campaignId: id,
-        });
-        setObjs((prev) => new Map(prev).set(id, list));
-      } catch (e) {
-        setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
-      }
+    // ⚠️ ANTES esto era `if (!objs.has(id))`: se pedía UNA vez y ya. Con la caché de módulo eso
+    // habría convertido «pedido una vez» en «pedido una vez EN TODA LA SESIÓN», y el progreso de
+    // un objetivo es dato VIVO — habrías visto el de hace dos horas creyéndolo de ahora. Así que
+    // se re-pide SIEMPRE al abrir: lo cacheado se pinta al instante (ya está en `objs`) y la
+    // respuesta lo sustituye cuando llega. Es el trato del patrón, no una excepción a él.
+    try {
+      const list = await invoke<CampaignObjective[]>("get_military_campaign_objectives", {
+        campaignId: id,
+      });
+      objsCache.set(id, list);
+      setObjs((prev) => new Map(prev).set(id, list));
+    } catch (e) {
+      setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
     }
   }
 

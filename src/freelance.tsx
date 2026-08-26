@@ -165,6 +165,18 @@ export function cleanEveText(s: string): string {
     .trim();
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// Misma idea y mismo trato que en inventario.tsx: al entrar se PINTA lo último conocido al
+// instante y se re-pide DETRÁS exactamente igual que antes — cada visita sigue releyendo, solo
+// muere la pantalla en blanco. Aquí pesa más que en ningún sitio porque `jobs` y `projects` son
+// **ESI EN VIVO**: son segundos de espera, no milisegundos de SQLite.
+// ⚠️ LA CLAVE ES EL SUJETO. Es la trampa del patrón: una clave que no incluya todo lo que cambia
+// la consulta pinta el dato de OTRO personaje como bueno y sin ningún error visible. Aquí solo
+// cambia con `subject`, y «global» entra como clave propia (en global no hay trabajos: es []).
+const cacheJobs = new Map<string, FreelanceJob[]>();
+const cacheProjects = new Map<string, CorpProject[]>();
+const cachePersonal = new Map<string, PersonalProject[]>();
+
 export function FreelanceView({ subject }: { subject: number | "global" }) {
   const isGlobal = subject === "global";
   const subjectId = typeof subject === "number" ? subject : 0;
@@ -201,14 +213,25 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
 
   useEffect(() => {
     let alive = true;
-    setJobs(isGlobal ? [] : null);
-    setProjects([]);
+    const clave = String(subject);
+    // Lo último conocido de ESTE sujeto, al instante; el esqueleto (null) solo la primera vez
+    // de verdad. En global no hay trabajos y eso no es «cargando», es [] desde el principio.
+    setJobs(isGlobal ? [] : cacheJobs.get(clave) ?? null);
+    setProjects(cacheProjects.get(clave) ?? []);
     if (!isGlobal) {
       invoke<FreelanceJob[]>("get_freelance_jobs", { characterId: subject })
-        .then((d) => alive && setJobs(d))
+        .then((d) => {
+          // La caché se actualiza AUNQUE la vista ya no esté montada: la respuesta que llega
+          // después de salir de la pestaña no se tira, se guarda para la próxima visita.
+          cacheJobs.set(clave, d);
+          if (alive) setJobs(d);
+        })
         .catch(() => alive && setJobs([]));
       invoke<CorpProject[]>("get_corp_projects", { characterId: subject })
-        .then((d) => alive && setProjects(d))
+        .then((d) => {
+          cacheProjects.set(clave, d);
+          if (alive) setProjects(d);
+        })
         .catch(() => alive && setProjects([]));
     }
     return () => {
@@ -234,6 +257,7 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
   function loadPersonal() {
     invoke<PersonalProject[]>("get_personal_projects", { subjectId })
       .then((list) => {
+        cachePersonal.set(String(subjectId), list);
         setPersonal(list);
         const doneNow = new Set(list.filter((p) => p.target > 0 && p.current >= p.target).map((p) => p.id));
         if (!firstLoad.current) {
@@ -248,6 +272,11 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
   useEffect(() => {
     firstLoad.current = true;
     prevDone.current = new Set();
+    // Los proyectos personales salen de SQLite, así que la espera es corta — pero la lista es lo
+    // primero que miras al entrar y verla aparecer de golpe es lo que se siente lento.
+    // ⚠️ La celebración NO se toca: sigue disparándose solo en el `.then()` real y con
+    // `firstLoad` reseteado, así que pintar lo cacheado no puede hacer sonar un trofeo viejo.
+    setPersonal(cachePersonal.get(String(subjectId)) ?? []);
     loadPersonal();
     // Refresco ligero mientras la pestaña está abierta, para cazar completados en vivo.
     const iv = setInterval(loadPersonal, 60000);
