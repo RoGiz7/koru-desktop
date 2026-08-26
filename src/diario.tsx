@@ -91,6 +91,14 @@ function DiaryRow({ e }: { e: Ev }) {
   );
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx). Las tres consultas van por sujeto y se piden EN
+// SERIE (bitácora → corps → medallas), así que la espera se suma: es de las que más se notan.
+// «global» entra como clave propia — allí no hay corps ni medallas y eso es [], no «cargando».
+const cacheBit = new Map<string, Bitacora>();
+const cacheCorps = new Map<string, DiaryCorp[]>();
+const cacheMedals = new Map<string, Medal[]>();
+
 export function DiarioView({ subject }: { subject: number | "global" }) {
   const isGlobal = subject === "global";
   const [bit, setBit] = useState<Bitacora | null>(null);
@@ -104,10 +112,17 @@ export function DiarioView({ subject }: { subject: number | "global" }) {
 
   useEffect(() => {
     let alive = true;
+    const clave = String(subject);
+    // Lo último conocido de ESTE sujeto, al instante. `busy` sigue puesto mientras se relee, así
+    // que la vista dice que está trabajando en vez de fingir que ya terminó.
+    setBit(cacheBit.get(clave) ?? null);
+    setCorps(cacheCorps.get(clave) ?? []);
+    setMedals(cacheMedals.get(clave) ?? []);
     setBusy(true);
     (async () => {
       try {
         const b = await invoke<Bitacora>("get_bitacora", { characterId: isGlobal ? null : subject });
+        cacheBit.set(clave, b); // se guarda aunque la vista ya no esté montada
         if (alive) setBit(b);
       } catch {
         if (alive) setBit(null);
@@ -116,12 +131,14 @@ export function DiarioView({ subject }: { subject: number | "global" }) {
       if (!isGlobal) {
         try {
           const c = await invoke<DiaryCorp[]>("get_corp_history", { characterId: subject });
+          cacheCorps.set(clave, c);
           if (alive) setCorps(c);
         } catch {
           if (alive) setCorps([]);
         }
         try {
           const md = await invoke<Medal[]>("get_medals", { characterId: subject });
+          cacheMedals.set(clave, md);
           if (alive) setMedals(md);
         } catch {
           if (alive) setMedals([]);

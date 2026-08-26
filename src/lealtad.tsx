@@ -11,6 +11,21 @@ import type { LoyaltyCorp, StandingRow } from "./types";
 
 type AgentMeta = Record<string, { s: number; l: number; c: number; t: number }>;
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// Mismo trato que en el resto (ver inventario.tsx). Las dos consultas van por personaje, así que
+// la clave es el sujeto y nada más. `agents.json` es del SDE —estático por sesión— y pasa a
+// promesa cacheada: se descargaba entero en CADA visita para nada.
+const cacheLp = new Map<string, LoyaltyCorp[]>();
+const cacheAgents = new Map<string, StandingRow[]>();
+let metaPromise: Promise<AgentMeta> | null = null;
+function loadAgentMeta(): Promise<AgentMeta> {
+  if (!metaPromise)
+    metaPromise = fetch("/agents.json")
+      .then((r) => r.json())
+      .catch(() => ({}) as AgentMeta);
+  return metaPromise;
+}
+
 export function LealtadView({ subject }: { subject: number | "global" }) {
   const isGlobal = subject === "global";
   const [lp, setLp] = useState<LoyaltyCorp[] | null>(null);
@@ -24,26 +39,33 @@ export function LealtadView({ subject }: { subject: number | "global" }) {
       return;
     }
     let alive = true;
-    setLp(null);
-    setAgents([]);
+    const clave = String(subject);
+    // Lo último conocido de ESTE personaje; el esqueleto solo la primera vez de verdad.
+    setLp(cacheLp.get(clave) ?? null);
+    setAgents(cacheAgents.get(clave) ?? []);
     invoke<LoyaltyCorp[]>("get_loyalty", { characterId: subject })
-      .then((d) => alive && setLp(d))
+      .then((d) => {
+        cacheLp.set(clave, d); // se guarda aunque la vista ya no esté montada
+        if (alive) setLp(d);
+      })
       .catch(() => alive && setLp([]));
     invoke<StandingRow[]>("get_standings", { characterId: subject })
-      .then((rows) => alive && setAgents(rows.filter((r) => r.kind === "agent")))
+      .then((rows) => {
+        // Se cachea YA FILTRADO: es lo que la vista usa, y así el filtro no se repite por visita.
+        const ag = rows.filter((r) => r.kind === "agent");
+        cacheAgents.set(clave, ag);
+        if (alive) setAgents(ag);
+      })
       .catch(() => alive && setAgents([]));
     return () => {
       alive = false;
     };
   }, [subject]);
 
-  // Metadatos de agentes (nivel/ubicación/corp) del SDE, una sola vez.
+  // Metadatos de agentes (nivel/ubicación/corp) del SDE: una vez por SESIÓN, no por visita.
   useEffect(() => {
     let alive = true;
-    fetch("/agents.json")
-      .then((r) => r.json())
-      .then((j: AgentMeta) => alive && setAgentMeta(j))
-      .catch(() => alive && setAgentMeta({}));
+    loadAgentMeta().then((j) => alive && setAgentMeta(j));
     return () => {
       alive = false;
     };

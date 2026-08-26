@@ -20,11 +20,25 @@ function monthly(series: DayVal[]) {
   return { labels, values: labels.map((k) => map.get(k)!) };
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx): pintar lo último conocido al instante y re-pedir
+// DETRÁS. Aquí son AÑOS de gamelog agregados; la consulta es una sola y su único argumento es el
+// sujeto, así que esa es la clave — la trampa del patrón es una clave que no incluya todo lo que
+// cambia la consulta, y aquí no cambia nada más.
+const cacheRecon = new Map<string, GamelogRecon>();
+
 export function ReconView({ subject }: { subject?: number | "global" }) {
   const subjectId = typeof subject === "number" ? subject : 0;
   const [r, setR] = useState<GamelogRecon | null>(null);
   useEffect(() => {
-    invoke<GamelogRecon>("get_gamelog_recon", { subjectId }).then(setR).catch(() => setR(null));
+    const clave = String(subjectId);
+    setR(cacheRecon.get(clave) ?? null);
+    invoke<GamelogRecon>("get_gamelog_recon", { subjectId })
+      .then((d) => {
+        cacheRecon.set(clave, d); // se guarda aunque la vista ya no esté montada
+        setR(d);
+      })
+      .catch(() => setR(null));
   }, [subjectId]);
 
   if (!r) return <p className="muted small">{tr("Cargando…")}</p>;
