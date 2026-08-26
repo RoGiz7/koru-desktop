@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { NotasAncla } from "./notas";
+import { loadJson } from "./staticJson";
 
 type AssetRow = {
   type_id: number;
@@ -37,9 +38,10 @@ const cacheAssets = new Map<string, AssetRow[]>();
 let volsPromise: Promise<Volumenes> | null = null;
 function loadVols(): Promise<Volumenes> {
   if (!volsPromise)
+    // Por staticJson: los dos ficheros de volumen los comparten también Naves e Industria.
     volsPromise = Promise.all([
-      fetch("/type_volumes.json").then((r) => r.json()),
-      fetch("/type_volumes_assembled.json").then((r) => r.json()),
+      loadJson<Record<string, number>>("/type_volumes.json", {}),
+      loadJson<Record<string, number>>("/type_volumes_assembled.json", {}),
     ]).then(([packed, asm]) => ({ packed, asm }));
   return volsPromise;
 }

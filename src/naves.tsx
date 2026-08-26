@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtSp, typeIcon } from "./format";
+import { loadJson } from "./staticJson";
 
 type ShipModule = { type_id: number; slot: string; quantity: number; assembled: boolean };
 
@@ -379,24 +380,18 @@ export function NavesView({
   const [grupo, setGrupo] = useState("");
 
   useEffect(() => {
-    fetch("/ship_cargo.json")
-      .then((r) => r.json())
-      .then(setCargo)
-      .catch(() => setCargo({}));
-    fetch("/ships.json")
-      .then((r) => r.json())
-      .then((rows: { i: number; g: string }[]) =>
-        setGrupos(Object.fromEntries(rows.map((r) => [r.i, r.g]))),
-      )
-      .catch(() => setGrupos({}));
+    // Catálogos del SDE por staticJson: una vez por sesión, y `type_volumes.json` (323 KB) lo
+    // comparte con Inventario e Industria en vez de tener cada uno el suyo.
+    loadJson<Record<string, CargoEntry>>("/ship_cargo.json", {}).then(setCargo);
+    loadJson<{ i: number; g: string }[]>("/ships.json", []).then((rows) =>
+      setGrupos(Object.fromEntries(rows.map((r) => [r.i, r.g]))),
+    );
     // Los dos volúmenes. Si alguno falla se sigue: la vista pierde el «usado/total» pero no se
-    // rompe, que es peor.
+    // rompe, que es peor — de eso se encarga el fallback de loadJson.
     Promise.all([
-      fetch("/type_volumes.json").then((r) => r.json()),
-      fetch("/type_volumes_assembled.json").then((r) => r.json()),
-    ])
-      .then(([packed, asm]) => setVols({ packed, asm }))
-      .catch(() => {});
+      loadJson<Record<string, number>>("/type_volumes.json", {}),
+      loadJson<Record<string, number>>("/type_volumes_assembled.json", {}),
+    ]).then(([packed, asm]) => setVols({ packed, asm }));
   }, []);
 
   useEffect(() => {
