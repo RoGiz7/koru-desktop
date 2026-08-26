@@ -28,14 +28,13 @@ import type { Note, Character } from "./types";
 const NOTA_TID = 3814;
 
 /** Catálogo de tipos para el disparador de inventario. `public/market_types.json` son 19.369
- *  entradas: se carga UNA vez y en cuanto alguien abre el buscador, no al montar el modal. */
+ *  entradas: se carga UNA vez y en cuanto alguien abre el buscador, no al montar el modal.
+ *  Su caché propia (un `let CAT` de módulo) funcionaba bien, pero era LA SUYA: Comercio y el
+ *  índice de botín tenían la suya, y el mismo mega se podía bajar tres veces por sesión. Ahora
+ *  el dueño del fichero es staticJson.ts y lo comparten los tres. */
 type TipoCat = { i: number; n: string };
-let CAT: TipoCat[] | null = null;
-async function catalogo(): Promise<TipoCat[]> {
-  if (CAT) return CAT;
-  const r = await fetch("/market_types.json");
-  CAT = (await r.json()) as TipoCat[];
-  return CAT;
+function catalogo(): Promise<TipoCat[]> {
+  return loadJson<TipoCat[]>("/market_types.json", []);
 }
 
 /** Nombre de un tipo desde el catálogo ya cargado. `null` mientras no esté. */

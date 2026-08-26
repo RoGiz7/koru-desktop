@@ -7,6 +7,7 @@ import { tr, getLang } from "./i18n";
 import { fmtIsk, fmtSp, daysAgo, weekKey } from "./format";
 import { TypeIcon, Kpi, MultiLineProgress, RangePresets, Th } from "./charts";
 import type { MarketOrder, WatchItem, ArbItem, OppItem, MGroup, TradePnl } from "./types";
+import { loadJson } from "./staticJson";
 
 // Botón reutilizable "➕ a watchlist": añade un typeID a la watchlist de mercado (optimista).
 export function WatchAddBtn({ typeId }: { typeId: number }) {
@@ -82,12 +83,11 @@ function WatchlistPanel() {
   }, [mode]);
 
   // Catálogo de grupos de mercado (SDE), perezoso al entrar en Oportunidades.
+  // El `if (mgroups) return` evitaba repetirlo DENTRO de una visita; al volver a la sección el
+  // estado nacía a null y se descargaba otra vez. loadJson lo memoiza por sesión.
   const ensureMGroups = () => {
     if (mgroups) return;
-    fetch("/market_groups.json")
-      .then((r) => r.json())
-      .then(setMgroups)
-      .catch(() => setMgroups([]));
+    loadJson<MGroup[]>("/market_groups.json", []).then(setMgroups);
   };
   // Índice padre→hijos para resolver el subárbol de un grupo.
   const gChildren = useMemo(() => {
@@ -165,13 +165,11 @@ function WatchlistPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [region]);
 
-  // El catálogo de tipos (1 MB) se carga perezosamente al empezar a buscar.
+  // El catálogo de tipos (1,1 MB) se carga perezosamente al empezar a buscar — y ahora, además,
+  // UNA sola vez por sesión: lo comparte con Notas y con el índice de botín.
   const ensureTypes = () => {
     if (mtypes) return;
-    fetch("/market_types.json")
-      .then((r) => r.json())
-      .then(setMtypes)
-      .catch(() => setMtypes([]));
+    loadJson<MType[]>("/market_types.json", []).then(setMtypes);
   };
   const ql = q.trim().toLowerCase();
   const watched = new Set((items ?? []).map((i) => i.type_id));

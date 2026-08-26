@@ -51,9 +51,11 @@ export function buildLootIndex(): Promise<LootIndex> {
 async function construirLootIndex(): Promise<LootIndex> {
   const idx: LootIndex = new Map();
   try {
+    // Por staticJson: `market_types.json` lo comparten también Comercio y Notas, así que el mega
+    // se baja UNA vez para los tres.
     const [mt, esRaw] = await Promise.all([
-      fetch("/market_types.json").then((r) => r.json()),
-      fetch("/type_names_es.json").then((r) => r.json()),
+      loadJson<{ i: number; n: string }[]>("/market_types.json", []),
+      loadJson<Record<string, number>>("/type_names_es.json", {}),
     ]);
     for (const t of mt as { i: number; n: string }[]) idx.set(t.n.trim().toLowerCase(), t.i);
     for (const [name, id] of Object.entries(esRaw as Record<string, number>)) idx.set(name, id);
