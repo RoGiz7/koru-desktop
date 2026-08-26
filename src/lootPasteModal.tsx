@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk } from "./format";
 import { parseLootPaste, parseIskShorthand, type LootIndex } from "./lootPaste";
+import { loadJson } from "./staticJson";
 
 type Props = {
   open: boolean;
@@ -50,12 +51,10 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
   const [bpSet, setBpSet] = useState<Set<number> | null>(null);
   useEffect(() => {
     if (!open || bpSet) return;
-    fetch("/bp_tree.json")
-      .then((r) => r.json())
-      .then((d: { bp?: Record<string, unknown> }) =>
-        setBpSet(new Set(Object.keys(d.bp ?? {}).map(Number))),
-      )
-      .catch(() => setBpSet(new Set()));
+    // Mismo `bp_tree.json` que usa el planificador de industria: por staticJson lo comparten.
+    loadJson<{ bp?: Record<string, unknown> }>("/bp_tree.json", {}).then((d) =>
+      setBpSet(new Set(Object.keys(d.bp ?? {}).map(Number))),
+    );
   }, [open, bpSet]);
 
   const esBlueprint = (tid: number | null) => tid != null && (bpSet?.has(tid) ?? false);

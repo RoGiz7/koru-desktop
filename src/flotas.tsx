@@ -23,6 +23,7 @@ import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
 import { PilotoNombre } from "./fichaPiloto";
 import type { Character } from "./types";
+import { loadJson } from "./staticJson";
 
 export type OpEstado = {
   op_id: number;
@@ -93,9 +94,9 @@ export function galon(role: string | null): string {
 let shipNamesPromise: Promise<Map<number, string>> | null = null;
 export function loadShipNames(): Promise<Map<number, string>> {
   if (!shipNamesPromise)
-    shipNamesPromise = fetch("/ships.json")
-      .then((r) => r.json())
-      .then((rows: { i: number; n: string }[]) => new Map(rows.map((r) => [r.i, r.n])));
+    shipNamesPromise = loadJson<{ i: number; n: string }[]>("/ships.json", []).then(
+      (rows) => new Map(rows.map((r) => [r.i, r.n])),
+    );
   return shipNamesPromise;
 }
 

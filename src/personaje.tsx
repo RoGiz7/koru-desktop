@@ -5,12 +5,13 @@ import { tr, getLang } from "./i18n";
 import { fmtSp, typeIcon, secColor } from "./format";
 import { Kpi } from "./charts";
 import type { CharacterDetail, CharacterCard, SkillsSummary, GlobalSkills } from "./types";
+import { loadJson } from "./staticJson";
 
 export function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: CharacterCard }) {
   // Títulos oficiales (SDE characterTitles → nombre): UUID equipado → etiqueta localizada.
   const [titles, setTitles] = useState<Record<string, { es: string; en: string }>>({});
   useEffect(() => {
-    fetch("/character_titles.json").then((r) => r.json()).then(setTitles).catch(() => setTitles({}));
+    loadJson<Record<string, { es: string; en: string }>>("/character_titles.json", {}).then(setTitles);
   }, []);
   if (!detail) return null;
   const a = detail.attributes;

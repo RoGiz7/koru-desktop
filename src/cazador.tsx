@@ -5,6 +5,7 @@ import { fmtAgo, fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
 import { openExternal } from "./openExternal";
+import { loadJson } from "./staticJson";
 
 type Habitual = {
   name_lower: string;
@@ -42,9 +43,8 @@ const cachePerfil = new Map<string, PilotProfile>();
 let shipByIdPromise: Promise<Map<number, string>> | null = null;
 function loadShipNamesPorId(): Promise<Map<number, string>> {
   if (!shipByIdPromise)
-    shipByIdPromise = fetch("/ship_names.json")
-      .then((r) => r.json())
-      .then((d: Record<string, number>) => {
+    shipByIdPromise = loadJson<Record<string, number>>("/ship_names.json", {})
+      .then((d) => {
         const m = new Map<number, string>();
         for (const [n, id] of Object.entries(d)) if (!m.has(id)) m.set(id, n);
         return m;

@@ -7,6 +7,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { JumpShip } from "./types";
+import { loadJson } from "./staticJson";
 
 export function useJumpPlanner() {
   const [jumpActive, setJumpActive] = useState(false);
@@ -26,10 +27,7 @@ export function useJumpPlanner() {
 
   // Catálogo de naves de salto (rango/fuel/isótopo) extraído del SDE.
   useEffect(() => {
-    fetch("/jumpships.json")
-      .then((r) => r.json())
-      .then((d) => setJumpShips(d.ships || []))
-      .catch(() => {});
+    loadJson<{ ships?: JumpShip[] }>("/jumpships.json", {}).then((d) => setJumpShips(d.ships || []));
   }, []);
 
   // Al elegir personaje: cargar sus niveles JDC/JFC, naves que posee y la fatiga actual.

@@ -13,6 +13,7 @@ import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
 import type { ActivityRun, RunChar } from "./types";
+import { loadJson } from "./staticJson";
 
 /** ---- CUÁNTOS FILAMENTOS CUESTA ENTRAR (2026-08-13) ----
  *
@@ -160,9 +161,7 @@ const cachePrecio = new Map<number, number | null>();
 let shipRowsPromise: Promise<ShipEntry[]> | null = null;
 function loadShipRows(): Promise<ShipEntry[]> {
   if (!shipRowsPromise)
-    shipRowsPromise = fetch("/ships.json")
-      .then((r) => r.json())
-      .catch(() => [] as ShipEntry[]);
+    shipRowsPromise = loadJson<ShipEntry[]>("/ships.json", []);
   return shipRowsPromise;
 }
 

@@ -5,6 +5,7 @@ import { tr, getLang } from "./i18n";
 import { fmtIsk, weekKey, daysAgo } from "./format";
 import { Kpi, MultiLineProgress, Donut, Th, DONUT_COLORS, RangePresets, maxOf } from "./charts";
 import type { NetworthView, NetworthPoint, WalletView, WalletSeries, WalletCatDay, WalletCharDay } from "./types";
+import { loadJson } from "./staticJson";
 
 /** Tipos de movimiento del wallet (`ref_type` de ESI → nombre en ES/EN), de `accountingEntryTypes`
  *  del SDE. Ver `scripts/extract_accounting_types.py`.
@@ -33,9 +34,8 @@ function useRefTypes(): number {
   useEffect(() => {
     if (REF_TYPES || refTypesPedido) return;
     refTypesPedido = true;
-    fetch("/accounting_types.json")
-      .then((r) => r.json())
-      .then((j: { types: Record<string, { es: string; en: string }> }) => {
+    loadJson<{ types?: Record<string, { es: string; en: string }> }>("/accounting_types.json", {})
+      .then((j) => {
         REF_TYPES = j.types ?? {};
         setTick((n) => n + 1); // repintar con los nombres ya resueltos
       })

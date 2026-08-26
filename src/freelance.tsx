@@ -8,6 +8,8 @@ import { tr } from "./i18n";
 import { fmtIsk, typeIcon } from "./format";
 import { playUnlock, ensureNotifPerm } from "./sound";
 import type { FreelanceJob, CorpProject, PersonalProject } from "./types";
+import { loadJson } from "./staticJson";
+import { loadNewEden } from "./neweden";
 
 const CAREER_ICON: Record<string, string> = {
   Explorer: "🧭",
@@ -106,7 +108,7 @@ async function loadCatalog(kind: string): Promise<{ i: number; n: string; g: str
   const file = CATALOG_FILE[kind];
   if (!file) return [];
   if (!CATALOG_CACHE[kind]) {
-    CATALOG_CACHE[kind] = await fetch(file).then((r) => r.json()).catch(() => []);
+    CATALOG_CACHE[kind] = await loadJson<{ i: number; n: string; g: string }[]>(file, []);
   }
   return CATALOG_CACHE[kind] ?? [];
 }
@@ -115,7 +117,9 @@ async function searchCatalog(kind: string, q: string): Promise<PickResults> {
   if (needle.length < 2) return { items: [], families: [] };
   if (kind === "system") {
     if (!SYSTEMS_CACHE) {
-      const d = await fetch("/neweden.json").then((r) => r.json()).catch(() => ({ systems: [] }));
+      // `neweden.json` es 1 MB y tiene su cargador cacheado desde siempre: aquí se estaba
+      // esquivando con un fetch a pelo, igual que pasaba en industry.tsx.
+      const d = await loadNewEden().catch(() => ({ systems: [] as { id: number; n: string }[] }));
       SYSTEMS_CACHE = (d.systems ?? []).map((s: { id: number; n: string }) => ({ id: s.id, n: s.n }));
     }
     const items = SYSTEMS_CACHE!

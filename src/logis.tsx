@@ -6,6 +6,7 @@ import { tr } from "./i18n";
 import { typeIcon, weekKey } from "./format";
 import { MultiLineProgress, RangePresets } from "./charts";
 import type { LogiSummary, LogiSeries, LogiPilot, LogiBreakdown } from "./types";
+import { loadJson } from "./staticJson";
 
 const fmtHp = (n: number) => Math.round(n).toLocaleString();
 type Gran = "day" | "week" | "month" | "year";
@@ -149,7 +150,8 @@ export function LogisView({ subject }: { subject?: number | "global" }) {
   const [bd, setBd] = useState<LogiBreakdown | null>(null);
 
   useEffect(() => {
-    fetch("/ship_names.json").then((r) => r.json()).then(setShipTid).catch(() => setShipTid({}));
+    // El mismo `ship_names.json` que usan el mapa y el Cazador: una descarga para los tres.
+    loadJson<Record<string, number>>("/ship_names.json", {}).then(setShipTid);
   }, []);
   useEffect(() => {
     localStorage.setItem("koru-logi-gran", gran);

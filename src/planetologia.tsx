@@ -16,6 +16,7 @@ import { tr, getLang } from "./i18n";
 import { fmtSp, fmtIsk, typeIcon } from "./format";
 import { Kpi, MultiLineProgress, DONUT_COLORS } from "./charts";
 import type { Planet, PlanetDetail, PlanetPin, PiSchematic } from "./types";
+import { loadJson } from "./staticJson";
 
 /** Horas hasta una fecha ISO (negativo = pasado). null si no hay fecha. */
 function hoursUntil(iso: string | null): number | null {
@@ -142,8 +143,8 @@ export function PlanetologiaView({
   const [alertsOn, setAlertsOn] = useState(true);
 
   useEffect(() => {
-    fetch("/pi_schematics.json").then((r) => r.json()).then(setSchematics).catch(() => setSchematics({}));
-    fetch("/pi_p0_planets.json").then((r) => r.json()).then(setP0table).catch(() => setP0table(null));
+    loadJson<Record<string, PiSchematic>>("/pi_schematics.json", {}).then(setSchematics);
+    loadJson<P0Planets | null>("/pi_p0_planets.json", null).then(setP0table);
     invoke<number[]>("get_pi_alert_hours")
       .then((h) => {
         setAlertHours(h);

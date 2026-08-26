@@ -1,3 +1,4 @@
+import { loadJson } from "./staticJson";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
@@ -588,10 +589,7 @@ export function MapView(props: {
   useEffect(() => {
     loadNewEden().then(setNe).catch(() => {});
     // Facción NPC por sistema (del SDE) para la capa de standings.
-    fetch("/system-factions.json")
-      .then((r) => r.json())
-      .then(setFactionMap)
-      .catch(() => {});
+    loadJson<Record<string, number>>("/system-factions.json", {}).then(setFactionMap);
     // Actividad en vivo (1h) para tooltips, siempre disponible.
     invoke<SystemKills[]>("get_system_kills")
       .then((rows) => {
@@ -1311,10 +1309,9 @@ export function MapView(props: {
   // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
   const [shipNames, setShipNames] = useState<Map<string, number>>(new Map());
   useEffect(() => {
-    fetch("/ship_names.json")
-      .then((r) => r.json())
-      .then((o: Record<string, number>) => setShipNames(new Map(Object.entries(o))))
-      .catch(() => {});
+    loadJson<Record<string, number>>("/ship_names.json", {}).then((o) =>
+      setShipNames(new Map(Object.entries(o))),
+    );
   }, []);
 
   const intelReports = useMemo(

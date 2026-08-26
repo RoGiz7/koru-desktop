@@ -1,3 +1,4 @@
+import { loadJson } from "./staticJson";
 import { useEffect, useRef, useState } from "react";
 import { OverlaySettings, IntelSettings } from "./overlaySettings";
 import { loadNewEden } from "./neweden";
@@ -1289,10 +1290,9 @@ function App() {
     }
     try {
       const rows = await invoke<StandingRow[]>("get_standings", { characterId: subj });
-      const meta = (await fetch("/agents.json").then((r) => r.json())) as Record<
-        string,
-        { s: number; l: number }
-      >;
+      // ⚠️ `agents.json` son 525 KB y esta función corre en CADA cambio de personaje: se bajaba
+      // entero cada vez. Por staticJson va una sola vez por sesión, y la comparte con Misiones.
+      const meta = await loadJson<Record<string, { s: number; l: number }>>("/agents.json", {});
       const m = new Map<number, number>();
       const det = new Map<number, { id: number; name: string; level: number }[]>();
       for (const r of rows) {
@@ -1324,10 +1324,10 @@ function App() {
         "get_loyalty",
         { characterId: subj },
       );
-      const data = (await fetch("/npc_corp_systems.json").then((r) => r.json())) as Record<
-        string,
-        { s: number[]; f: number | null }
-      >;
+      const data = await loadJson<Record<string, { s: number[]; f: number | null }>>(
+        "/npc_corp_systems.json",
+        {},
+      );
       const m = new Map<number, number>();
       const det = new Map<number, { id: number; name: string; lp: number }[]>();
       for (const c of lp) {

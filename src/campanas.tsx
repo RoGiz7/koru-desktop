@@ -8,6 +8,7 @@
 // (verificado concedible con login solo-scope, 2026-08-04). Nombres de campo de la spec OpenAPI:
 // `contributed` (entero acumulado, NO un %) e `is_committed`. Se pinta crudo a propósito: no lo
 // dividimos por el target del SDE hasta comprobar con datos reales que van en la misma unidad.
+import { loadJson } from "./staticJson";
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
@@ -85,9 +86,7 @@ const mineCache = new Map<string, MyCampaignParticipation[]>();
 let defsPromise: Promise<CampDefs | null> | null = null;
 function loadDefs(): Promise<CampDefs | null> {
   if (!defsPromise)
-    defsPromise = fetch("/military_campaigns.json")
-      .then((r) => r.json())
-      .catch(() => null);
+    defsPromise = loadJson<CampDefs | null>("/military_campaigns.json", null);
   return defsPromise;
 }
 

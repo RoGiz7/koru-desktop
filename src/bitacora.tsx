@@ -12,6 +12,7 @@ import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { MedalArt } from "./medalArt";
 import type { Bitacora, AchievementState, Medal, AchSeries, CharacterDetail } from "./types";
 import { MedalDetail } from "./medalDetail";
+import { loadJson } from "./staticJson";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
 // inmersión — el mismo image server que ya usa toda la app (retratos, naves, logos). `tid` es un
@@ -325,7 +326,7 @@ export function BitacoraView({
   const [officialTitleId, setOfficialTitleId] = useState<string | null>(null);
   const [titleNames, setTitleNames] = useState<Record<string, { es: string; en: string }>>({});
   useEffect(() => {
-    fetch("/character_titles.json").then((r) => r.json()).then(setTitleNames).catch(() => setTitleNames({}));
+    loadJson<Record<string, { es: string; en: string }>>("/character_titles.json", {}).then(setTitleNames);
   }, []);
   useEffect(() => {
     if (typeof subject !== "number") {

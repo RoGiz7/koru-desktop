@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtSp, standingColor } from "./format";
 import type { LoyaltyCorp, StandingRow } from "./types";
+import { loadJson } from "./staticJson";
 
 type AgentMeta = Record<string, { s: number; l: number; c: number; t: number }>;
 
@@ -20,9 +21,7 @@ const cacheAgents = new Map<string, StandingRow[]>();
 let metaPromise: Promise<AgentMeta> | null = null;
 function loadAgentMeta(): Promise<AgentMeta> {
   if (!metaPromise)
-    metaPromise = fetch("/agents.json")
-      .then((r) => r.json())
-      .catch(() => ({}) as AgentMeta);
+    metaPromise = loadJson<AgentMeta>("/agents.json", {} as AgentMeta);
   return metaPromise;
 }
 

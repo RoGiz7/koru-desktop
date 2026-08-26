@@ -16,6 +16,7 @@ import { buildLootIndex, type LootIndex } from "./lootPaste";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import { openExternal } from "./openExternal";
+import { loadJson } from "./staticJson";
 
 /** Etiqueta e icono por tipo de sitio. `tid` = typeID real de EVE (image server) para el icono
  *  auténtico; el `icon` emoji es la reserva (y lo que se ve en los <select>, que no admiten <img>).
@@ -157,7 +158,10 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
   useEffect(() => {
     buildLootIndex().then(setLootIndex);
     buildDungeonIndex().then(setDungeonIdx);
-    fetch("/wh_types.json").then((r) => r.json()).then(setWhTypes).catch(() => setWhTypes(null));
+    loadJson<Record<
+      string,
+      { tid: number; cls: number | null; life_h: number | null; mass: number | null; jump: number | null }
+    > | null>("/wh_types.json", null).then(setWhTypes);
   }, []);
 
   // Índice de nombres del SDE, para resolver el sistema tecleado y para nombrar los del selector

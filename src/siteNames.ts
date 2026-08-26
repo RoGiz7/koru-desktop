@@ -10,20 +10,17 @@
 // SDE no tenga, etc.) se usa el nombre tal cual → mejora estricta, nunca empeora. Ver el bloque §3 de
 // koru-nombres-localizados-trampa.
 
+import { loadJson } from "./staticJson";
 /** Índice nombre-de-sitio-ES (minúsculas) → nombre EN. */
 export type DungeonIndex = Map<string, string>;
 
 /** Carga `public/dungeon_names.json` una vez (cachéalo en el llamante). Mapa vacío si falla. */
 // Promesa cacheada, por lo mismo que `buildLootIndex`: `dungeon_names.json` son 60 KB estáticos
 // que dos secciones releían en cada visita. Se monta una vez por sesión.
-let dungeonPromise: Promise<DungeonIndex> | null = null;
 export function buildDungeonIndex(): Promise<DungeonIndex> {
-  if (!dungeonPromise)
-    dungeonPromise = fetch("/dungeon_names.json")
-      .then((r) => r.json())
-      .then((raw: Record<string, string>) => new Map(Object.entries(raw)))
-      .catch(() => new Map<string, string>());
-  return dungeonPromise;
+  return loadJson<Record<string, string>>("/dungeon_names.json", {}).then(
+    (raw) => new Map(Object.entries(raw)),
+  );
 }
 
 /** Nombre del sitio en inglés si lo conocemos; si no, el mismo nombre (que ya puede estar en inglés). */
