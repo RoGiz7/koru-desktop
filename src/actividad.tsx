@@ -36,6 +36,13 @@ function KLColumns({
   );
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// Gemela de la de resumen.tsx, y por la misma razón: el «· actualizando…» ya estaba, lo que
+// faltaba era que lo pintado sobreviviera a salir de la pestaña.
+// ⚠️ LA CLAVE: los periodos van por sujeto; la actividad, por sujeto Y periodo.
+const cachePeriodos = new Map<string, string[]>();
+const cacheActividad = new Map<string, PvpActivity>();
+
 export function ActividadView({ subject }: { subject: number | "global" }) {
   const isGlobal = subject === "global";
   const [periods, setPeriods] = useState<string[] | null>(null);
@@ -45,11 +52,18 @@ export function ActividadView({ subject }: { subject: number | "global" }) {
 
   useEffect(() => {
     let alive = true;
+    const clave = String(subject);
+    const previos = cachePeriodos.get(clave);
+    if (previos) {
+      setPeriods(previos);
+      setPeriod((p) => (p && previos.includes(p) ? p : previos[0] ?? ""));
+    }
     (async () => {
       try {
         const ps = isGlobal
           ? await invoke<string[]>("get_pvp_periods_global")
           : await invoke<string[]>("get_pvp_periods", { characterId: subject });
+        cachePeriodos.set(clave, ps); // se guarda aunque la vista ya no esté montada
         if (!alive) return;
         setPeriods(ps);
         setPeriod((p) => (p && ps.includes(p) ? p : ps[0] ?? ""));
@@ -65,14 +79,19 @@ export function ActividadView({ subject }: { subject: number | "global" }) {
   useEffect(() => {
     if (!period) return;
     let alive = true;
+    const clave = `${subject}|${period}`;
+    const previo = cacheActividad.get(clave);
+    if (previo) setData(previo);
     setBusy(true);
     (async () => {
       try {
         const d = isGlobal
           ? await invoke<PvpActivity>("get_pvp_activity_global", { period })
           : await invoke<PvpActivity>("get_pvp_activity", { characterId: subject, period });
+        cacheActividad.set(clave, d);
         if (alive) setData(d);
       } catch {
+        // Igual que en Resumen: si la re-lectura falla se borra, no se deja el dato sin confirmar.
         if (alive) setData(null);
       } finally {
         if (alive) setBusy(false);

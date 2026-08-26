@@ -60,6 +60,17 @@ function CatTable({ rows, invert }: { rows: CategorySum[]; invert: boolean }) {
   );
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx): se pinta lo último conocido al instante y se re-pide
+// DETRÁS. Esta vista ya estaba MEDIO preparada — el «· actualizando…» existe desde el principio —
+// pero al salir de la pestaña se desmontaba y perdía todo, así que volver era empezar en blanco.
+// Y es la primera pantalla que ves al abrir Koru.
+// ⚠️ LA CLAVE. Los periodos cambian con el sujeto; el resumen cambia con el sujeto Y con el mes.
+// Si el mes no entrara en la clave, elegir otro mes te pintaría el anterior como bueno y sin un
+// solo error en pantalla — la peor clase de fallo, y la razón de convertir de una en una.
+const cachePeriodos = new Map<string, string[]>();
+const cacheResumen = new Map<string, FinancialSummary>();
+
 export function ResumenView({ subject }: { subject: number | "global" }) {
   const isGlobal = subject === "global";
   const [periods, setPeriods] = useState<string[] | null>(null);
@@ -69,11 +80,20 @@ export function ResumenView({ subject }: { subject: number | "global" }) {
 
   useEffect(() => {
     let alive = true;
+    const clave = String(subject);
+    // Los meses conocidos, ya: sin esto la vista se queda en «Cargando…» aunque la respuesta sea
+    // idéntica a la de hace diez segundos. El mes elegido se conserva si sigue existiendo.
+    const previos = cachePeriodos.get(clave);
+    if (previos) {
+      setPeriods(previos);
+      setPeriod((p) => (p && previos.includes(p) ? p : previos[0] ?? ""));
+    }
     (async () => {
       try {
         const ps = isGlobal
           ? await invoke<string[]>("get_summary_periods_global")
           : await invoke<string[]>("get_summary_periods", { characterId: subject });
+        cachePeriodos.set(clave, ps); // se guarda aunque la vista ya no esté montada
         if (!alive) return;
         setPeriods(ps);
         setPeriod((p) => (p && ps.includes(p) ? p : ps[0] ?? ""));
@@ -89,14 +109,20 @@ export function ResumenView({ subject }: { subject: number | "global" }) {
   useEffect(() => {
     if (!period) return;
     let alive = true;
+    const clave = `${subject}|${period}`;
+    const previo = cacheResumen.get(clave);
+    if (previo) setData(previo);
     setBusy(true);
     (async () => {
       try {
         const d = isGlobal
           ? await invoke<FinancialSummary>("get_summary_global", { period })
           : await invoke<FinancialSummary>("get_summary", { characterId: subject, period });
+        cacheResumen.set(clave, d);
         if (alive) setData(d);
       } catch {
+        // Si la re-lectura falla, se BORRA lo cacheado en vez de dejarlo puesto: un número que
+        // no se ha podido confirmar no puede seguir en pantalla como si nada.
         if (alive) setData(null);
       } finally {
         if (alive) setBusy(false);
