@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { fmtSp, typeIcon, typeRender } from "./format";
 import { tr } from "./i18n";
 import type { Fit, AssetDetail } from "./types";
+import { loadJson } from "./staticJson";
 
 // ---- Visor de fit circular (estilo ventana de fitting del juego) ----
 type WheelMod = { type_id: number; name: string; qty: number; fam: string };
@@ -185,22 +186,12 @@ function FitDisplay({
 
 // ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
 // El trato de siempre (ver inventario.tsx). `list_fits` no lleva argumentos → una sola caché;
-// las skills van por personaje, que es su único argumento. Y los tres JSON del SDE
-// (huecos de módulo, requisitos y nombres de skill) pasan a promesa cacheada: son estáticos y se
-// releían enteros en cada visita, como pasaba con `agents.json` en Misiones.
+// las skills van por personaje, que es su único argumento. Los tres JSON del SDE (huecos de
+// módulo, requisitos y nombres de skill) van por `staticJson.ts` — nacieron con una caché LOCAL
+// de este fichero, antes de que ese módulo existiera, y así no compartían nada con Assets, que
+// usa los mismos dos de skills.
 let cacheFits: Fit[] | null = null;
 const cacheSkills = new Map<string, Record<number, number>>();
-const jsonCache = new Map<string, Promise<unknown>>();
-function loadJson<T>(url: string): Promise<T> {
-  let p = jsonCache.get(url);
-  if (!p) {
-    p = fetch(url)
-      .then((r) => r.json())
-      .catch(() => ({}));
-    jsonCache.set(url, p);
-  }
-  return p as Promise<T>;
-}
 
 export function FitsView({ charId, charName }: { charId: number | null; charName: string | null }) {
   const [fits, setFits] = useState<Fit[]>([]);
@@ -222,9 +213,9 @@ export function FitsView({ charId, charName }: { charId: number | null; charName
       })
       .catch(() => {});
     // Los tres JSON del SDE, una vez por SESIÓN en vez de una por visita.
-    loadJson<Record<string, string>>("/module_slots.json").then(setSlots);
-    loadJson<Record<string, [number, number][]>>("/skill_reqs.json").then(setReqs);
-    loadJson<Record<string, string>>("/skill_names.json").then(setSkillNames);
+    loadJson<Record<string, string>>("/module_slots.json", {}).then(setSlots);
+    loadJson<Record<string, [number, number][]>>("/skill_reqs.json", {}).then(setReqs);
+    loadJson<Record<string, string>>("/skill_names.json", {}).then(setSkillNames);
   }, []);
   useEffect(() => {
     if (charId == null) {

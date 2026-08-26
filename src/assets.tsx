@@ -8,6 +8,7 @@ import { TypeIcon, Kpi, Bars, Th } from "./charts";
 import { WatchAddBtn } from "./comercio";
 import { ShipFit, FIT_SLOTS_RE } from "./fit";
 import type { AssetsSummary, AssetDetail } from "./types";
+import { loadJson } from "./staticJson";
 
 export function AssetsView(props: {
   data: AssetsSummary | null;
@@ -26,8 +27,10 @@ export function AssetsView(props: {
   const [skillNames, setSkillNames] = useState<Record<string, string>>({});
   const [charSkills, setCharSkills] = useState<Record<number, number> | null>(null);
   useEffect(() => {
-    fetch("/skill_reqs.json").then((r) => r.json()).then(setReqs).catch(() => {});
-    fetch("/skill_names.json").then((r) => r.json()).then(setSkillNames).catch(() => {});
+    // Los mismos dos ficheros que usa Fiteos para su skill-check: por staticJson, una descarga
+    // por sesión y compartida entre las dos secciones (`skill_reqs.json` son 203 KB).
+    loadJson<Record<string, [number, number][]>>("/skill_reqs.json", {}).then(setReqs);
+    loadJson<Record<string, string>>("/skill_names.json", {}).then(setSkillNames);
   }, []);
   useEffect(() => {
     if (charId == null) {
