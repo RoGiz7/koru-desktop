@@ -45,6 +45,10 @@ de tu ruta se encienden y a qué hora de la noche.
 Eso último es la clave. Koru lleva meses grabando **tu propio intel**, así que puede decirte cosas que
 ningún killboard sabe, porque salen de datos que solo tienes tú.
 
+Y desde la v0.46, «la película» es literal: **graba una op de flota y reprodúcela sobre el mapa** —
+tu flota moviéndose por New Eden como se movió aquella noche, con los avisos de intel pulsando a su
+hora. Nadie había podido volver a ver su flota moverse. Ahora sí.
+
 <p align="center">
   <img src="branding/screenshots/intel-overlay.png" alt="El aviso flotante de Koru encima del juego" width="550">
 </p>
@@ -96,6 +100,17 @@ más nueva que la de la mayoría de distros.
 - 🗺️ **Mapa de New Eden** con capas conmutables agrupadas por categorías: tu ubicación y tu recorrido,
   lugares/POI, seguridad, soberanía, guerra de facciones, incursiones, kills y jumps de la última hora,
   **wormholes Thera/Turnur** (vía eve-scout) y tus capas personales (PvP, assets, minería).
+- 🛰 **Flotas** — **graba la op que mandas** (solo el comandante puede; un sondeo cada 30 segundos)
+  con la **composición en vivo** por alas y escuadras, tu flota **en verde sobre el mapa**, y el visor
+  para releerla después: la **película** de la op (entradas, saltos, reships, kills, pérdidas y cantos
+  de intel intercalados a su hora), la **cinta de presencia**, el balance de tus pilotos golpe a golpe
+  y el cara a cara con cada rival. Y el broche: el **reproductor sobre el mapa**, con play, pausa,
+  velocidad y la barra de tiempo marcada — porque los killmails no cuentan una flota, y un logi que
+  se pasa la noche reparando jamás aparece en ellos.
+- 💬 **Social** — tus **conversaciones privadas, recuperadas**: EVE escribe un registro de cada chat
+  privado y luego no te deja releerlos; Koru reconstruye años de historial agrupado por interlocutor,
+  en estilo chat, con retratos y colores estables. Solo lectura, a propósito — y todo se queda en tu
+  ordenador.
 - 🧭 **Navegación** — planificador de **rutas** (stargates, con tu red de Ansiblex declarada) y de
   **saltos de capital** con rango, combustible y fatiga calculados según tu nave y tus skills. Cualquier
   ruta se manda al juego de un clic.
@@ -185,6 +200,15 @@ y será igual de completa para todo el mundo, dones o no.
 - La **comunidad de desarrolladores de EVE**, de la que esta herramienta aprende y a la que quiere
   devolver algo. Inspiración, solo inspiración: sin copiar código.
 - Construida con **Tauri**, **Rust** y **React**.
+
+## 🤝 Transparencia de desarrollo
+
+Koru se desarrolla **con asistencia de IA** (Claude, de Anthropic) como herramienta de
+programación — igual que otros proyectos usan un compilador o un IDE. Cada línea se revisa, se
+prueba contra datos reales y la aprueba un humano antes de publicarse. **La aplicación en sí no
+contiene IA**: lee tus registros locales del juego y la API oficial ESI, de forma determinista, y
+nada sale nunca de tu ordenador. Esta nota existe por lo mismo que el resto de este README:
+mereces saber exactamente qué estás ejecutando — hoy, y cuando las reglas del mañana cambien.
 
 ## 📄 Licencia
 

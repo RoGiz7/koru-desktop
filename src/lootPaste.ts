@@ -110,6 +110,18 @@ export function parseLootPaste(text: string, index?: LootIndex): LootParse {
       if (lp) {
         name = lp[0];
         typeId = lp[1];
+        // ⚠️ EL CASO LESHAK (tester de abyssals, 2026-08-22, primer feedback de la 0.46.0):
+        // «Leshak Blueprint 1» sin tabs → el prefijo más largo EN EL ÍNDICE es «Leshak» (¡el
+        // casco, 300M!) porque los planos de cascos triglavianos no se venden en mercado y no
+        // están en market_types. Si lo que sigue al nombre reconocido es «Blueprint» (o «Plano»
+        // en ES), la línea era EL PLANO: se respeta el nombre completo y NO se hereda el typeID
+        // de la nave — mejor sin valor que con el valor de otra cosa.
+        const low = line.toLowerCase();
+        const after = low.slice(low.indexOf(lp[0].toLowerCase()) + lp[0].length).trim();
+        if (/^(blueprint|plano)\b/.test(after)) {
+          name = `${lp[0]} Blueprint`;
+          typeId = index.get(name.toLowerCase()) ?? null;
+        }
       }
     }
     if (!name) continue;

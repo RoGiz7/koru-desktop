@@ -44,6 +44,10 @@ light up on your route and at what time of night.
 That last one is the point. Koru has been recording **your own intel** for months — so it can tell you
 things no killboard can, because they're built from data only you have.
 
+And since v0.46, "the movie" is literal: **record a fleet op and replay it on the map** — your fleet
+moving across New Eden the way it did that night, with intel calls pulsing at their exact time.
+Nobody has ever been able to watch their fleet move again. Now you can.
+
 <p align="center">
   <img src="branding/screenshots/intel-overlay-en.png" alt="Koru's alert overlay on top of the game" width="550">
 </p>
@@ -94,6 +98,16 @@ most distros ship.
 - 🗺️ **New Eden map** with toggleable layers grouped by category: your location and route, POIs, security,
   sovereignty, faction warfare, incursions, kills and jumps in the last hour, **Thera/Turnur wormholes**
   (via eve-scout) and your personal layers (PvP, assets, mining).
+- 🛰 **Fleets** — **record the op you command** (only the commander can; one poll every 30 seconds)
+  with the **live composition** by wings and squads, your fleet **in green on the map**, and the
+  viewer to reread it afterwards: the op's **movie** (joins, jumps, reships, kills, losses and intel
+  calls slotted in at their time), the **presence ribbon**, your pilots' hit-by-hit balance and the
+  face-to-face with every rival. And the finishing touch: the **replay on the map**, with play,
+  pause, speed and a marked timeline — because killmails don't tell a fleet's story, and a logi who
+  spends the night repairing never appears on them.
+- 💬 **Social** — your **private conversations, recovered**: EVE writes a log of every private chat
+  and then never lets you reread them; Koru rebuilds years of history grouped by person, chat-style,
+  with portraits and stable colours. Read-only, on purpose — and everything stays on your computer.
 - 🧭 **Navigation** — **route planner** (stargates, with your declared Ansiblex network) and **capital jump
   planner** with range, fuel and fatigue worked out from your ship and your skills. Send any route to the
   game in one click.
@@ -179,6 +193,15 @@ is and will stay just as complete for everyone, donations or not.
 - The **EVE developer community**, which this tool learns from and wants to give something back to.
   Inspiration only — no code copied.
 - Built with **Tauri**, **Rust** and **React**.
+
+## 🤝 Development transparency
+
+Koru is developed **with AI assistance** (Anthropic's Claude) as a programming tool — the same way
+other projects use a compiler or an IDE. Every line is reviewed, tested against real data and
+approved by a human before it ships. **The app itself contains no AI**: it reads your local game
+logs and the official ESI API, deterministically, and nothing ever leaves your computer. This note
+exists for the same reason the rest of this README does: you deserve to know exactly what you're
+running, today and whenever the rules of tomorrow change.
 
 ## 📄 Licence
 
