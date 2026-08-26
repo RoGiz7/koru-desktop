@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { tr, getLang } from "./i18n";
 import { fmtSp, typeIcon, secColor } from "./format";
 import { Kpi } from "./charts";
-import type { CharacterDetail, CharacterCard, SkillsSummary, GlobalSkills } from "./types";
+import type { CharacterDetail, CharacterCard, SkillsSummary, GlobalSkills, QueueItem } from "./types";
 import { loadJson } from "./staticJson";
 
 export function CharHeader({ detail, card }: { detail: CharacterDetail | null; card?: CharacterCard }) {
@@ -102,8 +102,35 @@ export function CharHeader({ detail, card }: { detail: CharacterDetail | null; c
   );
 }
 
+/** EL RITMO REAL, MEDIDO — no estimado (2026-08-26).
+ *
+ *  Para saber cuánto tarda un estudio hace falta SP/min, y la fórmula del juego
+ *  (`primario + secundario/2`) NO basta: los implantes suben los atributos y los boosters también,
+ *  y **los boosters ESI ni siquiera los expone**. Cualquier estimación nuestra iría por debajo
+ *  para quien los use, sin que nadie lo notara.
+ *
+ *  Pero la cola de entrenamiento trae la cuenta YA HECHA POR EL SERVIDOR: cuántos SP faltan para
+ *  terminar la entrada que está entrenando y en qué fecha termina. Dividir una cosa por la otra da
+ *  el ritmo REAL de ese personaje, con todo dentro. No hay nada que modelar: hay que mirar.
+ *
+ *  Devuelve `null` si la entrada no trae los campos (ESI podría no mandarlos) o si las fechas no
+ *  dejan medir — y entonces la vista no enseña un número inventado, sino nada. */
+function ritmoMedido(q: QueueItem): number | null {
+  if (!q.start_date || !q.finish_date) return null;
+  if (q.level_end_sp == null || q.training_start_sp == null) return null;
+  const t0 = Date.parse(q.start_date);
+  const t1 = Date.parse(q.finish_date);
+  const min = (t1 - t0) / 60000;
+  const sp = q.level_end_sp - q.training_start_sp;
+  if (!(min > 0) || !(sp > 0)) return null;
+  return sp / min;
+}
+
 export function SkillsView(props: { data: SkillsSummary | null; busy: boolean }) {
   const { data, busy } = props;
+  // El ritmo se mide sobre la entrada que se está entrenando AHORA (la posición 0 de la cola).
+  const activa = data?.queue.find((q) => q.queue_position === 0) ?? null;
+  const ritmo = activa ? ritmoMedido(activa) : null;
   return (
     <>
       {!data && busy && <p className="muted">{tr("Cargando…")}</p>}
@@ -114,7 +141,17 @@ export function SkillsView(props: { data: SkillsSummary | null; busy: boolean })
             <Kpi label={tr("SP sin asignar")} value={fmtSp(data.unallocated_sp)} />
             <Kpi label={tr("Skills")} value={data.skill_count} />
             <Kpi label={tr("En cola")} value={data.queue.length} />
+            {ritmo != null && (
+              <Kpi label={tr("Ritmo real")} value={`${ritmo.toFixed(1)} SP/min`} />
+            )}
           </div>
+          {ritmo != null && (
+            <p className="muted small">
+              {tr(
+                "Medido de lo que estás entrenando ahora, no calculado: es la cuenta del propio servidor, así que ya lleva dentro tus implantes y tus boosters.",
+              )}
+            </p>
+          )}
           <h4>{tr("Cola de entrenamiento")}</h4>
           {data.queue.length === 0 && <p className="muted small">{tr("Cola vacía.")}</p>}
           {data.queue.length > 0 && (

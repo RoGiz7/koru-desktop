@@ -117,6 +117,13 @@ export type QueueItem = {
   finish_date: string | null;
   queue_position: number;
   skill_name: string | null;
+  /** Lo que permite MEDIR el ritmo real (SP/min) en vez de estimarlo por atributos: el servidor
+   *  ya ha hecho la cuenta, y su cuenta lleva dentro implantes y boosters. Opcionales porque no
+   *  damos por hecho que ESI los mande; si faltan, se estima y se dice que es una estimación. */
+  start_date?: string | null;
+  level_start_sp?: number | null;
+  level_end_sp?: number | null;
+  training_start_sp?: number | null;
 };
 export type SkillsSummary = {
   total_sp: number;

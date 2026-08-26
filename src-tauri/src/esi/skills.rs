@@ -38,6 +38,21 @@ pub struct QueueItem {
     /// Rellenado por el comando (resolución de nombres). No viene de ESI.
     #[serde(default)]
     pub skill_name: Option<String>,
+
+    // ---- Lo que permite MEDIR el ritmo real en vez de estimarlo (2026-08-26) ----
+    // El servidor ya ha hecho la cuenta: cuántos SP faltan para acabar esta entrada y en cuánto
+    // tiempo. De ahí sale SP/min REAL, **con los implantes y los boosters ya dentro** — que es
+    // justo lo que no podemos modelar (los boosters ESI ni los expone).
+    // ⚠️ TODOS opcionales A PROPÓSITO: no doy por hecho que ESI los mande. Si vienen, se mide;
+    // si no, `None` y se cae a la fórmula por atributos diciendo que es una estimación.
+    #[serde(default)]
+    pub start_date: Option<String>,
+    #[serde(default)]
+    pub level_start_sp: Option<i64>,
+    #[serde(default)]
+    pub level_end_sp: Option<i64>,
+    #[serde(default)]
+    pub training_start_sp: Option<i64>,
 }
 
 /// Resumen de skills que devolvemos al frontend.

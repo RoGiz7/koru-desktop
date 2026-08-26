@@ -2723,6 +2723,9 @@ const EN: Record<string, string> = {
   "Abrir Social": "Open Social",
   "Ver en Social": "See in Social",
   "EVE está en downtime.": "EVE is in downtime.",
+  "Ritmo real": "Actual rate",
+  "Medido de lo que estás entrenando ahora, no calculado: es la cuenta del propio servidor, así que ya lleva dentro tus implantes y tus boosters.":
+    "Measured from what you're training right now, not calculated: it's the server's own maths, so your implants and boosters are already in it.",
   "Tu histórico local se sigue viendo entero; lo que necesite datos en vivo no llegará hasta que Tranquility vuelva.":
     "Your local history is still fully visible; anything that needs live data won't arrive until Tranquility is back.",
   "Ninguna conversación con ese nombre.": "No conversation with that name.",
