@@ -18,6 +18,19 @@ import type {
   DpsDay,
 } from "./types";
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx). Esta vista daba miedo por tener seis efectos, pero
+// CUATRO de ellos solo escriben en localStorage (mag, gran, qdir, dim): son preferencias de
+// dibujo, no consultas. Lo que se pide al backend son CINCO series del gamelog y todas llevan
+// UN solo argumento: el sujeto. Esa es la clave, y nada más.
+// ⚠️ `glTick` NO entra en la clave a propósito: no cambia la pregunta, solo obliga a repetirla.
+// Como aquí SIEMPRE se re-pide, cuando acabe un escaneo la respuesta nueva pisará lo cacheado.
+const cacheRecon = new Map<string, GamelogRecon>();
+const cacheWeapons = new Map<string, WeaponDay[]>();
+const cacheQuality = new Map<string, QualityDay[]>();
+const cacheSalvage = new Map<string, SalvageDay[]>();
+const cacheDps = new Map<string, DpsDay[]>();
+
 // Cabecera de tabla ordenable reutilizable. Click → ordena por esa columna; reclick → invierte.
 export function RateoView({
   data,
@@ -50,11 +63,20 @@ export function RateoView({
   }, [showGl]);
   useEffect(() => {
     const sid = typeof subject === "number" ? subject : 0;
+    const clave = String(sid);
+    // Del recon salen TRES estados; se derivan en un sitio para que lo cacheado y lo recién
+    // llegado se pinten exactamente igual (la lección de los helpers compartidos motor↔series).
+    const pintar = (r: GamelogRecon) => {
+      setGlBounty(r.bounty_series);
+      setGlSys(new Map((r.sys_bounty ?? []).map((s) => [s.system, { isk: s.isk, pays: s.pays }])));
+      setGlSysCov(r.bounty_isk > 0 ? r.sys_bounty_covered / r.bounty_isk : 0);
+    };
+    const previo = cacheRecon.get(clave);
+    if (previo) pintar(previo);
     invoke<GamelogRecon>("get_gamelog_recon", { subjectId: sid })
       .then((r) => {
-        setGlBounty(r.bounty_series);
-        setGlSys(new Map((r.sys_bounty ?? []).map((s) => [s.system, { isk: s.isk, pays: s.pays }])));
-        setGlSysCov(r.bounty_isk > 0 ? r.sys_bounty_covered / r.bounty_isk : 0);
+        cacheRecon.set(clave, r); // se guarda aunque la vista ya no esté montada
+        pintar(r);
       })
       .catch(() => {
         setGlBounty([]);
@@ -88,17 +110,35 @@ export function RateoView({
   }, [qdir]);
   useEffect(() => {
     const sid = typeof subject === "number" ? subject : 0;
+    const clave = String(sid);
+    // Las cuatro series del gamelog: se pinta lo conocido de ESTE sujeto y se re-piden las cuatro.
+    setGlWeapons(cacheWeapons.get(clave) ?? []);
+    setGlQuality(cacheQuality.get(clave) ?? []);
+    setGlSalvage(cacheSalvage.get(clave) ?? []);
+    setGlDps(cacheDps.get(clave) ?? []);
     invoke<WeaponDay[]>("get_gamelog_weapons", { subjectId: sid })
-      .then(setGlWeapons)
+      .then((d) => {
+        cacheWeapons.set(clave, d);
+        setGlWeapons(d);
+      })
       .catch(() => setGlWeapons([]));
     invoke<QualityDay[]>("get_gamelog_quality", { subjectId: sid })
-      .then(setGlQuality)
+      .then((d) => {
+        cacheQuality.set(clave, d);
+        setGlQuality(d);
+      })
       .catch(() => setGlQuality([]));
     invoke<SalvageDay[]>("get_gamelog_salvage", { subjectId: sid })
-      .then(setGlSalvage)
+      .then((d) => {
+        cacheSalvage.set(clave, d);
+        setGlSalvage(d);
+      })
       .catch(() => setGlSalvage([]));
     invoke<DpsDay[]>("get_gamelog_dps", { subjectId: sid })
-      .then(setGlDps)
+      .then((d) => {
+        cacheDps.set(clave, d);
+        setGlDps(d);
+      })
       .catch(() => setGlDps([]));
     // glTick: acabar un escaneo refresca armas/calidad/salvage/DPS sin salir de la vista.
     // eslint-disable-next-line react-hooks/exhaustive-deps

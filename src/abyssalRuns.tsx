@@ -142,6 +142,30 @@ function fmtMMSS(ms: number): string {
   return `${neg ? "-" : ""}${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
+// El trato de siempre (ver inventario.tsx). Y aquí LA TRAMPA DE LA CLAVE está en su forma más
+// pura: este MISMO componente sirve a DOS secciones con la prop `activity` (abyssal | crab). Una
+// caché sin `activity` en la clave enseñaría tus runs del abismo dentro de CRAB, sin un solo
+// error en pantalla. Por eso `activity` va SIEMPRE delante.
+// `run_list` no filtra por personaje —lo hace la vista, contando también a los PARTICIPANTES—,
+// así que se cachea lo CRUDO por actividad y se filtra al pintar, como en el histórico de
+// exploración: la clave se corresponde con lo que de verdad cambia la consulta, ni más ni menos.
+const cacheActive = new Map<string, ActivityRun | null>();
+const cacheList = new Map<string, ActivityRun[]>();
+let cacheChars: { character_id: number; name: string }[] | null = null;
+const cachePrecio = new Map<number, number | null>();
+// `ships.json` es estático (SDE) y se releía entero en cada visita. Ojo: aquí hacen falta las
+// FILAS con su grupo (`g`) para deducir la clase de nave, no el Map id→nombre de
+// `loadShipNames()` de flotas.tsx — mismo fichero, dos formas. Merecería un hogar común algún día.
+let shipRowsPromise: Promise<ShipEntry[]> | null = null;
+function loadShipRows(): Promise<ShipEntry[]> {
+  if (!shipRowsPromise)
+    shipRowsPromise = fetch("/ships.json")
+      .then((r) => r.json())
+      .catch(() => [] as ShipEntry[]);
+  return shipRowsPromise;
+}
+
 export function AbyssalRunsView({
   charId,
   activity = "abyssal",
@@ -203,15 +227,27 @@ export function AbyssalRunsView({
     return () => window.clearInterval(t);
   }, []);
   useEffect(() => {
-    buildLootIndex().then(setLootIndex);
-    fetch("/ships.json")
-      .then((r) => r.json())
-      .then(setShips)
-      .catch(() => {});
+    buildLootIndex().then(setLootIndex); // ya es promesa cacheada en lootPaste.ts (son 2 MB)
+    loadShipRows().then(setShips);
+    if (cacheChars) setChars(cacheChars);
     invoke<{ character_id: number; name: string }[]>("list_characters")
-      .then(setChars)
+      .then((d) => {
+        cacheChars = d;
+        setChars(d);
+      })
       .catch(() => setChars([]));
   }, []);
+
+  // El filtro por personaje vive AQUÍ, no en la consulta: cuenta también a los PARTICIPANTES.
+  const filtrarRuns = (list: ActivityRun[]) =>
+    charId == null
+      ? list
+      : list.filter(
+          (r) =>
+            r.character_id === charId ||
+            r.character_id == null ||
+            r.chars?.some((c) => c.character_id === charId),
+        );
 
   async function reload() {
     try {
@@ -219,25 +255,24 @@ export function AbyssalRunsView({
         invoke<ActivityRun | null>("run_active", { activity, characterId: charId ?? null }),
         invoke<ActivityRun[]>("run_list", { activity }),
       ]);
+      cacheActive.set(`${activity}|${charId ?? "all"}`, a ?? null);
+      cacheList.set(activity, list);
       setActive(a ?? null);
       // Filtro por personaje: cuenta también a los PARTICIPANTES, no solo a quien registró la run.
-      // Con multibox son cosas distintas — si SieteHierros registra una run que voló kukumiku, a
-      // kukumiku tiene que aparecerle: su P&L y sus bajas están ahí dentro.
-      setRuns(
-        charId == null
-          ? list
-          : list.filter(
-              (r) =>
-                r.character_id === charId ||
-                r.character_id == null ||
-                r.chars?.some((c) => c.character_id === charId),
-            ),
-      );
+      // Con multibox son cosas distintas — si un personaje registra una run que voló otro, al
+      // segundo tiene que aparecerle: su P&L y sus bajas están ahí dentro.
+      setRuns(filtrarRuns(list));
     } catch (e) {
       setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
     }
   }
   useEffect(() => {
+    // Lo último conocido de ESTA actividad, al instante. La run VIVA se cachea por actividad Y
+    // personaje (es su pregunta exacta); la lista, solo por actividad, y se filtra al pintar.
+    const previaActiva = cacheActive.get(`${activity}|${charId ?? "all"}`);
+    if (previaActiva !== undefined) setActive(previaActiva);
+    const previaLista = cacheList.get(activity);
+    if (previaLista) setRuns(filtrarRuns(previaLista));
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charId, activity]);
@@ -261,8 +296,16 @@ export function AbyssalRunsView({
    *  gratis vuelve rentable cualquier run. */
   useEffect(() => {
     if (!filamentId) return;
+    // El precio conocido de ESE filamento/baliza se pinta ya y se re-pide: es la mejor orden de
+    // Jita, y cambia. Pintar el de hace un rato mientras llega el de ahora no miente; dejarlo
+    // congelado, sí — por eso se relee siempre.
+    const previo = cachePrecio.get(filamentId);
+    if (previo !== undefined) setVariantPrice(previo);
     invoke<Record<number, number>>("get_hub_sell_prices", { ids: [filamentId], regionId: null })
-      .then((r) => setVariantPrice(r[filamentId] ?? null))
+      .then((r) => {
+        cachePrecio.set(filamentId, r[filamentId] ?? null);
+        setVariantPrice(r[filamentId] ?? null);
+      })
       .catch(() => {
         // Sin red o sin libro: la media local sigue siendo mejor que nada.
         invoke<Record<number, number>>("get_type_prices", { ids: [filamentId] })
