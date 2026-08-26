@@ -2722,6 +2722,9 @@ const EN: Record<string, string> = {
   "conversaciones": "conversations",
   "Abrir Social": "Open Social",
   "Ver en Social": "See in Social",
+  "EVE está en downtime.": "EVE is in downtime.",
+  "Tu histórico local se sigue viendo entero; lo que necesite datos en vivo no llegará hasta que Tranquility vuelva.":
+    "Your local history is still fully visible; anything that needs live data won't arrive until Tranquility is back.",
   "Ninguna conversación con ese nombre.": "No conversation with that name.",
   "De tus chatlogs — cuentan los dos lados de cada conversación.":
     "From your chatlogs — both sides of each conversation count.",

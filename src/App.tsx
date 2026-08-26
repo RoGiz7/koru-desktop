@@ -2752,6 +2752,26 @@ function App() {
             <span className="sh-subtitle">· {tr(TAB_HEAD[tab].subtitle)}</span>
           </div>
 
+          {/* DOWNTIME DECLARADO. Nació de abrir Koru con Tranquility caída: «Tus naves» se quedaba
+              en «Cargando…» — y no estaba cargando, esperaba a un servidor caído. Lo grave es que
+              Koru YA lo sabía (lo pinta en su barra de estado) y aun así el cartel afirmaba otra
+              cosa. Es el mismo pecado que el «no se encontraron canales» del intel: decir algo que
+              nadie ha comprobado teniendo el dato a mano.
+              Va en TODAS las secciones a propósito: decidir aquí cuáles dependen de ESI en vivo
+              sería una lista que envejece mal y que mentiría el día que se equivoque. El texto es
+              cierto en cualquier sección — lo local se sigue viendo, lo vivo no llega — y el aviso
+              se va solo cuando el sondeo de estado (cada 2 min) vuelva a encontrar el servidor. */}
+          {serverOffline && (
+            <p className="dt-aviso small">
+              🕓 {tr("EVE está en downtime.")}{" "}
+              <span className="muted">
+                {tr(
+                  "Tu histórico local se sigue viendo entero; lo que necesite datos en vivo no llegará hasta que Tranquility vuelva.",
+                )}
+              </span>
+            </p>
+          )}
+
           <div className="panel-art-wrap">
           {/* Social lleva captura propia de hangar (interior real, que el Image Server no sirve). */}
           {tab === "social" && <SectionArt src="/social-hangar.jpg" wide />}

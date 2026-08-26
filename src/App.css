@@ -4059,19 +4059,35 @@ h4 {
 }
 
 /* ---- Abrir contenedor/nave en Assets (drill-down) ---- */
+/* Abrir un contenedor / ver el fit de una nave desde la tabla de assets.
+   ⚠️ Estaba al 60 % de opacidad y sin borde hasta el hover: no parecía pulsable, y encima el
+   NOMBRE quedaba fuera del botón. Ahora el botón lleva icono + nombre, y el nombre usa el mismo
+   subrayado punteado que `.piloto-link` y `.ver-mapa` — en Koru, lo que se puede pulsar se
+   anuncia igual en todas partes. */
 .asset-open {
-  margin-left: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0 0.25rem;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
-  opacity: 0.6;
+  color: inherit;
   font-size: 0.85rem;
+  text-align: left;
+}
+.asset-open .asset-open-name {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
 }
 .asset-open:hover {
-  opacity: 1;
   border-color: var(--border);
+}
+.asset-open:hover .asset-open-name {
+  color: var(--accent-text, #7fb0ff);
+  text-decoration-color: currentColor;
 }
 .asset-open-ico {
   width: 20px;
@@ -4773,6 +4789,19 @@ h4 {
 .section-header .sh-subtitle {
   font-size: 0.85rem;
   color: var(--fg-muted-2);
+}
+
+/* Aviso de DOWNTIME bajo la cabecera de sección. Informativo, no una alarma: el rojo de Koru
+   está reservado al intel (algo que te puede matar) y un downtime no es eso — es ámbar, el mismo
+   registro que el aviso del modo gráfico de Linux. Ocupa poco y se va solo cuando TQ vuelve. */
+.dt-aviso {
+  margin: calc(var(--space-3) * -1) 0 var(--space-3);
+  padding: 6px 10px;
+  border: 1px solid rgba(210, 160, 60, 0.35);
+  border-left: 3px solid rgba(210, 160, 60, 0.9);
+  border-radius: 6px;
+  background: rgba(210, 160, 60, 0.08);
+  color: var(--fg);
 }
 
 /* ===== Mapa: barra de filtros inferior + panel de contexto (rediseño tipo mapa oficial) ===== */

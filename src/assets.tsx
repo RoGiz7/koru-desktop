@@ -260,9 +260,14 @@ export function AssetsView(props: {
                       )}
                     </td>
                     <td className="muted small">{r.location_name || "—"}</td>
+                    {/* EL NOMBRE VA DENTRO DEL BOTÓN (2026-08-26). Antes el nombre del contenedor
+                        era texto plano y lo clicable era SOLO un iconito al 60 % de opacidad y sin
+                        borde: RoGiz7 fue a abrir el fit pinchando la nave —que es lo natural— y no
+                        pasó nada. La función estaba, la entrada no se anunciaba. Ahora el nombre
+                        lleva el subrayado punteado de la casa (el mismo lenguaje que
+                        `.piloto-link` y `.ver-mapa`) y clicar en él abre lo que hay dentro. */}
                     <td className="muted small">
-                      {r.container ?? ""}
-                      {r.container_id !== 0 && (
+                      {r.container_id !== 0 ? (
                         <button
                           className="asset-open"
                           title={
@@ -286,7 +291,12 @@ export function AssetsView(props: {
                           ) : (
                             "🔍"
                           )}
+                          <span className="asset-open-name">
+                            {r.container ?? tr("contenedor")}
+                          </span>
                         </button>
+                      ) : (
+                        (r.container ?? "")
                       )}
                     </td>
                   </tr>
