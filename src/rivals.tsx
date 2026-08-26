@@ -5,6 +5,7 @@ import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { Bars, Kpi } from "./charts";
 import type { Battle, Rivals, RivalEntry, Wingmates } from "./types";
 import { openExternal } from "./openExternal";
+import { PilotoNombre } from "./fichaPiloto";
 
 function RivalList(props: { title: string; items: RivalEntry[]; kind: "char" | "corp" }) {
   const { title, items, kind } = props;
@@ -100,8 +101,11 @@ export function WingmatesView(props: {
    *  por compañero se agregan allí, así que recortar en el frontend daría columnas que no suman. */
   dias: number;
   onDias: (d: number) => void;
+  /** Abrir LA FICHA del piloto. Cuando está, el clic de la fila es la ficha (la respuesta de
+   *  Koru a «¿quién es?») y zKillboard vive DENTRO de ella, arriba junto al nombre. */
+  onFicha?: (name: string, id?: number | null) => void;
 }) {
-  const { data, busy, dias, onDias } = props;
+  const { data, busy, dias, onDias, onFicha } = props;
   const ventanas: { d: number; label: string }[] = [
     { d: 0, label: tr("Todo") },
     { d: 730, label: tr("2 años") },
@@ -223,8 +227,12 @@ export function WingmatesView(props: {
               <tr
                 key={m.character_id}
                 className="clickable"
-                title={tr("Abrir en zKillboard")}
-                onClick={() => openExternal(`https://zkillboard.com/character/${m.character_id}/`)}
+                title={onFicha ? tr("Abrir la ficha del piloto") : tr("Abrir en zKillboard")}
+                onClick={() =>
+                  onFicha
+                    ? onFicha(m.name ?? `#${m.character_id}`, m.character_id)
+                    : openExternal(`https://zkillboard.com/character/${m.character_id}/`)
+                }
               >
                 <td className="wm-pilot">
                   <img
@@ -233,7 +241,13 @@ export function WingmatesView(props: {
                     alt=""
                     loading="lazy"
                   />
-                  {m.name ?? `#${m.character_id}`}
+                  {/* El subrayado punteado es la SEÑAL de ficha en toda la app; la fila entera
+                      hace lo mismo, pero el nombre debe vestirse igual esté donde esté. */}
+                  <PilotoNombre
+                    nombre={m.name ?? `#${m.character_id}`}
+                    id={m.character_id}
+                    onFicha={onFicha}
+                  />
                 </td>
                 <td>
                   <strong>{m.kills_banda}</strong>

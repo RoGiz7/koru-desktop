@@ -28,6 +28,7 @@ import { BattlesView, RivalsView, WingmatesView } from "./rivals";
 import { FlotasView, TICK_SEG, type OpEstado, type Roster, type OpPlayback } from "./flotas";
 import { SocialView } from "./social";
 import { OpsView } from "./ops";
+import { FichaPiloto } from "./fichaPiloto";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
@@ -1671,6 +1672,12 @@ function App() {
     loadTab(subject, t, silencioso);
   }
 
+  /** LA FICHA DE PILOTO — se abre desde cualquier sitio donde haya un nombre (roster de ops,
+   *  Con quién vuelas, Social…). Estado a nivel App porque los llamantes viven en secciones
+   *  distintas y la ficha es UNA (mismo patrón que verEnMapa). */
+  const [fichaPiloto, setFichaPiloto] = useState<{ name: string; id?: number | null } | null>(null);
+  const abrirFicha = (name: string, id?: number | null) => setFichaPiloto({ name, id });
+
   /** «Ver en el mapa» desde cualquier sección: salta a la pestaña Mapa y centra el sistema
    *  (focusSystem, con su animación y su pulso). El scroll arriba es porque el mapa vive en la
    *  parte alta del stage y las tablas de las secciones suelen dejarte abajo. */
@@ -2598,6 +2605,7 @@ function App() {
           fleetRoster={fleetRoster}
           playback={opPlayback}
           onPlaybackClose={() => setOpPlayback(null)}
+          onFicha={abrirFicha}
           onNeedThera={() => {
             if (!theraConns) loadThera();
           }}
@@ -2772,6 +2780,7 @@ function App() {
               onStop={opStop}
               busy={opBusy}
               error={opErr}
+              onFicha={abrirFicha}
             />
           )}
           {tab === "vuelas" && (
@@ -2780,6 +2789,7 @@ function App() {
               busy={sectionBusy}
               dias={wingDias}
               onDias={loadWingmates}
+              onFicha={abrirFicha}
             />
           )}
           {tab === "batallas" && <BattlesView data={battlesData} busy={sectionBusy} />}
@@ -2873,11 +2883,12 @@ function App() {
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {/* Social se alimenta de la MISMA carpeta que el intel: los chatlogs son una sola cosa
               en disco, y pedir la ruta dos veces sería inventarse un ajuste. */}
-          {tab === "social" && <SocialView folder={intelFolder} />}
+          {tab === "social" && <SocialView folder={intelFolder} onFicha={abrirFicha} />}
           {tab === "ops" && (
             <OpsView
               characters={characters}
               onIrA={changeTab}
+              onFicha={abrirFicha}
               onReproducir={(pb) => {
                 setOpPlayback(pb);
                 verEnMapa(0); // 0 = sin centrar sistema; solo saltar al mapa y hacer scroll
@@ -3041,6 +3052,24 @@ function App() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* LA FICHA DE PILOTO — una sola instancia a nivel App: se abre desde cualquier sección
+          y las acciones de dentro (ver en el mapa, abrir Social) reusan los puentes que ya hay. */}
+      {fichaPiloto && (
+        <FichaPiloto
+          name={fichaPiloto.name}
+          characterId={fichaPiloto.id}
+          onClose={() => setFichaPiloto(null)}
+          onVerMapa={(sid) => {
+            setFichaPiloto(null);
+            verEnMapa(sid);
+          }}
+          onIrA={(t) => {
+            setFichaPiloto(null);
+            changeTab(t as Tab);
+          }}
+        />
       )}
     </main>
   );

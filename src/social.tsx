@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtSp } from "./format";
+import { PilotoNombre } from "./fichaPiloto";
 
 export type SocialConvo = {
   quienes: string[]; // [] = solo-tú / entre tus personajes; 2+ = grupal
@@ -97,7 +98,14 @@ function Avatar({
   );
 }
 
-export function SocialView({ folder }: { folder: string }) {
+export function SocialView({
+  folder,
+  onFicha,
+}: {
+  folder: string;
+  /** Abrir LA FICHA del interlocutor (quién es para ti, más allá de lo hablado). */
+  onFicha?: (name: string, id?: number | null) => void;
+}) {
   const [convos, setConvos] = useState<SocialConvo[] | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null); // clave = quienes.join(",")
   const [hilo, setHilo] = useState<SocialMsg[] | null>(null);
@@ -259,11 +267,19 @@ export function SocialView({ folder }: { folder: string }) {
                   )}
                   <span className="soc-item-txt">
                     <span className="soc-nombre">
-                      {c.quienes.length === 0
-                        ? tr("Entre tus personajes / sin respuesta")
-                        : c.quienes.length > 1
-                          ? `${tr("Grupo")}: ${c.quienes.join(", ")}`
-                          : c.quienes[0]}
+                      {c.quienes.length === 0 ? (
+                        tr("Entre tus personajes / sin respuesta")
+                      ) : c.quienes.length > 1 ? (
+                        `${tr("Grupo")}: ${c.quienes.join(", ")}`
+                      ) : (
+                        // PilotoNombre lleva stopPropagation de serie: la fila entera YA es un
+                        // botón (abrir el hilo) y el nombre no debe robarle el clic sin querer.
+                        <PilotoNombre
+                          nombre={c.quienes[0]}
+                          id={ids[c.quienes[0]]}
+                          onFicha={onFicha}
+                        />
+                      )}
                     </span>
                     <span className="soc-meta small muted">
                       {fmtSp(c.msgs)} {tr("msgs")} · {fmtFecha(c.first_ts)} → {fmtFecha(c.last_ts)}
@@ -331,7 +347,8 @@ export function SocialView({ folder }: { folder: string }) {
                             {rotular && (
                               <>
                                 <span className="soc-autor" style={colorAutor(m.author)}>
-                                  {m.author}
+                                  {/* El autor de una burbuja también es una persona con ficha. */}
+                                  <PilotoNombre nombre={m.author} id={ids[m.author]} onFicha={onFicha} />
                                 </span>
                                 <span className="soc-sep muted"> &gt; </span>
                               </>

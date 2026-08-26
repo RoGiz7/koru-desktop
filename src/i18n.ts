@@ -2695,6 +2695,41 @@ const EN: Record<string, string> = {
   "Pico de pilotos simultáneos en una op": "Peak simultaneous pilots in one op",
   "Serie negra": "Killing spree",
   "Kills de la flota acumulados en tus ops grabadas": "Fleet kills accumulated across your recorded ops",
+  // La ficha de piloto
+  "Abrir la ficha del piloto": "Open the pilot's card",
+  "hoy": "today",
+  "ayer": "yesterday",
+  "hace N días": "N days ago",
+  "El nombre no resuelve a un personaje (¿renombrado o biomasado?). Lo local se enseña igual.":
+    "The name doesn't resolve to a character (renamed or biomassed?). Local data is shown anyway.",
+  "Tu histórico no dice nada de esta persona todavía: ni kills compartidos, ni ops, ni conversaciones, ni intel.":
+    "Your history says nothing about this person yet: no shared kills, no ops, no conversations, no intel.",
+  "Habéis volado juntos": "You've flown together",
+  "kills juntos": "kills together",
+  "días distintos": "distinct days",
+  "Sus naves en esos kills": "Their ships in those kills",
+  "De tus killmails guardados — quien comparte killmail contigo estaba contigo.":
+    "From your stored killmails — whoever shares a killmail with you was with you.",
+  "En tus ops grabadas": "In your recorded ops",
+  "ops": "ops",
+  "a bordo contigo": "aboard with you",
+  "última": "last",
+  "Con qué ha volado": "What they've flown",
+  "Del grabador de flotas — solo las ops que grabaste.":
+    "From the fleet recorder — only the ops you recorded.",
+  "Os habéis hablado": "You've talked",
+  "mensajes en": "messages across",
+  "conversaciones": "conversations",
+  "Abrir Social": "Open Social",
+  "De tus chatlogs — cuentan los dos lados de cada conversación.":
+    "From your chatlogs — both sides of each conversation count.",
+  "Cantado en el intel": "Called in intel",
+  "último": "last",
+  "donde más": "most seen in",
+  "De los canales de intel que vigilas.": "From the intel channels you watch.",
+  "Tus notas sobre este piloto": "Your notes on this pilot",
+  "Todo sale de TU histórico local — nada se pregunta a nadie.":
+    "Everything comes from YOUR local history — nothing is asked of anyone.",
   "Más daño en los kills": "Top damage on kills",
   "Golpes finales": "Final blows",
   "De principio a fin": "Start to finish",

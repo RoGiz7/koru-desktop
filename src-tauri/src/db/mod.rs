@@ -6918,6 +6918,91 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    // ---- FICHA DE PILOTO: los dos lados que necesitan SQL propio ----
+    // La ficha es un JOIN sobre lo que ya se guarda; estas dos consultas se validaron
+    // literales contra SQLite antes de escribirse aquí (método de la casa).
+
+    /// Social de UNA persona, por NOMBRE (los chatlogs no traen id): mensajes de AMBOS lados
+    /// en las conversaciones donde habla, nº de conversaciones, y primer/último ts.
+    /// COLLATE NOCASE a propósito: el autor viene del cuerpo del log y el juego no garantiza
+    /// la capitalización entre años.
+    pub fn ficha_social(&self, name: &str) -> (i64, i64, Option<i64>, Option<i64>) {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*), COUNT(DISTINCT channel_uuid), MIN(ts), MAX(ts)
+             FROM social_message
+             WHERE channel_uuid IN (SELECT DISTINCT channel_uuid FROM social_message
+                                     WHERE author = ?1 COLLATE NOCASE)",
+            rusqlite::params![name],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .unwrap_or((0, 0, None, None))
+    }
+
+    /// Tramos de presencia de UNA persona en tus ops grabadas: (first_seen, last_seen,
+    /// present, started_at de la op, fin de la op). `ticks > 0` como en las medallas de
+    /// Mando: una op que no vio nada no cuenta. Los minutos se calculan en el llamante
+    /// (las fechas RFC3339 no se restan en SQL sin sustos de formato).
+    pub fn ficha_flotas_rows(
+        &self,
+        character_id: i64,
+    ) -> Vec<(String, String, bool, String, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT s.first_seen, s.last_seen, s.present, o.started_at,
+                    COALESCE(o.ended_at, o.last_tick)
+             FROM fleet_member_state s JOIN fleet_op o ON o.op_id = s.op_id
+             WHERE s.character_id = ?1 AND o.ticks > 0
+             ORDER BY o.started_at ASC",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![character_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)? != 0,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            }) {
+                for row in rows.flatten() {
+                    out.push(row);
+                }
+            }
+        }
+        out
+    }
+
+    /// Naves con las que se le ha visto en tus ops (join + reships; dock/move no son nave
+    /// nueva): (ship_type_id, veces), top 6.
+    pub fn ficha_flotas_naves(&self, character_id: i64) -> Vec<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT ship_type_id, COUNT(*) FROM fleet_member_event
+             WHERE character_id = ?1 AND ship_type_id IS NOT NULL AND kind IN ('join','ship')
+             GROUP BY 1 ORDER BY 2 DESC LIMIT 6",
+        ) {
+            if let Ok(rows) = st
+                .query_map(rusqlite::params![character_id], |r| {
+                    Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+                })
+            {
+                for row in rows.flatten() {
+                    out.push(row);
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Resumen de una grabación de flota, para la lista del visor de ops.

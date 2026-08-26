@@ -15,6 +15,7 @@ import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
+import { PilotoNombre } from "./fichaPiloto";
 import type { Character } from "./types";
 import type { Tab } from "./constants";
 
@@ -194,12 +195,15 @@ export function OpsView({
   characters,
   onIrA,
   onReproducir,
+  onFicha,
 }: {
   characters: Character[];
   /** Saltar a otra sección (Rateo, Minería…): el detalle PvE vive en su casa, no aquí. */
   onIrA?: (tab: Tab) => void;
   /** E4: lanzar el REPRODUCTOR de esta op sobre el mapa grande. */
   onReproducir?: (pb: OpPlayback) => void;
+  /** Abrir LA FICHA de una persona (quién es para ti): nombre + id si lo tenemos. */
+  onFicha?: (name: string, id?: number | null) => void;
 }) {
   const [ops, setOps] = useState<OpSummary[] | null>(null);
   const [abierta, setAbierta] = useState<number | null>(null);
@@ -455,7 +459,13 @@ export function OpsView({
                             alt=""
                             loading="lazy"
                           />
-                          <span className="ops-dest-quien">{d.name ?? `#${d.character_id}`}</span>
+                          <span className="ops-dest-quien">
+                            <PilotoNombre
+                              nombre={d.name ?? `#${d.character_id}`}
+                              id={d.character_id}
+                              onFicha={onFicha}
+                            />
+                          </span>
                           <span className="ops-dest-valor">
                             {fmtSp(d.valor)}
                             {sufijo}
@@ -534,7 +544,11 @@ export function OpsView({
                           />
                           <span className="flt-nombre">
                             {galon(m.role)}
-                            {m.name ?? `#${m.character_id}`}
+                            <PilotoNombre
+                              nombre={m.name ?? `#${m.character_id}`}
+                              id={m.character_id}
+                              onFicha={onFicha}
+                            />
                           </span>
                           {m.ship_type_id != null && (
                             <span className="flt-nave small">
@@ -581,7 +595,13 @@ export function OpsView({
                       <tr key={`${r.pilot}:${r.ship}`}>
                         <td className="ops-st-nom">
                           {r.kind === 3 ? "🏗 " : ""}
-                          {r.pilot}
+                          {/* Solo los JUGADORES (kind 1) tienen ficha: un dron o una estructura no
+                              son una persona. La ficha va por NOMBRE — el gamelog no trae ids. */}
+                          {r.kind === 1 ? (
+                            <PilotoNombre nombre={r.pilot} onFicha={onFicha} />
+                          ) : (
+                            r.pilot
+                          )}
                           {r.ticker ? <span className="muted small"> [{r.ticker}]</span> : null}
                         </td>
                         <td>{r.ship || "—"}</td>
@@ -635,7 +655,9 @@ export function OpsView({
                       if (s.files === 0)
                         return (
                           <tr key={s.character_id}>
-                            <td className="ops-st-nom">{nombre}</td>
+                            <td className="ops-st-nom">
+                              <PilotoNombre nombre={nombre} id={s.character_id} onFicha={onFicha} />
+                            </td>
                             <td colSpan={5} className="muted small">
                               {tr("sin log en la ventana — no es cero actividad, es que no se vio")}
                             </td>
@@ -643,7 +665,9 @@ export function OpsView({
                         );
                       return (
                         <tr key={s.character_id}>
-                          <td className="ops-st-nom">{nombre}</td>
+                          <td className="ops-st-nom">
+                            <PilotoNombre nombre={nombre} id={s.character_id} onFicha={onFicha} />
+                          </td>
                           <td>{fmtSp(Math.round(done / durS))}</td>
                           <td title={`NPC ${fmtSp(s.dmg_done_npc)} · PvP ${fmtSp(s.dmg_done_pvp)}`}>
                             {fmtSp(done)}
@@ -687,8 +711,14 @@ export function OpsView({
                     {stats.chars.map((s) => (
                       <tr key={s.character_id}>
                         <td className="ops-st-nom">
-                          {characters.find((c) => c.character_id === s.character_id)?.name ??
-                            `#${s.character_id}`}
+                          <PilotoNombre
+                            nombre={
+                              characters.find((c) => c.character_id === s.character_id)?.name ??
+                              `#${s.character_id}`
+                            }
+                            id={s.character_id}
+                            onFicha={onFicha}
+                          />
                         </td>
                         <td>
                           {s.reps_given > 0
@@ -722,7 +752,10 @@ export function OpsView({
                       <tbody>
                         {stats.logi_pairs.slice(0, 15).map((p) => (
                           <tr key={p.pilot}>
-                            <td className="ops-st-nom">{p.pilot}</td>
+                            <td className="ops-st-nom">
+                              {/* Contraparte del gamelog: solo NOMBRE, y la ficha sabe vivir con eso. */}
+                              <PilotoNombre nombre={p.pilot} onFicha={onFicha} />
+                            </td>
                             <td>
                               {p.given_n > 0
                                 ? `${fmtSp(Math.round(p.given_hp))} HP · ${fmtSp(p.given_n)}`
@@ -764,8 +797,14 @@ export function OpsView({
                     {stats.chars.map((s) => (
                       <tr key={s.character_id}>
                         <td className="ops-st-nom">
-                          {characters.find((c) => c.character_id === s.character_id)?.name ??
-                            `#${s.character_id}`}
+                          <PilotoNombre
+                            nombre={
+                              characters.find((c) => c.character_id === s.character_id)?.name ??
+                              `#${s.character_id}`
+                            }
+                            id={s.character_id}
+                            onFicha={onFicha}
+                          />
                         </td>
                         <td>{s.bounty_isk > 0 ? fmtIsk(s.bounty_isk) : "—"}</td>
                         <td>{s.mining_units > 0 ? fmtSp(s.mining_units) : "—"}</td>
@@ -861,9 +900,27 @@ export function OpsView({
                             <span className="ops-ev-hora small muted">[{fmtHoraEv(k.at)}]</span>
                             <span className="ops-kill-ico">{k.loss ? "✝" : "☠"}</span>
                             <span className="ops-ev-que">
-                              {k.loss
-                                ? `${k.victim_name ?? "?"} ${tr("pierde su")} ${nave}`
-                                : `${tr("la flota mata a")} ${k.victim_name ?? "?"} (${nave})`}
+                              {/* La víctima también es una persona con ficha (id del killmail). */}
+                              {k.loss ? (
+                                <>
+                                  {k.victim_name ? (
+                                    <PilotoNombre nombre={k.victim_name} id={k.victim_id} onFicha={onFicha} />
+                                  ) : (
+                                    "?"
+                                  )}{" "}
+                                  {tr("pierde su")} {nave}
+                                </>
+                              ) : (
+                                <>
+                                  {tr("la flota mata a")}{" "}
+                                  {k.victim_name ? (
+                                    <PilotoNombre nombre={k.victim_name} id={k.victim_id} onFicha={onFicha} />
+                                  ) : (
+                                    "?"
+                                  )}{" "}
+                                  ({nave})
+                                </>
+                              )}
                               {!k.loss && k.attackers_flota > 0 && (
                                 <span className="muted small">
                                   {" "}
@@ -896,7 +953,9 @@ export function OpsView({
                             alt=""
                             loading="lazy"
                           />
-                          <span className="ops-ev-quien">{nombre}</span>
+                          <span className="ops-ev-quien">
+                            <PilotoNombre nombre={nombre} id={e.character_id} onFicha={onFicha} />
+                          </span>
                           <span className="ops-ev-que">{frase(e)}</span>
                           {(e.kind === "ship" || e.kind === "join") && e.ship_type_id != null && (
                             <img

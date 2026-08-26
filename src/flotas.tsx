@@ -21,6 +21,7 @@ import { tr } from "./i18n";
 import { fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
+import { PilotoNombre } from "./fichaPiloto";
 import type { Character } from "./types";
 
 export type OpEstado = {
@@ -102,7 +103,16 @@ export function loadShipNames(): Promise<Map<number, string>> {
  *  aquí mismo quién va con quién y dónde está cada uno, sin abrir la ventana de flota del juego.
  *  Lee lo que el grabador YA guarda — cero llamadas extra a ESI por pintarla — y se refresca con
  *  cada sondeo (la prop `ticks` es la señal). La capa «flota en el mapa» queda para después. */
-function RosterPanel({ opId, ticks }: { opId: number; ticks: number }) {
+function RosterPanel({
+  opId,
+  ticks,
+  onFicha,
+}: {
+  opId: number;
+  ticks: number;
+  /** Abrir LA FICHA del piloto — el nombre lleva su afford habitual (PilotoNombre). */
+  onFicha?: (name: string, id?: number | null) => void;
+}) {
   const [roster, setRoster] = useState<Roster | null>(null);
   const [sysNames, setSysNames] = useState<Map<number, string>>(new Map());
   const [shipNames, setShipNames] = useState<Map<number, string>>(new Map());
@@ -172,7 +182,11 @@ function RosterPanel({ opId, ticks }: { opId: number; ticks: number }) {
               />
               <span className="flt-nombre">
                 {galon(m.role)}
-                {m.name ?? `#${m.character_id}`}
+                <PilotoNombre
+                  nombre={m.name ?? `#${m.character_id}`}
+                  id={m.character_id}
+                  onFicha={onFicha}
+                />
               </span>
               {m.ship_type_id != null && (
                 <span className="flt-nave small">
@@ -209,6 +223,7 @@ export function FlotasView({
   onStop,
   busy,
   error,
+  onFicha,
 }: {
   characters: Character[];
   subject: number | "global";
@@ -217,6 +232,8 @@ export function FlotasView({
   onStop: () => void;
   busy: boolean;
   error: string | null;
+  /** Abrir LA FICHA del piloto desde la composición en vivo. */
+  onFicha?: (name: string, id?: number | null) => void;
 }) {
   const conScope = characters.filter((c) => c.scopes?.includes(SCOPE_FLOTA));
   const [quien, setQuien] = useState<number | null>(
@@ -283,7 +300,7 @@ export function FlotasView({
           </button>
           {/* La composición, debajo de los KPI: el «quién va con quién y dónde» que en el juego
               obliga a tener la ventana de flota abierta. Se refresca con cada sondeo. */}
-          <RosterPanel opId={estado!.op_id} ticks={estado!.ticks} />
+          <RosterPanel opId={estado!.op_id} ticks={estado!.ticks} onFicha={onFicha} />
         </div>
       ) : (
         <div className="flt-arranque">

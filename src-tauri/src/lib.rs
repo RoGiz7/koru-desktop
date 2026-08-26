@@ -365,6 +365,7 @@ pub fn run() {
             commands::fleet_op_kills,
             commands::fleet_op_intel,
             commands::fleet_op_destacados,
+            commands::pilot_ficha,
             commands::social_scan,
             commands::social_overview,
             commands::social_thread,

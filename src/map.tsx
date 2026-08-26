@@ -14,6 +14,7 @@ import { useIntel } from "./useIntel";
 import { buildIntelReports, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
+import { PilotoNombre } from "./fichaPiloto";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay, Tab } from "./constants";
@@ -329,6 +330,8 @@ export function MapView(props: {
    *  leen el instante T (no el vivo) y la tarjeta derecha gana la pestaña «Op» con los mandos. */
   playback?: OpPlayback | null;
   onPlaybackClose?: () => void;
+  /** Abrir LA FICHA de un piloto (narrador, composición en T, pestaña Flota). */
+  onFicha?: (name: string, id?: number | null) => void;
   /** Aviso a abrir en la ficha, pedido desde el overlay flotante. Ver el efecto más abajo. */
   openIntelReq?: {
     sysId: number;
@@ -356,6 +359,7 @@ export function MapView(props: {
     fleetRoster,
     playback,
     onPlaybackClose,
+    onFicha,
     openIntelReq,
     assetsBySystem,
     miningBySystem,
@@ -408,6 +412,10 @@ export function MapView(props: {
   useEffect(() => setSubFilter(overlay === "recorrido" ? "6" : "all"), [overlay]);
   const [openCat, setOpenCat] = useState<string | null>(null); // desplegable de categoría de capas abierto
   const [ctxCollapsed, setCtxCollapsed] = useState(false); // panel de contexto plegado
+  // El BUSCADOR del mapa (lo vio RoGiz7: había centrado, pulso… y ningún buscador A LA VISTA —
+  // solo los de Ruta/Salto, escondidos tras abrir una tarjeta). Guarda el último elegido para
+  // que el input enseñe su nombre al perder el foco, como los de la ruta.
+  const [buscado, setBuscado] = useState<number | null>(null);
   // Planificador de rutas: estado (modo + paradas) encapsulado en su hook.
   const {
     routeActive,
@@ -2788,6 +2796,24 @@ export function MapView(props: {
       </p>
       <div className="map-wrap">
 
+        {/* 🔍 EL BUSCADOR DEL MAPA — arriba y al centro, sobre cualquier capa. Reusa el
+            SystemSearch de Ruta/evitados y el focusSystem de siempre: buscar un sistema ES
+            querer verlo (centrado, pulso, y la región se abre sola si hace falta). */}
+        {ne && (
+          <div className="map-search">
+            <span className="map-search-ico">🔍</span>
+            <SystemSearch
+              systems={ne.systems}
+              value={buscado}
+              placeholder={tr("Buscar sistema…")}
+              onPick={(id) => {
+                setBuscado(id);
+                focusSystem(id);
+              }}
+            />
+          </div>
+        )}
+
         {jumpActive && (
         <div className="route-panel map-navcard">
           {characters.length > 0 && (
@@ -4138,7 +4164,11 @@ export function MapView(props: {
                       loading="lazy"
                     />
                   )}
-                  {l.quien && <span className="pb-l-quien">{l.quien}</span>}
+                  {l.quien && (
+                    <span className="pb-l-quien">
+                      <PilotoNombre nombre={l.quien} id={l.charId} onFicha={onFicha} />
+                    </span>
+                  )}
                   {l.verbo && <span> {l.verbo} </span>}
                   {l.sysId != null && (
                     <span
@@ -4730,7 +4760,9 @@ export function MapView(props: {
                       alt=""
                       loading="lazy"
                     />
-                    <span className="pb-comp-quien">{p.quien}</span>
+                    <span className="pb-comp-quien">
+                      <PilotoNombre nombre={p.quien} id={p.charId} onFicha={onFicha} />
+                    </span>
                     {p.ship != null && (
                       <span className="pb-comp-nave small">
                         <img className="type-ico pb-l-nave" src={typeIcon(p.ship)} alt="" loading="lazy" />
@@ -4841,7 +4873,11 @@ export function MapView(props: {
                       />
                       <span className="flota-card-nombre">
                         {galon(m.role)}
-                        {m.name ?? `#${m.character_id}`}
+                        <PilotoNombre
+                          nombre={m.name ?? `#${m.character_id}`}
+                          id={m.character_id}
+                          onFicha={onFicha}
+                        />
                       </span>
                       {m.ship_type_id != null && (
                         <span className="flt-nave small">

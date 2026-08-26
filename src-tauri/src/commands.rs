@@ -12572,3 +12572,184 @@ pub async fn fleet_op_destacados(
         recepcion: arma(ganadores[3], 1),
     })
 }
+
+// ==================== LA FICHA DE PILOTO ====================
+
+/// La ficha de una persona — la pieza que une los seis sitios donde Koru habla de gente:
+/// Con quién vuelas, tus ops grabadas, Social, el intel, las notas. Idea de RoGiz7 al
+/// cerrar Social: «las flotas necesitarán de social… algo que una todos los personajes».
+///
+/// No es una obra: es un JOIN sobre lo que ya se guarda. La única costura de verdad es
+/// que Social va por NOMBRE (los chatlogs no traen id) y el resto por character_id; el
+/// puente es name_cache/intel_sightings. Si el nombre no resuelve (renombrado, biomasado),
+/// la parte social se enseña IGUAL: la conversación de 2021 existió aunque el personaje ya
+/// no. Cada bloque declara su alcance y el front solo pinta los que traen datos — la ficha
+/// jamás rellena con ceros lo que no vio.
+#[derive(Debug, Serialize)]
+pub struct FichaPiloto {
+    pub name: String,
+    pub character_id: Option<i64>,
+    // — Volar juntos (tus killmails guardados; espejo exacto de Con quién vuelas) —
+    pub kills_juntos: i64,
+    pub dias_juntos: i64,
+    pub primer_kill: Option<String>, // YYYY-MM-DD
+    pub ultimo_kill: Option<String>,
+    pub sus_naves: Vec<CountItem>, // con qué le has visto en esos kills
+    // — Tus ops grabadas (grabador de flotas) —
+    pub ops_juntas: i64,
+    pub minutos_op: i64,
+    pub ultima_op: Option<String>, // started_at de la última compartida
+    pub naves_op: Vec<CountItem>,
+    // — Social (chatlogs, por NOMBRE; cuentan AMBOS lados de las conversaciones) —
+    pub msgs: i64,
+    pub convos: i64,
+    pub primer_msg_ts: Option<i64>, // epoch s
+    pub ultimo_msg_ts: Option<i64>,
+    // — Intel (avistamientos persistidos) —
+    pub avistamientos: i64,
+    pub ultimo_avist_ms: Option<i64>,
+    pub sistema_favorito: Option<i64>, // donde más se le ha visto
+    // — Notas ancladas a este piloto —
+    pub notas: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn pilot_ficha(
+    name: String,
+    character_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<FichaPiloto> {
+    let nl = name.trim().to_lowercase();
+
+    // Identidad: el id del llamante manda (roster/killmails lo traen de serie); si no,
+    // name_cache; si no, el MAX de intel_sightings. `> 0` filtra la caché negativa.
+    let (avistamientos, _first_ms, ultimo_avist_ms, id_intel) = state.db.pilot_stats(&nl);
+    let cid = character_id
+        .filter(|i| *i > 0)
+        .or_else(|| {
+            state
+                .db
+                .name_cache_get(&nl)
+                .and_then(|(id, _, _)| id)
+                .filter(|i| *i > 0)
+        })
+        .or(id_intel.filter(|i| *i > 0));
+
+    // — Volar juntos: paseo por los killmails (kills, no pérdidas — en una pérdida los
+    //   atacantes son enemigos, la lección de get_wingmates). La fecha por sus 10 primeros
+    //   caracteres, nunca comparando la cadena entera (Z vs +00:00).
+    let mut kills_juntos = 0i64;
+    let mut dias: std::collections::HashSet<String> = Default::default();
+    let mut primer_kill: Option<String> = None;
+    let mut ultimo_kill: Option<String> = None;
+    let mut naves_km: std::collections::HashMap<i64, i64> = Default::default();
+    if let Some(cid) = cid {
+        for (is_loss, killed_at, raw) in state.db.killmails_raw_dated()? {
+            if is_loss {
+                continue;
+            }
+            let Ok(km) = serde_json::from_str::<KmAtacantes>(&raw) else {
+                continue;
+            };
+            let Some(suyo) = km.attackers.iter().find(|a| a.character_id == Some(cid)) else {
+                continue;
+            };
+            kills_juntos += 1;
+            if let Some(sh) = suyo.ship_type_id {
+                *naves_km.entry(sh).or_insert(0) += 1;
+            }
+            if let Some(ka) = killed_at.as_deref() {
+                if ka.len() >= 10 {
+                    let d = ka[..10].to_string();
+                    if primer_kill.as_deref().map(|p| d.as_str() < p).unwrap_or(true) {
+                        primer_kill = Some(d.clone());
+                    }
+                    if ultimo_kill.as_deref().map(|u| d.as_str() > u).unwrap_or(true) {
+                        ultimo_kill = Some(d.clone());
+                    }
+                    dias.insert(d);
+                }
+            }
+        }
+    }
+    let mut sus_naves: Vec<CountItem> = naves_km
+        .into_iter()
+        .map(|(id, count)| CountItem { id, count })
+        .collect();
+    sus_naves.sort_by_key(|c| (-c.count, c.id));
+    sus_naves.truncate(5);
+
+    // — Tus ops grabadas: tramos de presencia → minutos (si seguía a bordo, el tramo se
+    //   cierra en el fin de la op, como en la cinta y las medallas de Mando).
+    let ts = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|t| t.timestamp())
+            .ok()
+    };
+    let mut ops_juntas = 0i64;
+    let mut minutos_op = 0i64;
+    let mut ultima_op: Option<String> = None;
+    let mut naves_op: Vec<CountItem> = Vec::new();
+    if let Some(cid) = cid {
+        for (fs, ls, present, started, fin) in state.db.ficha_flotas_rows(cid) {
+            ops_juntas += 1;
+            ultima_op = Some(started);
+            if let Some(a) = ts(&fs) {
+                let b = if present {
+                    fin.as_deref().and_then(ts).unwrap_or_else(|| ts(&ls).unwrap_or(a))
+                } else {
+                    ts(&ls).unwrap_or(a)
+                };
+                minutos_op += ((b - a).max(0)) / 60;
+            }
+        }
+        naves_op = state
+            .db
+            .ficha_flotas_naves(cid)
+            .into_iter()
+            .map(|(id, count)| CountItem { id, count })
+            .collect();
+    }
+
+    // — Social: por NOMBRE, funciona aunque el id no exista ya.
+    let (msgs, convos, primer_msg_ts, ultimo_msg_ts) = state.db.ficha_social(name.trim());
+
+    // — Intel: el sistema FAVORITO (donde más se le ha visto), no el último — para una
+    //   ficha de persona dice más quién es que dónde estuvo hace un rato.
+    let sistema_favorito = state.db.pilot_by_system(&nl, 1).first().map(|(s, _)| *s);
+
+    // — Notas ancladas (las vivas; las hechas ya cumplieron su papel).
+    let notas: Vec<String> = cid
+        .map(|c| {
+            state
+                .db
+                .notes_for_anchor("character", c, None)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|n| n.body)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(FichaPiloto {
+        name: name.trim().to_string(),
+        character_id: cid,
+        kills_juntos,
+        dias_juntos: dias.len() as i64,
+        primer_kill,
+        ultimo_kill,
+        sus_naves,
+        ops_juntas,
+        minutos_op,
+        ultima_op,
+        naves_op,
+        msgs,
+        convos,
+        primer_msg_ts,
+        ultimo_msg_ts,
+        avistamientos,
+        ultimo_avist_ms,
+        sistema_favorito,
+        notas,
+    })
+}

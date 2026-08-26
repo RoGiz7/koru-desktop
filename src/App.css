@@ -9930,3 +9930,168 @@ h4 {
 .ops-dest-label {
   margin-left: 2px;
 }
+
+/* ==================== LA FICHA DE PILOTO ==================== */
+/* Overlay a nivel App: se abre desde cualquier sección. La tarjeta es una CONSULTA, no una
+   sección — compacta, cerrable con Escape o clic fuera, y solo pinta bloques con datos. */
+.fp-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+.fp-card {
+  background: var(--bg-surface, #242424);
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  padding: 16px 18px;
+  width: min(520px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.fp-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.fp-retrato {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--border, #333);
+}
+.fp-inicial {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  background: var(--bg-control, #2f2f2f);
+  border: 2px solid var(--border, #333);
+}
+.fp-quien {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.fp-quien strong {
+  font-size: 1.1em;
+}
+.fp-links {
+  display: flex;
+  gap: 10px;
+}
+.fp-cerrar {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  opacity: 0.7;
+  align-self: flex-start;
+}
+.fp-cerrar:hover {
+  opacity: 1;
+}
+.fp-bloque {
+  border-top: 1px solid var(--border, #333);
+  padding: 10px 0;
+}
+.fp-titulo {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.fp-dato {
+  margin: 2px 0;
+}
+/* El alcance de cada bloque, DICHO — cada métrica con su fuente, la regla de la casa. */
+.fp-alcance {
+  font-size: 0.78em;
+  opacity: 0.55;
+  margin-top: 4px;
+}
+.fp-naves {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  vertical-align: middle;
+}
+.fp-nave {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-control, #2f2f2f);
+  border-radius: 5px;
+  padding: 1px 7px 1px 3px;
+}
+.fp-nave img {
+  border-radius: 3px;
+}
+.fp-nota {
+  background: var(--bg-control, #2f2f2f);
+  border-left: 3px solid var(--accent-border, #4f9cff);
+  border-radius: 4px;
+  padding: 6px 9px;
+  margin: 5px 0;
+  white-space: pre-wrap;
+}
+.fp-pie {
+  border-top: 1px solid var(--border, #333);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+/* EL NOMBRE DE UN PILOTO, clicable hacia su ficha — mismo aspecto en TODA la app
+   (película, roster, mapa, Social, tablas): subrayado punteado siempre visible, color
+   de acento al pasar. El componente es PilotoNombre (fichaPiloto.tsx); esta regla es
+   su única ropa. */
+.piloto-link {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  cursor: pointer;
+}
+.piloto-link:hover {
+  color: var(--accent-text, #7fb0ff);
+  text-decoration-color: currentColor;
+}
+
+/* 🔍 EL BUSCADOR DEL MAPA — arriba al centro, flotando sobre cualquier capa (lo vio RoGiz7:
+   teníamos centrado y pulso, y ningún buscador a la vista). Mismo z que los paneles laterales. */
+.map-search {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 230px;
+  background: rgba(20, 26, 36, 0.92);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+.map-search-ico {
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+.map-search .sys-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--fg, #e8e8e8);
+}
+/* Las sugerencias caen DEBAJO del cajetín, sobre el mapa. */
+.map-search .sys-search-list {
+  z-index: 8;
+}
