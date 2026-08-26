@@ -8,6 +8,7 @@ import { Kpi, Bars } from "./charts";
 // F-REACCIONES / F4a — «de dónde traerlo»: grafo real de New Eden + BFS de saltos, los mismos que
 // usa el mapa. Nada de estimaciones por distancia en píxeles.
 import { loadNewEden } from "./neweden";
+import { loadJson } from "./staticJson";
 import { proximityBFS } from "./mapRoute";
 import type { JobView, Blueprint } from "./types";
 
@@ -1031,7 +1032,7 @@ function ProduccionBlock({
   }, [subject]);
 
   useEffect(() => {
-    fetch("/bp_industry.json").then((r) => r.json()).then(setInd).catch(() => setInd({}));
+    loadJson<BpIndustry>("/bp_industry.json", {} as BpIndustry).then(setInd);
     invoke<{ character_id: number; name: string }[]>("list_characters")
       .then((cs) => setNombres(Object.fromEntries(cs.map((c) => [c.character_id, c.name]))))
       .catch(() => setNombres({}));
@@ -1430,24 +1431,23 @@ function BomPanel({
   >(null);
 
   useEffect(() => {
-    fetch("/bp_industry.json").then((r) => r.json()).then(setInd).catch(() => setInd({}));
-    fetch("/market_types.json")
-      .then((r) => r.json())
-      .then((m: MType[]) => setNames(new Map(m.map((t) => [t.i, t.n]))))
-      .catch(() => setNames(new Map()));
-    fetch("/neweden.json")
-      .then((r) => r.json())
-      .then((d: { systems: { id: number; n: string; s: number }[] }) => setSys(d.systems))
+    // ⚠️ Este efecto se relanza con `facsVersion` (y al volver a la sección): antes eso
+    // significaba volver a descargar ~3,5 MB de catálogos que NO cambian. Ahora los sirve
+    // staticJson.ts desde memoria; lo único que se vuelve a preguntar de verdad es `facility_list`,
+    // que es lo que `facsVersion` quiere refrescar.
+    loadJson<BpIndustry>("/bp_industry.json", {} as BpIndustry).then(setInd);
+    loadJson<MType[]>("/market_types.json", []).then((m) =>
+      setNames(new Map(m.map((t) => [t.i, t.n]))),
+    );
+    loadNewEden()
+      .then((d) => setSys(d.systems))
       .catch(() => setSys([]));
-    fetch("/industry_rigs.json").then((r) => r.json()).then(setIr).catch(() => setIr(null));
-    fetch("/bp_tree.json").then((r) => r.json()).then(setTree).catch(() => setTree(null));
-    fetch("/invention.json").then((r) => r.json()).then(setInv).catch(() => setInv(null));
-    fetch("/type_volumes.json")
-      .then((r) => r.json())
-      .then((d: Record<string, number>) =>
-        setVols(new Map(Object.entries(d).map(([k, v]) => [Number(k), v]))),
-      )
-      .catch(() => setVols(new Map()));
+    loadJson<IndustryRigs | null>("/industry_rigs.json", null).then(setIr);
+    loadJson<BpTree | null>("/bp_tree.json", null).then(setTree);
+    loadJson<InventionData | null>("/invention.json", null).then(setInv);
+    loadJson<Record<string, number>>("/type_volumes.json", {}).then((d) =>
+      setVols(new Map(Object.entries(d).map(([k, v]) => [Number(k), v]))),
+    );
     invoke<Facility[]>("facility_list").then(setFacs).catch(() => setFacs([]));
   }, [facsVersion]);
 
@@ -2860,7 +2860,7 @@ function BlueprintLibrary({
   const [bom, setBom] = useState<Blueprint | null>(null); // plano abierto en el árbol BOM
 
   useEffect(() => {
-    fetch("/bp_tree.json").then((r) => r.json()).then(setTree).catch(() => setTree(null));
+    loadJson<BpTree | null>("/bp_tree.json", null).then(setTree);
   }, []);
 
   useEffect(() => {
@@ -3100,10 +3100,11 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
   };
   useEffect(() => {
     load();
-    fetch("/industry_rigs.json").then((r) => r.json()).then(setIr).catch(() => setIr(null));
-    fetch("/neweden.json")
-      .then((r) => r.json())
-      .then((d: { systems: { id: number; n: string; s: number }[] }) => setSys(d.systems))
+    loadJson<IndustryRigs | null>("/industry_rigs.json", null).then(setIr);
+    // `neweden.json` es 1 MB y YA tenía su cargador cacheado: aquí se estaba esquivando con un
+    // fetch a pelo. Ahora comparte la misma promesa que el mapa y el resto de la app.
+    loadNewEden()
+      .then((d) => setSys(d.systems))
       .catch(() => setSys([]));
   }, []);
 
@@ -3367,8 +3368,7 @@ function FacilityWizard({
   const [allRigs, setAllRigs] = useState(false);
   const [svc, setSvc] = useState<ServiceCat | null>(null);
   useEffect(() => {
-    fetch("/industry_services.json").then((r) => r.json()).then(setSvc)
-      .catch((e) => console.error("industry_services.json", e));
+    loadJson<ServiceCat | null>("/industry_services.json", null).then(setSvc);
   }, []);
   const es = getLang() === "es";
   const set = (p: Partial<Facility>) => setD({ ...d, ...p });
