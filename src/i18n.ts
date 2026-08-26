@@ -2724,6 +2724,29 @@ const EN: Record<string, string> = {
   "Ver en Social": "See in Social",
   "EVE está en downtime.": "EVE is in downtime.",
   "Ritmo real": "Actual rate",
+  "Plan de estudios": "Skill plan",
+  "El ritmo de cada skill sale de tus atributos, ajustado con el ritmo REAL medido en la cola — así entran también implantes y boosters.":
+    "Each skill's rate comes from your attributes, adjusted with the REAL rate measured from the queue — so implants and boosters count too.",
+  "Este personaje no está entrenando nada, así que el ritmo es SOLO el de tus atributos: si lleva implantes, irá más rápido de lo que dice aquí.":
+    "This character isn't training anything, so the rate is ONLY from attributes: if they have implants, they'll be faster than shown here.",
+  "Ver qué le falta exactamente": "See exactly what they're missing",
+  "No le falta nada de este plan.": "Nothing missing from this plan.",
+  "Tiene": "Has",
+  "Quiere": "Wants",
+  "Rango de skill": "Skill rank",
+  "Pega aquí un plan de habilidades exportado del juego (una línea por nivel, como lo copia EVE). Koru te dice lo que te falta y con cuál de tus personajes sale antes.":
+    "Paste a skill plan exported from the game (one line per level, the way EVE copies it). Koru tells you what you're missing and which of your characters gets there soonest.",
+  "SKILLS habilidades en el plan": "SKILLS skills in the plan",
+  "LINEAS líneas no reconocidas": "LINEAS lines not recognised",
+  "Ya tiene": "Already has",
+  "SP que faltan": "SP missing",
+  "Tardaría": "Would take",
+  "ya lo tiene": "already has it",
+  "sin ritmo medible": "no measurable rate",
+  "No está entrenando nada, así que no hay ritmo que medir. No se estima: se dice.":
+    "Not training anything, so there's no rate to measure. We don't estimate it: we say so.",
+  "El tiempo sale de tu ritmo REAL medido en la cola del servidor, así que ya cuenta tus implantes y boosters actuales. Si los cambias, cambia el tiempo.":
+    "The time comes from your REAL rate, measured from the server's own queue, so your current implants and boosters are already counted. Change those and the time changes.",
   "Medido de lo que estás entrenando ahora, no calculado: es la cuenta del propio servidor, así que ya lleva dentro tus implantes y tus boosters.":
     "Measured from what you're training right now, not calculated: it's the server's own maths, so your implants and boosters are already in it.",
   "Tu histórico local se sigue viendo entero; lo que necesite datos en vivo no llegará hasta que Tranquility vuelva.":

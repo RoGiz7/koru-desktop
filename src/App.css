@@ -10124,3 +10124,10 @@ h4 {
 .map-search .sys-search-list {
   z-index: 8;
 }
+
+/* Plan de estudios: la fila del personaje se despliega para ver QUÉ le falta. El desglose existe
+   para que el total sea auditable contra el propio juego — no es adorno. */
+.plan-fila { cursor: pointer; }
+.plan-fila:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.04)); }
+.plan-desplegar { color: var(--fg-muted-2); font-size: 0.8rem; }
+.plan-detalle { margin: 4px 0 8px; }

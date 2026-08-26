@@ -300,6 +300,7 @@ pub fn run() {
             commands::get_pvp_stats_global,
             commands::get_wallet_global,
             commands::get_skills_global,
+            commands::get_skill_states,
             commands::get_assets_global,
             commands::get_industry_global,
             commands::get_industry_history,

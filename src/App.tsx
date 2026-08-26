@@ -1,4 +1,5 @@
 import { loadJson } from "./staticJson";
+import { PlanEstudiosView } from "./planEstudios";
 import { useEffect, useRef, useState } from "react";
 import { OverlaySettings, IntelSettings } from "./overlaySettings";
 import { loadNewEden } from "./neweden";
@@ -2853,15 +2854,23 @@ function App() {
               onSync={() => handleSyncWallet(subjectId)}
             />
           )}
-          {tab === "skills" &&
-            (isGlobal ? (
-              <GlobalSkillsView data={gSkills} busy={sectionBusy} />
-            ) : (
-              <>
-                <CharHeader detail={charDetail} card={cards[subjectId]} />
-                <SkillsView data={skillsData} busy={sectionBusy} />
-              </>
-            ))}
+          {tab === "skills" && (
+            <>
+              {isGlobal ? (
+                <GlobalSkillsView data={gSkills} busy={sectionBusy} />
+              ) : (
+                <>
+                  <CharHeader detail={charDetail} card={cards[subjectId]} />
+                  <SkillsView data={skillsData} busy={sectionBusy} />
+                </>
+              )}
+              {/* El plan de estudios va en las DOS vistas a propósito: su respuesta compara a
+                  todos tus personajes, así que no es «de este piloto» ni «del global» — es la
+                  pregunta que se hace teniendo uno delante y pensando en los otros ocho. */}
+              <h4>📘 {tr("Plan de estudios")}</h4>
+              <PlanEstudiosView />
+            </>
+          )}
           {tab === "assets" && (
             <AssetsView
               data={assetsData}

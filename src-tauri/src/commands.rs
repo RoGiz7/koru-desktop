@@ -5754,6 +5754,39 @@ pub struct CharTraining {
     pub finish_date: Option<String>,
 }
 
+/// El estado de estudios de UN personaje, para evaluar un plan pegado.
+///
+/// ★ Por qué existe aparte de `get_skills_global`: aquel resume (totales + qué entrena cada uno);
+///   esto trae el DETALLE por skill, que son ~390 filas por personaje y solo hace falta cuando de
+///   verdad se está evaluando un plan. Pedirlo siempre sería pagar el detalle en cada visita.
+#[derive(Debug, Serialize)]
+pub struct SkillState {
+    pub skill_id: i64,
+    pub level: i64,
+    /// SP que YA tiene en esa skill. Venía en la respuesta de ESI desde siempre y se tiraba:
+    /// sin él, «cuánto falta para el siguiente nivel» sería una estimación en vez de una resta.
+    pub sp: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CharSkillState {
+    pub character_id: i64,
+    pub character_name: String,
+    pub total_sp: i64,
+    /// SP/min MEDIDOS de la cola (implantes y boosters dentro, porque los calcula el servidor).
+    /// `None` = ese personaje no está entrenando nada, así que no hay ritmo que medir — y eso se
+    /// dice en pantalla en vez de rellenarlo con una estimación por atributos.
+    pub rate_sp_min: Option<f64>,
+    /// Los cinco atributos, para calcular el ritmo DE CADA SKILL (cada una entrena con su propio
+    /// par primario/secundario, así que un ritmo único es una simplificación: medida contra el
+    /// juego, se quedaba corta un 0,7 % en un plan real por las skills de carisma).
+    pub attributes: Option<[i64; 5]>, // [carisma, inteligencia, memoria, percepción, voluntad]
+    /// Qué skill se está entrenando: con ella se compara el modelo por atributos contra el ritmo
+    /// medido, y de ahí sale el factor que recoge implantes y boosters.
+    pub training_skill_id: Option<i64>,
+    pub skills: Vec<SkillState>,
+}
+
 /// Skills GLOBAL: totales sumados + qué entrena cada personaje (en vez de cola fusionada).
 #[derive(Debug, Serialize)]
 pub struct GlobalSkills {
@@ -5762,6 +5795,97 @@ pub struct GlobalSkills {
     pub skill_count: i64,
     pub character_count: i64,
     pub training: Vec<CharTraining>,
+}
+
+/// Estado de estudios de TODOS tus personajes con el scope: niveles, SP por skill y ritmo real.
+///
+/// Con esto el frontend puede responder «¿cuánto me falta para este plan, y con cuál de mis nueve
+/// sale antes?» sin pedir nada más: los SP que faltan salen de una resta (SP objetivo − SP que ya
+/// tienes) y el tiempo, de dividir por un ritmo MEDIDO, no estimado.
+#[tauri::command]
+pub async fn get_skill_states(state: State<'_, AppState>) -> AppResult<Vec<CharSkillState>> {
+    let mut out: Vec<CharSkillState> = Vec::new();
+    for c in state.db.list_characters()? {
+        if !c.scopes.iter().any(|s| s == "esi-skills.read_skills.v1") {
+            continue;
+        }
+        let valid = match state
+            .tokens
+            .access_token(state.esi.http(), c.character_id)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let s = match skills::skills(&state.esi, &state.db, c.character_id, &valid.access_token).await
+        {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Ritmo REAL: de la entrada que se entrena ahora (la de fecha de fin más próxima).
+        // Misma cuenta que hace la vista de Skills, aquí para poder comparar entre personajes.
+        let entrenando = skills::skillqueue(&state.esi, &state.db, c.character_id, &valid.access_token)
+            .await
+            .ok()
+            .and_then(|q| {
+                q.into_iter()
+                    .filter(|i| i.finish_date.is_some())
+                    .min_by(|a, b| a.finish_date.cmp(&b.finish_date))
+            });
+        let training_skill_id = entrenando.as_ref().map(|i| i.skill_id);
+        let rate = entrenando.and_then(|i| {
+            let (sd, fd) = (i.start_date?, i.finish_date?);
+            let t0 = chrono::DateTime::parse_from_rfc3339(&sd).ok()?;
+            let t1 = chrono::DateTime::parse_from_rfc3339(&fd).ok()?;
+            let mins = (t1 - t0).num_seconds() as f64 / 60.0;
+            let sp = (i.level_end_sp? - i.training_start_sp?) as f64;
+            if mins > 0.0 && sp > 0.0 {
+                Some(sp / mins)
+            } else {
+                None
+            }
+        });
+
+        // Atributos: mismo endpoint y mismo scope que ya usa la ficha de personaje.
+        // `ch` es un alias LOCAL de otra función (línea ~5220), no del módulo: aquí, ruta completa.
+        let attributes = crate::esi::character::attributes(
+            &state.esi,
+            &state.db,
+            c.character_id,
+            &valid.access_token,
+        )
+            .await
+            .ok()
+            .map(|a| {
+                [
+                    a.charisma,
+                    a.intelligence,
+                    a.memory,
+                    a.perception,
+                    a.willpower,
+                ]
+            });
+
+        out.push(CharSkillState {
+            character_id: c.character_id,
+            character_name: c.name.clone(),
+            total_sp: s.total_sp,
+            rate_sp_min: rate,
+            attributes,
+            training_skill_id,
+            skills: s
+                .skills
+                .iter()
+                .map(|k| SkillState {
+                    skill_id: k.skill_id,
+                    level: k.active_skill_level,
+                    sp: k.skillpoints_in_skill,
+                })
+                .collect(),
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
