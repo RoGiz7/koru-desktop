@@ -705,8 +705,8 @@ const EN: Record<string, string> = {
   "Datos y copia de seguridad": "Data & backup",
   "Crear copia de seguridad": "Create backup",
   "Restaurar copia de seguridad": "Restore backup",
-  "Guarda todo tu histórico local (PvP, wallet, minería, patrimonio) en un archivo.":
-    "Save all your local history (PvP, wallet, mining, wealth) to a file.",
+  "Guarda TODO tu histórico local en un archivo: flotas y sus películas, Social, intel, PvP, wallet, minería, patrimonio, notas…":
+    "Saves ALL your local history to one file: fleets and their movies, Social, intel, PvP, wallet, mining, wealth, notes…",
   "Reemplaza tus datos actuales por los de una copia y reinicia la app.":
     "Replace your current data with a backup and restart the app.",
   "Copia de seguridad creada": "Backup created",

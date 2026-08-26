@@ -533,6 +533,17 @@ impl Db {
                  PRIMARY KEY (channel_uuid, file)
              );
              CREATE INDEX IF NOT EXISTS idx_ss_uuid ON social_session(channel_uuid);
+             CREATE TABLE IF NOT EXISTS fleet_op_balance (
+                 -- El balance E1 de una op TERMINADA, congelado en su primer vistazo. Nació de
+                 -- una pregunta de RoGiz7 sobre backups: el balance se calcula releyendo los
+                 -- gamelogs bajo demanda, y si esos ficheros se borran, la op quedaba muda.
+                 -- Congelado aquí, sobrevive a limpiezas, backups y PCs nuevos. JSON del OpStats
+                 -- entero: el esquema de las estadisticas aun evoluciona y una columna por campo
+                 -- obligaria a migrar en cada iteracion.
+                 op_id       INTEGER PRIMARY KEY,
+                 json        TEXT NOT NULL,
+                 computed_at TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS social_message (
                  channel_uuid TEXT NOT NULL,
                  ts           INTEGER NOT NULL,
@@ -2982,6 +2993,31 @@ impl Db {
             m.insert(k, v);
         }
         Ok(m)
+    }
+
+    /// El balance congelado de una op, si existe (JSON del OpStats).
+    pub fn fleet_op_balance_get(&self, op_id: i64) -> AppResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let r: Option<String> = conn
+            .query_row(
+                "SELECT json FROM fleet_op_balance WHERE op_id = ?1",
+                rusqlite::params![op_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(r)
+    }
+
+    /// Congela el balance de una op terminada. `INSERT OR IGNORE`: el primer cálculo gana — un
+    /// recálculo posterior con menos gamelogs a mano no puede EMPEORAR lo ya congelado.
+    pub fn fleet_op_balance_put(&self, op_id: i64, json: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO fleet_op_balance (op_id, json, computed_at)
+             VALUES (?1, ?2, datetime('now'))",
+            rusqlite::params![op_id, json],
+        )?;
+        Ok(())
     }
 
     /// Alas y escuadras vistas en una op: (wing_id, squad_id, name); squad_id = 0 es el ala.

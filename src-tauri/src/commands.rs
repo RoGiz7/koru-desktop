@@ -12015,7 +12015,7 @@ pub async fn fleet_op_events(
 /// Todo sale del GAMELOG (reparto decidido con RoGiz7: «kills como indicador, el resto del
 /// gamelog»): dps continuo, presión recibida, reps, fallos, bounty y minería. Con la etiqueta de
 /// alcance implícita en el nombre: son TUS pilotos, medidos golpe a golpe — la frase limpia.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, serde::Deserialize)]
 pub struct OpCharStats {
     pub character_id: i64,
     /// Daño HECHO, partido por el otro lado: NPC (kind 0) vs jugador/dron/estructura (1-3).
@@ -12051,7 +12051,7 @@ pub struct OpCharStats {
 /// Un rival concreto de la op (jugador, dron o estructura): daño cruzado con él, sumado sobre
 /// TODOS tus personajes. El reparto de RoGiz7 refinado: el detalle de la op es para el PVP;
 /// el detalle PvE vive en sus secciones (Rateo/Minería) y aquí solo van los sumatorios.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, serde::Deserialize)]
 pub struct OpRival {
     pub pilot: String,
     pub ticker: String,
@@ -12066,7 +12066,7 @@ pub struct OpRival {
 
 /// Una contraparte de logi en la op: quién te reparó y a quién reparaste (E2). El alcance de
 /// siempre: solo reps que TOCAN a tus personajes — es lo único que el gamelog ve.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, serde::Deserialize)]
 pub struct OpLogiPair {
     pub pilot: String,
     /// false = era una nave/dron sin firma de personaje (el gamelog no siempre da el piloto).
@@ -12077,7 +12077,7 @@ pub struct OpLogiPair {
     pub recv_n: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, serde::Deserialize)]
 pub struct OpStats {
     pub chars: Vec<OpCharStats>,
     /// Cara a cara de la op, ordenado por daño cruzado total.
@@ -12110,6 +12110,21 @@ pub async fn fleet_op_stats(
         (None, Some(l)) => parse(l)?,
         (None, None) => t0,
     };
+
+    // ★ EL CONGELADO (pregunta de RoGiz7 sobre backups): una op TERMINADA se calcula UNA vez y
+    // queda en la BD para siempre — sobrevive a que se borren los gamelogs, a los backups y a un
+    // PC nuevo. Read-through: si hay balance congelado, se devuelve; si no, se calcula y, si la
+    // op ya terminó, se congela. Las ops VIVAS siempre calculan en fresco (siguen creciendo).
+    let terminada = op.ended_at.is_some();
+    if terminada {
+        if let Some(json) = state.db.fleet_op_balance_get(op_id)? {
+            if let Ok(st) = serde_json::from_str::<OpStats>(&json) {
+                return Ok(st);
+            }
+            // JSON ilegible (¿versión vieja del esquema?): se recalcula y NO se pisa el congelado
+            // (INSERT OR IGNORE) — el dato viejo queda como testigo hasta decidir una migración.
+        }
+    }
 
     // TUS personajes que estuvieron en la op (el gamelog solo habla de los tuyos).
     let mios: std::collections::HashSet<i64> = state
@@ -12274,7 +12289,15 @@ pub async fn fleet_op_stats(
             .partial_cmp(&(a.given_hp + a.recv_hp))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    Ok(OpStats { chars: v, rivals: r, logi_pairs: lp })
+    let st = OpStats { chars: v, rivals: r, logi_pairs: lp };
+    // Congelar SOLO si la op terminó Y hubo log que leer: congelar un balance vacío porque los
+    // ficheros no estaban sería petrificar la ceguera como si fuera la verdad.
+    if terminada && st.chars.iter().any(|c| c.files > 0) {
+        if let Ok(json) = serde_json::to_string(&st) {
+            let _ = state.db.fleet_op_balance_put(op_id, &json);
+        }
+    }
+    Ok(st)
 }
 
 /// Un canto del intel dentro de la ventana de la op (E3): qué se decía alrededor mientras la

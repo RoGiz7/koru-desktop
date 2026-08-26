@@ -2282,7 +2282,7 @@ function App() {
                 <span className="tb-si-tx">
                   <strong>{tr("Crear copia de seguridad")}</strong>
                   <span className="small muted">
-                    {tr("Guarda todo tu histórico local (PvP, wallet, minería, patrimonio) en un archivo.")}
+                    {tr("Guarda TODO tu histórico local en un archivo: flotas y sus películas, Social, intel, PvP, wallet, minería, patrimonio, notas…")}
                   </span>
                 </span>
               </button>
