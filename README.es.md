@@ -54,7 +54,7 @@ hora. Nadie había podido volver a ver su flota moverse. Ahora sí.
 </p>
 <p align="center">
   <sub><i>El aviso flotante, encima del juego. No solo <b>«1 salto»</b> — <b>de quién</b> es ese salto, en <b>qué nave</b><br>
-  y hace cuánto. Ese contexto no existe en ningún otro sitio.</i></sub>
+  y hace cuánto. La línea de intel, ya leída por ti.</i></sub>
 </p>
 
 ## ⬇️ Descargar
@@ -94,7 +94,7 @@ más nueva que la de la mayoría de distros.
   **proximidad** desde tu personaje **y desde puntos de ancla** (staging, chokepoints…), con
   **notificación nativa aunque la app esté minimizada**, sonido configurable, enlace del hostil a
   **zKillboard** y su trayectoria según los reportes.
-  El **aviso flotante se pone encima del juego** y añade lo que nadie más te puede dar: no solo
+  El **aviso flotante se pone encima del juego** y contesta lo que la alarma sola no dice: no solo
   *«5 saltos»*, sino **de quién** son esos 5 saltos. También puedes **silenciar un sistema** cuando un
   canal se pone pesado — se calla la alarma, nunca el dato, y el mapa te enseña que está silenciado.
 - 🗺️ **Mapa de New Eden** con capas conmutables agrupadas por categorías: tu ubicación y tu recorrido,
@@ -107,10 +107,10 @@ más nueva que la de la mayoría de distros.
   y el cara a cara con cada rival. Y el broche: el **reproductor sobre el mapa**, con play, pausa,
   velocidad y la barra de tiempo marcada — porque los killmails no cuentan una flota, y un logi que
   se pasa la noche reparando jamás aparece en ellos.
-- 💬 **Social** — tus **conversaciones privadas, recuperadas**: EVE escribe un registro de cada chat
-  privado y luego no te deja releerlos; Koru reconstruye años de historial agrupado por interlocutor,
-  en estilo chat, con retratos y colores estables. Solo lectura, a propósito — y todo se queda en tu
-  ordenador.
+- 💬 **Social** — tus **conversaciones privadas, por fin legibles**: EVE ya las escribe en disco, pero
+  partidas en cientos de ficheros de sesión que el cliente no vuelve a enseñarte. Koru las cose en
+  años de historial agrupado por interlocutor, en estilo chat, con retratos y colores estables.
+  Solo lee lo que el juego ya escribió — solo lectura a propósito, y nada sale de tu ordenador.
 - 🧭 **Navegación** — planificador de **rutas** (stargates, con tu red de Ansiblex declarada) y de
   **saltos de capital** con rango, combustible y fatiga calculados según tu nave y tus skills. Cualquier
   ruta se manda al juego de un clic.

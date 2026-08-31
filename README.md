@@ -53,7 +53,7 @@ Nobody has ever been able to watch their fleet move again. Now you can.
 </p>
 <p align="center">
   <sub><i>The overlay, floating over the game. Not just <b>"1 jump"</b> — <b>whose</b> jump, in <b>what ship</b>,<br>
-  and how long ago. That context doesn't exist anywhere else.</i></sub>
+  and how long ago. The intel line, already read for you.</i></sub>
 </p>
 
 ## ⬇️ Download
@@ -92,7 +92,7 @@ most distros ship.
   (**read-only, TOS-safe**) and paints hostiles on the map in real time. Proximity alerts from **your
   pilot** *and* from **anchor points** (staging, chokepoints…), with **native notifications even when
   minimised**, configurable sound, a zKillboard link for the hostile and their reported trajectory.
-  The **floating overlay sits on top of the game** and adds the part nobody else can give you: not just
+  The **floating overlay sits on top of the game** and answers what the alarm alone doesn't: not just
   *"5 jumps"*, but **whose** 5 jumps they are. You can also **mute a system** when a channel gets noisy —
   it silences the alarm, never the data, and the map shows you it's muted.
 - 🗺️ **New Eden map** with toggleable layers grouped by category: your location and route, POIs, security,
@@ -105,9 +105,11 @@ most distros ship.
   face-to-face with every rival. And the finishing touch: the **replay on the map**, with play,
   pause, speed and a marked timeline — because killmails don't tell a fleet's story, and a logi who
   spends the night repairing never appears on them.
-- 💬 **Social** — your **private conversations, recovered**: EVE writes a log of every private chat
-  and then never lets you reread them; Koru rebuilds years of history grouped by person, chat-style,
-  with portraits and stable colours. Read-only, on purpose — and everything stays on your computer.
+- 💬 **Social** — your **private conversations, finally readable**: EVE already writes them to disk,
+  but split across hundreds of session files the client never shows you again. Koru stitches them
+  back into years of history grouped by person, chat-style, with portraits and stable colours.
+  It only reads the logs the game already wrote — read-only on purpose, and nothing leaves your
+  computer.
 - 🧭 **Navigation** — **route planner** (stargates, with your declared Ansiblex network) and **capital jump
   planner** with range, fuel and fatigue worked out from your ship and your skills. Send any route to the
   game in one click.
