@@ -1170,6 +1170,20 @@ export type NoteAnchor = {
   id: number;
 };
 
+/** ★ N4: una PARTE de una nota. La nota deja de ser una frase y pasa a ser un proyecto con
+ *  progreso — «3 de 7» —, y cada parte puede cerrarla Koru en vez de la mano. */
+export type NoteStep = {
+  id: number;
+  note_id: number;
+  body: string;
+  pos: number;
+  done_at: string | null;
+  /** Quién la cerró: `mano`, o el disparador que saltó. */
+  done_by: string;
+  trigger_kind: string;
+  trigger_id: number;
+};
+
 /** EL MOTOR HUMANO (N1). Ver documentacion/SPEC_MOTOR_HUMANO.md. */
 export type Note = {
   id: number;
@@ -1186,5 +1200,8 @@ export type Note = {
   trigger_id: number;
   /** `true` = avisa una vez y se cierra sola; `false` = avisa en cada visita. */
   trigger_once: boolean;
+  /** ★ N4: progreso del proyecto. 0 partes = es una nota normal, no un proyecto. */
+  steps_total: number;
+  steps_done: number;
   anchors: NoteAnchor[];
 };

@@ -61,7 +61,7 @@ function useNombreTipo(typeId: number | null): string | null {
  *  es un plano. Se prueba el icono normal y, si falla, la variante de plano; si tampoco, se calla.
  *  Las fórmulas de reacción son de lo más razonable que alguien puede esperar en un deliver, así
  *  que este caso no es raro. */
-function TipoIcono({ typeId, size = 16 }: { typeId: number; size?: number }) {
+export function TipoIcono({ typeId, size = 16 }: { typeId: number; size?: number }) {
   const [paso, setPaso] = useState<0 | 1 | 2>(0);
   if (paso === 2) return null;
   return (
@@ -79,7 +79,7 @@ function TipoIcono({ typeId, size = 16 }: { typeId: number; size?: number }) {
 /** Nombre de un piloto anclado. Se guarda el ID, así que el nombre hay que resolverlo — y se
  *  cachea en memoria porque la misma nota puede repetirlo y varias notas compartir piloto. */
 const PILOTOS = new Map<number, string>();
-function NombrePiloto({ id }: { id: number }) {
+export function NombrePiloto({ id }: { id: number }) {
   const [nombre, setNombre] = useState<string | null>(PILOTOS.get(id) ?? null);
   useEffect(() => {
     if (PILOTOS.has(id)) return;
@@ -101,14 +101,39 @@ function NombrePiloto({ id }: { id: number }) {
 /** «Se lo dejé a Reclutador»: ancla la nota a un piloto REAL, resolviendo su nombre por ESI.
  *
  *  Se guarda el ID y no el texto porque un nombre escrito de dos formas serían dos pilotos, y
- *  entonces «¿qué le he prestado a este tío?» no podría contestarse nunca. Nombre EXACTO: ESI no
- *  busca por aproximación, así que un «no encontrado» significa que ese nombre no es de nadie. */
-function AnclarPiloto({ onPick }: { onPick: (id: number, nombre: string) => void }) {
+ *  entonces «¿qué le he prestado a este tío?» no podría contestarse nunca.
+ *
+ *  ★ AUTOCOMPLETAR (pedido suyo, 2026-08-31). ESI **no busca por aproximación**: exige el nombre
+ *    exacto y sin una letra de más, lo cual es horrible para escribir. Pero Koru ya conoce un
+ *    montón de gente —tu intel, con quién has volado, tus conversaciones— porque todo eso pasa por
+ *    `name_cache`. Así que se busca AHÍ mientras escribes, y solo se cae a ESI (nombre exacto)
+ *    cuando el piloto es alguien que Koru no ha visto nunca.
+ *    Las dos vías se distinguen en pantalla: lo local se ofrece, lo de ESI hay que pedirlo. */
+export function AnclarPiloto({ onPick }: { onPick: (id: number, nombre: string) => void }) {
   const [q, setQ] = useState("");
   const [buscando, setBuscando] = useState(false);
   const [nada, setNada] = useState(false);
+  const [sug, setSug] = useState<[number, string][]>([]);
 
-  async function buscar() {
+  // Sugerencias locales según escribes. Sin debounce a propósito: es una consulta a SQLite sobre
+  // una tabla indexada, no una llamada de red.
+  useEffect(() => {
+    const t = q.trim();
+    if (t.length < 2) {
+      setSug([]);
+      return;
+    }
+    let vivo = true;
+    invoke<[number, string][]>("search_pilots", { q: t })
+      .then((r) => vivo && setSug(r))
+      .catch(() => vivo && setSug([]));
+    return () => {
+      vivo = false;
+    };
+  }, [q]);
+
+  /** Plan B: el nombre EXACTO contra ESI, para alguien que Koru no conoce todavía. */
+  async function buscarEsi() {
     const n = q.trim();
     if (!n) return;
     setBuscando(true);
@@ -120,6 +145,7 @@ function AnclarPiloto({ onPick }: { onPick: (id: number, nombre: string) => void
       if (p) {
         onPick(p.character_id, p.name);
         setQ("");
+        setSug([]);
       } else {
         setNada(true);
       }
@@ -140,10 +166,41 @@ function AnclarPiloto({ onPick }: { onPick: (id: number, nombre: string) => void
           setQ(e.target.value);
           setNada(false);
         }}
-        onKeyDown={(e) => e.key === "Enter" && void buscar()}
-        placeholder={buscando ? tr("Buscando…") : tr("Nombre exacto del piloto")}
+        onKeyDown={(e) => e.key === "Enter" && void buscarEsi()}
+        placeholder={buscando ? tr("Buscando…") : tr("Nombre del piloto")}
         autoFocus
       />
+      {sug.length > 0 && (
+        <div className="nota-res">
+          {sug.map(([id, nombre]) => (
+            <button
+              key={id}
+              className="nota-res-item"
+              onClick={() => {
+                onPick(id, nombre);
+                setQ("");
+                setSug([]);
+              }}
+            >
+              <img
+                src={`https://images.evetech.net/characters/${id}/portrait?size=32`}
+                width={18}
+                height={18}
+                alt=""
+                loading="lazy"
+              />
+              {nombre}
+            </button>
+          ))}
+        </div>
+      )}
+      {/* Si no está entre los conocidos, se puede pedir a ESI — pero con el nombre EXACTO, y se
+          dice, para que un «no existe» no se lea como «lo he buscado mal». */}
+      {q.trim().length >= 2 && sug.length === 0 && !buscando && (
+        <button className="nota-hechas" onClick={() => void buscarEsi()}>
+          {tr("Buscar en ESI (nombre exacto)")}
+        </button>
+      )}
       {nada && <span className="muted small">{tr("No existe ese piloto")}</span>}
     </div>
   );
@@ -151,13 +208,13 @@ function AnclarPiloto({ onPick }: { onPick: (id: number, nombre: string) => void
 
 /** El nombre de lo que esperas. Sin él, tres notas esperando cosas distintas se leen todas igual
  *  —«Avisar cuando llegue»— y la función deja de servir en cuanto tienes más de una. */
-function NombreTipo({ id }: { id: number }) {
+export function NombreTipo({ id }: { id: number }) {
   const n = useNombreTipo(id);
   return <>{n ?? `#${id}`}</>;
 }
 
 /** Buscador de tipo para «avisarme cuando lleguen X aquí». */
-function BuscarTipo({ onPick }: { onPick: (t: TipoCat) => void }) {
+export function BuscarTipo({ onPick }: { onPick: (t: TipoCat) => void }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<TipoCat[] | null>(null);
 

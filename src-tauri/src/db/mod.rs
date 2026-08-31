@@ -604,7 +604,33 @@ impl Db {
                  id      INTEGER NOT NULL,
                  PRIMARY KEY (note_id, kind, id)
              );
-             CREATE INDEX IF NOT EXISTS idx_nanchor_target ON note_anchor(kind, id);",
+             CREATE INDEX IF NOT EXISTS idx_nanchor_target ON note_anchor(kind, id);
+
+             -- ★ N4: LAS PARTES DE UNA NOTA (idea de RoGiz7, 2026-08-31).
+             -- Una nota deja de ser una frase y pasa a ser un PROYECTO: «los siete objetos que me
+             -- faltan para X», «los cinco láseres que presté». El progreso (3/7) es lo que
+             -- convierte apuntar algo en planificar algo.
+             --
+             -- Tabla HIJA y no un texto con saltos de línea, por la misma razón que note_anchor:
+             -- cada parte se cierra SOLA cuando su disparador salta, y para eso tiene que ser una
+             -- fila con estado propio, no una línea dentro de un párrafo.
+             --
+             -- Nace CON el hueco del disparador aunque la fase 1 no lo use — igual que hizo `note`
+             -- en N1 y por lo mismo: cuando llegue, no hay migración que inventar.
+             CREATE TABLE IF NOT EXISTS note_step (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 note_id      INTEGER NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+                 body         TEXT NOT NULL,
+                 pos          INTEGER NOT NULL DEFAULT 0,   -- el orden lo pone quien la escribe
+                 done_at      TEXT,                          -- NULL = pendiente
+                 -- Quién la cerró: 'mano' o el disparador que saltó. Sin esto, dentro de un mes no
+                 -- se sabe si aquello llegó de verdad o si alguien lo dio por bueno.
+                 done_by      TEXT NOT NULL DEFAULT '',
+                 trigger_kind TEXT NOT NULL DEFAULT '',      -- asset | contract | …
+                 trigger_id   INTEGER NOT NULL DEFAULT 0,    -- el tipo que se espera
+                 trigger_at   TEXT
+             );
+             CREATE INDEX IF NOT EXISTS idx_nstep_note ON note_step(note_id);",
         );
         // Runs MULTICUENTA (multibox): participantes de una run de abisal/CRAB. Tabla hija y no un
         // CSV en una columna, porque todas las preguntas interesantes son POR personaje («¿cuál
@@ -5140,6 +5166,41 @@ impl Db {
         .ok()
     }
 
+    /// Autocompletar de pilotos SOBRE LO QUE KORU YA CONOCE (2026-08-31).
+    ///
+    /// ★ Por qué hace falta: ESI **no busca por aproximación**, así que anclar un piloto obligaba a
+    ///   escribir su nombre exacto y sin una letra de más. Pero `name_cache` acumula todos los
+    ///   nombres que Koru ha resuelto alguna vez —tu intel, con quién has volado, tus
+    ///   conversaciones—, y ahí sí se puede buscar por trozos.
+    ///
+    /// Solo personajes RESUELTOS (`character_id > 0`): las entradas negativas son nombres que ESI
+    /// dijo que no existen, y ofrecerlos sería ofrecer a nadie. Primero los que empiezan por lo
+    /// escrito, luego los que lo contienen, y a igualdad los más vistos — el que más te cruzas es
+    /// el que más probablemente buscas.
+    pub fn name_cache_search(&self, q: &str, limit: i64) -> AppResult<Vec<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let ql = q.trim().to_lowercase();
+        if ql.len() < 2 {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT character_id, COALESCE(display_name, name_lower)
+               FROM name_cache
+              WHERE kind = 'character' AND character_id > 0 AND name_lower LIKE ?1
+              ORDER BY CASE WHEN name_lower LIKE ?2 THEN 0 ELSE 1 END,
+                       COALESCE(seen_count, 0) DESC,
+                       name_lower
+              LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params![format!("%{ql}%"), format!("{ql}%"), limit],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Guarda un personaje resuelto (positivo) en el índice.
     pub fn name_cache_put(&self, name_lower: &str, character_id: i64, display_name: &str) {
         let conn = self.conn.lock().unwrap();
@@ -6082,6 +6143,20 @@ pub struct NoteAnchor {
     pub id: i64,
 }
 
+/// ★ N4: una PARTE de una nota. «Los siete objetos que me faltan», «los cinco láseres prestados».
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NoteStep {
+    pub id: i64,
+    pub note_id: i64,
+    pub body: String,
+    pub pos: i64,
+    pub done_at: Option<String>,
+    /// Quién la cerró: `mano` o el disparador que saltó.
+    pub done_by: String,
+    pub trigger_kind: String,
+    pub trigger_id: i64,
+}
+
 /// Una nota tal como se guarda, con sus anclas ya pegadas.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NoteRow {
@@ -6099,6 +6174,10 @@ pub struct NoteRow {
     /// `true` = avisa una vez y se cierra sola. `false` = avisa cada visita.
     pub trigger_once: bool,
     pub anchors: Vec<NoteAnchor>,
+    /// ★ N4: el progreso del proyecto. Se cuenta EN SQL porque la lista solo necesita «3 de 7»;
+    /// traerse las partes de todas las notas para contarlas sería pagar el detalle en cada pintado.
+    pub steps_total: i64,
+    pub steps_done: i64,
 }
 
 impl Db {
@@ -6148,7 +6227,9 @@ impl Db {
         let mut stmt = conn.prepare(&format!(
             "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
                     n.trigger_kind, n.trigger_id, n.trigger_once,
-                    COALESCE(GROUP_CONCAT(a.kind || ':' || a.id), '')
+                    COALESCE(GROUP_CONCAT(a.kind || ':' || a.id), ''),
+                    (SELECT COUNT(*) FROM note_step s WHERE s.note_id = n.id),
+                    (SELECT COUNT(*) FROM note_step s WHERE s.note_id = n.id AND s.done_at IS NOT NULL)
                FROM note n LEFT JOIN note_anchor a ON a.note_id = n.id
               WHERE (?1 IS NULL OR n.subject_id = 0 OR n.subject_id = ?1) {filtro_done}
               GROUP BY n.id
@@ -6167,6 +6248,8 @@ impl Db {
                     trigger_id: r.get(7)?,
                     trigger_once: r.get::<_, i64>(8)? != 0,
                     anchors: parse_anchors(&r.get::<_, String>(9)?),
+                    steps_total: r.get(10)?,
+                    steps_done: r.get(11)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -6187,7 +6270,9 @@ impl Db {
             "SELECT n.id, n.subject_id, n.body, n.created_at, n.done_at, n.pinned,
                     n.trigger_kind, n.trigger_id, n.trigger_once,
                     COALESCE((SELECT GROUP_CONCAT(a2.kind || ':' || a2.id)
-                                FROM note_anchor a2 WHERE a2.note_id = n.id), '')
+                                FROM note_anchor a2 WHERE a2.note_id = n.id), ''),
+                    (SELECT COUNT(*) FROM note_step s WHERE s.note_id = n.id),
+                    (SELECT COUNT(*) FROM note_step s WHERE s.note_id = n.id AND s.done_at IS NOT NULL)
                FROM note n JOIN note_anchor a ON a.note_id = n.id
               WHERE a.kind = ?1 AND a.id = ?2
                 AND (?3 IS NULL OR n.subject_id = 0 OR n.subject_id = ?3)
@@ -6207,10 +6292,85 @@ impl Db {
                     trigger_id: r.get(7)?,
                     trigger_once: r.get::<_, i64>(8)? != 0,
                     anchors: parse_anchors(&r.get::<_, String>(9)?),
+                    steps_total: r.get(10)?,
+                    steps_done: r.get(11)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    // ---- ★ N4: las PARTES de una nota ----
+
+    /// Las partes de una nota, en el orden que puso quien la escribió.
+    pub fn note_steps(&self, note_id: i64) -> AppResult<Vec<NoteStep>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, note_id, body, pos, done_at, done_by, trigger_kind, trigger_id
+               FROM note_step WHERE note_id = ?1 ORDER BY done_at IS NOT NULL, pos, id",
+        )?;
+        let rows = stmt
+            .query_map([note_id], |r| {
+                Ok(NoteStep {
+                    id: r.get(0)?,
+                    note_id: r.get(1)?,
+                    body: r.get(2)?,
+                    pos: r.get(3)?,
+                    done_at: r.get(4)?,
+                    done_by: r.get(5)?,
+                    trigger_kind: r.get(6)?,
+                    trigger_id: r.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Añade una parte al final. Devuelve su id.
+    ///
+    /// `type_id` = el objeto del que va la parte, cuando se añade desde el selector de objetos
+    /// («los siete que necesito para el proyecto»). Se guarda en `trigger_id` PERO SIN
+    /// `trigger_kind`: mientras no exista quien lo vigile, la parte no promete que se vaya a
+    /// tachar sola. El día que exista, se activa poniendo el kind — sin migración.
+    pub fn note_step_add(&self, note_id: i64, body: &str, type_id: i64) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let pos: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(pos), -1) + 1 FROM note_step WHERE note_id = ?1",
+                [note_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO note_step (note_id, body, pos, trigger_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![note_id, body, pos, type_id],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Cierra o reabre una parte. `by` dice QUIÉN la cerró («mano» o el disparador): dentro de un
+    /// mes, saber si aquello llegó de verdad o si alguien lo dio por bueno es la diferencia entre
+    /// un dato y una suposición.
+    pub fn note_step_done(&self, id: i64, done: bool, by: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        if done {
+            conn.execute(
+                "UPDATE note_step SET done_at = ?2, done_by = ?3 WHERE id = ?1",
+                rusqlite::params![id, chrono::Utc::now().to_rfc3339(), by],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE note_step SET done_at = NULL, done_by = '' WHERE id = ?1",
+                [id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn note_step_delete(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM note_step WHERE id = ?1", [id])?;
+        Ok(())
     }
 
     /// Reescribe el texto y/o las anclas de una nota. `anchors = None` deja las anclas como están.
@@ -6328,6 +6488,10 @@ impl Db {
                         trigger_id: system_id,
                         trigger_once: false, // se recalcula abajo si hace falta; el aviso no lo usa
                         anchors: Vec::new(), // el aviso no las necesita; se piden si se abre la nota
+                        // El toast solo enseña el texto: contar las partes aquí sería una consulta
+                        // por nota en el camino caliente del sondeo de posición, para nada.
+                        steps_total: 0,
+                        steps_done: 0,
                     })
                 },
             )?;
@@ -6406,6 +6570,8 @@ impl Db {
                         trigger_id: type_id,
                         trigger_once: r.get::<_, i64>(6)? != 0,
                         anchors: Vec::new(),
+                        steps_total: 0,
+                        steps_done: 0,
                     })
                 },
             )?;

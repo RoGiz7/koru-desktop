@@ -238,7 +238,9 @@ function AnsiBadge({ size = 12 }: { size?: number }) {
 
 
 // Facciones de la Guerra de Facciones (los 4 imperios). Color + nombre por faction_id.
-function SystemSearch(props: {
+/** Exportado para que la sección de Notas ancle a un sistema con EL MISMO buscador que el mapa:
+ *  dos implementaciones de «buscar un sistema» divergirían sin que nadie lo viera. */
+export function SystemSearch(props: {
   systems: NeSystem[];
   value: number | null;
   placeholder?: string;

@@ -3307,6 +3307,54 @@ pub async fn remove_note_anchor(
 }
 
 /// Cierra o reabre una nota. Cerrar NO borra.
+/// Autocompletar de pilotos entre los que Koru YA conoce (name_cache). Local y sin ESI: es lo que
+/// permite buscar por trozos, porque ESI solo resuelve nombres exactos.
+#[tauri::command]
+pub async fn search_pilots(
+    q: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<(i64, String)>> {
+    state.db.name_cache_search(&q, 8)
+}
+
+// ---- ★ N4: las PARTES de una nota (proyecto con progreso) ----
+
+#[tauri::command]
+pub async fn note_steps(
+    note_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::NoteStep>> {
+    state.db.note_steps(note_id)
+}
+
+#[tauri::command]
+pub async fn add_note_step(
+    note_id: i64,
+    body: String,
+    type_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<i64> {
+    state.db.note_step_add(note_id, &body, type_id.unwrap_or(0))
+}
+
+/// `by` = quién la cierra. La UI manda «mano»; cuando la cierre un disparador, mandará su nombre.
+#[tauri::command]
+pub async fn set_note_step_done(
+    id: i64,
+    done: bool,
+    by: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state
+        .db
+        .note_step_done(id, done, by.as_deref().unwrap_or("mano"))
+}
+
+#[tauri::command]
+pub async fn delete_note_step(id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.note_step_delete(id)
+}
+
 #[tauri::command]
 pub async fn set_note_done(id: i64, done: bool, state: State<'_, AppState>) -> AppResult<()> {
     state.db.note_set_done(id, done)

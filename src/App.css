@@ -10230,3 +10230,63 @@ h4 {
   border-color: var(--accent-border);
   color: var(--accent-text);
 }
+
+/* Detalle de UNA nota, en ventana. Filas de etiqueta + controles: es un formulario corto, no una
+   tabla, así que se lee en vertical con la etiqueta apagada delante. */
+.nd-linea {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.nd-linea > .muted.small { min-width: 96px; }
+.nd-acciones {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+.nv-btn { margin: 6px 0 4px; }
+
+/* ★ N4: las PARTES de una nota. El progreso es lo que convierte apuntar algo en planificar algo. */
+.nd-partes { border-top: 1px solid var(--border); padding-top: 6px; }
+.nd-partes .nd-linea { border-top: none; padding-bottom: 2px; }
+.nd-barra {
+  flex: 1;
+  min-width: 60px;
+  max-width: 220px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.nd-barra > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-border);
+  transition: width 160ms ease;
+}
+.nd-paso {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0 3px 4px;
+  font-size: 0.85rem;
+}
+.nd-paso input[type="checkbox"] { margin: 0; cursor: pointer; }
+.nd-paso-txt { flex: 1; min-width: 0; word-break: break-word; }
+.nd-paso.hecha .nd-paso-txt { text-decoration: line-through; opacity: 0.6; }
+.nd-paso.nueva input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  padding: 3px 7px;
+}
+.nd-paso.nueva input[type="text"]:focus { border-style: solid; border-color: var(--accent-border); }
+.nd-elegir { margin: 2px 0 2px 4px; }
