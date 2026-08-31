@@ -2,6 +2,7 @@
 
 export type Tab =
   | "resumen"
+  | "notas"
   | "pvp"
   | "actividad"
   | "rivales"
@@ -144,6 +145,9 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       // Es el hermano hablado de «Con quién vuelas»: allí con quién VUELAS, aquí con quién HABLAS.
       { key: "social", label: "Social" },
       { key: "fiteos", label: "Fiteos" },
+      // Notas y tareas: lo ÚNICO de Koru que escribe el jugador. Vive en Personaje
+      // porque es suyo, no del juego — al lado de Social, que es el otro histórico propio.
+      { key: "notas", label: "Notas" },
     ],
   },
   {
@@ -370,6 +374,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },
   contactos: { title: "Contactos", subtitle: "Tus contactos y standings con NPC" },
   fiteos: { title: "Fiteos", subtitle: "Tus fits guardados (importados por EFT)" },
+  notas: {
+    title: "Notas y tareas",
+    subtitle: "Lo que te has apuntado, y lo que Koru te va a recordar solo cuando toque",
+  },
   social: {
     title: "Social",
     subtitle: "Tus conversaciones privadas, reconstruidas de los chatlogs — el histórico que el juego escribe y no enseña",

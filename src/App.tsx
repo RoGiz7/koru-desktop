@@ -1,5 +1,6 @@
 import { loadJson } from "./staticJson";
 import { PlanEstudiosView } from "./planEstudios";
+import { NotasVista } from "./notasVista";
 import { useEffect, useRef, useState } from "react";
 import { OverlaySettings, IntelSettings } from "./overlaySettings";
 import { loadNewEden } from "./neweden";
@@ -2924,6 +2925,7 @@ function App() {
           {tab === "fiteos" && <FitsView charId={isGlobal ? null : subjectId} charName={isGlobal ? null : subjectName} />}
           {/* Social se alimenta de la MISMA carpeta que el intel: los chatlogs son una sola cosa
               en disco, y pedir la ruta dos veces sería inventarse un ajuste. */}
+          {tab === "notas" && <NotasVista subject={subject} />}
           {tab === "social" && (
             <SocialView folder={intelFolder} onFicha={abrirFicha} focusReq={socialFocusReq} />
           )}

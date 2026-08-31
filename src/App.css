@@ -10184,3 +10184,49 @@ h4 {
   line-height: 1.5;
 }
 .nota-puede b { color: var(--fg); font-weight: 600; }
+
+/* ---- Notas y tareas (sección propia en Personaje) ----
+   La lista de TODO lo apuntado. Las que tienen disparador van primero: son las que te van a hablar
+   solas, y por tanto las que más valen. */
+.nv-nueva { max-width: 640px; }
+.nv-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+}
+.nv-fila {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+}
+.nv-fila.pin { border-color: var(--accent-border); }
+.nv-fila.hecha { opacity: 0.6; }
+.nv-fila.hecha .nota-body { text-decoration: line-through; }
+.nv-cuerpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.nv-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--fg-muted-2);
+}
+.nv-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+/* El disparador se distingue del resto de anclas: no dice DÓNDE está la nota, dice que va a sonar. */
+.nv-tag.disp {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}

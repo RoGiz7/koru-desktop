@@ -2725,6 +2725,20 @@ const EN: Record<string, string> = {
   "EVE está en downtime.": "EVE is in downtime.",
   "Ritmo real": "Actual rate",
   "Plan de estudios": "Skill plan",
+  "Notas y tareas": "Notes and tasks",
+  "Lo que te has apuntado, y lo que Koru te va a recordar solo cuando toque":
+    "What you've written down, and what Koru will remind you of on its own when the time comes",
+  "Todo lo que has apuntado, venga de donde venga. Las que te avisan solas van primero. Para anclar una nota a un sistema, a un hangar o a un piloto, se hace desde su propia ficha.":
+    "Everything you've written down, wherever it came from. The ones that warn you on their own come first. To pin a note to a system, a hangar or a pilot, do it from its own card.",
+  "Apunta algo — sin atarlo a ningún sitio": "Write something down — not tied to any place",
+  "No tienes nada pendiente.": "Nothing pending.",
+  "Hangar o estructura": "Hangar or structure",
+  "hangar": "hangar",
+  "Objeto": "Item",
+  "Te avisa al llegar": "Warns you on arrival",
+  "Te avisa cuando llegue": "Warns you when it arrives",
+  "al llegar": "on arrival",
+  "Reabrir": "Reopen",
   "Aquí no tienes nada apuntado todavía.": "Nothing noted here yet.",
   "Avisarte al llegar aquí": "Warn you when you arrive here",
   "marca la casilla de arriba y Koru te lo recuerda cuando entres, una vez o cada visita.":
