@@ -2725,6 +2725,21 @@ const EN: Record<string, string> = {
   "EVE está en downtime.": "EVE is in downtime.",
   "Ritmo real": "Actual rate",
   "Plan de estudios": "Skill plan",
+  "Aquí no tienes nada apuntado todavía.": "Nothing noted here yet.",
+  "Avisarte al llegar aquí": "Warn you when you arrive here",
+  "marca la casilla de arriba y Koru te lo recuerda cuando entres, una vez o cada visita.":
+    "tick the box above and Koru reminds you when you jump in, once or on every visit.",
+  "Avisarte cuando llegue algo a este hangar": "Warn you when something arrives in this hangar",
+  "útil para un courier o para lo que otro piloto te va a entregar; lo tuyo ya sabes cuándo llega.":
+    "useful for a courier or for what another pilot is delivering to you; your own hauling you already know about.",
+  "Anclarla a un piloto": "Pin it to a pilot",
+  "«esto se lo dejé a fulano»; luego se puede consultar por persona.":
+    "“I lent this to so-and-so”; it can then be looked up by person.",
+  "Decir a quién le toca": "Say whose job it is",
+  "con varios personajes, «que lo compre Vera» es otra tarea distinta.":
+    "with several characters, “have Vera buy it” is a different task.",
+  "Todo eso se elige en la propia nota, en cuanto escribas la primera.":
+    "All of that is chosen on the note itself, as soon as you write your first one.",
   "El ritmo de cada skill sale de tus atributos, ajustado con el ritmo REAL medido en la cola — así entran también implantes y boosters.":
     "Each skill's rate comes from your attributes, adjusted with the REAL rate measured from the queue — so implants and boosters count too.",
   "Este personaje no está entrenando nada, así que el ritmo es SOLO el de tus atributos: si lleva implantes, irá más rápido de lo que dice aquí.":

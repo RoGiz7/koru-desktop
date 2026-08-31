@@ -1663,15 +1663,22 @@ select,
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Se edita pinchando el texto: sin botón de lápiz, que en una lista corta es más ruido que ayuda. */
+/* Se edita pinchando el texto: sin botón de lápiz, que en una lista corta es más ruido que ayuda.
+   ⚠️ Pero eso SOLO se anunciaba al pasar por encima, y una cosa que hay que descubrir con el ratón
+   no está anunciada. Subrayado punteado SIEMPRE visible, el mismo lenguaje que `.piloto-link` y
+   `.ver-mapa` (2026-08-31). */
 .nota-body.editable {
   cursor: text;
   border-radius: 3px;
   padding: 0 0.15rem;
   margin-left: -0.15rem;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 32%, transparent);
 }
 .nota-body.editable:hover {
   background: rgba(255, 255, 255, 0.06);
+  text-decoration-color: currentColor;
 }
 /* Pilotos anclados: quién tiene esto. */
 .nota-pilotos {
@@ -1731,9 +1738,16 @@ select,
 .nota-btn.del:hover {
   color: var(--bad, #e05252);
 }
+/* ⚠️ La cursiva y el 0.7 de opacidad nacieron cuando esto era solo «Sin notas»: una frase corta y
+   apagada a propósito. Ahora este bloque EXPLICA lo que una nota puede hacer aquí y es lo primero
+   que lee quien abre el modal por primera vez, así que se lee derecho y con contraste normal.
+   La cursiva se queda solo en la frase suelta de «no hay nada», que sí es un comentario al margen. */
 .nota-vacio {
+  opacity: 1;
+}
+.nota-vacio > .muted {
   font-style: italic;
-  opacity: 0.7;
+  opacity: 0.75;
 }
 
 /* ----- Trabajos por libre (Freelance Jobs) ----- */
@@ -10131,3 +10145,42 @@ h4 {
 .plan-fila:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.04)); }
 .plan-desplegar { color: var(--fg-muted-2); font-size: 0.8rem; }
 .plan-detalle { margin: 4px 0 8px; }
+
+/* ---- Notas: que se vea lo que se puede pulsar (2026-08-31) ----
+   El motor de notas tenía toda su potencia dentro de una nota YA creada, y encima sin señal de
+   que aquello fuera pulsable. Mismo lenguaje que `.piloto-link` y `.ver-mapa`: subrayado punteado
+   siempre visible. La regla de la casa es que lo pulsable lo parezca en todas partes. */
+/* Los «+ Piloto» y «+ Avisarme…» eran texto gris indistinguible de una etiqueta. */
+.nota-trig .nota-hechas,
+.nota-pilotos .nota-hechas {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  color: var(--fg-muted-2);
+}
+.nota-trig .nota-hechas:hover,
+.nota-pilotos .nota-hechas:hover {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+/* La casilla del disparador, en el formulario de crear: es la opción que da valor a la nota. */
+.nota-avisar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted-2);
+  cursor: pointer;
+  align-self: flex-start;
+}
+.nota-avisar input[type="checkbox"] { margin: 0; cursor: pointer; }
+/* El vacío que explica qué sabe hacer una nota AQUÍ. */
+.nota-vacio { margin: 0.4rem 0 0.2rem; }
+.nota-puede {
+  margin: 0.4rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--fg-muted-2);
+  line-height: 1.5;
+}
+.nota-puede b { color: var(--fg); font-weight: 600; }

@@ -291,6 +291,17 @@ function NotasModal({
   const [borrador, setBorrador] = useState("");
   /** Id de la nota cuyo buscador de piloto está abierto. */
   const [pilotando, setPilotando] = useState<number | null>(null);
+  /** ★ El disparador, ELEGIDO AL CREAR y no después (2026-08-31).
+   *
+   *  Su queja, textual: «no es muy amigable saber las opciones que hay para crear la nota». Y al
+   *  mirarlo, el problema no era que estuviera escondido: **todo lo potente —anclar un piloto, el
+   *  disparador, a quién le toca— vivía DENTRO de una nota ya creada**, así que con «Sin notas» el
+   *  modal no tenía absolutamente nada que enseñar. Superficie cero.
+   *
+   *  Y la regla de la casa dice que el valor de este motor está en el DISPARADOR, no en el check.
+   *  Si es lo que más vale, tiene que estar en la primera pantalla, no descubrirse al segundo uso. */
+  const [avisar, setAvisar] = useState(false);
+  const [avisarUna, setAvisarUna] = useState(true);
 
   const cargar = useCallback(() => {
     invoke<Note[]>("get_notes_for", { kind, anchorId, subjectId: subject })
@@ -326,13 +337,20 @@ function NotasModal({
     const body = texto.trim();
     if (!body) return;
     try {
-      await invoke("create_note", {
+      const id = await invoke<number>("create_note", {
         subjectId: subject,
         body,
         pinned: false,
         anchors: [{ kind, id: anchorId }],
       });
+      // La nota nace CON su disparador si lo pediste al escribirla. Solo en notas de sistema: ahí
+      // el disparador es el propio ancla («avisarme al llegar AQUÍ») y no hay nada que elegir.
+      // En una ubicación hay que decir QUÉ esperas, así que eso sigue siendo un segundo paso.
+      if (avisar && kind === "system") {
+        await invoke("set_note_trigger", { id, systemId: anchorId, once: avisarUna });
+      }
       setTexto("");
+      setAvisar(false);
       cargar();
     } catch (e) {
       console.error("create_note", e);
@@ -400,6 +418,27 @@ function NotasModal({
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void crear();
             }}
           />
+          {/* EL DISPARADOR, OFRECIDO ANTES DE GUARDAR. Es lo que distingue esta nota de un post-it:
+              una aplicación de notas no sabe dónde estás. Por eso va aquí y no escondido dentro de
+              la nota ya creada. */}
+          {kind === "system" && (
+            <label className="nota-avisar">
+              <input type="checkbox" checked={avisar} onChange={(e) => setAvisar(e.target.checked)} />
+              {tr("Avisarme al llegar aquí")}
+              {avisar && (
+                <select
+                  className="nota-quien"
+                  value={avisarUna ? "1" : "0"}
+                  onChange={(e) => setAvisarUna(e.target.value === "1")}
+                  onClick={(e) => e.preventDefault()}
+                  title={tr("Una vez avisa y archiva la nota; siempre la deja abierta")}
+                >
+                  <option value="1">{tr("una vez")}</option>
+                  <option value="0">{tr("cada visita")}</option>
+                </select>
+              )}
+            </label>
+          )}
           <button className="nota-save" onClick={() => void crear()} disabled={!texto.trim()}>
             {tr("Guardar")}
           </button>
@@ -652,7 +691,43 @@ function NotasModal({
             ))}
           </div>
         ) : (
-          <div className="muted small nota-vacio">{tr("Sin notas")}</div>
+          /* ★ EL VACÍO QUE ENSEÑA. Antes ponía «Sin notas» y punto — y como todos los controles
+             potentes viven dentro de una nota existente, con cero notas el modal no enseñaba NADA
+             de lo que sabe hacer. Aquí se cuenta, y en función del ancla, porque lo que una nota
+             puede hacer en un sistema no es lo que puede hacer en un hangar.
+             Mismo criterio que Campañas, Flotas o Social: el cartel explica dónde nace la duda.
+             ICONOGRAFÍA EVE, no emoji (regla de RoGiz7): 439 afterburner = moverse/llegar (el mismo
+             que unifica la navegación en el mapa) · 17366 Station Container = que llegue algo a un
+             hangar · 3355 Social = tratar con una persona · 3348 Leadership = delegar en quién.
+             Los cuatro typeID verificados contra public/market_types.json, nunca de memoria. */
+          <div className="nota-vacio">
+            <div className="muted small">{tr("Aquí no tienes nada apuntado todavía.")}</div>
+            <ul className="nota-puede">
+              {kind === "system" && (
+                <li>
+                  <TipoIcono typeId={439} /> <b>{tr("Avisarte al llegar aquí")}</b> —{" "}
+                  {tr("marca la casilla de arriba y Koru te lo recuerda cuando entres, una vez o cada visita.")}
+                </li>
+              )}
+              {kind === "location" && (
+                <li>
+                  <TipoIcono typeId={17366} /> <b>{tr("Avisarte cuando llegue algo a este hangar")}</b> —{" "}
+                  {tr("útil para un courier o para lo que otro piloto te va a entregar; lo tuyo ya sabes cuándo llega.")}
+                </li>
+              )}
+              <li>
+                <TipoIcono typeId={3355} /> <b>{tr("Anclarla a un piloto")}</b> —{" "}
+                {tr("«esto se lo dejé a fulano»; luego se puede consultar por persona.")}
+              </li>
+              <li>
+                <TipoIcono typeId={3348} /> <b>{tr("Decir a quién le toca")}</b> —{" "}
+                {tr("con varios personajes, «que lo compre Vera» es otra tarea distinta.")}
+              </li>
+            </ul>
+            <div className="muted small">
+              {tr("Todo eso se elige en la propia nota, en cuanto escribas la primera.")}
+            </div>
+          </div>
         )}
 
         {/* Las cerradas no se borran: lo que te propusiste vale como histórico. */}
