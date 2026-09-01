@@ -1055,6 +1055,25 @@ impl Db {
             "DELETE FROM mining_ledger WHERE character_id = ?1",
             rusqlite::params![character_id],
         )?;
+        // ★ ESTUDIOS (2026-09-01). `skill_watch` es el que hace esto OBLIGATORIO y no una
+        // cuestión de limpieza: si se queda, quitar un personaje y volver a añadirlo dejaría al
+        // observador comparando los niveles de HOY contra los de hace meses, y escribiría una
+        // ráfaga de aprendizajes falsos fechados hoy. Sin error y sin síntoma — y contaminando
+        // justo el dato que van a contar las medallas.
+        // Se borra el personaje, no el plan: `skill_plan` es global y sobrevive; lo que se va es
+        // su foto contra él, que sin el piloto no significa nada.
+        for t in [
+            "skill_seen",
+            "skill_learned",
+            "skill_promise",
+            "skill_watch",
+            "skill_plan_target",
+        ] {
+            conn.execute(
+                &format!("DELETE FROM {t} WHERE character_id = ?1"),
+                rusqlite::params![character_id],
+            )?;
+        }
         Ok(())
     }
 

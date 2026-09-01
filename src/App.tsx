@@ -32,6 +32,7 @@ import { FlotasView, TICK_SEG, type OpEstado, type Roster, type OpPlayback } fro
 import { SocialView } from "./social";
 import { OpsView } from "./ops";
 import { FichaPiloto } from "./fichaPiloto";
+import { GuiaInicio } from "./guia";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
@@ -190,7 +191,22 @@ function App() {
   const [feature, setFeature] = useState("core");
   const [loginOpen, setLoginOpen] = useState(false); // panel "conceder acceso" colapsable
   const [settingsOpen, setSettingsOpen] = useState(false); // panel ⚙️ Ajustes (con pestañas)
-  const [settingsTab, setSettingsTab] = useState<"copias" | "logs" | "mapa" | "medallas" | "intel">("copias");
+  const [settingsTab, setSettingsTab] = useState<
+    "inicio" | "copias" | "logs" | "mapa" | "medallas" | "intel"
+  >("copias");
+  /** Guía de inicio pedida a mano desde Ajustes. Sin esto, el panel de bienvenida desaparece para
+   *  siempre en cuanto añades un personaje: quien lo cerró sin leerlo, o quien aquel día no quiso
+   *  configurar nada, no tenía forma de volver a él. */
+  const [guiaAbierta, setGuiaAbierta] = useState(false);
+  const bienvenidaRef = useRef<HTMLDivElement | null>(null);
+  /** La guía se pinta ARRIBA del contenido, que con la vista bajada queda fuera de pantalla: pulsas
+   *  el botón, no ves nada y das por hecho que no funciona (pasó en la primera prueba). Se lleva la
+   *  vista hasta ella. Va en un efecto y no en el propio clic porque en ese instante el panel aún
+   *  no existe en el DOM — el efecto corre ya con él pintado, sin depender de un temporizador. */
+  useEffect(() => {
+    if (!guiaAbierta) return;
+    bienvenidaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [guiaAbierta]);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
   // Importador de histórico CSV (corptools) — vive en ⚙️ Ajustes para no tenerlo siempre a mano.
@@ -2312,6 +2328,7 @@ function App() {
                 <div className="tb-settings-tabs" role="tablist">
                   {(
                     [
+                      { k: "inicio", ic: "🧭", label: tr("Empezar") },
                       { k: "copias", ic: "💾", label: tr("Copias") },
                       { k: "logs", ic: "📜", label: tr("Logs de EVE") },
                       { k: "mapa", ic: "🗺️", label: tr("Mapa") },
@@ -2331,6 +2348,28 @@ function App() {
                 </div>
 
                 <div className="tb-settings-tabbody">
+            {settingsTab === "inicio" && (
+              <>
+                <div className="tb-settings-title small muted">{tr("Primeros pasos")}</div>
+                <button
+                  className="tb-settings-item"
+                  onClick={() => {
+                    setGuiaAbierta(true);
+                    setSettingsOpen(false);
+                  }}
+                >
+                  <span className="tb-si-ic">🧭</span>
+                  <span className="tb-si-tx">
+                    <strong>{tr("Ver la guía de inicio")}</strong>
+                    <span className="muted small">
+                      {tr(
+                        "Qué necesita Koru para funcionar y qué sabe hacer ya sin cuenta. Se puede abrir siempre, no solo la primera vez.",
+                      )}
+                    </span>
+                  </span>
+                </button>
+              </>
+            )}
             {settingsTab === "intel" && (
               <>
                 <IntelSettings intel={intelCfg} />
@@ -2814,6 +2853,36 @@ function App() {
                 )}
               </span>
             </p>
+          )}
+
+          {/* ★ LA GUÍA DE INICIO. Se ve sola en el primer arranque (sin ningún personaje no hay
+              nada que enseñar en toda la app) y a petición desde Ajustes → 🧭 Empezar. Vive en
+              `guia.tsx`: es una pieza con reglas propias y App.tsx ya carga bastante. */}
+          {(characters.length === 0 || guiaAbierta) && (
+            <div ref={bienvenidaRef}>
+              <GuiaInicio
+                onIr={(t, ov) => {
+                  if (ov) setMapOverlay(ov);
+                  changeTab(t);
+                  setGuiaAbierta(false);
+                }}
+                onAjustes={(t) => {
+                  setSettingsTab(t);
+                  setSettingsOpen(true);
+                }}
+                onFicha={(n, id) => abrirFicha(n, id)}
+                onConcederAcceso={() => setLoginOpen(true)}
+                onLogin={() => handleLogin()}
+                busy={busy}
+                primero={
+                  characters.length > 0
+                    ? { name: characters[0].name, character_id: characters[0].character_id }
+                    : null
+                }
+                // Sin personajes NO se puede cerrar: quedaría la app vacía y muda.
+                onCerrar={characters.length === 0 ? null : () => setGuiaAbierta(false)}
+              />
+            </div>
           )}
 
           <div className="panel-art-wrap">

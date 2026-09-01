@@ -2605,6 +2605,72 @@ const EN: Record<string, string> = {
   "Una vez avisa y archiva la nota; siempre la deja abierta":
     "Once reminds you and files the note away; every visit keeps it open",
 
+  // --- EL PRIMER MINUTO: lo que ve quien abre Koru sin ningún personaje ---
+  Empezar: "Get started",
+  "Primeros pasos": "First steps",
+  "Ver la guía de inicio": "Open the getting-started guide",
+  "Qué necesita Koru para funcionar y qué sabe hacer ya sin cuenta. Se puede abrir siempre, no solo la primera vez.":
+    "What Koru needs in order to work, and what it can already do without an account. You can open it any time, not just on the first run.",
+  "Cerrar la guía": "Close the guide",
+  "Bienvenido a Koru": "Welcome to Koru",
+  "Conecta tu personaje de EVE": "Connect your EVE character",
+
+  // Bloque 1 — empezar
+  "Empieza aquí": "Start here",
+  "Koru pide acceso de SOLO LECTURA a tu personaje. Es lo que llena el mapa, tus assets, la industria y tu histórico de combate. Nunca puede actuar por ti.":
+    "Koru asks for READ-ONLY access to your character. It's what fills the map, your assets, industry and combat history. It can never act on your behalf.",
+  "Iniciar sesión": "Log in",
+  "Dile dónde guarda EVE sus registros": "Tell it where EVE keeps its logs",
+  "El intel del chat, tus conversaciones privadas y las runs abisales salen de ficheros que EVE ya escribe en tu disco. Sin esa carpeta, esas tres secciones se quedan vacías.":
+    "Chat intel, your private conversations and abyssal runs all come from files EVE already writes to your disk. Without that folder, those three sections stay empty.",
+  "Elegir carpeta": "Choose folder",
+
+  // Bloque 2 — qué puedes hacer (seis, ni una más)
+  "Qué puedes hacer": "What you can do",
+  "El intel del chat, pintado en el mapa": "Chat intel, drawn on the map",
+  "Lo que se canta en tus canales aparece en el sistema donde se dijo y a su hora: ves de dónde viene el peligro y decides si esquivas o si vas a cazar.":
+    "What gets called in your channels shows up in the system where it was said, at the time it was said: you see where the danger is coming from and decide whether to dodge it or go hunting.",
+  "Abrir el mapa": "Open the map",
+  "Vuelve a ver la op que mandaste": "Watch the op you led, again",
+  "Graba la flota mientras la comandas y después la reproduces sobre el mapa: quién entró, quién saltó, quién cayó y qué se cantó por el camino.":
+    "Record the fleet while you command it, then replay it on the map: who joined, who jumped, who died and what was called along the way.",
+  "Ir a Flotas": "Go to Fleets",
+  "Tus conversaciones privadas, cosidas": "Your private conversations, stitched back together",
+  "EVE parte cada chat privado en cientos de ficheros de sesión. Koru los junta y te devuelve el historial completo, agrupado por persona.":
+    "EVE splits every private chat across hundreds of session files. Koru puts them back together and gives you the full history, grouped by person.",
+  "Ir a Social": "Go to Social",
+  "Rutas con tus Ansiblex": "Routes through your Ansiblex network",
+  "El planificador usa la red de puentes que tú declaras, así que la ruta que calcula es la que puedes volar de verdad, no la teórica.":
+    "The planner uses the bridge network you declare, so the route it works out is the one you can actually fly, not the theoretical one.",
+  "Planificar una ruta": "Plan a route",
+  "Todo tu inventario de todos tus personajes en una lista, con lo que vale y en qué estación duerme.":
+    "Everything you own, across all your characters, in one list — what it's worth and which station it's sitting in.",
+  "Ver el inventario": "Open the inventory",
+  "Quién es esa persona para ti": "Who that person is to you",
+  "Pincha el nombre de cualquiera —en una op, en un chat, en tus kills— y sale su ficha: si volasteis juntos, si os matasteis, de qué hablasteis.":
+    "Click anyone's name —in an op, in a chat, in your kills— and their card opens: whether you flew together, whether you killed each other, what you talked about.",
+  "Ver una ficha": "Open a card",
+
+  // Bloque 3 — incidencias que YA han ocurrido, no imaginadas
+  "Si algo no va": "If something isn't working",
+  "Dice que no encuentra canales de intel": "It says it can't find any intel channels",
+  "Casi siempre es la carpeta: hay que elegir la de Chatlogs, no la de logs que la contiene. El panel te cuenta qué vio dentro para que lo veas al instante.":
+    "It's nearly always the folder: you need to pick Chatlogs, not the logs folder that contains it. The panel tells you what it found inside, so you can see it right away.",
+  "Revisar el intel": "Check intel",
+  "No sé dónde está esa carpeta": "I don't know where that folder is",
+  "Si juegas por Steam puede estar en otro disco. Koru la busca por ti, incluidas las bibliotecas de Steam fuera del disco principal.":
+    "If you play through Steam it may live on another drive. Koru will look for it, including Steam libraries outside your main disk.",
+  Buscarla: "Find it",
+  "No puedo grabar una flota": "I can't record a fleet",
+  "Grabar pide un permiso aparte, y solo lo necesita quien MANDA la flota. Si tu personaje inició sesión antes, hay que volver a entrar concediéndolo.":
+    "Recording needs a separate permission, and only whoever COMMANDS the fleet needs it. If your character logged in before, you have to log in again and grant it.",
+  "Algo falla y quiero pedir ayuda": "Something's broken and I want to ask for help",
+  "Koru prepara un informe técnico de tu equipo y te lo ENSEÑA antes de copiar nada. No se envía a ningún sitio: lo pegas tú donde quieras.":
+    "Koru puts together a technical report about your machine and SHOWS it to you before copying anything. It's never sent anywhere: you paste it wherever you want.",
+  "Ver el diagnóstico": "Open the diagnostics",
+  "🔒 Todo se queda en tu ordenador. Koru guarda lo que lee en una base de datos local y no envía tus datos a ningún sitio.":
+    "🔒 Everything stays on your computer. Koru keeps what it reads in a local database and never sends your data anywhere.",
+
   // --- PLANES DE ESTUDIO GUARDADOS: un plan, todos los pilotos ---
   "Abrir este plan": "Open this plan",
   "Borrar este plan guardado": "Delete this saved plan",

@@ -10146,6 +10146,100 @@ h4 {
 .plan-desplegar { color: var(--fg-muted-2); font-size: 0.8rem; }
 .plan-detalle { margin: 4px 0 8px; }
 
+/* ★ EL PRIMER MINUTO (2026-09-01). Solo se ve sin ningún personaje conectado. No es un tour: es
+   el patrón «el vacío enseña» que ya funcionó en el modal de Notas, aplicado al arranque. */
+.bienvenida {
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 0 0 14px;
+}
+.bienv-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bienvenida h3 { margin: 0 0 12px; font-size: 1.05rem; }
+.bienv-cerrar {
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted-2);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0 4px;
+  margin-bottom: 12px;
+}
+.bienv-cerrar:hover { color: var(--fg); }
+/* Pestañas de la guía. Ganan sitio, pero esconden dos tercios — por eso las etiquetas son la
+   pregunta que trae a cada uno («si algo no va» se encuentra sola) y el bloque que se abre por
+   defecto depende de si ya tienes personajes. */
+.guia-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.guia-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--fg-muted-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 5px 10px;
+}
+.guia-tab:hover { color: var(--fg); }
+/* La activa se marca con BORDE, no rellenando con `--accent`: ese token es fondo y texto a la vez. */
+.guia-tab.active { border-color: var(--accent-border); color: var(--fg); }
+
+/* Un bloque de la guía. Tres y nunca más: empezar · qué puedes hacer · si algo no va. */
+.guia-bloque { margin-top: 10px; }
+/* Una fila = icono · qué es y para qué · el botón que lo resuelve. El botón va SIEMPRE a la
+   derecha y siempre a la misma altura: quien no lee encuentra la columna de botones y la usa. */
+.guia-fila {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.guia-fila:last-child { border-bottom: 0; }
+.guia-ic {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent-border);
+  border-radius: 50%;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.guia-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.guia-tx > .muted { max-width: 78ch; }
+.guia-btn {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.guia-btn:hover:not(:disabled) { background: var(--bg-hover, rgba(255, 255, 255, 0.06)); }
+.guia-btn:disabled { opacity: 0.45; cursor: default; border-color: var(--border); }
+/* En pantallas estrechas el botón baja bajo el texto en vez de estrujarlo. */
+@media (max-width: 720px) {
+  .guia-fila { flex-wrap: wrap; }
+  .guia-btn { margin-left: 38px; }
+}
+.bienv-privacidad {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 0.84rem;
+  color: var(--fg-muted-2);
+}
+/* El botón de entrar no se estira: `.ida-btn` trae `flex: 1 1 calc(50% - …)` de la rejilla de dos
+   columnas donde nació. */
+.bienvenida .ida-btn { flex: 0 0 auto; }
+
 /* Planes GUARDADOS (2026-09-01). Un plan no se repite por personaje: se guarda una vez y la tabla
    enseña a los nueve. Las fichas de arriba son los planes; la estrella marca a quién se lo has
    puesto de verdad. */
