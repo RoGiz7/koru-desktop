@@ -1182,6 +1182,8 @@ export type NoteStep = {
   done_by: string;
   trigger_kind: string;
   trigger_id: number;
+  /** Cuántas unidades pide. 0 = con que aparezca una, vale. */
+  qty: number;
 };
 
 /** EL MOTOR HUMANO (N1). Ver documentacion/SPEC_MOTOR_HUMANO.md. */

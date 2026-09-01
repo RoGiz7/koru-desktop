@@ -628,6 +628,10 @@ impl Db {
                  done_by      TEXT NOT NULL DEFAULT '',
                  trigger_kind TEXT NOT NULL DEFAULT '',      -- asset | contract | …
                  trigger_id   INTEGER NOT NULL DEFAULT 0,    -- el tipo que se espera
+                 -- CUÁNTOS hacen falta. 0 = «con que aparezca uno, vale». Con 5 aquí, la tarea no
+                 -- se tacha hasta que HAY cinco: se mira el hangar, no la llegada — así vale igual
+                 -- si vienen de un viaje o de tres, y sigue valiendo tras reiniciar Koru.
+                 qty          INTEGER NOT NULL DEFAULT 0,
                  trigger_at   TEXT
              );
              CREATE INDEX IF NOT EXISTS idx_nstep_note ON note_step(note_id);",
@@ -721,6 +725,9 @@ impl Db {
         let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN misses_done INTEGER NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE gamelog_combat ADD COLUMN misses_taken INTEGER NOT NULL DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE gamelog_mining ADD COLUMN waste INTEGER NOT NULL DEFAULT 0", []);
+        // N4: cuántas unidades pide una tarea. Las que ya existían piden 0 = «con una vale», que es
+        // exactamente como se comportaban antes de haber columna.
+        let _ = conn.execute("ALTER TABLE note_step ADD COLUMN qty INTEGER NOT NULL DEFAULT 0", []);
         // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
         // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó
@@ -5201,6 +5208,102 @@ impl Db {
         Ok(rows)
     }
 
+    /// ★ N4 FASE 2 — LAS TAREAS SE TACHAN SOLAS AL LLEGAR EL OBJETO (2026-08-31).
+    ///
+    /// El caso del comerciante: una nota con los siete objetos que necesita, y cada uno se tacha
+    /// cuando aparece en su hangar. Cuelga de las MISMAS llegadas (`arrivals` del diff de assets)
+    /// que ya alimentan el aviso de la nota entera — cero peticiones nuevas.
+    ///
+    /// **DÓNDE cuenta como «su hangar»:** si la nota está clavada en una ubicación, tiene que ser
+    /// ESA; si no está clavada en ninguna, vale cualquiera. Un proyecto sin sitio es un proyecto y
+    /// punto, y obligarle a elegir hangar sería inventarle un requisito.
+    ///
+    /// **★ LA AMBIGÜEDAD, que es la razón de que esto no sea un simple UPDATE:** si DOS tareas
+    /// esperan el mismo objeto, Koru no puede saber a cuál apuntárselo. Entonces **no tacha
+    /// ninguna** y lo dice — «ha llegado esto, hay N esperándolo». Tachar la primera sería elegir
+    /// por él y quedaría escrito como un hecho.
+    ///
+    /// ⚠️ **No mira CANTIDADES**: si esperas cinco y llega uno, la tarea se tacha. Se dice en el
+    /// aviso (que lleva cuántos llegaron) en vez de fingir una precisión que el modelo no tiene.
+    pub fn note_steps_fire_on_asset(
+        &self,
+        character_id: i64,
+        location_id: i64,
+        type_id: i64,
+    ) -> AppResult<Vec<StepFired>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.body, n.id, n.body, s.qty
+               FROM note_step s JOIN note n ON n.id = s.note_id
+              WHERE s.done_at IS NULL
+                AND s.trigger_id = ?1
+                AND n.done_at IS NULL
+                AND (n.subject_id = 0 OR n.subject_id = ?2)
+                AND (
+                      NOT EXISTS (SELECT 1 FROM note_anchor a
+                                   WHERE a.note_id = n.id AND a.kind = 'location')
+                   OR EXISTS (SELECT 1 FROM note_anchor a
+                               WHERE a.note_id = n.id AND a.kind = 'location' AND a.id = ?3)
+                )",
+        )?;
+        let cands: Vec<(i64, String, i64, String, i64)> = stmt
+            .query_map(rusqlite::params![type_id, character_id, location_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if cands.is_empty() {
+            return Ok(Vec::new());
+        }
+        if cands.len() > 1 {
+            // Ambiguo: no se toca nada y se avisa para que elija él.
+            return Ok(vec![StepFired {
+                step_id: 0,
+                step_body: String::new(),
+                note_id: cands[0].2,
+                note_body: cands[0].3.clone(),
+                type_id,
+                candidatos: cands.len() as i64,
+                qty: 0,
+                tiene: 0,
+                completa: false,
+            }]);
+        }
+        let (sid, sbody, nid, nbody, qty) = cands.into_iter().next().unwrap();
+
+        // Cuántas hay AHORA mismo en ese sitio. Se cuenta el hangar y no la llegada a propósito:
+        // «necesito cinco» se cumple igual si vienen de un viaje o de tres, y sigue cumpliéndose
+        // después de cerrar Koru. `asset_stack` es el espejo de la última foto de ESI, y para
+        // cuando esto corre ya está reemplazado con la foto nueva.
+        let tiene: i64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(quantity), 0) FROM asset_stack
+                  WHERE character_id = ?1 AND location_id = ?2 AND type_id = ?3",
+                rusqlite::params![character_id, location_id, type_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let completa = qty <= 0 || tiene >= qty;
+
+        if completa {
+            conn.execute(
+                "UPDATE note_step SET done_at = ?2, done_by = 'llegada' WHERE id = ?1",
+                rusqlite::params![sid, chrono::Utc::now().to_rfc3339()],
+            )?;
+        }
+        Ok(vec![StepFired {
+            step_id: sid,
+            step_body: sbody,
+            note_id: nid,
+            note_body: nbody,
+            type_id,
+            candidatos: 1,
+            qty,
+            tiene,
+            completa,
+        }])
+    }
+
     /// Guarda un personaje resuelto (positivo) en el índice.
     pub fn name_cache_put(&self, name_lower: &str, character_id: i64, display_name: &str) {
         let conn = self.conn.lock().unwrap();
@@ -6143,6 +6246,23 @@ pub struct NoteAnchor {
     pub id: i64,
 }
 
+/// ★ N4 fase 2: una tarea que se ha tachado sola (o que NO se pudo tachar por ambigua).
+/// `candidatos > 1` = llegó el objeto pero varias tareas lo esperaban: no se tocó ninguna.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StepFired {
+    pub step_id: i64,
+    pub step_body: String,
+    pub note_id: i64,
+    pub note_body: String,
+    pub type_id: i64,
+    pub candidatos: i64,
+    /// Cuántas pedía la tarea (0 = una cualquiera) y cuántas hay AHORA en ese sitio.
+    pub qty: i64,
+    pub tiene: i64,
+    /// `false` = aún no llega a la cantidad: se avisa del avance, pero no se tacha nada.
+    pub completa: bool,
+}
+
 /// ★ N4: una PARTE de una nota. «Los siete objetos que me faltan», «los cinco láseres prestados».
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct NoteStep {
@@ -6155,6 +6275,8 @@ pub struct NoteStep {
     pub done_by: String,
     pub trigger_kind: String,
     pub trigger_id: i64,
+    /// Cuántas unidades pide. 0 = con que aparezca una, vale.
+    pub qty: i64,
 }
 
 /// Una nota tal como se guarda, con sus anclas ya pegadas.
@@ -6306,7 +6428,7 @@ impl Db {
     pub fn note_steps(&self, note_id: i64) -> AppResult<Vec<NoteStep>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, note_id, body, pos, done_at, done_by, trigger_kind, trigger_id
+            "SELECT id, note_id, body, pos, done_at, done_by, trigger_kind, trigger_id, qty
                FROM note_step WHERE note_id = ?1 ORDER BY done_at IS NOT NULL, pos, id",
         )?;
         let rows = stmt
@@ -6320,10 +6442,21 @@ impl Db {
                     done_by: r.get(5)?,
                     trigger_kind: r.get(6)?,
                     trigger_id: r.get(7)?,
+                    qty: r.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Cuántas unidades pide una tarea. 0 = con una vale.
+    pub fn note_step_set_qty(&self, id: i64, qty: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE note_step SET qty = ?2 WHERE id = ?1",
+            rusqlite::params![id, qty.max(0)],
+        )?;
+        Ok(())
     }
 
     /// Añade una parte al final. Devuelve su id.
@@ -6506,9 +6639,16 @@ impl Db {
         let tx = conn.unchecked_transaction()?;
         {
             let mut upd = tx.prepare(
+                // El aviso de «una vez» cierra la nota… salvo que la nota sea un PROYECTO.
+                // Una nota con tareas termina cuando terminan SUS TAREAS, no cuando salta su
+                // aviso: cerrarla la manda a «Hechas» con la mitad del trabajo abierto, y desde
+                // fuera eso no se lee como «cumplido», se lee como «me lo ha borrado».
                 "UPDATE note
                     SET fired_at = ?1,
-                        done_at = CASE WHEN trigger_once = 1 THEN ?1 ELSE done_at END,
+                        done_at = CASE
+                            WHEN trigger_once = 1
+                             AND NOT EXISTS (SELECT 1 FROM note_step s WHERE s.note_id = note.id)
+                            THEN ?1 ELSE done_at END,
                         updated_at = ?1
                   WHERE id = ?2",
             )?;
@@ -6586,9 +6726,16 @@ impl Db {
         let tx = conn.unchecked_transaction()?;
         {
             let mut upd = tx.prepare(
+                // El aviso de «una vez» cierra la nota… salvo que la nota sea un PROYECTO.
+                // Una nota con tareas termina cuando terminan SUS TAREAS, no cuando salta su
+                // aviso: cerrarla la manda a «Hechas» con la mitad del trabajo abierto, y desde
+                // fuera eso no se lee como «cumplido», se lee como «me lo ha borrado».
                 "UPDATE note
                     SET fired_at = ?1,
-                        done_at = CASE WHEN trigger_once = 1 THEN ?1 ELSE done_at END,
+                        done_at = CASE
+                            WHEN trigger_once = 1
+                             AND NOT EXISTS (SELECT 1 FROM note_step s WHERE s.note_id = note.id)
+                            THEN ?1 ELSE done_at END,
                         updated_at = ?1
                   WHERE id = ?2",
             )?;

@@ -203,6 +203,8 @@ pub struct AutoSyncResult {
     pub asset_events: i64,
     /// N2b · Notas que han saltado porque llegó lo que esperaban.
     pub fired_notes: Vec<crate::db::NoteRow>,
+    /// ★ N4 fase 2: tareas tachadas por una llegada (o avisos de que había varias esperando).
+    pub fired_steps: Vec<crate::db::StepFired>,
     /// Errores por personaje/paso. Antes se tragaban en silencio y un fallo persistente
     /// (token caducado, scope revocado, 4xx de ESI) podía dejar una sección congelada
     /// días sin que nadie lo viera (p. ej. killmails parados desde el 26-06).
@@ -240,11 +242,14 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         pi_programs: 0,
         asset_events: 0,
         fired_notes: Vec::new(),
+        fired_steps: Vec::new(),
         errors: Vec::new(),
     };
     // Notas que han saltado porque llegó lo que esperaban. Se acumulan en el bucle de personajes
     // y viajan en el resultado del sync, igual que las de llegada viajan con la posición.
     let mut notas_assets: Vec<crate::db::NoteRow> = Vec::new();
+    // ★ N4 fase 2: tareas de un proyecto tachadas por la llegada del objeto.
+    let mut tareas_hechas: Vec<crate::db::StepFired> = Vec::new();
 
     // Precios de mercado primero (público, cacheado ≈1h) para valorar assets en los snapshots.
     if let Ok(n) = market::sync_prices(&state.esi, &state.db).await {
@@ -579,6 +584,36 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                     // TTP-2B.» Sirve para lo que llega SIN TI —un courier, un deliver que te hace
                     // otro piloto de palabra— porque tu propia carga ya sabes cuándo llega.
                     for (loc, tid) in &r.arrivals {
+                        // ★ N4 fase 2: PRIMERO las TAREAS de un proyecto que esperaban ese objeto.
+                        // Van antes a propósito: si esta llegada tacha una tarea de la nota X, el
+                        // aviso de la nota X ya no tiene nada nuevo que contar. Una llegada, un
+                        // mensaje — dos avisos por lo mismo se leen como que pasaron dos cosas.
+                        let mut ya_dicho: Vec<i64> = Vec::new();
+                        match state.db.note_steps_fire_on_asset(c.character_id, *loc, *tid) {
+                            Ok(v) => {
+                                for f in v {
+                                    if f.candidatos > 1 {
+                                        eprintln!(
+                                            "notas: llegó el tipo {tid} y lo esperaban {} tareas → sin tocar",
+                                            f.candidatos
+                                        );
+                                    } else if f.completa {
+                                        eprintln!(
+                                            "notas: tarea «{}» tachada por llegada ({})",
+                                            f.step_body, c.name
+                                        );
+                                        ya_dicho.push(f.note_id);
+                                    } else {
+                                        eprintln!(
+                                            "notas: tarea «{}» va por {}/{} ({})",
+                                            f.step_body, f.tiene, f.qty, c.name
+                                        );
+                                    }
+                                    tareas_hechas.push(f);
+                                }
+                            }
+                            Err(e) => eprintln!("note_steps_fire_on_asset: {e}"),
+                        }
                         match state.db.notes_fire_on_asset(c.character_id, *loc, *tid) {
                             Ok(v) => {
                                 for n in v {
@@ -586,7 +621,9 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                                         "notas: llegó el tipo {tid} a {loc} ({}) → «{}»",
                                         c.name, n.body
                                     );
-                                    notas_assets.push(n);
+                                    if !ya_dicho.contains(&n.id) {
+                                        notas_assets.push(n);
+                                    }
                                 }
                             }
                             Err(e) => eprintln!("notes_fire_on_asset: {e}"),
@@ -752,6 +789,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
     }
 
     res.fired_notes = notas_assets;
+    res.fired_steps = tareas_hechas;
     Ok(res)
 }
 
@@ -3353,6 +3391,12 @@ pub async fn set_note_step_done(
 #[tauri::command]
 pub async fn delete_note_step(id: i64, state: State<'_, AppState>) -> AppResult<()> {
     state.db.note_step_delete(id)
+}
+
+/// Cuántas unidades pide una tarea. 0 = con que aparezca una, vale.
+#[tauri::command]
+pub async fn set_note_step_qty(id: i64, qty: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.note_step_set_qty(id, qty)
 }
 
 #[tauri::command]

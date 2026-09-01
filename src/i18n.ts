@@ -2725,6 +2725,9 @@ const EN: Record<string, string> = {
   "EVE está en downtime.": "EVE is in downtime.",
   "Ritmo real": "Actual rate",
   "Plan de estudios": "Skill plan",
+  "Tachado del proyecto": "Ticked off the project",
+  "Ha llegado algo que esperaban VARIAS tareas: elige tú a cuál apuntarlo":
+    "Something arrived that VARIAS tasks were waiting for: you choose which one it counts for",
   "Nombre del piloto": "Pilot name",
   "Buscar en ESI (nombre exacto)": "Search ESI (exact name)",
   "Añadir pilotos": "Add pilots",
@@ -2732,6 +2735,7 @@ const EN: Record<string, string> = {
   "Tareas hechas": "Tasks done",
   "Añadir una tarea…": "Add a task…",
   "Quitar la tarea": "Remove the task",
+  "Cuántas hacen falta para darla por cumplida": "How many are needed to consider it done",
   "Añadir objetos": "Add items",
   "Desclavar": "Unpin",
   "Partes": "Parts",

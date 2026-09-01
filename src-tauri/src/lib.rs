@@ -169,6 +169,7 @@ pub fn run() {
             commands::add_note_step,
             commands::set_note_step_done,
             commands::delete_note_step,
+            commands::set_note_step_qty,
             commands::set_note_subject,
             commands::set_note_trigger,
             commands::resolve_pilot,

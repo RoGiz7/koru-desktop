@@ -1726,6 +1726,19 @@ function App() {
         pi_programs: number;
         asset_events: number; // I1 inventario: cambios grabados (lo normal es 0)
         fired_notes?: Note[]; // N2b: notas que esperaban una llegada
+        fired_steps?: {
+          step_id: number;
+          step_body: string;
+          note_id: number;
+          note_body: string;
+          type_id: number;
+          /** >1 = llegó, pero varias tareas lo esperaban y NO se tocó ninguna. */
+          candidatos: number;
+          /** Lo que pedía la tarea y lo que hay ahora. `completa` = ya llega, y se tachó. */
+          qty: number;
+          tiene: number;
+          completa: boolean;
+        }[];
         errors?: string[];
       }>("auto_sync");
       // Errores parciales (antes se tragaban): visibles en consola para diagnóstico.
@@ -1737,6 +1750,35 @@ function App() {
         const extra = r.fired_notes.length > 2 ? ` +${r.fired_notes.length - 2}` : "";
         playUnlock();
         showGlobalAlert(`📄 ${tr("Ya está aquí")}: ${textos.join(" · ")}${extra}`, "nota");
+      }
+      // ★ N4 fase 2: tareas de un proyecto tachadas solas al llegar el objeto. Dos avisos
+      // distintos a propósito: uno dice lo que Koru HA HECHO, el otro dice lo que NO ha podido
+      // hacer. Mezclarlos convertiría «no supe a cuál apuntarlo» en «ya está resuelto».
+      if (r.fired_steps?.length) {
+        const hechas = r.fired_steps.filter((f) => f.candidatos <= 1 && f.completa);
+        const ambiguas = r.fired_steps.filter((f) => f.candidatos > 1);
+        // Va llegando, pero aún no son todas. Se dice el avance y no se tacha nada: dar por
+        // cumplido lo que solo está a medias es justo el error que hace inútil un proyecto.
+        const parciales = r.fired_steps.filter((f) => f.candidatos <= 1 && !f.completa);
+        if (hechas.length) {
+          playUnlock();
+          const t = hechas.slice(0, 2).map((f) => `${f.step_body} (${f.note_body})`);
+          const mas = hechas.length > 2 ? ` +${hechas.length - 2}` : "";
+          showGlobalAlert(`✅ ${tr("Tachado del proyecto")}: ${t.join(" · ")}${mas}`, "nota");
+        }
+        for (const p of parciales) {
+          showGlobalAlert(
+            `📦 ${p.step_body} (${p.note_body}): ${p.tiene}/${p.qty}`,
+            "nota",
+          );
+        }
+        for (const a of ambiguas) {
+          showGlobalAlert(
+            `❔ ${tr("Ha llegado algo que esperaban VARIAS tareas: elige tú a cuál apuntarlo")
+              .replace("VARIAS", String(a.candidatos))}`,
+            "nota",
+          );
+        }
       }
       setLastSync(Date.now());
       // refrescar la vista actual con lo nuevo, en segundo plano (sin skeleton ni resetear scroll)

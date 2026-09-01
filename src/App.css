@@ -10278,6 +10278,19 @@ h4 {
 .nd-paso input[type="checkbox"] { margin: 0; cursor: pointer; }
 .nd-paso-txt { flex: 1; min-width: 0; word-break: break-word; }
 .nd-paso.hecha .nd-paso-txt { text-decoration: line-through; opacity: 0.6; }
+/* Cuántas hacen falta. Estrecho a propósito: es un apunte al margen, no un campo del formulario. */
+.nd-qty {
+  width: 52px;
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  font-size: 0.78rem;
+  text-align: right;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.nd-qty:focus { border-style: solid; border-color: var(--accent-border); outline: none; }
 .nd-paso.nueva input[type="text"] {
   flex: 1;
   min-width: 0;

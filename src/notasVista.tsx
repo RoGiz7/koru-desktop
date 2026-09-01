@@ -111,6 +111,30 @@ function Partes({ noteId, onCambio }: { noteId: number; onCambio: () => void }) 
           />
           {p.trigger_id > 0 && <TipoIcono typeId={p.trigger_id} size={16} />}
           <span className="nd-paso-txt">{p.body}</span>
+          {/* CUÁNTAS hacen falta. Solo tiene sentido en una tarea con objeto: en «llamar a X» no
+              significa nada. Vacío = con que aparezca una, vale — que es como se comportaba antes
+              de existir esta casilla, así que ninguna tarea vieja cambia de conducta. */}
+          {p.trigger_id > 0 && !p.done_at && (
+            <input
+              className="nd-qty"
+              type="number"
+              min={0}
+              placeholder="×1"
+              title={tr("Cuántas hacen falta para darla por cumplida")}
+              defaultValue={p.qty > 0 ? p.qty : ""}
+              onBlur={(e) => {
+                const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                if (n === p.qty) return;
+                void accion(
+                  () => invoke("set_note_step_qty", { id: p.id, qty: n }),
+                  "set_note_step_qty",
+                );
+              }}
+            />
+          )}
+          {/* Tachada: la cantidad se queda escrita. Si desapareciera al cumplirse, el proyecto
+              perdería justo el dato de cuánto pedía. */}
+          {p.done_at && p.qty > 0 && <span className="nv-tag">×{p.qty}</span>}
           {/* Quién la cerró. Con una parte tachada a mano y otra por un aviso, la diferencia
               importa — y hoy TODAS son a mano, así que solo se dice cuando no lo es. */}
           {p.done_at && p.done_by && p.done_by !== "mano" && (
