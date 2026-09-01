@@ -298,6 +298,69 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             }
         };
         let has = |scope: &str| c.scopes.iter().any(|s| s == scope);
+        // ★★ EL OBSERVADOR DE ESTUDIOS. Va aquí y no en la pantalla de Skills a propósito: si solo
+        // mirara al abrir la sección, las fechas serían «el día que me acordé de mirar», no el día
+        // en que se aprendió. Y lo que no se ve mientras la app está cerrada NO SE RECUPERA — ESI
+        // no tiene historial de habilidades, así que cada sync perdido es historia perdida.
+        if has("esi-skills.read_skills.v1") {
+            match skills::skills(&state.esi, &state.db, c.character_id, &valid.access_token).await {
+                Ok(s) => {
+                    let niveles: Vec<(i64, i64, i64)> = s
+                        .skills
+                        .iter()
+                        .map(|k| (k.skill_id, k.trained_skill_level, k.skillpoints_in_skill))
+                        .collect();
+                    // La cola es OPCIONAL: su scope se añadió después que el de skills, así que
+                    // un personaje que no ha vuelto a iniciar sesión no la trae. Sin ella el
+                    // observador sigue funcionando, solo que fechando por ventana en vez de
+                    // exacto. Degradar en silencio aquí es correcto: no se pierde el dato, se
+                    // pierde precisión, y forzar un re-login por esto sería desproporcionado.
+                    let cola: Vec<(i64, i64, String)> =
+                        match skills::skillqueue(&state.esi, &state.db, c.character_id, &valid.access_token)
+                            .await
+                        {
+                            Ok(q) => q
+                                .into_iter()
+                                .filter_map(|e| {
+                                    // Sin `finish_date` la entrada no sirve para fechar nada: la
+                                    // cola puede traer entradas sin fecha cuando está pausada.
+                                    let fd = e.finish_date?;
+                                    Some((e.skill_id, e.finished_level, fd))
+                                })
+                                .collect(),
+                            Err(_) => Vec::new(),
+                        };
+                    match state.db.skills_observe(c.character_id, &niveles, &cola) {
+                        Ok(r) => {
+                            // Solo se habla cuando pasa algo, como en el inventario. La siembra se
+                            // anuncia porque es el día en que empieza el histórico de ese piloto, y
+                            // esa fecha explica luego por qué la Bitácora no llega más atrás.
+                            if r.seeded {
+                                eprintln!(
+                                    "auto_sync {}: estudios sembrados ({} habilidades). El histórico empieza aquí.",
+                                    c.name, r.known
+                                );
+                            } else if r.learned > 0 {
+                                eprintln!(
+                                    "auto_sync {}: {} nivel(es) de habilidad nuevos",
+                                    c.name, r.learned
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            let msg = format!("{}: observador de estudios: {e}", c.name);
+                            eprintln!("auto_sync {msg}");
+                            res.errors.push(msg);
+                        }
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("{}: skills: {e}", c.name);
+                    eprintln!("auto_sync {msg}");
+                    res.errors.push(msg);
+                }
+            }
+        }
         if has("esi-killmails.read_killmails.v1") {
             match killmails::sync(&state.esi, &state.db, c.character_id, &valid.access_token).await
             {

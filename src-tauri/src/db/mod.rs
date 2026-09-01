@@ -704,6 +704,64 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS idx_spt_char ON skill_plan_target(character_id);",
         );
+        // ★★ EL OBSERVADOR DE ESTUDIOS (2026-09-01). Sin esto no puede existir el dominio de
+        // Estudios en la Bitácora, porque la Bitácora FECHA cada escalón y de estudios no hay
+        // ni una fecha en ningún sitio.
+        //
+        // Las tres vías para recuperar el pasado están cerradas y verificadas: el wallet dice qué
+        // compraste, no qué estudiaste; **ESI no tiene historial de habilidades** (el cliente lo
+        // enseña, pero lo resuelve él); y el gamelog no registra el fin de un entrenamiento.
+        // Así que solo cabe que Koru MIRE, desde el día que se construya. Igual que el inventario:
+        // el histórico empieza el día de la siembra y eso se dice en pantalla.
+        //
+        // ⚠️ SE GUARDAN CAMBIOS, NO FOTOS COMPLETAS. Una foto de ~400 skills × 9 personajes en
+        // cada sync engordaría la base sin decir nada nuevo: el 99 % de las filas serían idénticas
+        // a las de hace una hora.
+        //   · `skill_seen`    = lo último que vimos de cada skill (se pisa; una fila por skill).
+        //   · `skill_learned` = un nivel ganado. ESTO es lo que las medallas van a contar.
+        //   · `skill_promise` = lo que la COLA prometía. La cola trae `finish_date`, así que si
+        //     Koru vio la promesa antes de que se cumpliera, el nivel se fecha EXACTO.
+        //   · `skill_watch`   = el día que empezamos a mirar a ese piloto.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS skill_seen (
+                 character_id INTEGER NOT NULL,
+                 skill_id     INTEGER NOT NULL,
+                 level        INTEGER NOT NULL,
+                 sp           INTEGER NOT NULL,
+                 seen_at      TEXT NOT NULL,
+                 PRIMARY KEY (character_id, skill_id)
+             );
+             CREATE TABLE IF NOT EXISTS skill_learned (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 character_id INTEGER NOT NULL,
+                 skill_id     INTEGER NOT NULL,
+                 level        INTEGER NOT NULL,
+                 -- La fecha que se ATRIBUYE. Con promesa cumplida es la del servidor; sin ella,
+                 -- el extremo SUPERIOR de la ventana: nunca se afirma que algo pasó antes de lo
+                 -- que se puede sostener.
+                 at           TEXT NOT NULL,
+                 exact        INTEGER NOT NULL DEFAULT 0,
+                 -- Los bordes reales cuando NO es exacta. Guardarlos es lo que permite que la
+                 -- pantalla diga «entre el 3 y el 12» en vez de fingir un día concreto.
+                 desde        TEXT,
+                 hasta        TEXT,
+                 UNIQUE (character_id, skill_id, level)
+             );
+             CREATE INDEX IF NOT EXISTS idx_slearn_at ON skill_learned(at);
+             CREATE INDEX IF NOT EXISTS idx_slearn_char ON skill_learned(character_id);
+             CREATE TABLE IF NOT EXISTS skill_promise (
+                 character_id   INTEGER NOT NULL,
+                 skill_id       INTEGER NOT NULL,
+                 finished_level INTEGER NOT NULL,
+                 finish_date    TEXT NOT NULL,
+                 seen_at        TEXT NOT NULL,
+                 PRIMARY KEY (character_id, skill_id, finished_level)
+             );
+             CREATE TABLE IF NOT EXISTS skill_watch (
+                 character_id INTEGER PRIMARY KEY,
+                 seeded_at    TEXT NOT NULL
+             );",
+        );
         // ⚠️ MIGRACIÓN de un esquema que NUNCA se publicó (2026-09-01, mismo día).
         //
         // Durante el desarrollo hubo una versión intermedia con `anchored_at` en vez de `based_at`,
@@ -7661,4 +7719,152 @@ impl Db {
         )?;
         Ok(n > 0)
     }
+
+    /// ★★ EL OBSERVADOR DE ESTUDIOS. Mira lo que tiene un piloto y anota lo que ha APRENDIDO
+    /// desde la última vez. Es lo único que puede dar fechas a un dominio de Estudios.
+    ///
+    /// `niveles` = `(skill_id, trained_level, sp)` de `/skills`. Se usa **`trained_skill_level`**
+    /// y no `active`: lo que se aprendió, se aprendió — el nivel activo puede bajar por causas
+    /// ajenas al estudio, y eso no es desaprender.
+    /// `cola` = `(skill_id, finished_level, finish_date)` de `/skillqueue`.
+    ///
+    /// LA SIEMBRA (primera vez que se ve a un piloto) **no genera ni un aprendizaje**. Todo lo que
+    /// ya tenía se registra como conocido y punto: fechar hoy los 400 niveles de un personaje de
+    /// 2008 sería inventarle una biografía entera, y además llenaría la Bitácora de medallas
+    /// falsas de golpe. Mismo criterio que la siembra del inventario.
+    pub fn skills_observe(
+        &self,
+        character_id: i64,
+        niveles: &[(i64, i64, i64)],
+        cola: &[(i64, i64, String)],
+    ) -> AppResult<SkillWatchResult> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.unchecked_transaction()?;
+
+        // Las promesas se anotan SIEMPRE, incluso en la siembra: la cola de hoy es lo que fechará
+        // con precisión lo que termine mañana, y sin guardarla ahora esa fecha se pierde.
+        {
+            let mut ins = tx.prepare(
+                "INSERT INTO skill_promise (character_id, skill_id, finished_level, finish_date, seen_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(character_id, skill_id, finished_level) DO UPDATE SET
+                     finish_date = excluded.finish_date, seen_at = excluded.seen_at",
+            )?;
+            for (sid, lvl, fd) in cola {
+                ins.execute(rusqlite::params![character_id, sid, lvl, fd, now])?;
+            }
+        }
+
+        let sembrado: Option<String> = tx
+            .query_row(
+                "SELECT seeded_at FROM skill_watch WHERE character_id = ?1",
+                [character_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+
+        if sembrado.is_none() {
+            {
+                let mut ins = tx.prepare(
+                    "INSERT OR REPLACE INTO skill_seen (character_id, skill_id, level, sp, seen_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                )?;
+                for (sid, lvl, sp) in niveles {
+                    ins.execute(rusqlite::params![character_id, sid, lvl, sp, now])?;
+                }
+            }
+            tx.execute(
+                "INSERT INTO skill_watch (character_id, seeded_at) VALUES (?1, ?2)",
+                rusqlite::params![character_id, now],
+            )?;
+            tx.commit()?;
+            return Ok(SkillWatchResult {
+                seeded: true,
+                known: niveles.len() as i64,
+                learned: 0,
+            });
+        }
+        let seeded_at = sembrado.unwrap();
+
+        // ★ El borde inferior de la ventana para una skill NUEVA es el ÚLTIMO SYNC de este piloto,
+        // no el día de la siembra: si no estaba entonces, apareció después. Con dos meses
+        // observando, la diferencia es decir «entre ayer y hoy» en lugar de «en algún momento de
+        // los últimos dos meses». Se lee ANTES de tocar `skill_seen`, que es lo que se va a pisar.
+        let ultimo: String = tx
+            .query_row(
+                "SELECT MAX(seen_at) FROM skill_seen WHERE character_id = ?1",
+                [character_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .unwrap_or(seeded_at);
+
+        let mut learned = 0i64;
+        {
+            let mut q_prev = tx.prepare(
+                "SELECT level, seen_at FROM skill_seen WHERE character_id = ?1 AND skill_id = ?2",
+            )?;
+            let mut q_prom = tx.prepare(
+                "SELECT finish_date FROM skill_promise
+                  WHERE character_id = ?1 AND skill_id = ?2 AND finished_level = ?3
+                    AND finish_date <= ?4 AND finish_date >= ?5",
+            )?;
+            let mut ins_learn = tx.prepare(
+                "INSERT OR IGNORE INTO skill_learned
+                     (character_id, skill_id, level, at, exact, desde, hasta)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            let mut ins_seen = tx.prepare(
+                "INSERT INTO skill_seen (character_id, skill_id, level, sp, seen_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(character_id, skill_id) DO UPDATE SET
+                     level = excluded.level, sp = excluded.sp, seen_at = excluded.seen_at",
+            )?;
+            for (sid, lvl, sp) in niveles {
+                let prev: Option<(i64, String)> = q_prev
+                    .query_row(rusqlite::params![character_id, sid], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })
+                    .optional()?;
+                let (antes, desde) = match prev {
+                    Some((l, s)) => (l, s),
+                    None => (0, ultimo.clone()),
+                };
+                // Un nivel que BAJA no escribe nada: no se desaprende, así que si ocurre es un
+                // dato raro de ESI y lo último que hay que hacer es apuntarlo como un logro.
+                for n in (antes + 1)..=*lvl {
+                    let exacta: Option<String> = q_prom
+                        .query_row(rusqlite::params![character_id, sid, n, now, desde], |r| {
+                            r.get(0)
+                        })
+                        .optional()?;
+                    let (at, ex, d, h) = match exacta {
+                        Some(fd) => (fd, 1i64, None, None),
+                        None => (now.clone(), 0i64, Some(desde.clone()), Some(now.clone())),
+                    };
+                    learned +=
+                        ins_learn.execute(rusqlite::params![character_id, sid, n, at, ex, d, h])?
+                            as i64;
+                }
+                ins_seen.execute(rusqlite::params![character_id, sid, lvl, sp, now])?;
+            }
+        }
+        tx.commit()?;
+        Ok(SkillWatchResult {
+            seeded: false,
+            known: niveles.len() as i64,
+            learned,
+        })
+    }
+}
+
+/// Qué hizo el observador en una pasada. `seeded` = era la primera vez que se veía a ese piloto,
+/// así que el histórico de estudios de ese personaje empieza HOY y antes de hoy no hay nada.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkillWatchResult {
+    pub seeded: bool,
+    pub known: i64,
+    pub learned: i64,
 }
