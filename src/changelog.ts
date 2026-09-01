@@ -5,6 +5,22 @@ import { getLang } from "./i18n";
 export type ChangelogEntry = { version: string; date: string; es: string[]; en: string[] };
 
 export const CHANGELOG: ChangelogEntry[] = [
+  // ⏳ SIN PUBLICAR — se escribe según se construye, para que no se olvide al cortar la release.
+  // ANTES DEL TAG: ajustar `version` (si no acaba siendo 0.48.0) y poner la `date` de verdad.
+  // Es seguro tenerla aquí: `entriesSince` descarta las entradas por encima de la versión que
+  // corre, así que a nadie con la 0.47.0 se le enseña esto.
+  {
+    version: "0.48.0",
+    date: "2026-09-01",
+    es: [
+      "📘 Tus planes de estudio, guardados y con su progreso. Hasta ahora pegabas un plan, veías lo que te faltaba y al cambiar de pestaña lo perdías. Ahora se guarda con un nombre y, al abrirlo, cada uno de tus personajes enseña qué parte del plan YA TIENE —medido en puntos de habilidad y no en número de habilidades, porque una a nivel V vale unas treinta veces una a nivel III— con su barra al lado para compararlos de un vistazo. El plan se guarda UNA vez, no uno por personaje. Puedes marcar con una estrella a quién se lo has puesto, y como Koru retrata el punto de partida el día que lo guardas, junto al porcentaje aparece cuánto ha subido desde entonces.",
+      "🧩 Un plan pegado ya no es un pegote de texto. En cuanto Koru lo entiende lo enseña como lista: agrupado por familia de habilidades —Escudos, Artillería, Navegación…—, cada una con su icono del juego y el nivel final en números romanos. Los grupos van ordenados por lo que cuestan, así que la primera línea ya te dice de qué va el plan. El texto original sigue a un clic, por si quieres editarlo.",
+    ],
+    en: [
+      "📘 Your skill plans, saved and with their progress. Until now you pasted a plan, saw what you were missing and lost it the moment you switched tabs. Now it's saved under a name and, when you open it, each of your characters shows how much of the plan they ALREADY HAVE —measured in skill points rather than in number of skills, because one at level V is worth about thirty of one at level III— with a bar beside it so you can compare them at a glance. The plan is stored ONCE, not once per character. You can star whoever you've assigned it to, and since Koru photographs the starting point the day you save it, next to the percentage you'll see how much it has climbed since.",
+      "🧩 A pasted plan is no longer a wall of text. As soon as Koru understands it, it's shown as a list: grouped by skill family —Shields, Gunnery, Navigation…—, each one with its in-game icon and the final level in Roman numerals. Groups are sorted by what they cost, so the first line already tells you what the plan is about. The original text is one click away if you want to edit it.",
+    ],
+  },
   {
     version: "0.47.0",
     date: "2026-08-26",
