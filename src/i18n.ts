@@ -2605,6 +2605,25 @@ const EN: Record<string, string> = {
   "Una vez avisa y archiva la nota; siempre la deja abierta":
     "Once reminds you and files the note away; every visit keeps it open",
 
+  // --- PLANES DE ESTUDIO GUARDADOS: un plan, todos los pilotos ---
+  "Abrir este plan": "Open this plan",
+  "Borrar este plan guardado": "Delete this saved plan",
+  "Nombre del plan (p. ej. «Logi para el finde»)": "Plan name (e.g. “Logi for the weekend”)",
+  "Guardar plan": "Save plan",
+  "Guardar cambios": "Save changes",
+  Conseguido: "Completed",
+  Otras: "Other",
+  "Ver el plan como lista": "View the plan as a list",
+  "Editar el texto del plan": "Edit the plan text",
+  "TOTAL SP en total, desde cero": "TOTAL SP in total, from scratch",
+  "Se lo he puesto a él": "This one's on him",
+  "Quitar la marca": "Remove the mark",
+  "Lo que ha subido desde que guardaste el plan": "How much it's gone up since you saved the plan",
+  "Desde la foto ha bajado: si ampliaste el plan, es lo normal.":
+    "It's gone down since the baseline: if you extended the plan, that's expected.",
+  "Has cambiado el texto de este plan guardado. El avance de abajo se sigue midiendo contra el plan ANTERIOR: guarda los cambios para que vuelva a cuadrar.":
+    "You've changed the text of this saved plan. The progress below is still measured against the PREVIOUS plan: save your changes so it adds up again.",
+
   // --- SOCIAL: historial de conversaciones privadas ---
   "Tus conversaciones privadas, reconstruidas de los chatlogs — el histórico que el juego escribe y no enseña":
     "Your private conversations, rebuilt from the chatlogs — the history the game writes but never shows",

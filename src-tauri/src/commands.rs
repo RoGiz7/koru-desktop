@@ -3393,6 +3393,72 @@ pub async fn delete_note_step(id: i64, state: State<'_, AppState>) -> AppResult<
     state.db.note_step_delete(id)
 }
 
+// ---- ★ PLANES DE ESTUDIO GUARDADOS ----
+//
+// UN plan, TODOS los pilotos: el plan no se repite por personaje. Al guardarlo se retrata a cada
+// uno, y al abrirlo se ve la fila de cada piloto con lo que le queda HOY y cuánto ha avanzado
+// desde su foto.
+//
+// El progreso NO se guarda: se calcula en el frontend contra ESI en vivo y se compara contra la
+// foto. Aquí solo viaja lo que el usuario declaró (el texto, el nombre, a quién se lo ha puesto)
+// y el retrato del punto de partida. Las fotos las calcula el frontend porque es quien tiene el
+// catálogo del SDE y los estados de ESI delante.
+
+#[tauri::command]
+pub async fn skill_plan_list(state: State<'_, AppState>) -> AppResult<Vec<crate::db::SkillPlanRow>> {
+    state.db.skill_plan_list()
+}
+
+/// `baselines` = una foto por piloto, las nueve de golpe y en la misma transacción que el plan.
+#[tauri::command]
+pub async fn skill_plan_create(
+    name: String,
+    body: String,
+    baselines: Vec<crate::db::SkillPlanBaseline>,
+    state: State<'_, AppState>,
+) -> AppResult<i64> {
+    state.db.skill_plan_create(&name, &body, &baselines)
+}
+
+/// `body = None` renombra sin tocar el texto (y sin invalidar las fotos).
+#[tauri::command]
+pub async fn skill_plan_update(
+    plan_id: i64,
+    name: String,
+    body: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.db.skill_plan_update(plan_id, &name, body.as_deref())
+}
+
+#[tauri::command]
+pub async fn skill_plan_delete(plan_id: i64, state: State<'_, AppState>) -> AppResult<()> {
+    state.db.skill_plan_delete(plan_id)
+}
+
+/// Retrata a un piloto: o porque es nuevo y no tenía referencia, o porque se re-basa a propósito.
+#[tauri::command]
+pub async fn skill_plan_set_baseline(
+    plan_id: i64,
+    baseline: crate::db::SkillPlanBaseline,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.db.skill_plan_set_baseline(plan_id, &baseline)
+}
+
+/// Marca «este plan se lo he puesto a este piloto». Devuelve `false` si no había foto que marcar.
+#[tauri::command]
+pub async fn skill_plan_set_assigned(
+    plan_id: i64,
+    character_id: i64,
+    assigned: bool,
+    state: State<'_, AppState>,
+) -> AppResult<bool> {
+    state
+        .db
+        .skill_plan_set_assigned(plan_id, character_id, assigned)
+}
+
 /// Cuántas unidades pide una tarea. 0 = con que aparezca una, vale.
 #[tauri::command]
 pub async fn set_note_step_qty(id: i64, qty: i64, state: State<'_, AppState>) -> AppResult<()> {

@@ -654,6 +654,96 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS idx_arc_char ON activity_run_chars(character_id);",
         );
+        // ★ PLANES DE ESTUDIO GUARDADOS (2026-09-01). Hasta hoy el plan pegado vivía en un
+        // `useState` y se evaporaba al cambiar de pestaña: calculabas 484 días y los perdías.
+        //
+        // DOS TABLAS, y la separación es la decisión de RoGiz7: **el plan es GLOBAL y se ancla
+        // DESPUÉS** (un mismo plan puede acabar en varios pilotos). De ahí se deduce lo demás:
+        //
+        //  · El BODY se guarda CRUDO, tal y como el juego lo copia —con sus `<localized hint>`—.
+        //    Guardar las líneas ya parseadas petrificaría el parser de HOY, y el `hint` trae de
+        //    regalo el nombre en el idioma del cliente, que es el plan B cuando alguien lo pega
+        //    desde un cliente no inglés.
+        //
+        //  · UN plan, TODOS los pilotos. El plan no se repite por personaje: al guardarlo se le
+        //    hace una FOTO A CADA UNO (`skill_plan_target`), y al abrirlo se ve la fila de cada
+        //    piloto con lo que le queda HOY y cuánto ha avanzado desde aquella foto.
+        //    Por eso la foto se toma AL GUARDAR y no al anclar: si esperase al anclaje, un plan
+        //    que nadie ancló no podría decir de nadie si avanza — que es justo la pregunta.
+        //    ⚠️ La foto NO es una segunda verdad sobre lo que tienes —eso lo sigue mandando ESI en
+        //    vivo, como los assets—: es el registro de dónde estabas. El progreso se calcula
+        //    siempre contra ESI y se compara contra la foto; jamás al revés.
+        //
+        //  · `assigned` es OTRA cosa y por eso es una columna aparte: «a este piloto se lo he
+        //    puesto de verdad». Marca la decisión, no habilita el progreso. Un plan puede acabar
+        //    asignado a varios; ninguno deja de verse por no estar asignado.
+        //
+        //  · `rate_sp_min` NULL = al retratar no estaba entrenando nada, así que aquel cálculo fue
+        //    modelo puro sin calibrar. Sin esta columna, meses después nadie sabría si la foto era
+        //    comparable. Misma regla que `files=0` en las ops: la ceguera se guarda, no se rellena.
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS skill_plan (
+                 plan_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name       TEXT NOT NULL,
+                 body       TEXT NOT NULL,   -- el pegado CRUDO, sin parsear
+                 created_at TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS skill_plan_target (
+                 plan_id      INTEGER NOT NULL REFERENCES skill_plan(plan_id) ON DELETE CASCADE,
+                 character_id INTEGER NOT NULL,
+                 based_at     TEXT NOT NULL,
+                 sp_left      INTEGER NOT NULL,   -- la foto: SP que le faltaban ese día
+                 -- Minutos y ritmo van NULL cuando ese día no entrenaba nada. Un 0 aquí sería
+                 -- rellenar la ceguera con un número, y el avance en tiempo saldría inventado.
+                 -- El avance de verdad se mide en SP, que es una resta y siempre es cierta.
+                 min_left     REAL,
+                 rate_sp_min  REAL,
+                 assigned     INTEGER NOT NULL DEFAULT 0,  -- 1 = se lo has puesto a él
+                 PRIMARY KEY (plan_id, character_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_spt_char ON skill_plan_target(character_id);",
+        );
+        // ⚠️ MIGRACIÓN de un esquema que NUNCA se publicó (2026-09-01, mismo día).
+        //
+        // Durante el desarrollo hubo una versión intermedia con `anchored_at` en vez de `based_at`,
+        // sin `assigned` y con `min_left NOT NULL`. Quien tuviera la app en marcha mientras se
+        // editaba el Rust se quedó con ESA tabla, y `CREATE TABLE IF NOT EXISTS` no la arregla:
+        // no toca las tablas que ya existen. El síntoma era `no such column: t.based_at`.
+        //
+        // Se reconstruye COPIANDO las filas, no borrando: aunque esta tabla no puede tener nada
+        // valioso (el esquema vivió minutos), la regla es la regla — una migración no tira datos
+        // porque el que la escribe crea que no hay ninguno.
+        // `min_left` pasa a admitir NULL, que es el motivo de fondo: con seis personajes sin
+        // entrenar, insertar NULL contra la tabla vieja habría petado en cada guardado.
+        let vieja: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('skill_plan_target') WHERE name = 'anchored_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if vieja > 0 {
+            let _ = conn.execute_batch(
+                "ALTER TABLE skill_plan_target RENAME TO skill_plan_target_old;
+                 CREATE TABLE skill_plan_target (
+                     plan_id      INTEGER NOT NULL REFERENCES skill_plan(plan_id) ON DELETE CASCADE,
+                     character_id INTEGER NOT NULL,
+                     based_at     TEXT NOT NULL,
+                     sp_left      INTEGER NOT NULL,
+                     min_left     REAL,
+                     rate_sp_min  REAL,
+                     assigned     INTEGER NOT NULL DEFAULT 0,
+                     PRIMARY KEY (plan_id, character_id)
+                 );
+                 INSERT INTO skill_plan_target
+                     (plan_id, character_id, based_at, sp_left, min_left, rate_sp_min, assigned)
+                 SELECT plan_id, character_id, anchored_at, sp_left, min_left, rate_sp_min, 0
+                   FROM skill_plan_target_old;
+                 DROP TABLE skill_plan_target_old;
+                 CREATE INDEX IF NOT EXISTS idx_spt_char ON skill_plan_target(character_id);",
+            );
+        }
         // note: N2 del motor humano. `trigger_once` decide si el aviso salta UNA vez o CADA visita.
         //
         // Es la decisión de RoGiz7 (2026-08-11) contra mi propuesta, y gana por algo que yo no había
@@ -7355,4 +7445,220 @@ pub struct SocialMsgRow {
     pub author: String,
     pub text: String,
     pub me: bool,
+}
+
+// ---- ★ PLANES DE ESTUDIO GUARDADOS ----
+
+/// La foto de UN piloto frente a UN plan: dónde estaba el día que se guardó (o el día que se
+/// puso el contador a cero). El «cuánto le queda hoy» NO está aquí — eso se calcula en vivo.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkillPlanTarget {
+    pub character_id: i64,
+    pub based_at: String,
+    pub sp_left: i64,
+    /// `None` = aquel día no entrenaba nada: no había tiempo que calcular. El avance se mide en
+    /// SP, que es una resta y no depende del ritmo.
+    pub min_left: Option<f64>,
+    pub rate_sp_min: Option<f64>,
+    /// `true` = se lo has puesto a él. Es la decisión, no el permiso para medirle el avance.
+    pub assigned: bool,
+}
+
+/// La foto de un piloto tal como la manda el frontend al guardar un plan (o al re-basar).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SkillPlanBaseline {
+    pub character_id: i64,
+    pub sp_left: i64,
+    pub min_left: Option<f64>,
+    pub rate_sp_min: Option<f64>,
+}
+
+/// Un plan guardado. El `body` es el pegado CRUDO: se reparsea al abrirlo, nunca se guarda parseado.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkillPlanRow {
+    pub plan_id: i64,
+    pub name: String,
+    pub body: String,
+    pub created_at: String,
+    pub updated_at: String,
+    /// Una foto por piloto, la de cuando se guardó. Vacío solo si el guardado se hizo sin
+    /// estados de ESI delante: entonces no hay referencia y la pantalla lo dice.
+    pub targets: Vec<SkillPlanTarget>,
+}
+
+impl Db {
+    /// Guarda un plan nuevo y retrata a TODOS los pilotos de golpe. Devuelve el id.
+    ///
+    /// Las fotos van en la MISMA transacción que el plan: un plan guardado a medias —con seis
+    /// pilotos retratados y tres no— daría un avance que parecería real y no lo sería.
+    pub fn skill_plan_create(
+        &self,
+        name: &str,
+        body: &str,
+        baselines: &[SkillPlanBaseline],
+    ) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO skill_plan (name, body, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+            rusqlite::params![name, body, now],
+        )?;
+        let id = tx.last_insert_rowid();
+        {
+            let mut ins = tx.prepare(
+                "INSERT INTO skill_plan_target
+                     (plan_id, character_id, based_at, sp_left, min_left, rate_sp_min)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for b in baselines {
+                ins.execute(rusqlite::params![
+                    id,
+                    b.character_id,
+                    now,
+                    b.sp_left,
+                    b.min_left,
+                    b.rate_sp_min
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// Todos los planes con la foto de cada piloto.
+    ///
+    /// LEFT JOIN a propósito: con INNER, un plan sin ninguna foto **desaparecería de la lista** —
+    /// el usuario lo daría por perdido y no habría error que mirar.
+    pub fn skill_plan_list(&self) -> AppResult<Vec<SkillPlanRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.plan_id, p.name, p.body, p.created_at, p.updated_at,
+                    t.character_id, t.based_at, t.sp_left, t.min_left, t.rate_sp_min, t.assigned
+               FROM skill_plan p
+               LEFT JOIN skill_plan_target t ON t.plan_id = p.plan_id
+              ORDER BY p.updated_at DESC, p.plan_id DESC, t.min_left",
+        )?;
+        let mut out: Vec<SkillPlanRow> = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(r) = rows.next()? {
+            let plan_id: i64 = r.get(0)?;
+            if out.last().map(|p| p.plan_id) != Some(plan_id) {
+                out.push(SkillPlanRow {
+                    plan_id,
+                    name: r.get(1)?,
+                    body: r.get(2)?,
+                    created_at: r.get(3)?,
+                    updated_at: r.get(4)?,
+                    targets: Vec::new(),
+                });
+            }
+            // Con LEFT JOIN, un plan sin fotos trae la mitad derecha a NULL: eso NO es una fila.
+            if let Some(character_id) = r.get::<_, Option<i64>>(5)? {
+                out.last_mut().unwrap().targets.push(SkillPlanTarget {
+                    character_id,
+                    based_at: r.get(6)?,
+                    sp_left: r.get(7)?,
+                    min_left: r.get(8)?,
+                    rate_sp_min: r.get(9)?,
+                    assigned: r.get::<_, i64>(10)? != 0,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Cambia el nombre o el texto de un plan.
+    ///
+    /// ⚠️ Si cambia el BODY, los anclajes se quedan: su foto sigue siendo verdad sobre lo que
+    /// aquel plan pedía aquel día. Pero el avance contra ella deja de ser comparable, así que
+    /// quien llama debe avisarlo en pantalla — aquí no se borra nada a espaldas de nadie.
+    pub fn skill_plan_update(&self, plan_id: i64, name: &str, body: Option<&str>) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        match body {
+            Some(b) => conn.execute(
+                "UPDATE skill_plan SET name = ?2, body = ?3, updated_at = ?4 WHERE plan_id = ?1",
+                rusqlite::params![plan_id, name, b, now],
+            )?,
+            None => conn.execute(
+                "UPDATE skill_plan SET name = ?2, updated_at = ?3 WHERE plan_id = ?1",
+                rusqlite::params![plan_id, name, now],
+            )?,
+        };
+        Ok(())
+    }
+
+    /// Borra un plan. Sus anclajes se van con él (`ON DELETE CASCADE`, y `foreign_keys` está ON
+    /// desde `Db::open` — sin ese pragma quedarían huérfanos en silencio).
+    pub fn skill_plan_delete(&self, plan_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM skill_plan WHERE plan_id = ?1",
+            rusqlite::params![plan_id],
+        )?;
+        Ok(())
+    }
+
+    /// Pone (o repone) la foto de UN piloto: «el contador de este empieza HOY».
+    ///
+    /// Sirve para dos casos que son el mismo movimiento:
+    ///   · un piloto que no existía cuando se guardó el plan y por tanto no tiene referencia;
+    ///   · re-basar a propósito («esto ya no me vale, empiezo de nuevo desde aquí»).
+    ///
+    /// UPSERT, y **`assigned` se conserva** (`excluded` no lo toca): re-basar es cambiar el punto
+    /// de partida, no renunciar a que el plan sea suyo. Y una fila por intento dejaría el avance
+    /// contando desde una foto vieja que nadie recuerda haber sacado.
+    pub fn skill_plan_set_baseline(
+        &self,
+        plan_id: i64,
+        b: &SkillPlanBaseline,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO skill_plan_target
+                 (plan_id, character_id, based_at, sp_left, min_left, rate_sp_min)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(plan_id, character_id) DO UPDATE SET
+                 based_at    = excluded.based_at,
+                 sp_left     = excluded.sp_left,
+                 min_left    = excluded.min_left,
+                 rate_sp_min = excluded.rate_sp_min",
+            rusqlite::params![
+                plan_id,
+                b.character_id,
+                now,
+                b.sp_left,
+                b.min_left,
+                b.rate_sp_min
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Marca o desmarca «este plan se lo he puesto a este piloto».
+    ///
+    /// ⚠️ Solo toca la marca: **la foto no se borra al desasignar**. Si se borrase, quitar y
+    /// volver a poner la marca reiniciaría el avance en silencio, y nadie relacionaría un clic
+    /// en una estrella con haber perdido tres meses de referencia.
+    ///
+    /// Devuelve `false` si ese piloto no tenía fila (nunca se le retrató para este plan): la
+    /// marca NO se ha puesto. Se devuelve en vez de tragárselo porque un `UPDATE` que no
+    /// encuentra fila no falla — se queda tan tranquilo, y la estrella no se encendería sin que
+    /// hubiera nada que mirar. Quien llama debe retratar primero.
+    pub fn skill_plan_set_assigned(
+        &self,
+        plan_id: i64,
+        character_id: i64,
+        assigned: bool,
+    ) -> AppResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE skill_plan_target SET assigned = ?3
+              WHERE plan_id = ?1 AND character_id = ?2",
+            rusqlite::params![plan_id, character_id, assigned as i64],
+        )?;
+        Ok(n > 0)
+    }
 }

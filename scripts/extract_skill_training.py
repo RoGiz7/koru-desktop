@@ -27,7 +27,15 @@
     un tiempo optimista que nadie detectaría.
   - Lo que se COMPRA (inyectores) no es tiempo de entrenamiento y no se modela.
 
-Salida: { "<typeID>": {"r": rango, "p": id_primario, "s": id_secundario} }
+★ EL GRUPO (añadido 2026-09-01). Cada skill pertenece a un grupo del SDE —Gunnery, Missiles,
+  Spaceship Command…— y es la forma natural de leer un plan: 31 líneas sueltas no dicen nada, seis
+  grupos sí dicen «esto va de escudos y de mando». El grupo sale del MISMO sitio del que ya se
+  sacaban las skills (`groups.jsonl`, categoría 16), así que no cuesta ni una lectura más.
+  Los nombres de grupo van a un fichero aparte y **con sus idiomas tal como los da el SDE**: la
+  traducción la manda el SDE, no `i18n.ts` (ver la trampa de los nombres localizados).
+
+Salida: { "<typeID>": {"r": rango, "p": id_primario, "s": id_secundario, "g": grupo} }
+        public/skill_groups.json = { "<groupID>": {"en": "...", "es": "..."} }
 
 Uso: python scripts/extract_skill_training.py   (elige el SDE más nuevo de documentacion/sde-source)
 """
@@ -41,6 +49,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.join(os.path.dirname(ROOT), "documentacion", "sde-source")
 OUT = os.path.join(ROOT, "public", "skill_training.json")
+OUT_G = os.path.join(ROOT, "public", "skill_groups.json")
 
 CATEGORY_SKILL = 16
 A_PRIMARY, A_SECONDARY, A_RANK = 180, 181, 275
@@ -58,13 +67,24 @@ def main() -> int:
     with zipfile.ZipFile(zpath) as z:
         # Los grupos de la categoría 16 (Skill). No se listan a mano: el SDE manda.
         grupos: set[int] = set()
+        # Nombre del grupo EN CASTELLANO E INGLÉS, tal cual lo da el SDE. No se traduce a mano:
+        # los nombres localizados los manda el SDE, y escribirlos en i18n.ts es la vía segura para
+        # que diverjan del juego sin que nadie lo note.
+        nombres_grupo: dict[int, dict] = {}
         with z.open("groups.jsonl") as f:
             for line in f:
                 d = json.loads(line)
                 if d.get("categoryID") == CATEGORY_SKILL:
-                    grupos.add(d["_key"])
+                    gid = d["_key"]
+                    grupos.add(gid)
+                    n = d.get("name")
+                    if isinstance(n, dict):
+                        nombres_grupo[gid] = {"en": n.get("en", f"#{gid}"), "es": n.get("es", n.get("en", f"#{gid}"))}
+                    else:
+                        nombres_grupo[gid] = {"en": str(n), "es": str(n)}
 
         skills: dict[int, str] = {}
+        grupo_de: dict[int, int] = {}
         with z.open("types.jsonl") as f:
             for line in f:
                 d = json.loads(line)
@@ -72,6 +92,7 @@ def main() -> int:
                     continue
                 n = d.get("name")
                 skills[d["_key"]] = n.get("en") if isinstance(n, dict) else str(n)
+                grupo_de[d["_key"]] = d["groupID"]
 
         out: dict[str, dict] = {}
         sin_dogma: list[str] = []
@@ -86,14 +107,22 @@ def main() -> int:
                 if r is None or p is None or s is None:
                     sin_dogma.append(f"{skills[tid]} ({tid})")
                     continue
-                out[str(tid)] = {"r": int(r), "p": int(p), "s": int(s)}
+                out[str(tid)] = {"r": int(r), "p": int(p), "s": int(s), "g": grupo_de[tid]}
 
     faltan = [f"{skills[t]} ({t})" for t in skills if str(t) not in out]
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(dict(sorted(out.items(), key=lambda kv: int(kv[0]))), f,
                   ensure_ascii=False, separators=(",", ":"))
+    # Solo los grupos que de verdad tienen alguna skill utilizable: un grupo vacío en el fichero
+    # acabaría siendo una cabecera sin nada debajo en la pantalla.
+    usados = {v["g"] for v in out.values()}
+    grupos_out = {str(g): nombres_grupo[g] for g in sorted(usados)}
+    with open(OUT_G, "w", encoding="utf-8") as f:
+        json.dump(grupos_out, f, ensure_ascii=False, separators=(",", ":"))
     print(f"OK → public/skill_training.json: {len(out)} skills "
           f"({os.path.getsize(OUT)//1024} KB) de {len(skills)} de la categoría Skill")
+    print(f"OK → public/skill_groups.json: {len(grupos_out)} grupos "
+          f"({os.path.getsize(OUT_G)} bytes)")
     if faltan:
         print(f"  sin rango/atributos ({len(faltan)}): {', '.join(faltan)}")
 
@@ -115,6 +144,19 @@ def main() -> int:
         err.append(f"{len(iguales)} skills con primario == secundario (p.ej. {iguales[:3]})")
     if len(out) < 500:
         err.append(f"solo {len(out)} skills: el SDE trae ~588, algo se está filtrando de más")
+    # Grupos: cada skill DEBE tener uno y ese grupo debe tener nombre. Una skill sin cabecera
+    # caería en un cajón «#255» que nadie sabría leer.
+    sin_g = [t for t, v in out.items() if not v.get("g")]
+    if sin_g:
+        err.append(f"{len(sin_g)} skills sin grupo (p.ej. {sin_g[:3]})")
+    sin_nombre = [g for g in usados if g not in nombres_grupo]
+    if sin_nombre:
+        err.append(f"{len(sin_nombre)} grupos sin nombre en el SDE: {sin_nombre[:3]}")
+    sin_es = [g for g, n in grupos_out.items() if n["es"] == n["en"]]
+    if len(sin_es) > len(grupos_out) // 2:
+        err.append(f"{len(sin_es)} de {len(grupos_out)} grupos sin traducción al castellano")
+    if grupos_out.get("255", {}).get("en") != "Gunnery":
+        err.append("el grupo 255 ya no es Gunnery: el SDE cambió los ids de grupo")
     if err:
         print("⚠️ GUARDAS EN ROJO:")
         for e in err:

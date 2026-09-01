@@ -307,6 +307,13 @@ pub fn run() {
             commands::get_wallet_global,
             commands::get_skills_global,
             commands::get_skill_states,
+            // ★ Planes de estudio guardados: un plan, todos los pilotos.
+            commands::skill_plan_list,
+            commands::skill_plan_create,
+            commands::skill_plan_update,
+            commands::skill_plan_delete,
+            commands::skill_plan_set_baseline,
+            commands::skill_plan_set_assigned,
             commands::get_assets_global,
             commands::get_industry_global,
             commands::get_industry_history,

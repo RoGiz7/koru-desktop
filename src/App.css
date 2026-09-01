@@ -10146,6 +10146,132 @@ h4 {
 .plan-desplegar { color: var(--fg-muted-2); font-size: 0.8rem; }
 .plan-detalle { margin: 4px 0 8px; }
 
+/* Planes GUARDADOS (2026-09-01). Un plan no se repite por personaje: se guarda una vez y la tabla
+   enseña a los nueve. Las fichas de arriba son los planes; la estrella marca a quién se lo has
+   puesto de verdad. */
+.plan-guardados { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+/* El plan abierto se marca con el BORDE, no rellenando el fondo con --accent: ese token es fondo
+   y texto a la vez y ya nos dejó un contraste ilegible durante meses en el tema por defecto. */
+.plan-chip-on { border-color: var(--accent-border); }
+.plan-chip-cargar,
+.plan-chip-x {
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  padding: 3px 10px;
+}
+.plan-chip-cargar:hover,
+.plan-chip-x:hover { background: var(--bg-hover, rgba(255, 255, 255, 0.06)); }
+.plan-chip-x { color: var(--fg-muted-2); padding: 3px 8px; }
+.plan-chip-n { color: var(--fg-muted-2); font-size: 0.85em; }
+.plan-guardar { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.plan-guardar input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  padding: 4px 8px;
+}
+.plan-guardar input[type="text"]:focus { border-style: solid; border-color: var(--accent-border); outline: none; }
+/* `.ida-btn` nació para una rejilla de dos columnas y trae `flex: 1 1 calc(50% - …)`: metido en
+   esta fila se estiraba hasta el borde de la pantalla. Aquí manda el contenido. */
+.plan-guardar .ida-btn { flex: 0 0 auto; }
+.plan-estrella {
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted-2);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 4px;
+}
+.plan-estrella:hover { color: var(--fg); }
+/* Lo que ha subido el % desde la foto. Verde = movimiento a favor, y pequeño porque es el dato
+   secundario: el porcentaje dice DÓNDE ESTÁ, esto solo dice que se mueve. */
+.plan-subida { color: #3fb950; font-size: 0.85em; }
+
+/* La fila de personaje: cara redonda + nombre. Con nueve alts se reconoce antes el retrato. */
+.plan-quien { display: inline-flex; align-items: center; gap: 7px; }
+.plan-cara { width: 24px; height: 24px; border-radius: 50%; flex: none; }
+
+/* La barra de «Conseguido». Existe para COMPARAR de un vistazo; el número sigue arriba porque es
+   el que se usa para decidir. La columna lleva ancho mínimo para que las nueve barras midan lo
+   mismo — barras de anchos distintos no se pueden comparar y serían peor que no ponerlas. */
+.plan-prog-td { min-width: 118px; }
+.plan-prog-num { text-align: right; white-space: nowrap; }
+.plan-barra {
+  margin-top: 3px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg-hover, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
+}
+/* Relleno con `--accent-border` y NO con `--accent`: ese token es fondo y texto a la vez y ya nos
+   dejó meses un contraste ilegible en el tema por defecto. El borde del acento sí es un color
+   sólido pensado para verse sobre el fondo, en los doce temas de facción. */
+.plan-barra > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-border);
+  border-radius: 999px;
+}
+/* Completo = verde, el mismo de la flota en el mapa: «esto ya está» merece leerse sin comparar. */
+.plan-barra > span.plan-barra-full { background: #3fb950; }
+
+/* ---- EL PLAN COMO LISTA, no como pegote de texto ----
+   31 líneas sueltas no dicen nada; seis grupos con su icono dicen «esto va de escudos y mando».
+   Los grupos van ordenados por SP, así que la primera cabecera ya cuenta de qué va el plan. */
+.plan-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.plan-grupo-cab {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px;
+}
+.plan-grupo-nom { font-weight: 600; font-size: 0.9rem; }
+.plan-grupo-n { color: var(--fg-muted-2); font-size: 0.78rem; }
+.plan-skills { display: flex; flex-wrap: wrap; gap: 5px; }
+.plan-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.plan-skill-ico { width: 20px; height: 20px; flex: none; }
+/* El nivel, en romanos y con el acento del tema: es el dato que se busca al repasar un plan. */
+.plan-skill-lvl {
+  color: var(--accent-border);
+  font-variant: small-caps;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.plan-modo { margin: 4px 0 8px; }
+
 /* ---- Notas: que se vea lo que se puede pulsar (2026-08-31) ----
    El motor de notas tenía toda su potencia dentro de una nota YA creada, y encima sin señal de
    que aquello fuera pulsable. Mismo lenguaje que `.piloto-link` y `.ver-mapa`: subrayado punteado
