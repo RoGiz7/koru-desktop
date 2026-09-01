@@ -10167,6 +10167,41 @@ h4 {
   margin-bottom: 12px;
 }
 .bienv-cerrar:hover { color: var(--fg); }
+/* ★ TOP DE ASSETS EN TRES FAMILIAS (2026-09-01). Un top único mezclaba una nave con un montón de
+   mineral: separado, cada columna contesta su pregunta y las tres caben de un vistazo.
+   `minmax(0, 1fr)` y no `1fr`: sin el 0, un nombre largo ensancha su columna y descuadra las otras
+   dos — el fallo clásico de las rejillas con texto que no cabe. */
+.top-fams {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.top-fam-tit {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted-2);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+.top-fila {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 0.86rem;
+}
+/* El nombre cede: es lo único elástico, y con `min-width: 0` puede recortarse en vez de empujar
+   al ISK fuera de la columna. */
+.top-nom { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-qty { flex: none; color: var(--fg-muted-2); font-variant-numeric: tabular-nums; }
+.top-isk { flex: none; font-variant-numeric: tabular-nums; }
+/* En pantallas estrechas, tres columnas de texto no caben: una debajo de otra. */
+@media (max-width: 900px) {
+  .top-fams { grid-template-columns: 1fr; }
+}
+
 /* ★ PESTAÑAS DE CATEGORÍA CON ICONO Y CUENTA (2026-09-01). Sustituyen a la gráfica «Distribución
    por categoría», que ocupaba media pantalla para medir unidades — y con 145 millones de minerales
    doce de las catorce barras eran un muñón. Aquí el número está DONDE SE DECIDE y no comparte eje

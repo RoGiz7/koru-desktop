@@ -290,7 +290,11 @@ export type GlobalSkills = {
   training: CharTraining[];
 };
 
+/** Familia del top de assets. La decide el RUST y viaja en el dato: si cada lado tuviera su propia
+ *  tabla de categorías, el día que se añada una las dos divergirían y una columna perdería cosas. */
+export type AssetFamily = "Naves" | "Materiales" | "Items";
 export type TypeValue = {
+  family: AssetFamily;
   type_id: number;
   qty: number;
   value: number;

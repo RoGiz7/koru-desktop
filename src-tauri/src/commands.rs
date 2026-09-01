@@ -10068,6 +10068,7 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
     let mut top_value: Vec<crate::esi::assets::TypeValue> = tv_agg
         .into_iter()
         .map(|(type_id, (qty, value, category))| crate::esi::assets::TypeValue {
+            family: crate::esi::assets::familia(&category).to_string(),
             type_id,
             qty,
             value,
@@ -10076,7 +10077,22 @@ pub async fn get_assets_global(state: State<'_, AppState>) -> AppResult<AssetsSu
         })
         .collect();
     top_value.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
-    top_value.truncate(30);
+    // ★ Mismo criterio que el resumen por personaje: CINCO POR FAMILIA, no un top global. Aquí no
+    // hay que resolver categorías —vienen ya en los resúmenes— así que no hace falta tope de
+    // barrido, y los blueprints ya se quedaron fuera antes de llegar hasta aquí.
+    //
+    // ⚠️ Aproximación heredada, y conviene tenerla escrita: esto agrega los tops de CADA personaje,
+    // no el inventario entero. Un tipo que sea el sexto en los nueve pilotos —y por tanto no viaje
+    // en ningún resumen— no puede aparecer aquí aunque sumando fuera el primero. Ya pasaba con el
+    // top de 30; el cambio a familias no lo empeora ni lo arregla.
+    {
+        let mut por_fam: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        top_value.retain(|t| {
+            let n = por_fam.entry(t.family.clone()).or_insert(0);
+            *n += 1;
+            *n <= 5
+        });
+    }
     let tv_ids: Vec<i64> = top_value.iter().map(|t| t.type_id).collect();
     if let Ok(names) = state.esi.resolve_names(&tv_ids).await {
         for t in top_value.iter_mut() {

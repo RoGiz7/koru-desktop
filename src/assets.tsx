@@ -158,55 +158,46 @@ export function AssetsView(props: {
             )}
           </div>
           {data.top_value && data.top_value.length > 0 && (
-            <div className="panel resumen-panel" style={{ maxWidth: 580, marginBottom: "0.8rem" }}>
+            <div className="panel resumen-panel" style={{ marginBottom: "0.8rem" }}>
               <h4>💰 {tr("Top assets por valor estimado")}</h4>
               <p className="muted small">
-                {tr("Los blueprints no cuentan para el patrimonio. Un BPC no se puede vender en el mercado —solo por contrato—, así que ningún precio de mercado le corresponde. Un BPO sí se vende, pero el average_price de ESI es su valor base, no lo que sacarías por él, y la investigación (ME/TE) no aparece en ningún precio automático.")}
+                {tr("Los blueprints se quedan fuera: un BPC no se puede vender en el mercado —solo por contrato—, y el average_price de un BPO es su valor base, no lo que sacarías por él. Su total sigue arriba, en su propio dato.")}
               </p>
-              <table className="km-table cat-table">
-                <thead>
-                  <tr>
-                    <th>{tr("Item")}</th>
-                    <th>{tr("Categoría")}</th>
-                    <th style={{ textAlign: "right" }}>{tr("Cantidad")}</th>
-                    <th style={{ textAlign: "right" }}>{tr("Valor")}</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* ★ DIEZ, y SIN BLUEPRINTS (los dos, petición suya y con razón).
-                      · Treinta filas no son un «top», son un listado: el Rust manda 30 y aquí se
-                        enseñan las que de verdad contestan «¿qué es lo más caro que tengo?».
-                      · Y los planos salían ORDENADOS POR UN NÚMERO DEL QUE LA PROPIA APP RENIEGA
-                        en el párrafo de arriba: un BPC no se puede vender en mercado, y el
-                        `average_price` de un BPO es su valor base, no lo que sacarías. Rankear por
-                        una cifra que hemos declarado poco fiable es lo que confundía. Su total
-                        sigue a la vista en su KPI, que es donde no engaña. */}
-                  {data.top_value
-                    .filter((t) => t.category !== "Blueprints")
-                    .slice(0, 10)
-                    .map((t) => (
-                    <tr key={t.type_id}>
-                      <td>
-                        {/* Igual que en la tabla de detalle: los planos no responden a `/icon`.
-                            Esta tabla los enseña a propósito (marcados como excluidos), así que
-                            sin esto cada uno gasta una petición que el servidor rechaza. */}
-                        <TypeIcon typeId={t.type_id} blueprint={t.category === "Blueprints"} />{" "}
-                        {t.name ?? `#${t.type_id}`}
-                      </td>
-                      <td>
-                        {tr(t.category)}
-                        {t.category === "Blueprints" && ` · ${tr("excluido")}`}
-                      </td>
-                      <td style={{ textAlign: "right" }}>{fmtSp(t.qty)}</td>
-                      <td style={{ textAlign: "right" }}>{fmtIsk(t.value)}</td>
-                      <td style={{ textAlign: "right" }}>
-                        <WatchAddBtn typeId={t.type_id} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {/* ★ TRES COLUMNAS A ANCHO COMPLETO (idea de RoGiz7). Un top único mezclaba una nave
+                  con un montón de mineral y no dejaba comparar nada; separado por familias, cada
+                  columna contesta una pregunta distinta y las tres caben de un vistazo.
+                  ⚠️ El top de CADA familia lo calcula el RUST — repartir aquí un top global daría
+                  «lo que le tocó a cada cesta» y una columna podría quedarse vacía bajo un título
+                  que promete cinco. Y por eso `family` viaja en el dato: definirla en los dos lados
+                  sería la vía segura para que algún día divergieran. */}
+              <div className="top-fams">
+                {(["Naves", "Materiales", "Items"] as const).map((fam) => {
+                  const filas = data.top_value.filter((t) => t.family === fam);
+                  return (
+                    <div key={fam} className="top-fam">
+                      <div className="top-fam-tit">{tr(fam)}</div>
+                      {filas.length === 0 ? (
+                        // Vacío DECLARADO: sin esto, una familia sin nada se leería como un fallo
+                        // de carga en vez de como «no tienes de esto».
+                        <div className="muted small">{tr("Nada de esta familia.")}</div>
+                      ) : (
+                        filas.map((t) => (
+                          <div key={t.type_id} className="top-fila">
+                            <TypeIcon typeId={t.type_id} className="cat-ico" />
+                            <span className="top-nom" title={t.name ?? undefined}>
+                              {t.name ?? `#${t.type_id}`}
+                            </span>
+                            {/* ×cantidad pegado al nombre: es del objeto, no una columna aparte. */}
+                            <span className="top-qty">×{fmtSp(t.qty)}</span>
+                            <span className="top-isk">{fmtIsk(t.value)}</span>
+                            <WatchAddBtn typeId={t.type_id} />
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
           {/* ★ LA CUENTA VA EN LA PROPIA PESTAÑA (idea de RoGiz7). Antes había aquí una gráfica

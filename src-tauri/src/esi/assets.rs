@@ -181,9 +181,24 @@ pub struct AssetsSummary {
     pub watched: std::collections::HashMap<i64, i64>,
 }
 
+/// ★ FAMILIA de una categoría, para el top por columnas: Naves · Materiales · Items.
+///
+/// Vive AQUÍ y viaja dentro del dato (`TypeValue.family`) en vez de deducirse en el frontend.
+/// Si cada lado tuviera su propia tabla, el día que se añada una categoría una de las dos se
+/// quedaría atrás y una columna empezaría a perder cosas sin que salte ningún error.
+pub fn familia(category: &str) -> &'static str {
+    match category {
+        "Naves" | "Cazas" => "Naves",
+        "Materiales" | "Ore / Asteroides" => "Materiales",
+        _ => "Items",
+    }
+}
+
 /// Un tipo valorado (para el desglose "top assets por valor" y para excluir blueprints).
 #[derive(Debug, Clone, Serialize)]
 pub struct TypeValue {
+    /// `Naves` | `Materiales` | `Items` — ver [`familia`].
+    pub family: String,
     pub type_id: i64,
     pub qty: i64,
     pub value: f64,
@@ -269,16 +284,43 @@ pub async fn summary_from_items(
     valued.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
     let est_value: f64 = valued.iter().map(|x| x.2).sum();
 
-    let top_n = valued.len().min(50);
+    // ★ TOP POR FAMILIA, no un top global (2026-09-01). Antes se mandaban los 30 más caros a secas:
+    // repartirlos luego en columnas daba «lo que le tocó a cada cesta», y con un inventario dominado
+    // por minerales la columna de Naves podía quedarse vacía bajo un título que promete cinco.
+    //
+    // Se recorre la lista ya ordenada por valor y se guardan los CINCO primeros de cada familia.
+    // El tope de 200 acota el coste: `resolve_category` cachea en BD, pero la primera vez pregunta
+    // a ESI por cada tipo nuevo, y sin tope alguien con miles de tipos distintos lo pagaría entero.
+    // Si una familia no llega a cinco, se enseña lo que haya — son de verdad los más caros vistos.
+    //
+    // ⚠️ Los BLUEPRINTS se quedan FUERA del top: su valor es el base, no lo que sacarías (un BPC ni
+    // siquiera se vende en mercado). Se excluyen AQUÍ y no en la pantalla porque, filtrándolos
+    // luego, una familia cuyos cinco fueran planos aparecería vacía sin motivo visible.
+    // ⚠️ EFECTO SECUNDARIO DECLARADO: subir el barrido de 50 a 200 tipos también arregla a medias
+    // un fallo viejo — `est_value_clean` solo restaba los blueprints que cayeran entre los 50 más
+    // caros, así que uno en la posición 51 seguía contando dentro del patrimonio «limpio», que es
+    // justo el que dice excluirlos. Con 200 se escapan muchos menos, pero **sigue sin ser exacto**:
+    // arreglarlo del todo exige resolver la categoría de TODOS los tipos, y eso es una decisión de
+    // coste que hay que tomar aparte. Si el patrimonio limpio baja tras este cambio, es esto.
+    const POR_FAMILIA: usize = 5;
+    const MAX_MIRADOS: usize = 200;
+    let top_n = valued.len().min(MAX_MIRADOS);
     let mut est_value_clean = est_value;
     let mut top_value: Vec<TypeValue> = Vec::new();
+    let mut por_fam: std::collections::HashMap<&'static str, usize> =
+        std::collections::HashMap::new();
     for &(tid, qty, v) in valued.iter().take(top_n) {
         let category = resolve_category(esi, db, tid).await;
         if category == "Blueprints" {
             est_value_clean -= v; // los blueprints no cuentan para el patrimonio "real"
+            continue;
         }
-        if top_value.len() < 30 {
+        let fam = familia(&category);
+        let n = por_fam.entry(fam).or_insert(0);
+        if *n < POR_FAMILIA {
+            *n += 1;
             top_value.push(TypeValue {
+                family: fam.to_string(),
                 type_id: tid,
                 qty,
                 value: v,

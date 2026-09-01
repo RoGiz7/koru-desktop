@@ -2604,6 +2604,23 @@ const EN: Record<string, string> = {
   "Una vez avisa y archiva la nota; siempre la deja abierta":
     "Once reminds you and files the note away; every visit keeps it open",
 
+  // --- CATEGORÍAS DE ASSETS ---
+  // Salían en CASTELLANO con la app en inglés: `tr()` cae al original cuando no hay clave, y estas
+  // siete nunca la tuvieron. Ya pasaba antes, pero desde que la cuenta vive en la pestaña son la
+  // forma principal de moverse por la sección. «Starbase» e «Items» no llevan entrada a propósito:
+  // se escriben igual en los dos idiomas y el propio fallback ya devuelve lo correcto.
+  Módulos: "Modules",
+  Cargas: "Charges",
+  Materiales: "Materials",
+  "Ore / Asteroides": "Ore / Asteroids",
+  Desplegables: "Deployables",
+  Subsistemas: "Subsystems",
+
+  // --- Top de assets por familia ---
+  "Los blueprints se quedan fuera: un BPC no se puede vender en el mercado —solo por contrato—, y el average_price de un BPO es su valor base, no lo que sacarías por él. Su total sigue arriba, en su propio dato.":
+    "Blueprints are left out: a BPC can't be sold on the market —only by contract— and a BPO's average_price is its base value, not what you'd actually get for it. Their total is still above, in its own figure.",
+  "Nada de esta familia.": "Nothing in this family.",
+
   // --- EL PRIMER MINUTO: lo que ve quien abre Koru sin ningún personaje ---
   Empezar: "Get started",
   "Primeros pasos": "First steps",
