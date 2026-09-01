@@ -577,7 +577,7 @@ function NotaDetalle({
           )}
           {!sistema && !hangar && (
             <span className="muted small">
-              {tr("Esta nota no está clavada en ningún sitio, así que no hay nada que la dispare. Ánclala desde la ficha de un sistema o de un hangar.")}
+              {tr("Esta nota no está clavada en ningún sitio, así que la nota en sí no dispara nada. Ánclala desde la ficha de un sistema o de un hangar. Sus tareas con objeto sí se tachan solas: al no haber sitio, vale cualquier hangar tuyo.")}
             </span>
           )}
         </div>

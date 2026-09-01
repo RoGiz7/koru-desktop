@@ -2750,8 +2750,8 @@ const EN: Record<string, string> = {
   "Destacada": "Pinned",
   "Clavada en": "Pinned to",
   "Avisarme al llegar a": "Warn me when I arrive at",
-  "Esta nota no está clavada en ningún sitio, así que no hay nada que la dispare. Ánclala desde la ficha de un sistema o de un hangar.":
-    "This note isn't pinned anywhere, so there's nothing to trigger it. Pin it from a system's or a hangar's card.",
+  "Esta nota no está clavada en ningún sitio, así que la nota en sí no dispara nada. Ánclala desde la ficha de un sistema o de un hangar. Sus tareas con objeto sí se tachan solas: al no haber sitio, vale cualquier hangar tuyo.":
+    "This note isn't pinned anywhere, so the note itself triggers nothing. Pin it from a system's or a hangar's card. Its item tasks do tick themselves: with no place set, any hangar of yours counts.",
   "Creada": "Created",
   "Notas y tareas": "Notes and tasks",
   "Lo que te has apuntado, y lo que Koru te va a recordar solo cuando toque":
