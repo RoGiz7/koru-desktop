@@ -2612,6 +2612,18 @@ const EN: Record<string, string> = {
   "Qué necesita Koru para funcionar y qué sabe hacer ya sin cuenta. Se puede abrir siempre, no solo la primera vez.":
     "What Koru needs in order to work, and what it can already do without an account. You can open it any time, not just on the first run.",
   "Cerrar la guía": "Close the guide",
+  // Pistas de sección: una por sección, pegada a lo que señala.
+  "No volver a mostrar esta pista": "Don't show this hint again",
+  "Pistas en las secciones: activadas": "Section hints: on",
+  "Pistas en las secciones: apagadas": "Section hints: off",
+  "Una sola pista por sección, señalando lo que más cuesta encontrar. Al volver a activarlas reaparecen también las que hayas ido callando.":
+    "One hint per section, pointing at whatever is hardest to find. Turning them back on also brings back the ones you've dismissed.",
+  "Declara aquí cómo es cada estructura. ESI no da los bonuses reales de una instalación, así que sin esto los costes no cuadran — y no hay forma de que sepas por qué.":
+    "Declare here what each structure is like. ESI doesn't give an installation's real bonuses, so without this your costs won't add up — and you'd have no way of knowing why.",
+  "El fit de una nave se abre desde el icono de la columna «Contenedor», no pinchando la nave.":
+    "A ship's fit opens from the icon in the “Container” column, not by clicking the ship.",
+  "Una nota puede avisarte sola: al llegar a un sistema, o cuando aparezca un objeto en tu hangar. Eso es lo que no hace una aplicación de notas.":
+    "A note can warn you on its own: when you arrive in a system, or when an item shows up in your hangar. That's the part a notes app doesn't do.",
   "Bienvenido a Koru": "Welcome to Koru",
   "Conecta tu personaje de EVE": "Connect your EVE character",
 

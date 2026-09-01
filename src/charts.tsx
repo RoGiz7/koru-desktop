@@ -31,13 +31,21 @@ export function TypeIcon({
   typeId,
   size = 32,
   className = "type-ico",
+  blueprint = false,
 }: {
   typeId: number;
   size?: number;
   className?: string;
+  /** `true` → se pide DIRECTAMENTE la variante `bp`. El reintento de abajo ya salvaba el icono,
+   *  pero antes gastaba una petición que el servidor rechaza con 400. Cuando quien llama YA SABE
+   *  que es un plano (la fila trae su categoría), no hay razón para fallar primero: con muchos
+   *  blueprints en el inventario eran decenas de peticiones perdidas en cada carga. */
+  blueprint?: boolean;
 }) {
-  const [src, setSrc] = useState(typeIcon(typeId, size));
-  useEffect(() => setSrc(typeIcon(typeId, size)), [typeId, size]);
+  const url = (bp: boolean) =>
+    bp ? `https://images.evetech.net/types/${typeId}/bp?size=${size}` : typeIcon(typeId, size);
+  const [src, setSrc] = useState(url(blueprint));
+  useEffect(() => setSrc(url(blueprint)), [typeId, size, blueprint]);
   return (
     <img
       className={className}

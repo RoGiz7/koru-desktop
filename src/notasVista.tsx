@@ -25,6 +25,7 @@ import { AnclarPiloto, BuscarTipo, NombrePiloto, NombreTipo, TipoIcono } from ".
 import { SystemSearch } from "./map";
 import type { Note, NoteStep, Character, NeSystem } from "./types";
 
+import { Pista } from "./pista";
 /** Iconografía EVE (regla de la casa), typeIDs verificados contra public/market_types.json:
  *  439 afterburner = moverse/llegar · 17366 Station Container = un hangar · 3355 Social = una
  *  persona · 2454 = un tipo de objeto cualquiera no aplica, así que el ancla `type` usa el icono
@@ -897,6 +898,15 @@ export function NotasVista({ subject }: { subject: number | "global" }) {
           "Todo lo que has apuntado, venga de donde venga. Las que te avisan solas van primero. Para anclar una nota a un sistema, a un hangar o a un piloto, se hace desde su propia ficha.",
         )}
       </p>
+
+      {/* ★ LA PISTA DE NOTAS. Va en la SECCIÓN y no en el modal: el modal ya enseña lo que puede
+          hacer una nota desde que se arregló su vacío. Aquí lo que se pierde alguien es la idea de
+          fondo — que una nota puede hablar sola — y sin eso esto es una libreta cualquiera. */}
+      <Pista id="notas-disparador">
+        {tr(
+          "Una nota puede avisarte sola: al llegar a un sistema, o cuando aparezca un objeto en tu hangar. Eso es lo que no hace una aplicación de notas.",
+        )}
+      </Pista>
 
       <button className="ida-btn ida-primary nv-btn" onClick={() => setNueva(true)}>
         + {tr("Nueva nota")}

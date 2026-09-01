@@ -10,6 +10,7 @@ import { ShipFit, FIT_SLOTS_RE } from "./fit";
 import type { AssetsSummary, AssetDetail } from "./types";
 import { loadJson } from "./staticJson";
 
+import { Pista } from "./pista";
 export function AssetsView(props: {
   data: AssetsSummary | null;
   detail: AssetDetail[] | null;
@@ -141,7 +142,10 @@ export function AssetsView(props: {
                   {data.top_value.map((t) => (
                     <tr key={t.type_id} className={t.category === "Blueprints" ? "asset-bp" : ""}>
                       <td>
-                        <TypeIcon typeId={t.type_id} />{" "}
+                        {/* Igual que en la tabla de detalle: los planos no responden a `/icon`.
+                            Esta tabla los enseña a propósito (marcados como excluidos), así que
+                            sin esto cada uno gasta una petición que el servidor rechaza. */}
+                        <TypeIcon typeId={t.type_id} blueprint={t.category === "Blueprints"} />{" "}
                         {t.name ?? `#${t.type_id}`}
                       </td>
                       <td>
@@ -228,6 +232,16 @@ export function AssetsView(props: {
           ) : detail.length === 0 ? (
             <p className="muted small">{tr("Sin assets.")}</p>
           ) : (
+            <>
+            {/* ★ LA PISTA DE ASSETS. Pegada a la tabla, que es donde está el icono del que habla.
+                No es un caso imaginado: RoGiz7 buscó el fit pinchando la NAVE —que es lo natural—
+                y no pasó nada, porque la entrada está en la columna «Contenedor». La función
+                existía; lo que faltaba era que se viera. */}
+            <Pista id="assets-fit">
+              {tr(
+                "El fit de una nave se abre desde el icono de la columna «Contenedor», no pinchando la nave.",
+              )}
+            </Pista>
             <table className="km-table">
               <thead>
                 <tr>
@@ -242,7 +256,11 @@ export function AssetsView(props: {
                 {shown.map((r, i) => (
                   <tr key={i}>
                     <td className="ship-cell">
-                      <img className="type-ico" src={typeIcon(r.type_id)} alt="" loading="lazy" />
+                      {/* `TypeIcon` y no un <img> crudo: los BLUEPRINTS no responden a `/icon` y
+                          salían rotos, con un 400 por cada uno en cada carga de la sección. La
+                          fila ya sabe su categoría, así que se pide la variante buena a la primera
+                          en vez de fallar y reintentar. Es el mismo tropiezo que en las notas. */}
+                      <TypeIcon typeId={r.type_id} blueprint={r.category === "Blueprints"} />
                       <span>{r.type_name ?? `#${r.type_id}`}</span>
                     </td>
                     <td>{fmtSp(r.quantity)}</td>
@@ -303,6 +321,7 @@ export function AssetsView(props: {
                 ))}
               </tbody>
             </table>
+            </>
           )}
           {filtered.length > shown.length && (
             <p className="muted small">

@@ -33,6 +33,7 @@ import { SocialView } from "./social";
 import { OpsView } from "./ops";
 import { FichaPiloto } from "./fichaPiloto";
 import { GuiaInicio } from "./guia";
+import { pistasActivas, setPistasActivas } from "./pista";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
 import { BitacoraView, ACH_UI } from "./bitacora";
@@ -199,6 +200,9 @@ function App() {
    *  configurar nada, no tenía forma de volver a él. */
   const [guiaAbierta, setGuiaAbierta] = useState(false);
   const bienvenidaRef = useRef<HTMLDivElement | null>(null);
+  /** Copia local del interruptor de pistas, solo para que la etiqueta de Ajustes se actualice al
+   *  pulsarla. La verdad vive en `localStorage` y la leen las propias pistas. */
+  const [pistas, setPistas] = useState(pistasActivas());
   /** La guía se pinta ARRIBA del contenido, que con la vista bajada queda fuera de pantalla: pulsas
    *  el botón, no ves nada y das por hecho que no funciona (pasó en la primera prueba). Se lleva la
    *  vista hasta ella. Va en un efecto y no en el propio clic porque en ese instante el panel aún
@@ -1548,8 +1552,15 @@ function App() {
         }
         if (t === "skills") setGSkills(await invoke<GlobalSkills>("get_skills_global"));
         if (t === "assets") {
-          setAssetsData(await invoke<AssetsSummary>("get_assets_global"));
-          setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail_global"));
+          // ★ EN PARALELO, no en serie. El detalle no necesita el resumen para nada, pero estaba
+          // esperándolo: la sección se hacía esperar a sí misma. Y cada uno PINTA EN CUANTO LLEGA,
+          // así los KPI de arriba salen sin aguardar a la tabla, que es la parte gorda.
+          // (El wallet, tres líneas más arriba, ya lo hacía bien: aquí solo se iguala.)
+          const pRes = invoke<AssetsSummary>("get_assets_global");
+          const pDet = invoke<AssetDetail[]>("get_assets_detail_global");
+          pRes.then(setAssetsData);
+          pDet.then(setAssetsDetail);
+          await Promise.all([pRes, pDet]);
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders_global"));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets_global"));
@@ -1599,8 +1610,12 @@ function App() {
             .catch(() => setCharDetail(null));
         }
         if (t === "assets") {
-          setAssetsData(await invoke<AssetsSummary>("get_assets", { characterId }));
-          setAssetsDetail(await invoke<AssetDetail[]>("get_assets_detail", { characterId }));
+          // Mismo cambio que en la vista global: en paralelo y pintando cada uno al llegar.
+          const pRes = invoke<AssetsSummary>("get_assets", { characterId });
+          const pDet = invoke<AssetDetail[]>("get_assets_detail", { characterId });
+          pRes.then(setAssetsData);
+          pDet.then(setAssetsDetail);
+          await Promise.all([pRes, pDet]);
         }
         if (t === "comercio") setMarketOrders(await invoke<MarketOrder[]>("get_market_orders", { characterId }));
         if (t === "planetologia") setPlanets(await invoke<Planet[]>("get_planets", { characterId }));
@@ -1876,9 +1891,19 @@ function App() {
     loadHeadline("global");
     loadTab("global", "bitacora"); // Bitácora es ahora la landing por defecto
     loadKillmails("global", "all", 0);
-    runAutoSync();
+    // ★ EL SYNC DE ARRANQUE ESPERA UN POCO, y no es una manía: está MEDIDO.
+    //
+    // El auto_sync recorre los nueve personajes pidiendo killmails, wallet, industria, PI y las
+    // skills. Lanzado a la vez que la primera pantalla, tu petición compite con todo eso por la
+    // conexión y por el límite de ESI. Entrar en Assets recién abierto Koru costaba 12,1 s; con el
+    // sync ya terminado, 7,2 s. **Cinco segundos que no eran de la sección, eran de la carrera.**
+    //
+    // Doce segundos de espera no le quitan nada al sync —su intervalo normal es de media hora— y
+    // se los devuelven enteros a lo primero que abre el usuario, sea la sección que sea.
+    const primerSync = window.setTimeout(() => autoSyncRef.current(), 12_000);
     const sync = window.setInterval(() => autoSyncRef.current(), AUTO_SYNC_MS);
     return () => {
+      window.clearTimeout(primerSync);
       window.clearInterval(sync);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2364,6 +2389,30 @@ function App() {
                     <span className="muted small">
                       {tr(
                         "Qué necesita Koru para funcionar y qué sabe hacer ya sin cuenta. Se puede abrir siempre, no solo la primera vez.",
+                      )}
+                    </span>
+                  </span>
+                </button>
+                {/* El interruptor va en Ajustes y no dentro de la guía: es una preferencia, y las
+                    preferencias se buscan aquí. */}
+                <button
+                  className="tb-settings-item"
+                  onClick={() => {
+                    const v = !pistas;
+                    setPistasActivas(v);
+                    setPistas(v);
+                  }}
+                >
+                  <span className="tb-si-ic">{pistas ? "💡" : "🌑"}</span>
+                  <span className="tb-si-tx">
+                    <strong>
+                      {pistas
+                        ? tr("Pistas en las secciones: activadas")
+                        : tr("Pistas en las secciones: apagadas")}
+                    </strong>
+                    <span className="muted small">
+                      {tr(
+                        "Una sola pista por sección, señalando lo que más cuesta encontrar. Al volver a activarlas reaparecen también las que hayas ido callando.",
                       )}
                     </span>
                   </span>

@@ -12,6 +12,7 @@ import { loadJson } from "./staticJson";
 import { proximityBFS } from "./mapRoute";
 import type { JobView, Blueprint } from "./types";
 
+import { Pista } from "./pista";
 /** public/bp_tree.json — categoría y grupo de INVENTARIO del PRODUCTO de cada blueprint, con
  *  nombres ES/EN del SDE. Es la jerarquía que usa el cliente de EVE en su ventana de planos.
  *  (El árbol de MERCADO de planos NO vale: mete los supercarriers dentro de "Carriers" — la Nyx
@@ -3182,6 +3183,15 @@ function FacilitiesBlock({ onChange }: { onChange: () => void }) {
 
   return (
     <div className="fac-block">
+      {/* ★ LA PISTA DE INDUSTRIA. Va pegada al registro y no arriba de la sección porque de esto
+          habla. Es el «por qué configurar» de toda la sección: sin las fichas, los costes salen
+          mal y no hay forma de que el usuario sepa por qué — el número no da error, da otro
+          número. Ver el pilar de la guía. */}
+      <Pista id="industria-facilities">
+        {tr(
+          "Declara aquí cómo es cada estructura. ESI no da los bonuses reales de una instalación, así que sin esto los costes no cuadran — y no hay forma de que sepas por qué.",
+        )}
+      </Pista>
       <div className="fac-head">
         {/* Replegable: «Traer de ESI» puede soltar decenas de estructuras de golpe (27 en la primera
          *  prueba real) y el registro sepultaba a la biblioteca de blueprints que va debajo. La
