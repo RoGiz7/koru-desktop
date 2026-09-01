@@ -1689,7 +1689,6 @@ const EN: Record<string, string> = {
   Donaciones: "Donations",
   Servicios: "Services",
   Impuestos: "Taxes",
-  "Distribución por categoría": "Distribution by category",
   "Dentro de": "Inside",
   cerrar: "close",
   "Buscar por item, sistema, ubicación o contenedor…":

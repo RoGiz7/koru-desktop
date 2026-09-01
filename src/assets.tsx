@@ -1,16 +1,44 @@
 // Sección Assets: inventario, tipos, valor estimado de mercado (blueprints excluidos),
-// top por valor, distribución por categoría y detalle con visor de fiteos. Extraído de App.tsx.
+// top por valor y detalle con visor de fiteos. Extraído de App.tsx.
+//
+// La gráfica «Distribución por categoría» se retiró el 2026-09-01: medía UNIDADES, y con 145
+// millones de minerales doce de sus catorce barras eran un muñón. Su información vive ahora en
+// las propias pestañas del filtro, que es donde se decide.
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
-import { TypeIcon, Kpi, Bars, Th } from "./charts";
+import { TypeIcon, Kpi, Th } from "./charts";
 import { WatchAddBtn } from "./comercio";
 import { ShipFit, FIT_SLOTS_RE } from "./fit";
 import type { AssetsSummary, AssetDetail } from "./types";
 import { loadJson } from "./staticJson";
 
 import { Pista } from "./pista";
+
+/** Icono de cada categoría de assets.
+ *
+ *  ★ typeIDs VERIFICADOS uno a uno contra `public/market_types.json` **y** contra el servidor de
+ *  imágenes —que no todos los tipos sirven la variante `icon`—, nunca de memoria. Es la regla de
+ *  la casa y hoy ya ha evitado tres iconos rotos.
+ *
+ *  «Otros» y «Starbase» se quedan sin icono a propósito: un icono que no representa nada dice
+ *  menos que ninguno, y «Otros» es literalmente «lo que no encaja». */
+const CAT_TID: Record<string, number> = {
+  Naves: 587, // Rifter
+  Módulos: 2048, // Damage Control II
+  Cargas: 12767, // Quake M
+  Blueprints: 691, // Rifter Blueprint — ⚠️ solo sirve la variante `bp`
+  Drones: 2454, // Hobgoblin I
+  Cazas: 23061, // Einherji I
+  Materiales: 34, // Tritanium
+  "Ore / Asteroides": 1230, // Veldspar
+  Comercio: 3699, // Quafe
+  Estructuras: 35832, // Astrahus
+  Desplegables: 33474, // Mobile Depot
+  Subsistemas: 45588, // Legion Defensive - Nanobot Injector
+  Implantes: 9899, // Ocular Filter - Basic
+};
 export function AssetsView(props: {
   data: AssetsSummary | null;
   detail: AssetDetail[] | null;
@@ -95,6 +123,13 @@ export function AssetsView(props: {
   const isShipFit = openContainer !== null && containerRows.some((r) => FIT_SLOTS_RE.test(r.slot));
   const shipTypeId = containerRows[0]?.container_type_id ?? 0;
   // Contenedores que son naves fiteadas (tienen módulos en slots): para mostrar otro icono.
+  /** Cuántas ENTRADAS hay en cada categoría — el número que se enseña en su pestaña de filtro.
+   *  Entradas y no unidades: es exactamente lo que aparecerá al pulsarla. */
+  const porCat = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of detail ?? []) m[r.category] = (m[r.category] ?? 0) + 1;
+    return m;
+  }, [detail]);
   const shipContainers = useMemo(() => {
     const s = new Set<number>();
     for (const r of detail ?? []) {
@@ -139,8 +174,19 @@ export function AssetsView(props: {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.top_value.map((t) => (
-                    <tr key={t.type_id} className={t.category === "Blueprints" ? "asset-bp" : ""}>
+                  {/* ★ DIEZ, y SIN BLUEPRINTS (los dos, petición suya y con razón).
+                      · Treinta filas no son un «top», son un listado: el Rust manda 30 y aquí se
+                        enseñan las que de verdad contestan «¿qué es lo más caro que tengo?».
+                      · Y los planos salían ORDENADOS POR UN NÚMERO DEL QUE LA PROPIA APP RENIEGA
+                        en el párrafo de arriba: un BPC no se puede vender en mercado, y el
+                        `average_price` de un BPO es su valor base, no lo que sacarías. Rankear por
+                        una cifra que hemos declarado poco fiable es lo que confundía. Su total
+                        sigue a la vista en su KPI, que es donde no engaña. */}
+                  {data.top_value
+                    .filter((t) => t.category !== "Blueprints")
+                    .slice(0, 10)
+                    .map((t) => (
+                    <tr key={t.type_id}>
                       <td>
                         {/* Igual que en la tabla de detalle: los planos no responden a `/icon`.
                             Esta tabla los enseña a propósito (marcados como excluidos), así que
@@ -163,26 +209,17 @@ export function AssetsView(props: {
               </table>
             </div>
           )}
-          {detail && detail.length > 0 && catList.length > 1 && (
-            <div className="panel resumen-panel" style={{ maxWidth: 540, marginBottom: "0.8rem" }}>
-              <h4>{tr("Distribución por categoría")}</h4>
-              <Bars
-                items={Object.entries(
-                  detail.reduce<Record<string, number>>((acc, r) => {
-                    acc[r.category] = (acc[r.category] ?? 0) + r.quantity;
-                    return acc;
-                  }, {})
-                )
-                  .map(([label, value]) => ({ label: tr(label), value }))
-                  .sort((a, b) => b.value - a.value)}
-                fmt={fmtSp}
-              />
-            </div>
-          )}
+          {/* ★ LA CUENTA VA EN LA PROPIA PESTAÑA (idea de RoGiz7). Antes había aquí una gráfica
+              «Distribución por categoría» que ocupaba media pantalla y medía UNIDADES: con 145
+              millones de minerales, doce de las catorce barras eran un muñón. Poner el número en
+              el filtro lo arregla tres veces —desaparece el panel, muere el problema de escala
+              (números sueltos no comparten eje) y el dato aparece justo DONDE SE DECIDE, que es
+              al elegir por dónde filtrar—. Misma regla de proximidad que las pistas.
+              El número son ENTRADAS, no unidades: es exactamente lo que verás al pulsar. */}
           {detail && catList.length > 1 && (
-            <div className="tabs" style={{ marginTop: "0.5rem" }}>
+            <div className="tabs cat-tabs" style={{ marginTop: "0.5rem" }}>
               <button className={`tab ${cat === "" ? "active" : ""}`} onClick={() => setCat("")}>
-                {tr("Todos")}
+                {tr("Todos")} <span className="cat-n">{fmtSp(detail.length)}</span>
               </button>
               {catList.map((c) => (
                 <button
@@ -190,7 +227,14 @@ export function AssetsView(props: {
                   className={`tab ${cat === c ? "active" : ""}`}
                   onClick={() => setCat(c)}
                 >
-                  {tr(c)}
+                  {CAT_TID[c] != null && (
+                    <TypeIcon
+                      typeId={CAT_TID[c]}
+                      className="cat-ico"
+                      blueprint={c === "Blueprints"}
+                    />
+                  )}
+                  {tr(c)} <span className="cat-n">{fmtSp(porCat[c] ?? 0)}</span>
                 </button>
               ))}
             </div>

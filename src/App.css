@@ -10167,6 +10167,17 @@ h4 {
   margin-bottom: 12px;
 }
 .bienv-cerrar:hover { color: var(--fg); }
+/* ★ PESTAÑAS DE CATEGORÍA CON ICONO Y CUENTA (2026-09-01). Sustituyen a la gráfica «Distribución
+   por categoría», que ocupaba media pantalla para medir unidades — y con 145 millones de minerales
+   doce de las catorce barras eran un muñón. Aquí el número está DONDE SE DECIDE y no comparte eje
+   con nadie, así que ninguna categoría aplasta a las demás. */
+.cat-tabs .tab { display: inline-flex; align-items: center; gap: 6px; }
+.cat-ico { width: 18px; height: 18px; flex: none; }
+/* La cuenta, apagada: acompaña, no compite con el nombre. `tabular-nums` para que no baile al
+   cambiar de filtro. */
+.cat-n { color: var(--fg-muted-2); font-size: 0.85em; font-variant-numeric: tabular-nums; }
+.tab.active .cat-n { color: inherit; opacity: 0.75; }
+
 /* ★ PISTAS DE SECCIÓN. Una por sección, pegada a la cosa de la que habla. Discreta a propósito:
    tiene que verse sin competir con el contenido — si grita, molesta a quien ya lo sabe, y esa
    persona la calla el primer día y ya no vuelve a leer ninguna. */
