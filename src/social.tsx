@@ -1,8 +1,11 @@
 // Sección SOCIAL — el historial de tus conversaciones privadas, reconstruido de los chatlogs.
 //
-// ★ POR QUÉ EXISTE (idea de RoGiz7, 2026-08-22): EVE escribe un log por cada chat privado y luego
-//   no deja releerlos desde el juego. Es otro histórico de tu vida en EVE que se genera y no se
-//   enseña — el hermano hablado de «Con quién vuelas»: allí con quién VUELAS, aquí con quién HABLAS.
+// ★ POR QUÉ EXISTE (idea de RoGiz7, 2026-08-22): EVE escribe un log por cada chat privado, pero
+//   PARTIDO en cientos de ficheros de sesión que el cliente no vuelve a enseñarte. Koru los COSE.
+//   ⚠️ Ojo con cómo se cuenta: los chatlogs son TEXTO PLANO en disco y cualquiera los abre con el
+//   Bloc de notas. Decir que «el juego no deja releerlos» es falso y ya nos lo corrigió un CSM en
+//   público (2026-08-31). Koru cose, NO rescata.
+//   Es el hermano hablado de «Con quién vuelas»: allí con quién VUELAS, aquí con quién HABLAS.
 //
 // ★ LO QUE SE MIDIÓ ANTES DE CONSTRUIR (contra el corpus real, 2020→2026) y esta vista asume:
 //   · La identidad de una conversación es su `private_{uuid}`, compartido entre los dos lados →
@@ -235,7 +238,7 @@ export function SocialView({
     <>
       <p className="muted small">
         {tr(
-          "Tus conversaciones privadas, reconstruidas de los chatlogs que el juego escribe y luego no deja releer. Solo lectura: Koru no puede escribir en un chat, y no quiere.",
+          "Tus conversaciones privadas, reconstruidas de los chatlogs: el juego los escribe partidos en cientos de ficheros de sesión que el cliente no vuelve a enseñarte. Solo lectura: Koru no puede escribir en un chat, y no quiere.",
         )}
       </p>
 

@@ -2608,8 +2608,11 @@ const EN: Record<string, string> = {
   // --- SOCIAL: historial de conversaciones privadas ---
   "Tus conversaciones privadas, reconstruidas de los chatlogs — el histórico que el juego escribe y no enseña":
     "Your private conversations, rebuilt from the chatlogs — the history the game writes but never shows",
-  "Tus conversaciones privadas, reconstruidas de los chatlogs que el juego escribe y luego no deja releer. Solo lectura: Koru no puede escribir en un chat, y no quiere.":
-    "Your private conversations, rebuilt from the chatlogs the game writes and then never lets you reread. Read-only: Koru cannot write into a chat, and doesn't want to.",
+  // ⚠️ NO volver a decir que el juego «no deja releer» los chatlogs: son texto plano en disco y
+  // cualquiera los abre. Un CSM lo corrigió en público (2026-08-31). Lo cierto: el CLIENTE no te
+  // enseña el historial y los logs quedan PARTIDOS en cientos de ficheros. Koru COSE, no rescata.
+  "Tus conversaciones privadas, reconstruidas de los chatlogs: el juego los escribe partidos en cientos de ficheros de sesión que el cliente no vuelve a enseñarte. Solo lectura: Koru no puede escribir en un chat, y no quiere.":
+    "Your private conversations, rebuilt from the chatlogs: the game writes them split across hundreds of session files the client never shows you again. Read-only: Koru cannot write into a chat, and doesn't want to.",
   // «Escaneando…» ya existía más arriba.
   "Escanear conversaciones": "Scan conversations",
   "Falta la carpeta de chats: es la misma del intel, en Ajustes → Intel.":
