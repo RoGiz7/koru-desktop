@@ -68,6 +68,20 @@ export const ACH_UI: Record<string, { icon: string; label: string; desc: string;
   horas_mando: { icon: "⏱️", label: "Al mando", desc: "Horas acumuladas mandando una flota grabada", tid: 24764 }, // Fleet Command (skillbook)
   pastor_gatos: { icon: "🐈", label: "Pastor de gatos", desc: "Pico de pilotos simultáneos en una op", tid: 3348 }, // Leadership (skillbook)
   serie_negra: { icon: "🎖️", label: "Serie negra", desc: "Kills de la flota acumulados en tus ops grabadas", tid: 43556 }, // Skirmish Command Burst II
+  // ⚠️ typeIDs VERIFICADOS contra market_types.json, uno a uno (2026-09-02). De los siete que puse
+  // de memoria, TRES estaban mal: 12235 era una Amarr Control Tower, 4025 un webifier y 2410 un
+  // lanzamisiles. Es exactamente para esto que la regla dice no fiarse de la memoria.
+  // ★ NADA DE LIBROS DE HABILIDAD AQUÍ, y lo cazó él mirando la pantalla: los skillbooks comparten
+  // TODOS el mismo dibujo, así que siete medallas seguidas salían con el mismo icono y el dominio
+  // se leía como un bloque gris. Cada una lleva ahora un objeto con silueta propia Y con sentido:
+  // el que carga naves, el que aguanta la noche, el que refitea en el espacio, el que te ancla.
+  la_caravana: { icon: "🛣️", label: "La caravana", desc: "Sistemas distintos recorridos por la flota en una sola op", tid: 34328 }, // Bowhead: el convoy
+  maraton_op: { icon: "🌙", label: "Maratón", desc: "La op más larga que has mandado, en horas", tid: 28606 }, // Orca: la que aguanta fuera
+  ala_escuadra: { icon: "🎗️", label: "Ala y escuadra", desc: "Alas y escuadras que llegó a tener una de tus flotas", tid: 15650 }, // Federation Navy Fleet Commander Insignia
+  doctrina_viva: { icon: "🔧", label: "Doctrina viva", desc: "Cambios de nave de los DEMÁS en tus ops (el tuyo no cuenta)", tid: 33474 }, // Mobile Depot: refitear en el espacio
+  el_que_vuelve: { icon: "🤝", label: "El que vuelve", desc: "Pilotos de fuera que han repetido op contigo. Tus propios personajes no cuentan", tid: 35825 }, // Raitaru: la casa a la que se vuelve
+  nadie_atras: { icon: "🧲", label: "Nadie atrás", desc: "Ops donde los que seguían en flota al cerrar acabaron en tu mismo sistema", tid: 24644 }, // Capital Tractor Beam I: recoger al rezagado
+  racha_ops: { icon: "📆", label: "Semana tras semana", desc: "Semanas seguidas con al menos una op grabada", tid: 34266 }, // Small Higgs Anchor I: el ancla
 };
 
 /** Iconos EVE de la propia sección (regla de la casa: nada de emoji donde hay un ítem que lo diga).
@@ -135,7 +149,19 @@ const CATS: Cat[] = [
     label: "Mando",
     color: "#3fb950", // el verde de la flota en el mapa: el mismo color cuenta la misma historia
     tid: 42530, // Skirmish Command Burst I — el icono de la sección Flotas
-    ids: ["ops_mandadas", "horas_mando", "pastor_gatos", "serie_negra"],
+    ids: [
+      "ops_mandadas",
+      "horas_mando",
+      "pastor_gatos",
+      "serie_negra",
+      "la_caravana",
+      "maraton_op",
+      "ala_escuadra",
+      "doctrina_viva",
+      "el_que_vuelve",
+      "nadie_atras",
+      "racha_ops",
+    ],
   },
 ];
 

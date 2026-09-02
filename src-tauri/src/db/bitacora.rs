@@ -223,6 +223,145 @@ fn fleet_op_pico(conn: &rusqlite::Connection, op_id: i64, t1: i64) -> i64 {
     pico
 }
 
+/// «La caravana»: sistemas DISTINTOS por los que pasó la flota en una op.
+///
+/// Cuenta `move` **y `join`** a propósito: el sistema donde alguien entra en la flota es parte del
+/// recorrido, y sin él una op que se mueve una sola vez saldría con 1 sistema en vez de 2. Es la
+/// misma corrección que se le hizo a la película cuando él preguntó de dónde salía la gente.
+fn fleet_op_sistemas(conn: &rusqlite::Connection, op_id: i64) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT system_id) FROM fleet_member_event
+         WHERE op_id = ?1 AND system_id IS NOT NULL AND kind IN ('move', 'join')",
+        [op_id],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// «Ala y escuadra»: cuántas alas y escuadras llegó a tener la op.
+///
+/// Se mide el TAMAÑO de la estructura, no si existe: ESI le pone nombre por defecto a todas las
+/// flotas, así que un «¿tiene alas?» se cumpliría siempre y la medalla no diría nada.
+fn fleet_op_estructura(conn: &rusqlite::Connection, op_id: i64) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT wing_id || '/' || squad_id) FROM fleet_wing WHERE op_id = ?1",
+        [op_id],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// «Doctrina viva»: cambios de nave de los DEMÁS en tus ops.
+///
+/// Se excluye al propio FC: reshipear tú no dice nada de la flota que llevas. El evento `ship` es
+/// un cambio de verdad — la nave inicial viaja en el `join`, no genera un `ship`.
+fn fleet_op_reships(conn: &rusqlite::Connection, op_id: i64) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM fleet_member_event e
+         WHERE e.op_id = ?1 AND e.kind = 'ship'
+           AND e.character_id <> (SELECT boss_id FROM fleet_op WHERE op_id = ?1)",
+        [op_id],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// «Nadie atrás»: ¿acabaron todos los que seguían en flota en el sistema del FC?
+///
+/// ⚠️ ALCANCE, y hay que decirlo en la tarjeta: mide **a los que seguían a bordo al cerrar**. Quien
+/// se fue antes no cuenta — no estaba, no se le dejó atrás. Y se exige **más de un piloto**: una op
+/// en solitario cumpliría siempre la condición y sería una medalla regalada.
+fn fleet_op_nadie_atras(conn: &rusqlite::Connection, op_id: i64) -> bool {
+    let Ok(mut st) = conn.prepare(
+        "SELECT character_id, system_id FROM fleet_member_state
+         WHERE op_id = ?1 AND present = 1 AND system_id IS NOT NULL",
+    ) else {
+        return false;
+    };
+    let Ok(rows) = st.query_map([op_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))) else {
+        return false;
+    };
+    let filas: Vec<(i64, i64)> = rows.flatten().collect();
+    if filas.len() < 2 {
+        return false;
+    }
+    let boss: i64 = match conn.query_row(
+        "SELECT boss_id FROM fleet_op WHERE op_id = ?1",
+        [op_id],
+        |r| r.get(0),
+    ) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    // Sin la posición del FC no hay con qué comparar: no se inventa un «sí».
+    let Some((_, sys_boss)) = filas.iter().find(|(c, _)| *c == boss) else {
+        return false;
+    };
+    filas.iter().all(|(_, s)| s == sys_boss)
+}
+
+/// «El que vuelve»: la fecha en que cada piloto AJENO repitió op contigo (su segunda).
+///
+/// ★★ EXCLUYE A TUS PROPIOS PERSONAJES, y es la misma trampa que la del logi con otro disfraz: si
+/// vuelas con nueve alts, tus alts «repiten» en todas las ops y se llevarían la medalla entera.
+/// Esta tarjeta mide que vuelva GENTE, que es lo único que dice algo de ti como FC.
+fn fleet_repetidores(conn: &rusqlite::Connection, ops: &[(i64, String, i64, i64)]) -> Vec<String> {
+    use std::collections::{HashMap, HashSet};
+    let mios: HashSet<i64> = conn
+        .prepare("SELECT character_id FROM characters")
+        .and_then(|mut s| {
+            s.query_map([], |r| r.get::<_, i64>(0))
+                .map(|rows| rows.flatten().collect())
+        })
+        .unwrap_or_default();
+    // piloto → fechas de sus ops, en orden (las ops ya vienen ordenadas por fecha).
+    let mut visto: HashMap<i64, Vec<String>> = HashMap::new();
+    for (op_id, date, _, _) in ops {
+        let Ok(mut st) =
+            conn.prepare("SELECT DISTINCT character_id FROM fleet_member_state WHERE op_id = ?1")
+        else {
+            continue;
+        };
+        let Ok(rows) = st.query_map([op_id], |r| r.get::<_, i64>(0)) else {
+            continue;
+        };
+        for cid in rows.flatten() {
+            if mios.contains(&cid) {
+                continue;
+            }
+            visto.entry(cid).or_default().push(date.clone());
+        }
+    }
+    // La medalla se gana el día de su SEGUNDA op: ese es el día en que «volvió».
+    let mut fechas: Vec<String> = visto
+        .values()
+        .filter(|v| v.len() >= 2)
+        .map(|v| v[1].clone())
+        .collect();
+    fechas.sort();
+    fechas
+}
+
+/// Racha de SEMANAS consecutivas con al menos una op. Devuelve (fecha, racha) por cada op, para
+/// que el `peak` anote la marca en el día en que se alcanzó.
+fn fleet_racha_semanas(ops: &[(i64, String, i64, i64)]) -> Vec<(String, f64)> {
+    let semana = |t: i64| t.div_euclid(604_800); // 7 días en segundos; el origen da igual, solo se compara
+    let mut out = Vec::new();
+    let mut previa: Option<i64> = None;
+    let mut racha = 0.0;
+    for (_, date, t0, _) in ops {
+        let w = semana(*t0);
+        racha = match previa {
+            Some(p) if w == p => racha,        // otra op de la misma semana: no suma
+            Some(p) if w == p + 1 => racha + 1.0, // semana siguiente: encadena
+            _ => 1.0,                          // hueco (o la primera): vuelta a empezar
+        };
+        previa = Some(w);
+        out.push((date.clone(), racha));
+    }
+    out
+}
+
 /// «Serie negra»: los kills de la FLOTA en las ventanas de esas ops — killmails con algún
 /// atacante del roster y víctima de FUERA (mismo criterio que la película de la op), dedupe
 /// global por killmail_id (si dos ops se solapan por multibox, un kill puntúa UNA vez).
@@ -899,13 +1038,35 @@ impl Db {
             let mut horas = Cross::new([1.0, 10.0, 50.0]);
             let mut gatos = Cross::new([5.0, 10.0, 25.0]);
             let mut serie = Cross::new([10.0, 100.0, 1000.0]);
+            // Las siete nuevas (2026-09-02). Umbrales pensados para que el BRONCE se gane pronto
+            // —una medalla que tarda meses en dar señal no acompaña a nadie— y el oro cueste.
+            let mut caravana = Cross::new([5.0, 15.0, 40.0]); // sistemas en UNA op
+            let mut maraton = Cross::new([1.0, 3.0, 6.0]); // horas de la op más larga
+            let mut estructura = Cross::new([2.0, 5.0, 12.0]); // alas + escuadras en una op
+            let mut doctrina = Cross::new([5.0, 50.0, 250.0]); // reships de otros
+            let mut vuelven = Cross::new([1.0, 5.0, 25.0]); // pilotos ajenos que repiten
+            let mut nadie_atras = Cross::new([1.0, 10.0, 50.0]); // ops sin descolgados
+            let mut racha_ops = Cross::new([2.0, 4.0, 12.0]); // semanas seguidas con op
             let ops = fleet_ops_grabadas(&conn, character_id);
             for (op_id, date, t0, t1) in &ops {
                 sillas.add(date, 1.0);
                 if t1 > t0 {
                     horas.add(date, (t1 - t0) as f64 / 3600.0);
+                    maraton.peak(date, (t1 - t0) as f64 / 3600.0);
                 }
                 gatos.peak(date, fleet_op_pico(&conn, *op_id, *t1) as f64);
+                caravana.peak(date, fleet_op_sistemas(&conn, *op_id) as f64);
+                estructura.peak(date, fleet_op_estructura(&conn, *op_id) as f64);
+                doctrina.add(date, fleet_op_reships(&conn, *op_id) as f64);
+                if fleet_op_nadie_atras(&conn, *op_id) {
+                    nadie_atras.add(date, 1.0);
+                }
+            }
+            for d in fleet_repetidores(&conn, &ops) {
+                vuelven.add(&d, 1.0);
+            }
+            for (d, r) in fleet_racha_semanas(&ops) {
+                racha_ops.peak(&d, r);
             }
             for t in fleet_serie_negra(&conn, &ops) {
                 let date = chrono::DateTime::from_timestamp(t, 0)
@@ -917,6 +1078,13 @@ impl Db {
             ach.push(horas.state("horas_mando", "count"));
             ach.push(gatos.state("pastor_gatos", "count"));
             ach.push(serie.state("serie_negra", "count"));
+            ach.push(caravana.state("la_caravana", "count"));
+            ach.push(maraton.state("maraton_op", "count"));
+            ach.push(estructura.state("ala_escuadra", "count"));
+            ach.push(doctrina.state("doctrina_viva", "count"));
+            ach.push(vuelven.state("el_que_vuelve", "count"));
+            ach.push(nadie_atras.state("nadie_atras", "count"));
+            ach.push(racha_ops.state("racha_ops", "count"));
         }
 
         // ---------- Persistir desbloqueos y marcar los nuevos (✨) ----------
@@ -1248,6 +1416,60 @@ impl Db {
                 }
             }
             m.insert("serie_negra".into(), cumulative(por_mes));
+
+            // --- Las siete nuevas. Mismos ayudantes que el motor: mismo cálculo, mismos números.
+            // Récords (`running_max`): la mejor marca hasta ese mes. Acumuladas (`cumulative`):
+            // lo que se suma con el tiempo. Mezclarlas pintaría gráficas que mienten sobre su
+            // propia naturaleza — una marca no «baja» y un acumulado no se reinicia.
+            let mut caravana_m: Vec<(String, f64)> = Vec::new();
+            let mut maraton_m: Vec<(String, f64)> = Vec::new();
+            let mut estruct_m: Vec<(String, f64)> = Vec::new();
+            let mut doctrina_m: Vec<(String, f64)> = Vec::new();
+            let mut atras_m: Vec<(String, f64)> = Vec::new();
+            let mut racha_m: Vec<(String, f64)> = Vec::new();
+            for (op_id, date, t0, t1) in &ops {
+                let cut = std::cmp::min(7usize, date.len());
+                let mes = date[..cut].to_string();
+                push_mes(&mut caravana_m, mes.clone(), fleet_op_sistemas(&conn, *op_id) as f64);
+                push_mes(&mut estruct_m, mes.clone(), fleet_op_estructura(&conn, *op_id) as f64);
+                if t1 > t0 {
+                    push_mes(&mut maraton_m, mes.clone(), (t1 - t0) as f64 / 3600.0);
+                }
+                let r = fleet_op_reships(&conn, *op_id) as f64;
+                if matches!(doctrina_m.last(), Some((mm, _)) if *mm == mes) {
+                    doctrina_m.last_mut().expect("acabamos de comprobarlo").1 += r;
+                } else {
+                    doctrina_m.push((mes.clone(), r));
+                }
+                if fleet_op_nadie_atras(&conn, *op_id) {
+                    if matches!(atras_m.last(), Some((mm, _)) if *mm == mes) {
+                        atras_m.last_mut().expect("acabamos de comprobarlo").1 += 1.0;
+                    } else {
+                        atras_m.push((mes.clone(), 1.0));
+                    }
+                }
+            }
+            for (d, r) in fleet_racha_semanas(&ops) {
+                let cut = std::cmp::min(7usize, d.len());
+                push_mes(&mut racha_m, d[..cut].to_string(), r);
+            }
+            let mut vuelven_m: Vec<(String, f64)> = Vec::new();
+            for d in fleet_repetidores(&conn, &ops) {
+                let cut = std::cmp::min(7usize, d.len());
+                let mes = d[..cut].to_string();
+                if matches!(vuelven_m.last(), Some((mm, _)) if *mm == mes) {
+                    vuelven_m.last_mut().expect("acabamos de comprobarlo").1 += 1.0;
+                } else {
+                    vuelven_m.push((mes, 1.0));
+                }
+            }
+            m.insert("la_caravana".into(), running_max(caravana_m));
+            m.insert("maraton_op".into(), running_max(maraton_m));
+            m.insert("ala_escuadra".into(), running_max(estruct_m));
+            m.insert("racha_ops".into(), running_max(racha_m));
+            m.insert("doctrina_viva".into(), cumulative(doctrina_m));
+            m.insert("nadie_atras".into(), cumulative(atras_m));
+            m.insert("el_que_vuelve".into(), cumulative(vuelven_m));
         }
 
         Ok(m)
