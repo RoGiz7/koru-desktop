@@ -7627,7 +7627,26 @@ pub struct IntelWatch {
     pub alerted: std::sync::Mutex<HashSet<String>>,
     pub started: std::sync::atomic::AtomicBool,
     pub status: std::sync::Mutex<IntelStatus>,
+    /// ★★ ÚLTIMA ALARMA POR SISTEMA (system_id → ts del reporte), para no gritar dos veces lo
+    /// mismo. Ver `VENTANA_COLAPSO_MS`.
+    pub ultimo_aviso: std::sync::Mutex<HashMap<i64, i64>>,
 }
+
+/// Dos reportes del MISMO sistema separados por menos de esto son **el mismo suceso**: una alarma.
+///
+/// ★ DE DÓNDE SALE (2026-09-02): lo reportó gente de la corp — *«con dos chats de intel de dos
+/// regiones se vuelven locas las notificaciones»*. La clave de dedupe era `{sistema}-{ts}`, **sin
+/// el canal**, así que el mismo hostil cantado en los dos canales con segundos de diferencia eran
+/// dos marcas distintas → dos alarmas.
+///
+/// ⚠️ Y solo se notaba en el OVERLAY, que es el único sitio que enseña los avisos de uno en uno:
+/// el banner de la app los colapsa en «+1 más» y el duplicado quedaba escondido. **Que dos de tres
+/// superficies se vean bien no exonera al origen común** — por eso se colapsa AQUÍ y no allí.
+///
+/// ⚠️⚠️ SE CALLA LA ALARMA, NUNCA EL DATO. El feed y la capa del mapa siguen enseñando los dos
+/// reportes con sus dos autores: saber que dos personas distintas lo han cantado ES información.
+/// Misma regla que el silencio por sistema.
+const VENTANA_COLAPSO_MS: i64 = 15_000;
 
 /// Estado real del vigilante de intel, para que la UI no pueda mentir diciendo "Activo".
 #[tauri::command]
@@ -8247,7 +8266,25 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                         m.system_id == *sid
                                             && m.until_ms.map(|u| u > ahora_ms).unwrap_or(true)
                                     });
-                                    if is_new && cfg.alerts_enabled && !silenciado {
+                                    // ★ ¿Ya gritamos por este sistema hace nada? Entonces es el
+                                    // mismo suceso llegando por otro canal. Se compara con el ts
+                                    // del REPORTE y no con el reloj: lo que decide es cuándo
+                                    // ocurrió, no cuándo lo procesamos nosotros.
+                                    // El registro se actualiza SIEMPRE que se alerta, para que una
+                                    // ráfaga larga en el mismo sistema no reviva la alarma a mitad.
+                                    let repetido = watch
+                                        .ultimo_aviso
+                                        .lock()
+                                        .map(|m| {
+                                            m.get(sid)
+                                                .map(|prev| (*ts - *prev).abs() < VENTANA_COLAPSO_MS)
+                                                .unwrap_or(false)
+                                        })
+                                        .unwrap_or(false);
+                                    if is_new && cfg.alerts_enabled && !silenciado && !repetido {
+                                        if let Ok(mut m) = watch.ultimo_aviso.lock() {
+                                            m.insert(*sid, *ts);
+                                        }
                                         let system = g
                                             .id_to_name
                                             .get(sid)
