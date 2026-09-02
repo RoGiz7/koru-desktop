@@ -6,6 +6,20 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
+    // tres ficheros de versión. Ver el checklist de release.
+    version: "0.49.0",
+    date: "2026-09-02",
+    es: [
+      "🔌 Koru puede quedarse en marcha, y arrancar contigo. Hay un interruptor nuevo en Ajustes → Empezar, apagado de fábrica: si lo enciendes, cerrar la ventana ya no cierra Koru — se recoge al lado del reloj y sigue trabajando, así que los avisos del intel te siguen llegando aunque no lo tengas delante. Y arranca solo al encender el ordenador, sin ventana ni ruido: te enteras de que está porque está su icono. Desde ese icono lo vuelves a abrir con un clic, y con el botón derecho tienes «Salir» para cerrarlo del todo cuando quieras. Si no lo enciendes, no cambia absolutamente nada: la X cierra Koru como siempre.",
+      "🔔 Y la primera vez que se esconde, te lo dice. Windows manda los iconos nuevos al desplegable de la flechita, así que la ventana desaparece y el icono no se ve por ninguna parte — que es exactamente la sensación de que algo se ha roto. Por eso la primera vez de cada sesión sale un aviso contándote dónde ha ido y cómo volver.",
+    ],
+    en: [
+      "🔌 Koru can stay running, and start up with you. There's a new switch in Settings → Get started, off by default: turn it on and closing the window no longer closes Koru — it tucks itself away next to the clock and keeps working, so intel warnings still reach you even when it isn't in front of you. It also starts on its own when you turn the computer on, with no window and no fuss: the way you know it's there is its icon. From that icon one click brings it back, and a right-click gives you «Salir» to close it properly whenever you want. If you don't turn it on, nothing changes at all: the X closes Koru just like it always did.",
+      "🔔 And the first time it hides, it tells you. Windows tucks new icons away behind the little arrow, so the window vanishes and the icon is nowhere to be seen — which feels exactly like something has broken. So the first time in each session you get a notice telling you where it went and how to get it back.",
+    ],
+  },
+  {
     version: "0.48.0",
     date: "2026-09-01",
     es: [
