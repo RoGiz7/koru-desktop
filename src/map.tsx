@@ -5068,6 +5068,17 @@ export function MapView(props: {
                           tercera— y cada piloto se rompía de una forma distinta. Ahora todos los
                           bloques se leen igual: retrato y nombre arriba, acciones debajo. */}
                       <div className="intel-pilot-btns">
+                      {/* ⚠️ SIGUE VIVO EL FALLO DE SIR RAYL: con «Juan» y «Juan Elmarica» en el
+                          intel, el nombre se resuelve al CORTO y este botón abre el killboard de
+                          otra persona — la Ishtar ratera de un alt en vez del interceptor del main
+                          con flota detrás.
+                          Quité este botón para obligar a pasar por la ficha… y RoGiz7 lo tumbó en
+                          el acto con el argumento bueno: **quien sale en el intel es un hostil**,
+                          así que la ficha enseña «habéis volado juntos: 0» y «os habéis hablado: 0»
+                          IGUAL para los dos nombres. No delata nada. Era fricción sin protección.
+                          ➡️ El arreglo va donde está la duda: avisar de que el nombre es AMBIGUO
+                          cuando hay más de un piloto conocido que empieza igual, en vez de elegir
+                          uno en silencio. Ver [[koru-intel-nombre-parcial-zkill]]. */}
                       <button title="zKillboard" onClick={() => openExternal(`https://zkillboard.com/character/${c.id}/`)}>
                         zKill
                       </button>

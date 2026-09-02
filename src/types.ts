@@ -428,6 +428,50 @@ export type Wingmates = {
   kills_fuera: number;
 };
 // New Eden desde el SDE local (public/neweden.json)
+/** Una fila del libro de viajes (`get_haul_ledger`, T1 del pilar de transporte). */
+export type HaulRow = {
+  contract_id: number;
+  character_id: number;
+  kind: string | null;
+  status: string | null;
+  title: string | null;
+  issuer: string | null;
+  acceptor: string | null;
+  start_location_id: number | null;
+  end_location_id: number | null;
+  volume: number | null;
+  reward: number | null;
+  collateral: number | null;
+  /** El precio de un intercambio. NO es lo mismo que `reward` y no se suman. */
+  price: number | null;
+  /** ISK por m³. La métrica honesta simple; la buena (por m³ y salto, con riesgo) llega en T4. */
+  isk_por_m3: number | null;
+  /** Horas entre aceptar y completar. Solo si están LAS DOS fechas. */
+  horas_entrega: number | null;
+  date_issued: string | null;
+  date_completed: string | null;
+  /** Cuándo caduca si nadie lo acepta: es lo que separa lo VIVO del histórico. */
+  date_expired: string | null;
+  /** A quién va dirigido (un contrato privado lleva destinatario). */
+  assignee: string | null;
+  for_corporation: boolean;
+  availability: string | null;
+  /** Cuándo lo vio Koru por primera vez → «nuevos desde tu última visita». La fecha de emisión no
+   *  sirve: un contrato viejo puede aparecer hoy en tu ventana de ESI. */
+  first_seen: string | null;
+  /** Origen y destino con nombre. Un id de estación no le dice nada a nadie. */
+  start_name: string | null;
+  end_name: string | null;
+  start_system: number | null;
+  end_system: number | null;
+};
+export type HaulLedger = {
+  rows: HaulRow[];
+  total: number;
+  /** Antes de esta fecha no es que no movieras nada: es que Koru no miraba. */
+  since: string | null;
+};
+
 export type NeSystem = {
   id: number;
   n: string;

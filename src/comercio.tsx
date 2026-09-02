@@ -8,6 +8,7 @@ import { fmtIsk, fmtSp, daysAgo, weekKey } from "./format";
 import { TypeIcon, Kpi, MultiLineProgress, RangePresets, Th } from "./charts";
 import type { MarketOrder, WatchItem, ArbItem, OppItem, MGroup, TradePnl } from "./types";
 import { loadJson } from "./staticJson";
+import { ContratosPanel } from "./contratos";
 
 // Botón reutilizable "➕ a watchlist": añade un typeID a la watchlist de mercado (optimista).
 export function WatchAddBtn({ typeId }: { typeId: number }) {
@@ -38,6 +39,7 @@ const TRADE_REGIONS: { id: number; label: string }[] = [
   { id: 10000042, label: "Hek (Metropolis)" },
 ];
 type MType = { i: number; n: string; g: number };
+
 
 // Watchlist de mercado: vigila ítems y ve su spread en el hub + tendencia de precio.
 function WatchlistPanel() {
@@ -623,11 +625,14 @@ export function ComercioView({
   busy,
   subject,
   view,
+  onFicha,
 }: {
   orders: MarketOrder[] | null;
   busy: boolean;
   subject: number | "global";
-  view: "orders" | "pnl" | "watch";
+  view: "orders" | "pnl" | "watch" | "contratos";
+  /** Abre la ficha de un piloto. Los nombres son clicables en TODA la app, también aquí. */
+  onFicha?: (name: string, id?: number | null) => void;
 }) {
   const [pnl, setPnl] = useState<TradePnl | null>(null);
   const [pnlBusy, setPnlBusy] = useState(false);
@@ -694,7 +699,9 @@ export function ComercioView({
 
   return (
     <>
-      {view === "watch" ? (
+      {view === "contratos" ? (
+        <ContratosPanel subject={subject} onFicha={onFicha} />
+      ) : view === "watch" ? (
         <WatchlistPanel />
       ) : view === "orders" ? (
         !orders ? (

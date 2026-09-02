@@ -439,6 +439,17 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                     res.errors.push(msg);
                 }
             }
+            // ★ N4 FASE 3: un contrato recién completado por otra persona puede cerrar la tarea
+            // que la esperaba. Va DESPUÉS del sync y dentro del mismo `if` del scope: sin
+            // contratos frescos no hay nada que mirar. La primera vez no dispara nada — la siembra
+            // silenciosa vive en `contratos_recien_completados`.
+            for (issuer, _cuando) in state.db.contratos_recien_completados(c.character_id) {
+                if let Ok(fired) = state.db.note_steps_fire_on_contract(c.character_id, issuer) {
+                    for f in fired {
+                        tareas_hechas.push(f);
+                    }
+                }
+            }
         }
         // Trabajos de industria: se guardan AQUÍ y no solo al abrir la sección, porque la ventana
         // de ESI son 90 días. Quien no entre a Industria en tres meses perdería el trimestre
@@ -3197,18 +3208,33 @@ pub async fn inspect_ratting_journal(
     )
     .await?;
     let mut out: Vec<JournalSample> = Vec::new();
+    // ★ SEGUNDO bucle del diario de cartera, y se me pasó al arreglar el de `esi/wallet.rs`:
+    // buscar «wallet/journal» solo en el módulo de wallet no bastaba. Mismo `X-Pages` para no
+    // sondear hasta el 404, que cuesta 5 fichas.
+    let mut total_pags: Option<u32> = None;
     for page in 1..=10u32 {
+        if let Some(t) = total_pags {
+            if page > t {
+                break;
+            }
+        }
         let entries: Vec<JournalFull> = match state
             .esi
-            .get_cached(
+            .get_cached_pages(
                 &state.db,
                 character_id,
                 &format!("/characters/{character_id}/wallet/journal/?page={page}"),
                 Some(&token),
+                page == 1,
             )
             .await
         {
-            Ok(e) => e,
+            Ok((e, pags)) => {
+                if let Some(p) = pags {
+                    total_pags = Some(p.max(1) as u32);
+                }
+                e
+            }
             Err(_) => break,
         };
         if entries.is_empty() {
@@ -3497,9 +3523,17 @@ pub async fn add_note_step(
     note_id: i64,
     body: String,
     type_id: Option<i64>,
+    pilot_id: Option<i64>,
     state: State<'_, AppState>,
 ) -> AppResult<i64> {
-    state.db.note_step_add(note_id, &body, type_id.unwrap_or(0))
+    // El kind se DEDUCE de lo que manda la interfaz en vez de pedírselo aparte: así no puede
+    // llegar un `kind` que no case con su id, que es la única forma de que esto se estropee.
+    let (kind, tid) = match (type_id.unwrap_or(0), pilot_id.unwrap_or(0)) {
+        (t, _) if t > 0 => ("asset", t),
+        (_, p) if p > 0 => ("contract", p),
+        _ => ("", 0), // tarea de texto libre: no promete nada y no debe prometerlo
+    };
+    state.db.note_step_add(note_id, &body, kind, tid)
 }
 
 /// `by` = quién la cierra. La UI manda «mano»; cuando la cierre un disparador, mandará su nombre.
@@ -11473,9 +11507,27 @@ pub struct HaulRow {
     pub volume: Option<f64>,
     pub reward: Option<f64>,
     pub collateral: Option<f64>,
+    /// El precio de un intercambio. Va aparte de `reward` a propósito: **no son lo mismo y sumarlas
+    /// sería mentir** — una recompensa es lo que cobras por llevar algo; un precio es lo que cuesta
+    /// la mercancía. La tabla las enseña en la misma columna diciendo cuál es cada una.
+    pub price: Option<f64>,
     /// ISK por m³. Es la métrica honesta más simple; la buena (por m³ y salto, con riesgo) llega
     /// en T4, cuando se pueda medir la ruta.
     pub isk_por_m3: Option<f64>,
+    /// Cuándo caduca. Es lo que separa lo VIVO de lo histórico.
+    pub date_expired: Option<String>,
+    /// A quién va dirigido, con nombre si se conoce (un contrato privado lleva destinatario).
+    pub assignee: Option<String>,
+    pub for_corporation: bool,
+    pub availability: Option<String>,
+    /// Cuándo lo vio Koru por primera vez: de aquí sale «nuevos desde tu última visita».
+    pub first_seen: Option<String>,
+    /// Origen y destino con NOMBRE. Un id de estación no le dice nada a nadie, y en un courier
+    /// la ruta es el contrato entero.
+    pub start_name: Option<String>,
+    pub end_name: Option<String>,
+    pub start_system: Option<i64>,
+    pub end_system: Option<i64>,
     /// Horas entre aceptar y completar. **Solo se rellena si están las DOS fechas**: es la única
     /// velocidad de entrega medida de verdad. La de los viajes propios habrá que deducirla de
     /// `location_track` y arrastra ceguera, así que no se mezclan.
@@ -11492,6 +11544,94 @@ pub struct HaulLedger {
     /// Antes de esta fecha no es que no movieras nada: es que Koru no miraba. La ventana de ESI
     /// para contratos son ~30 días, así que este dato viaja CON los datos y no en un comentario.
     pub since: Option<String>,
+}
+
+/// Los objetos de un contrato, para su ficha. **Guardados la primera vez y nunca más pedidos.**
+///
+/// ★ La forma de esto la corrigió RoGiz7 mientras se construía: yo iba a pedirlos a ESI cada vez
+/// que se abriera la ficha. Pero la ventana de ESI son ~30 días, así que el día que EVE olvide el
+/// contrato la ficha se quedaría vacía **justo en los viejos, que son los que ya no puedes mirar
+/// en el juego**. Ahora: si están en la BD se sirven de ahí; si no, se piden UNA vez y se guardan.
+///
+/// No hace falta refrescarlos jamás: el contenido de un contrato es inmutable desde que se crea.
+#[tauri::command]
+pub async fn get_contract_items(
+    contract_id: i64,
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::db::ContractItemRow>> {
+    let guardados = state.db.contract_items(contract_id)?;
+    if !guardados.is_empty() {
+        return Ok(guardados);
+    }
+    let token = state
+        .tokens
+        .access_token(state.esi.http(), character_id)
+        .await?;
+    let crudos = contracts::contract_items(
+        &state.esi,
+        &state.db,
+        character_id,
+        contract_id,
+        &token.access_token,
+    )
+    .await?;
+    state.db.contract_items_put(contract_id, &crudos)?;
+    state.db.contract_items(contract_id)
+}
+
+/// Cuánto le está pidiendo Koru a ESI de verdad, desde que arrancó.
+///
+/// ★ Existe porque él preguntó si sincronizar cada 30 min era exigente, yo razoné que no… y la
+/// cuenta la hice con un número inventado. Esto la hace con los de verdad.
+#[derive(Serialize)]
+pub struct EsiGastoRes {
+    /// Servidas por NUESTRA caché: no salieron y no costaron nada.
+    pub cache: u64,
+    pub ok2xx: u64,
+    pub nm304: u64,
+    pub err4xx: u64,
+    pub err5xx: u64,
+    /// Fichas del sistema de CCP: 2XX=2 · 3XX=1 · 4XX=5 · 5XX=0. Vuelven a los 15 minutos.
+    pub fichas: u64,
+    pub minutos: i64,
+    /// Qué rutas están fallando (código + ruta, sin repetir). El «cuántos» sin el «cuáles» es un
+    /// número que no se puede accionar.
+    pub err_rutas: Vec<String>,
+    /// Fichas por ventana de 15 min, que es la unidad en la que CCP pone los topes. **Es una
+    /// MEDIA desde que arrancó Koru, no un pico**: una ráfaga corta no se ve aquí.
+    pub fichas_15min: f64,
+}
+
+#[tauri::command]
+pub fn esi_gasto(state: State<'_, AppState>) -> AppResult<EsiGastoRes> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let g = &state.esi.gasto;
+    let (cache, ok2xx, nm304, err4xx, err5xx) = (
+        g.cache.load(Relaxed),
+        g.ok2xx.load(Relaxed),
+        g.nm304.load(Relaxed),
+        g.err4xx.load(Relaxed),
+        g.err5xx.load(Relaxed),
+    );
+    let fichas = ok2xx * 2 + nm304 + err4xx * 5;
+    let desde = g.desde_ms.load(Relaxed) as i64;
+    let minutos = ((chrono::Utc::now().timestamp_millis() - desde) / 60_000).max(1);
+    Ok(EsiGastoRes {
+        cache,
+        ok2xx,
+        nm304,
+        err4xx,
+        err5xx,
+        fichas,
+        minutos,
+        err_rutas: g
+            .err_rutas
+            .lock()
+            .map(|v| v.clone())
+            .unwrap_or_default(),
+        fichas_15min: fichas as f64 * 15.0 / minutos as f64,
+    })
 }
 
 /// Contratos guardados. Lee de la BD, NO de ESI — el libro existe justamente porque ESI olvida.
@@ -11518,6 +11658,11 @@ pub async fn get_haul_ledger(
         if let Some(a) = r.acceptor_id {
             ids.insert(a);
         }
+        // El destinatario también: un contrato privado va dirigido a alguien, y sin su nombre la
+        // ficha no puede decir a quién se lo hiciste.
+        if let Some(a) = r.assignee_id {
+            ids.insert(a);
+        }
     }
     ids.remove(&0);
     let names = state
@@ -11525,6 +11670,38 @@ pub async fn get_haul_ledger(
         .resolve_names(&ids.into_iter().collect::<Vec<_>>())
         .await
         .unwrap_or_default();
+
+    // ---- Ubicaciones, con nombre ----
+    // Primero lo GUARDADO (instantáneo). Solo se le pregunta a ESI por las que no conocemos, y
+    // una sola vez por ubicación distinta: veinte contratos entre las mismas dos estaciones son
+    // dos consultas, no cuarenta.
+    let mut locs: HashSet<i64> = HashSet::new();
+    for r in &rows {
+        for l in [r.start_location_id, r.end_location_id].into_iter().flatten() {
+            if l > 0 {
+                locs.insert(l);
+            }
+        }
+    }
+    let lista: Vec<i64> = locs.into_iter().collect();
+    let mut loc_name = state.db.location_names(&lista);
+    let faltan: Vec<i64> = lista.iter().copied().filter(|l| !loc_name.contains_key(l)).collect();
+    if !faltan.is_empty() {
+        // Todos los tokens, no solo el del personaje: una estructura puede ser visible para un alt
+        // y no para otro, y el nombre lo tiene quien tenga acceso. Es el mismo apaño que usa el
+        // inventario, con el mismo helper.
+        let tokens = structure_tokens(&state).await;
+        for l in faltan {
+            let (_sys, nombre) = assets::resolve_location_named(&state.esi, &state.db, l, &tokens).await;
+            if let Some(n) = nombre {
+                loc_name.insert(l, n);
+            }
+        }
+    }
+    let loc_sys: HashMap<i64, i64> = lista
+        .iter()
+        .filter_map(|l| state.db.location_system_get(*l).map(|s| (*l, s)))
+        .collect();
 
     let out = rows
         .into_iter()
@@ -11560,6 +11737,16 @@ pub async fn get_haul_ledger(
                 volume: r.volume,
                 reward: r.reward,
                 collateral: r.collateral,
+                price: r.price,
+                date_expired: r.date_expired,
+                assignee: r.assignee_id.and_then(|a| names.get(&a).cloned()),
+                for_corporation: r.for_corporation,
+                availability: r.availability,
+                first_seen: r.first_seen,
+                start_name: r.start_location_id.and_then(|l| loc_name.get(&l).cloned()),
+                end_name: r.end_location_id.and_then(|l| loc_name.get(&l).cloned()),
+                start_system: r.start_location_id.and_then(|l| loc_sys.get(&l).copied()),
+                end_system: r.end_location_id.and_then(|l| loc_sys.get(&l).copied()),
                 isk_por_m3,
                 horas_entrega,
                 date_issued: r.date_issued,

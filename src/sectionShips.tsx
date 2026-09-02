@@ -69,6 +69,7 @@ const BASE: Partial<Record<Tab, number>> = {
   comercio: 20183,
   comercio_pnl: 20183,
   comercio_watch: 20183,
+  comercio_contratos: 20183,
   planetologia: 20183,
   rateo: 645,
   mineria: 22544,
@@ -101,6 +102,7 @@ const ROL: Partial<Record<Tab, Rol>> = {
   comercio: "carga",
   comercio_pnl: "carga",
   comercio_watch: "carga",
+  comercio_contratos: "carga",
   planetologia: "carga",
 };
 

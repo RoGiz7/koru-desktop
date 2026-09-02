@@ -2568,6 +2568,60 @@ function App() {
                     esconde, el aviso es lo único que te dice dónde ha ido—, pero sirve para
                     todos: los del intel salen por el mismo sitio. Separa las dos causas que se
                     confunden: que el sistema lo rechace, o que lo silencie. */}
+                {/* ★ CUÁNTO LE PEDIMOS A ESI. Aquí y no escondido en un log porque la pregunta
+                    «¿estamos apretando de más?» se la puede hacer cualquiera que use Koru con
+                    muchos personajes, no solo nosotros. */}
+                <button
+                  className="tb-settings-item"
+                  onClick={() => {
+                    invoke<{
+                      cache: number;
+                      ok2xx: number;
+                      nm304: number;
+                      err4xx: number;
+                      err5xx: number;
+                      fichas: number;
+                      minutos: number;
+                      fichas_15min: number;
+                      err_rutas: string[];
+                    }>("esi_gasto")
+                      .then((g) =>
+                        setDiag({
+                          titulo: `📡 ${tr("Cuánto le pedimos a EVE")}`,
+                          nota: `${g.fichas_15min.toFixed(0)} ${tr("fichas por ventana de 15 min")} · ${g.minutos} ${tr("min en marcha")}`,
+                          texto: [
+                            `${String(g.cache).padStart(7)}  ${tr("servidas por la caché de Koru (no salieron)")}`,
+                            `${String(g.ok2xx).padStart(7)}  ${tr("respuestas con datos nuevos")}  ×2`,
+                            `${String(g.nm304).padStart(7)}  ${tr("«no ha cambiado» (ETag)")}  ×1`,
+                            `${String(g.err4xx).padStart(7)}  ${tr("errores 4xx")}  ×5`,
+                            `${String(g.err5xx).padStart(7)}  ${tr("errores 5xx")}  ×0`,
+                            "",
+                            `${String(g.fichas).padStart(7)}  ${tr("fichas gastadas en total")}`,
+                            "",
+                            // El «cuáles». Varias llamadas se tragan su error a propósito, así que
+                            // sin esta lista los 4xx eran invisibles aunque fueran el mayor gasto.
+                            ...(g.err_rutas.length
+                                ? [`${tr("Lo que está fallando:")}`, ...g.err_rutas.map((r) => `   ${r}`), ""]
+                                : []),
+                            tr(
+                              "CCP pone los topes entre 1.000 y 1.800 fichas por ventana de 15 minutos, y las fichas vuelven al cubo pasados esos 15 minutos. Ojo: la cifra de arriba es la MEDIA desde que arrancó Koru, no un pico.",
+                            ),
+                          ].join("\n"),
+                        }),
+                      )
+                      .catch((e) => setError(String(e)));
+                  }}
+                >
+                  <span className="tb-si-ic">📡</span>
+                  <span className="tb-si-tx">
+                    <strong>{tr("Cuánto le pedimos a EVE")}</strong>
+                    <span className="muted small">
+                      {tr(
+                        "Peticiones que salen de verdad y lo que cuestan, para saber si Koru está apretando de más.",
+                      )}
+                    </span>
+                  </span>
+                </button>
                 <button
                   className="tb-settings-item"
                   onClick={() => {
@@ -3228,12 +3282,24 @@ function App() {
           {tab === "industria" && (
             <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} subject={subject} />
           )}
-          {(tab === "comercio" || tab === "comercio_pnl" || tab === "comercio_watch") && (
+          {(tab === "comercio" ||
+            tab === "comercio_pnl" ||
+            tab === "comercio_watch" ||
+            tab === "comercio_contratos") && (
             <ComercioView
+              onFicha={abrirFicha}
               orders={marketOrders}
               busy={sectionBusy}
               subject={subject}
-              view={tab === "comercio_pnl" ? "pnl" : tab === "comercio_watch" ? "watch" : "orders"}
+              view={
+                tab === "comercio_pnl"
+                  ? "pnl"
+                  : tab === "comercio_watch"
+                    ? "watch"
+                    : tab === "comercio_contratos"
+                      ? "contratos"
+                      : "orders"
+              }
             />
           )}
           {tab === "planetologia" && (

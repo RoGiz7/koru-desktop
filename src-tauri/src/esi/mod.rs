@@ -26,21 +26,63 @@ const MIN_INTERVAL: Duration = Duration::from_millis(120);
 /// Reintentos máximos ante 420/429.
 const MAX_RETRIES: u32 = 5;
 
+/// ★★ EL CONTADOR DE GASTO A ESI (2026-09-02, lo pidió RoGiz7).
+///
+/// Nació de una pregunta suya: *«las peticiones de 30 minutos son muy exigentes, ¿movemos assets a
+/// una al día?»*. La respuesta razonada era que no hacía falta —la caché de 1 h ya se come una de
+/// cada dos pasadas—, pero **razonar no es medir**, y esa cuenta la hice con un número inventado.
+///
+/// Lo que cuenta es LO QUE SALE DE VERDAD, no lo que se pide: `get_cached` se corta solo cuando la
+/// caché local sigue vigente, y esas llamadas no cuestan nada. Confundir las dos cosas es
+/// exactamente lo que llevaba a creer que gastábamos el doble.
+///
+/// Las fichas salen del sistema nuevo de CCP: **2XX=2 · 3XX=1 · 4XX=5 · 5XX=0**, devueltas a los
+/// 15 minutos. Ver [[koru-esi-limites-peticiones]].
+#[derive(Default)]
+pub struct EsiGasto {
+    /// Servidas desde NUESTRA caché: ni salieron. Son las que no cuestan nada.
+    pub cache: std::sync::atomic::AtomicU64,
+    pub ok2xx: std::sync::atomic::AtomicU64,
+    /// 304 «no ha cambiado»: el ahorro del ETag, y solo cuesta 1 ficha.
+    pub nm304: std::sync::atomic::AtomicU64,
+    pub err4xx: std::sync::atomic::AtomicU64,
+    pub err5xx: std::sync::atomic::AtomicU64,
+    /// Desde cuándo se cuenta (epoch ms), para poder decir «en los últimos N minutos».
+    pub desde_ms: std::sync::atomic::AtomicU64,
+    /// ★ QUÉ está fallando, no solo cuántas veces. Sin esto el contador es un número que no se
+    /// puede accionar: la primera medición dijo «8 errores = 28% del gasto» y no había forma de
+    /// saber de dónde salían — porque varios sitios (p. ej. `resolve_location_named`) se tragan el
+    /// error a propósito y no imprimen nada. Se guardan las últimas rutas, con su código.
+    pub err_rutas: std::sync::Mutex<Vec<String>>,
+}
+
 pub struct EsiClient {
     http: reqwest::Client,
     /// Limita cuántas peticiones ESI hay en vuelo a la vez (cortesía + evita ráfagas).
     sem: Semaphore,
     /// Marca de la última petición, para espaciar el ritmo global.
     last_req: Mutex<Instant>,
+    /// Cuánto le estamos pidiendo a ESI de verdad. Ver `EsiGasto`.
+    pub gasto: EsiGasto,
 }
 
 impl EsiClient {
     pub fn new(http: reqwest::Client) -> Self {
+        let g = EsiGasto::default();
+        g.desde_ms.store(
+            chrono::Utc::now().timestamp_millis() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Self {
             http,
             sem: Semaphore::new(4),
             last_req: Mutex::new(Instant::now() - MIN_INTERVAL),
+            gasto: g,
         }
+    }
+
+    fn apuntar(&self, c: &std::sync::atomic::AtomicU64) {
+        c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Garantiza al menos MIN_INTERVAL entre el arranque de dos peticiones.
@@ -63,6 +105,39 @@ impl EsiClient {
         path: &str,
         access_token: Option<&str>,
     ) -> AppResult<T> {
+        self.get_cached_pages::<T>(db, character_id, path, access_token, false)
+            .await
+            .map(|(v, _)| v)
+    }
+
+    /// Como `get_cached`, pero además devuelve **cuántas páginas** tiene ese endpoint (`X-Pages`).
+    ///
+    /// ★★ POR QUÉ EXISTE (2026-09-02, salió de una medición suya): los bucles de paginación pedían
+    /// páginas hasta que ESI contestaba **404**, y usaban ese 404 como señal de parada. Era gratis
+    /// cuando ESI solo limitaba errores; con el sistema nuevo **un 4xx cuesta 5 fichas, el precio
+    /// más caro que hay**. En su primera medición, 30 de esos 404 deliberados se llevaron 150 de
+    /// las 291 fichas gastadas: **el 52% del gasto, sin aportar un solo dato**.
+    /// Con `X-Pages` se sabe cuántas hay desde la primera y no se sondea a ciegas.
+    /// `aprender_paginas`: ponlo a `true` SOLO en la página 1 de un bucle paginado.
+    ///
+    /// ⚠️ HACE FALTA POR ALGO QUE NO SE VE: **un 304 no trae `X-Pages`**. Y assets y el diario
+    /// casi nunca cambian, así que su página 1 responde «no ha cambiado» una y otra vez y el
+    /// número de páginas **no se aprendería jamás** — que es exactamente lo que se midió: el
+    /// arreglo puesto y los 404 intactos. Con esta bandera, si no sabemos las páginas se pide una
+    /// vez SIN `If-None-Match` para forzar un 200 que sí traiga la cabecera. Cuesta 2 fichas una
+    /// sola vez y ahorra un 404 (5 fichas) en cada pasada, para siempre.
+    ///
+    /// Y no se queda obsoleto: `X-Pages` viene con cada 200, y un 200 solo ocurre cuando el dato
+    /// cambió — que es justo cuando el número de páginas puede haber cambiado. Con un 304 se
+    /// conserva el anterior, y es correcto porque nada cambió.
+    pub async fn get_cached_pages<T: DeserializeOwned>(
+        &self,
+        db: &Db,
+        character_id: i64,
+        path: &str,
+        access_token: Option<&str>,
+        aprender_paginas: bool,
+    ) -> AppResult<(T, Option<i64>)> {
         // 1) ¿Tenemos cache vigente? Si Expires está en el futuro, no llamamos siquiera.
         //    DEFENSA: para endpoints por personaje (character_id != 0) no confiamos en un
         //    Expires a más de 1h vista — una cabecera anómala (o un desfase de reloj) podría
@@ -75,8 +150,12 @@ impl EsiClient {
                 let now = Utc::now();
                 let trustworthy =
                     character_id == 0 || exp <= now + chrono::Duration::hours(1);
-                if exp > now && trustworthy {
-                    return Ok(serde_json::from_str::<T>(&c.payload)?);
+                let falta_aprender = aprender_paginas && c.pages.is_none();
+                if exp > now && trustworthy && !falta_aprender {
+                    // Ni sale de casa: esta es la que hace que sincronizar cada 30 min no cueste
+                    // el doble que cada hora.
+                    self.apuntar(&self.gasto.cache);
+                    return Ok((serde_json::from_str::<T>(&c.payload)?, c.pages));
                 }
             }
         }
@@ -104,7 +183,10 @@ impl EsiClient {
                 req = req.bearer_auth(tok);
             }
             if let Some(ref c) = cached {
-                if let Some(ref etag) = c.etag {
+                // Sin ETag cuando hay que aprender las páginas: con él responderían 304 y el 304
+                // no trae `X-Pages`, así que nunca saldríamos del sondeo a ciegas.
+                let forzar_200 = aprender_paginas && c.pages.is_none();
+                if let (Some(etag), false) = (c.etag.as_ref(), forzar_200) {
                     req = req.header("If-None-Match", etag.clone());
                 }
             }
@@ -143,8 +225,38 @@ impl EsiClient {
         }
 
         let status = resp.status();
+        // Se apunta AQUÍ, con la respuesta ya en la mano: es el único sitio donde se sabe qué
+        // salió de verdad y con qué código, que es lo que decide las fichas que costó.
+        {
+            let c = status.as_u16();
+            if c == 304 {
+                self.apuntar(&self.gasto.nm304);
+            } else if status.is_success() {
+                self.apuntar(&self.gasto.ok2xx);
+            } else if (400..500).contains(&c) {
+                self.apuntar(&self.gasto.err4xx);
+                // ⚠️ CON el `?page=`, y me costó una ronda entera aprenderlo: al principio lo
+                // quitaba «porque interesa el patrón, no cada caso», y resultó ser justo el dato
+                // que hacía falta para saber si el arreglo de X-Pages funcionaba. Un 404 en la
+                // página 2 y uno en la 7 cuentan historias distintas.
+                let ruta = path;
+                if let Ok(mut v) = self.gasto.err_rutas.lock() {
+                    let linea = format!("{c} {ruta}");
+                    if !v.contains(&linea) {
+                        v.push(linea);
+                        if v.len() > 40 {
+                            v.remove(0);
+                        }
+                    }
+                }
+            } else if c >= 500 {
+                self.apuntar(&self.gasto.err5xx);
+            }
+        }
         let etag = header_string(&resp, "etag");
         let expires = header_string(&resp, "expires");
+        // X-Pages: cuántas páginas tiene el recurso. Es lo que sustituye al sondeo hasta el 404.
+        let pages = header_string(&resp, "x-pages").and_then(|v| v.trim().parse::<i64>().ok());
 
         // 5) 304: el contenido no cambió; refrescamos solo el Expires y devolvemos la cache.
         if status == reqwest::StatusCode::NOT_MODIFIED {
@@ -155,8 +267,9 @@ impl EsiClient {
                     etag.as_deref().or(c.etag.as_deref()),
                     expires.as_deref(),
                     &c.payload,
+                    pages,
                 )?;
-                return Ok(serde_json::from_str::<T>(&c.payload)?);
+                return Ok((serde_json::from_str::<T>(&c.payload)?, pages.or(c.pages)));
             }
             // 304 sin cache previa no debería pasar; tratamos como error.
             return Err(AppError::Other("304 sin cache previa".into()));
@@ -184,8 +297,9 @@ impl EsiClient {
             etag.as_deref(),
             expires_rfc3339.as_deref(),
             &body,
+            pages,
         )?;
-        Ok(serde_json::from_str::<T>(&body)?)
+        Ok((serde_json::from_str::<T>(&body)?, pages))
     }
 
     /// Igual que get_cached pero devuelve también las cabeceras de paginación (X-Pages).

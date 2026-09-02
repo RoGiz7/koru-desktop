@@ -5258,6 +5258,161 @@ h4 {
   font-size: 0.78rem;
 }
 
+/* ===== Comercio → Contratos =================================================================
+   Lo VIVO va en tarjetas y el histórico en tabla, y no es capricho: una tarjeta se mira, una
+   tabla se consulta. Cuatro contratos pendientes caben de un vistazo; doscientos terminados no
+   se miran, se filtran. */
+.ct-h {
+  margin: 1.1rem 0 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.ct-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.6rem;
+}
+.ct-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border, #2c313c);
+  border-radius: 8px;
+  background: var(--panel, #161b22);
+  cursor: pointer;
+}
+.ct-card:hover {
+  border-color: var(--border-accent, #3d444d);
+}
+.ct-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+}
+.ct-kind {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ct-estado {
+  margin-left: auto;
+  color: var(--muted, #8a91a0);
+}
+.ct-estado.curso {
+  color: #d29922; /* ámbar: aceptado y en marcha, o sea que alguien está esperando */
+}
+.ct-nuevo {
+  background: #3fb950;
+  color: #0d1117;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.ct-card-title {
+  font-size: 0.9rem;
+}
+.ct-card-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+.ct-card-row .pos {
+  color: #3fb950;
+}
+/* La cuenta atrás es lo único urgente de la pantalla; cuando queda menos de un día, se ve. */
+.ct-caduca {
+  font-size: 0.75rem;
+  color: var(--muted, #8a91a0);
+}
+.ct-caduca.urge {
+  color: var(--danger-text, #f85149);
+  font-weight: 600;
+}
+.ct-ruta {
+  color: var(--muted, #8a91a0);
+}
+.ct-ruta-row {
+  min-height: 1.1em;
+}
+/* La flecha en el color de la app y no en gris: es lo que dice de un vistazo que hubo un viaje. */
+.ct-flecha {
+  color: var(--accent-text, #58a6ff);
+}
+.ct-fila {
+  cursor: pointer;
+}
+.ct-fila:hover {
+  background: var(--panel-hover, #1c2128);
+}
+.ct-modal {
+  max-width: 640px;
+  width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+.ct-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.ct-modal-head h3 {
+  margin: 0;
+  flex: 1;
+}
+.ct-datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.35rem 0.9rem;
+  margin: 0.6rem 0;
+}
+.ct-dato {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border, #2c313c);
+  padding-bottom: 0.2rem;
+  font-size: 0.84rem;
+}
+.ct-dato-k {
+  color: var(--muted, #8a91a0);
+}
+.ct-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+.ct-item-n {
+  flex: 1;
+}
+.ct-item-q {
+  font-variant-numeric: tabular-nums;
+}
+/* Los dos lados de un intercambio vienen en la misma lista de ESI: separarlos visualmente evita
+   leer al revés lo que entra y lo que sale. */
+.ct-lado {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #3fb950;
+}
+.ct-lado.pide {
+  color: #d29922;
+}
+.ct-bpc {
+  margin-left: 0.35rem;
+  font-size: 0.7rem;
+  border: 1px solid var(--border-accent, #3d444d);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+}
+
 /* ★ ESTADO PEDIDO ≠ AVERÍA. `.pj-missing` es rojo porque «Falta acceso» es un problema que hay que
    arreglar. «Desconectado» no lo es: es exactamente lo que el usuario pidió al pulsar el botón.
    Pintarlo del mismo rojo convierte una decisión suya en una alarma, y quien la ve piensa que algo

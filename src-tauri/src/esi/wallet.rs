@@ -108,11 +108,25 @@ pub async fn sync_journal(
     let existing = db.existing_journal_ids(character_id)?;
     let mut new_count = 0usize;
 
+    // ★ `X-Pages` en vez de sondear hasta el 404. Ver `EsiClient::get_cached_pages`: ese 404 que
+    // usábamos como «no hay más páginas» cuesta ahora 5 fichas, y el diario es, junto con assets,
+    // el que más lo pagaba — uno por personaje y por pasada.
+    let mut total_pags: Option<u32> = None;
     for page in 1..=max_pages {
+        if let Some(t) = total_pags {
+            if page > t {
+                break;
+            }
+        }
         let path = format!("/characters/{character_id}/wallet/journal/?page={page}");
         let entries: Vec<JournalEntry> =
-            match esi.get_cached(db, character_id, &path, Some(token)).await {
-                Ok(e) => e,
+            match esi.get_cached_pages(db, character_id, &path, Some(token), page == 1).await {
+                Ok((e, pags)) => {
+                    if let Some(p) = pags {
+                        total_pags = Some(p.max(1) as u32);
+                    }
+                    e
+                }
                 Err(AppError::NotFound) => break, // no hay más páginas
                 Err(e) => {
                     eprintln!("wallet journal página {page} falló: {e}");

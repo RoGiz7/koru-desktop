@@ -19,6 +19,7 @@ export type Tab =
   | "comercio"
   | "comercio_pnl"
   | "comercio_watch"
+  | "comercio_contratos"
   | "rateo"
   | "abyssals"
   | "crab"
@@ -95,6 +96,11 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "comercio", label: "Órdenes", scopes: ["esi-markets.read_character_orders.v1"] },
       { key: "comercio_pnl", label: "Rentabilidad", scopes: ["esi-markets.read_character_orders.v1"] },
       { key: "comercio_watch", label: "Watchlist", scopes: ["esi-markets.read_character_orders.v1"] },
+      // Contratos vive aquí y no en su propio grupo por decisión suya. Ojo al matiz que él mismo
+      // apuntó: un courier es TRANSPORTE y un intercambio es comercio. Cuando exista el pilar de
+      // Transporte, los courier se lucirán allí con su ISK/m³ — pero verlos ya es mejor que la
+      // situación de hoy, que es no verlos en ningún sitio.
+      { key: "comercio_contratos", label: "Contratos", scopes: ["esi-contracts.read_character_contracts.v1"] },
     ],
   },
   {
@@ -366,6 +372,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   comercio: { title: "Comercio", subtitle: "Tus órdenes abiertas: competencia, % vendido y vencimiento" },
   comercio_pnl: { title: "Rentabilidad (P&L)", subtitle: "Beneficio realizado de tu trading (coste medio ponderado)" },
   comercio_watch: { title: "Watchlist de mercado", subtitle: "Precios, spread y libro por hub · arbitraje entre hubs · buscador de oportunidades" },
+  comercio_contratos: { title: "Contratos", subtitle: "Tus contratos de los últimos 30 días · courier, intercambio, subasta y préstamo" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Sesiones cronometradas + estimación por filamentos" },
   crab: { title: "CRAB", subtitle: "Sesiones cronometradas de CONCORD Rogue Analysis Beacon (ISK/hora, tasa de muerte, P&L)" },

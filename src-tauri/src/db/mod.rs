@@ -42,6 +42,13 @@ impl Db {
             "ALTER TABLE killmails ADD COLUMN solo INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // El NOMBRE de una ubicación, junto a su sistema. Ver `location_name_put`: una estructura
+        // de jugador deja de responder cuando pierdes acceso, y sin esto su nombre desaparecía de
+        // todo tu histórico.
+        let _ = conn.execute("ALTER TABLE location_system ADD COLUMN name TEXT", []);
+        // Cuántas páginas tiene ese endpoint (cabecera X-Pages). Ver `CacheEntry::pages`: sin
+        // guardarlo, sondeábamos páginas hasta provocar un 404 — que ahora cuesta 5 fichas.
+        let _ = conn.execute("ALTER TABLE esi_cache ADD COLUMN pages INTEGER", []);
         // «Cerrar sesión» en dos pasos (2026-09-02): el personaje sigue existiendo con su
         // histórico, pero deja de sincronizar. DEFAULT 0 = todos los que ya había tienen acceso,
         // que es justo lo que son.
@@ -450,7 +457,31 @@ impl Db {
         // Y la regla de siempre: **un hueco es CEGUERA, no quietud.** Si Koru se cerró media hora,
         // esa media hora no es «la flota no se movió»; las vistas deben decirlo.
         let _ = conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS fleet_op (
+            // ★★ LOS OBJETOS DE UN CONTRATO — se piden a ESI una vez y se QUEDAN (idea suya).
+            //
+            // El motivo es el mismo que hizo nacer la tabla `contract`: la ventana de ESI son ~30
+            // días, así que un contrato olvidado por EVE se llevaría por delante también su
+            // contenido. Pedirlos sin guardarlos habría dejado la ficha vacía justo en los viejos,
+            // que son los que ya no puedes mirar en el juego.
+            //
+            // Y no hace falta refrescarlos nunca: **el contenido de un contrato es inmutable desde
+            // que se crea**. Una vez guardados, esta tabla es la fuente y ESI no se vuelve a tocar.
+            //
+            // `idx` en la clave y no (contract_id, type_id): un mismo tipo puede salir VARIAS veces
+            // en el mismo contrato (dos naves montadas iguales son dos objetos distintos).
+            "CREATE TABLE IF NOT EXISTS contract_item (
+                 contract_id  INTEGER NOT NULL,
+                 idx          INTEGER NOT NULL,
+                 type_id      INTEGER NOT NULL,
+                 quantity     INTEGER NOT NULL DEFAULT 1,
+                 -- 1 = te lo dan · 0 = lo pides a cambio. En un intercambio los dos lados vienen
+                 -- en la MISMA lista y confundirlos le da la vuelta al sentido del contrato.
+                 is_included  INTEGER NOT NULL DEFAULT 1,
+                 is_singleton INTEGER NOT NULL DEFAULT 0,
+                 raw_quantity INTEGER,   -- negativo = copia de plano (BPC)
+                 PRIMARY KEY (contract_id, idx)
+             );
+             CREATE TABLE IF NOT EXISTS fleet_op (
                  op_id        INTEGER PRIMARY KEY AUTOINCREMENT,
                  fleet_id     INTEGER NOT NULL,
                  boss_id      INTEGER NOT NULL,   -- cual de TUS personajes la mandaba
@@ -1201,13 +1232,18 @@ pub struct CacheEntry {
     pub etag: Option<String>,
     pub expires: Option<String>, // RFC3339
     pub payload: String,         // JSON crudo
+    /// ★ `X-Pages` de la respuesta. Se GUARDA porque si no, una respuesta servida desde caché (o
+    /// un 304) no sabría cuántas páginas hay — y volveríamos a sondear a ciegas, que es justo lo
+    /// que estamos quitando.
+    pub pages: Option<i64>,
 }
 
 impl Db {
     pub fn get_cache(&self, character_id: i64, endpoint: &str) -> AppResult<Option<CacheEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT etag, expires, payload FROM esi_cache WHERE character_id = ?1 AND endpoint = ?2",
+            "SELECT etag, expires, payload, pages FROM esi_cache
+              WHERE character_id = ?1 AND endpoint = ?2",
         )?;
         let mut rows = stmt.query(rusqlite::params![character_id, endpoint])?;
         if let Some(r) = rows.next()? {
@@ -1215,6 +1251,7 @@ impl Db {
                 etag: r.get(0)?,
                 expires: r.get(1)?,
                 payload: r.get(2)?,
+                pages: r.get(3).ok().flatten(),
             }))
         } else {
             Ok(None)
@@ -1239,16 +1276,19 @@ impl Db {
         etag: Option<&str>,
         expires: Option<&str>,
         payload: &str,
+        pages: Option<i64>,
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO esi_cache (character_id, endpoint, etag, expires, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO esi_cache (character_id, endpoint, etag, expires, payload, pages)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(character_id, endpoint) DO UPDATE SET
                 etag = excluded.etag,
                 expires = excluded.expires,
-                payload = excluded.payload",
-            rusqlite::params![character_id, endpoint, etag, expires, payload],
+                payload = excluded.payload,
+                -- Un 304 no siempre repite X-Pages: si viene vacío, se conserva el que había.
+                pages = COALESCE(excluded.pages, esi_cache.pages)",
+            rusqlite::params![character_id, endpoint, etag, expires, payload, pages],
         )?;
         Ok(())
     }
@@ -1655,6 +1695,28 @@ pub struct ContractRow {
     pub date_issued: Option<String>,
     pub date_accepted: Option<String>,
     pub date_completed: Option<String>,
+    /// El dinero de un INTERCAMBIO. Faltaba, y por eso el libro salía sin una sola cifra cuando no
+    /// eran courier: en un courier el dinero es la recompensa, en un intercambio es el precio.
+    pub price: Option<f64>,
+    /// Cuándo caduca si nadie lo acepta. Es lo que separa «vivo» de «histórico».
+    pub date_expired: Option<String>,
+    pub assignee_id: Option<i64>,
+    pub for_corporation: bool,
+    pub availability: Option<String>,
+    /// Cuándo lo vio Koru por primera vez. De aquí sale el aviso de «nuevos desde tu última visita»
+    /// — la fecha de emisión no vale: un contrato viejo puede aparecer hoy en tu ventana.
+    pub first_seen: Option<String>,
+}
+
+/// Un objeto guardado de un contrato, ya con su nombre resuelto para la ficha.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ContractItemRow {
+    pub type_id: i64,
+    pub quantity: i64,
+    pub is_included: bool,
+    pub is_singleton: bool,
+    /// Negativo = es una COPIA de plano, no el original. Se dice, porque el valor cambia por mil.
+    pub raw_quantity: Option<i64>,
 }
 
 impl Db {
@@ -1743,7 +1805,8 @@ impl Db {
         let mut stmt = conn.prepare(&format!(
             "SELECT contract_id, character_id, issuer_id, acceptor_id, start_location_id,
                     end_location_id, type, status, title, volume, reward, collateral,
-                    date_issued, date_accepted, date_completed
+                    date_issued, date_accepted, date_completed, price,
+                    date_expired, assignee_id, for_corporation, availability, first_seen
                FROM contract
               WHERE (?1 IS NULL OR character_id = ?1) {filtro}
               ORDER BY COALESCE(date_completed, date_accepted, date_issued) DESC
@@ -1767,10 +1830,67 @@ impl Db {
                     date_issued: r.get(12)?,
                     date_accepted: r.get(13)?,
                     date_completed: r.get(14)?,
+                    price: r.get(15)?,
+                    date_expired: r.get(16)?,
+                    assignee_id: r.get(17)?,
+                    for_corporation: r.get::<_, i64>(18)? != 0,
+                    availability: r.get(19)?,
+                    first_seen: r.get(20)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Los objetos guardados de un contrato. Vacío = todavía no se han pedido nunca.
+    pub fn contract_items(&self, contract_id: i64) -> AppResult<Vec<ContractItemRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT type_id, quantity, is_included, is_singleton, raw_quantity
+               FROM contract_item WHERE contract_id = ?1 ORDER BY idx",
+        )?;
+        let rows = stmt
+            .query_map([contract_id], |r| {
+                Ok(ContractItemRow {
+                    type_id: r.get(0)?,
+                    quantity: r.get(1)?,
+                    is_included: r.get::<_, i64>(2)? != 0,
+                    is_singleton: r.get::<_, i64>(3)? != 0,
+                    raw_quantity: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Guarda los objetos de un contrato. Se borra y se reinserta entero dentro de una transacción:
+    /// media lista sería peor que ninguna, porque no habría forma de saber que está a medias.
+    pub fn contract_items_put(
+        &self,
+        contract_id: i64,
+        items: &[crate::esi::contracts::ContractItemRaw],
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM contract_item WHERE contract_id = ?1", [contract_id])?;
+        for (i, it) in items.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO contract_item
+                   (contract_id, idx, type_id, quantity, is_included, is_singleton, raw_quantity)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    contract_id,
+                    i as i64,
+                    it.type_id,
+                    it.quantity,
+                    it.is_included as i64,
+                    it.is_singleton as i64,
+                    it.raw_quantity
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// (nº guardados, fecha del más antiguo). Igual que en industria: lo que permite escribir
@@ -4602,6 +4722,51 @@ impl Db {
         );
     }
 
+    /// ★ EL NOMBRE de una ubicación, guardado (2026-09-02).
+    ///
+    /// Antes solo se cacheaba el `system_id` y el nombre se volvía a pedir cada vez. Con las
+    /// estaciones da igual —el endpoint es público y eterno—, pero **una estructura de jugador
+    /// deja de responder el día que pierdes acceso**, y con ella se iba su nombre de todos tus
+    /// contratos y assets viejos. El sistema donde estaba lo sabías; cómo se llamaba, no.
+    /// Se guarda una vez y ya no se pierde. Misma idea que guardar los contratos: recogerlo
+    /// mientras se puede.
+    pub fn location_name_put(&self, location_id: i64, name: &str) {
+        if name.is_empty() {
+            return;
+        }
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE location_system SET name = ?2 WHERE location_id = ?1 AND (name IS NULL OR name = '')",
+            rusqlite::params![location_id, name],
+        );
+    }
+
+    /// Nombres guardados de varias ubicaciones, de una tacada.
+    pub fn location_names(&self, ids: &[i64]) -> std::collections::HashMap<i64, String> {
+        let mut out = std::collections::HashMap::new();
+        if ids.is_empty() {
+            return out;
+        }
+        let conn = self.conn.lock().unwrap();
+        let marcas = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT location_id, name FROM location_system
+              WHERE name IS NOT NULL AND name <> '' AND location_id IN ({marcas})"
+        );
+        if let Ok(mut st) = conn.prepare(&sql) {
+            let params: Vec<&dyn rusqlite::ToSql> =
+                ids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+            if let Ok(rows) = st.query_map(params.as_slice(), |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            }) {
+                for (k, v) in rows.flatten() {
+                    out.insert(k, v);
+                }
+            }
+        }
+        out
+    }
+
     /// Borra las resoluciones de ubicación fallidas (system_id = 0). Se llama al arrancar para
     /// que las estructuras de jugador que no se pudieron resolver antes (p. ej. por faltar el scope
     /// `esi-universe.read_structures.v1`) se reintenten. Devuelve cuántas se limpiaron.
@@ -5509,6 +5674,12 @@ impl Db {
             "SELECT s.id, s.body, n.id, n.body, s.qty
                FROM note_step s JOIN note n ON n.id = s.note_id
               WHERE s.done_at IS NULL
+                -- ⚠️ EL FILTRO POR KIND ES NUEVO (2026-09-02) Y HACE FALTA: desde la fase 3 hay
+                -- tareas cuyo `trigger_id` es un PERSONAJE, no un tipo. Sin esto compartirían
+                -- espacio de identificadores y una llegada podría tachar una tarea de piloto.
+                -- El `= ''` conserva las tareas creadas ANTES de que existiera el kind: quitarlo
+                -- las dejaría mudas para siempre, sin error y sin síntoma.
+                AND (s.trigger_kind = 'asset' OR s.trigger_kind = '')
                 AND s.trigger_id = ?1
                 AND n.done_at IS NULL
                 AND (n.subject_id = 0 OR n.subject_id = ?2)
@@ -5575,6 +5746,142 @@ impl Db {
             tiene,
             completa,
         }])
+    }
+
+    /// ★★ N4 FASE 3 — LA TAREA QUE CIERRA UN CONTRATO DE ESE PILOTO.
+    ///
+    /// El caso que la pide es suyo: *«el carbono se lo dejé a Reclutador y espero que me lo
+    /// devuelva»*. Con una tarea por piloto, la que se tacha es la de QUIEN te lo devolvió — que es
+    /// justo lo que la devolución por trade no permite saber ([[koru-motor-humano]]).
+    ///
+    /// ⚠️ ALCANCE, y va escrito también en la interfaz: Koru sabe que **ese piloto te ha completado
+    /// un contrato**, NO lo que venía dentro — los objetos de un contrato viven en otro endpoint de
+    /// ESI que no pedimos. Así que esto no afirma «te devolvió el láser»: afirma lo que vio.
+    /// El día que se ingieran los objetos, esta misma tarea gana precisión sin cambiar de forma.
+    ///
+    /// Misma regla de ambigüedad que la fase 2: si hay DOS tareas esperando a ese mismo piloto, no
+    /// se toca ninguna y se avisa — Koru no puede saber a cuál apuntarlo.
+    pub fn note_steps_fire_on_contract(
+        &self,
+        character_id: i64,
+        issuer_id: i64,
+    ) -> AppResult<Vec<StepFired>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.body, n.id, n.body
+               FROM note_step s JOIN note n ON n.id = s.note_id
+              WHERE s.done_at IS NULL
+                AND s.trigger_kind = 'contract'
+                AND s.trigger_id = ?1
+                AND n.done_at IS NULL
+                AND (n.subject_id = 0 OR n.subject_id = ?2)",
+        )?;
+        let cands: Vec<(i64, String, i64, String)> = stmt
+            .query_map(rusqlite::params![issuer_id, character_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        if cands.is_empty() {
+            return Ok(Vec::new());
+        }
+        if cands.len() > 1 {
+            return Ok(vec![StepFired {
+                step_id: 0,
+                step_body: String::new(),
+                note_id: cands[0].2,
+                note_body: cands[0].3.clone(),
+                type_id: 0,
+                candidatos: cands.len() as i64,
+                qty: 0,
+                tiene: 0,
+                completa: false,
+            }]);
+        }
+        let (sid, sbody, nid, nbody) = cands.into_iter().next().unwrap();
+        // `done_by = 'contrato'` y no 'llegada': dentro de un mes, saber que aquello lo cerró un
+        // contrato de esa persona —y no un objeto anónimo apareciendo en el hangar— es la
+        // diferencia entre un dato y una suposición.
+        conn.execute(
+            "UPDATE note_step SET done_at = ?2, done_by = 'contrato' WHERE id = ?1",
+            rusqlite::params![sid, chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(vec![StepFired {
+            step_id: sid,
+            step_body: sbody,
+            note_id: nid,
+            note_body: nbody,
+            type_id: 0,
+            candidatos: 1,
+            qty: 0,
+            tiene: 0,
+            completa: true,
+        }])
+    }
+
+    /// Contratos que ACABAN de completarse y te los hizo otra persona. Devuelve (emisor, fecha).
+    ///
+    /// ★ LA SIEMBRA SILENCIOSA, que es la lección del observador de estudios y de la Bitácora: la
+    /// primera vez NO se dispara nada. `/contracts/` trae ~30 días de historia, así que sin esto la
+    /// primera sincronización tras crear una tarea tacharía de golpe todo lo que pasó ANTES de que
+    /// la tarea existiera — una ráfaga de tachados falsos, sin error y sin síntoma.
+    pub fn contratos_recien_completados(&self, character_id: i64) -> Vec<(i64, String)> {
+        let conn = self.conn.lock().unwrap();
+        let clave = format!("contratos_vistos_{character_id}");
+        let desde: Option<String> = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [&clave],
+                |r| r.get(0),
+            )
+            .ok();
+        // El techo se recalcula SIEMPRE, haya o no tareas esperando: si solo se moviera al
+        // disparar, un contrato viejo volvería a contar como nuevo la próxima vez.
+        let techo: Option<String> = conn
+            .query_row(
+                "SELECT MAX(date_completed) FROM contract
+                  WHERE character_id = ?1 AND date_completed IS NOT NULL",
+                [character_id],
+                |r| r.get(0),
+            )
+            .ok()
+            .flatten();
+        let salida = match (&desde, &techo) {
+            // Primera vez: se siembra y se calla.
+            (None, _) => Vec::new(),
+            (Some(d), _) => {
+                let mut out = Vec::new();
+                if let Ok(mut st) = conn.prepare(
+                    "SELECT issuer_id, date_completed FROM contract
+                      WHERE character_id = ?1
+                        AND date_completed IS NOT NULL AND date_completed > ?2
+                        AND status IN ('finished', 'finished_issuer', 'finished_contractor')
+                        AND issuer_id IS NOT NULL AND issuer_id <> ?1
+                      ORDER BY date_completed ASC",
+                ) {
+                    if let Ok(rows) = st.query_map(rusqlite::params![character_id, d], |r| {
+                        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+                    }) {
+                        out = rows.flatten().collect();
+                    }
+                }
+                out
+            }
+        };
+        if let Some(t) = techo {
+            let _ = conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![clave, t],
+            );
+        } else if desde.is_none() {
+            // Sin contratos todavía: se siembra igual para que el primero que llegue SÍ dispare.
+            let _ = conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, '')
+                 ON CONFLICT(key) DO NOTHING",
+                [&clave],
+            );
+        }
+        salida
     }
 
     /// Guarda un personaje resuelto (positivo) en el índice.
@@ -6738,7 +7045,18 @@ impl Db {
     /// («los siete que necesito para el proyecto»). Se guarda en `trigger_id` PERO SIN
     /// `trigger_kind`: mientras no exista quien lo vigile, la parte no promete que se vaya a
     /// tachar sola. El día que exista, se activa poniendo el kind — sin migración.
-    pub fn note_step_add(&self, note_id: i64, body: &str, type_id: i64) -> AppResult<i64> {
+    ///
+    /// `kind` dice QUÉ se espera y, con él, `trigger_id` cambia de significado: con `asset` es un
+    /// typeID; con `contract`, el personaje que tiene que completarte el contrato. Van juntos a
+    /// propósito — un id sin kind es justo lo que hacía que dos disparadores distintos compartieran
+    /// espacio de identificadores.
+    pub fn note_step_add(
+        &self,
+        note_id: i64,
+        body: &str,
+        kind: &str,
+        trigger_id: i64,
+    ) -> AppResult<i64> {
         let conn = self.conn.lock().unwrap();
         let pos: i64 = conn
             .query_row(
@@ -6748,8 +7066,9 @@ impl Db {
             )
             .unwrap_or(0);
         conn.execute(
-            "INSERT INTO note_step (note_id, body, pos, trigger_id) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![note_id, body, pos, type_id],
+            "INSERT INTO note_step (note_id, body, pos, trigger_kind, trigger_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![note_id, body, pos, kind, trigger_id],
         )?;
         Ok(conn.last_insert_rowid())
     }

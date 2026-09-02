@@ -74,15 +74,32 @@ pub async fn fetch_all_assets_checked(
     // un reintento que acaba bien deja la foto completa, y tratar los dos casos igual
     // significaría no diffear nunca en una tarde con ESI inestable.
     let mut lost = false;
+    // ★★ CUÁNTAS PÁGINAS HAY: lo dice `X-Pages` en la primera, y por eso ya no se sondea a ciegas.
+    //
+    // Antes este bucle pedía páginas hasta que ESI contestaba 404 y usaba ese 404 como señal de
+    // parada. Era gratis cuando ESI solo limitaba errores; con el sistema de fichas de CCP **un
+    // 4xx cuesta 5, el precio más caro que hay**. Medido en su equipo el 2026-09-02: 30 de esos
+    // 404 deliberados se llevaron 150 de las 291 fichas — **el 52% del gasto, sin traer un dato**.
+    // Se sigue permitiendo el 404 como parada por si algún endpoint no manda la cabecera, pero
+    // con `X-Pages` no se llega a pedir esa página de más.
+    let mut total_pags: Option<u32> = None;
     for page in 1..=250u32 {
+        if let Some(t) = total_pags {
+            if page > t {
+                break;
+            }
+        }
         let path = format!("/characters/{character_id}/assets/?page={page}");
         let mut got: Option<Vec<AssetItem>> = None;
         for attempt in 1..=3u32 {
             match esi
-                .get_cached::<Vec<AssetItem>>(db, character_id, &path, Some(token))
+                .get_cached_pages::<Vec<AssetItem>>(db, character_id, &path, Some(token), page == 1)
                 .await
             {
-                Ok(v) => {
+                Ok((v, pags)) => {
+                    if let Some(p) = pags {
+                        total_pags = Some(p.max(1) as u32);
+                    }
                     got = Some(v);
                     break;
                 }
@@ -513,7 +530,7 @@ pub async fn resolve_category(esi: &EsiClient, db: &Db, type_id: i64) -> String 
 /// Para estructuras de jugador prueba TODOS los tokens disponibles (resolución entre personajes):
 /// si el dueño de los assets no tiene acceso pero un alt sí, se resuelve igual. Cachea el
 /// resultado (positivo o negativo) en `location_system`; el negativo se limpia al arrancar.
-async fn resolve_location_named(
+pub async fn resolve_location_named(
     esi: &EsiClient,
     db: &Db,
     loc_id: i64,
@@ -529,6 +546,10 @@ async fn resolve_location_named(
             .get_cached::<StationGeo>(db, 0, &format!("/universe/stations/{loc_id}/"), None)
             .await
         {
+            db.location_system_put(loc_id, g.system_id);
+            if let Some(n) = &g.name {
+                db.location_name_put(loc_id, n);
+            }
             return (g.system_id, g.name);
         }
         return (0, None);
@@ -549,6 +570,9 @@ async fn resolve_location_named(
             {
                 if g.solar_system_id != 0 {
                     db.location_system_put(loc_id, g.solar_system_id);
+                    if let Some(n) = &g.name {
+                        db.location_name_put(loc_id, n);
+                    }
                     return (g.solar_system_id, g.name);
                 }
             }

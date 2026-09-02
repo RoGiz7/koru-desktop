@@ -65,6 +65,40 @@ pub struct ContractRaw {
     pub date_completed: Option<String>,
 }
 
+/// Un objeto DENTRO de un contrato. `is_included` separa lo que te dan de lo que te piden a
+/// cambio: en un intercambio los dos lados viajan en la misma lista y confundirlos daría la
+/// vuelta al sentido del contrato.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ContractItemRaw {
+    pub type_id: i64,
+    pub quantity: i64,
+    #[serde(default)]
+    pub is_included: bool,
+    #[serde(default)]
+    pub is_singleton: bool,
+    /// Negativo = copia de plano (BPC); ESI lo cuela aquí y no en un campo propio.
+    #[serde(default)]
+    pub raw_quantity: Option<i64>,
+}
+
+/// Los objetos de UN contrato, pedidos EN EL MOMENTO en que alguien abre su ficha.
+///
+/// ★ Por qué bajo demanda y no en la sincronización: es una llamada POR CONTRATO. Traerlos todos
+/// en cada `auto_sync` multiplicaría el tráfico a ESI por el número de contratos para un dato que
+/// casi nadie mira; pedir solo el que abres es una llamada, y la pide el usuario.
+/// `get_cached` respeta el ETag, así que reabrir la misma ficha no vuelve a bajar nada.
+pub async fn contract_items(
+    esi: &EsiClient,
+    db: &Db,
+    character_id: i64,
+    contract_id: i64,
+    token: &str,
+) -> AppResult<Vec<ContractItemRaw>> {
+    let path = format!("/characters/{character_id}/contracts/{contract_id}/items/");
+    esi.get_cached::<Vec<ContractItemRaw>>(db, character_id, &path, Some(token))
+        .await
+}
+
 /// Página de ESI para contratos.
 const PAGE: usize = 1000;
 

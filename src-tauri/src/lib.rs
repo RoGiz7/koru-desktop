@@ -444,6 +444,8 @@ pub fn run() {
             commands::autostart_get,
             commands::autostart_set,
             commands::idioma_set,
+            commands::get_contract_items,
+            commands::esi_gasto,
             commands::aviso_probar,
             // ★ Planes de estudio guardados: un plan, todos los pilotos.
             commands::skill_plan_list,

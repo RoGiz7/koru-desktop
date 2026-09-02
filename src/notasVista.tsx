@@ -110,12 +110,26 @@ function Partes({ noteId, onCambio }: { noteId: number; onCambio: () => void }) 
               )
             }
           />
-          {p.trigger_id > 0 && <TipoIcono typeId={p.trigger_id} size={16} />}
+          {/* ⚠️ El icono SOLO si el disparador es un objeto. En una tarea de piloto `trigger_id`
+              es un PERSONAJE, y pintarlo aquí pediría el icono de un tipo que no existe — el
+              mismo fallo de los blueprints, con otro disfraz. `=== ""` cubre las tareas creadas
+              antes de que el kind existiera, que siempre fueron de objeto. */}
+          {p.trigger_id > 0 && (p.trigger_kind === "asset" || p.trigger_kind === "") && (
+            <TipoIcono typeId={p.trigger_id} size={16} />
+          )}
           <span className="nd-paso-txt">{p.body}</span>
+          {/* La promesa, dicha. Una tarea que se va a tachar sola y no lo anuncia es la «potencia
+              escondida» de siempre: funciona y nadie se entera. Y dice lo que Koru VE de verdad —
+              que esa persona te complete un contrato— no lo que venga dentro, que no lo sabe. */}
+          {p.trigger_kind === "contract" && !p.done_at && (
+            <span className="nv-tag" title={tr("Koru ve que se completó el contrato, no lo que llevaba dentro")}>
+              📄 {tr("al completarte un contrato")}
+            </span>
+          )}
           {/* CUÁNTAS hacen falta. Solo tiene sentido en una tarea con objeto: en «llamar a X» no
               significa nada. Vacío = con que aparezca una, vale — que es como se comportaba antes
               de existir esta casilla, así que ninguna tarea vieja cambia de conducta. */}
-          {p.trigger_id > 0 && !p.done_at && (
+          {p.trigger_id > 0 && p.trigger_kind !== "contract" && !p.done_at && (
             <input
               className="nd-qty"
               type="number"
@@ -182,7 +196,9 @@ function Partes({ noteId, onCambio }: { noteId: number; onCambio: () => void }) 
           <AnclarPiloto
             onPick={(id, nombre) =>
               void accion(async () => {
-                await invoke("add_note_step", { noteId, body: nombre });
+                // ★ FASE 3: la tarea del piloto YA promete algo — se tacha sola cuando esa persona
+                // te complete un contrato. Va el id, no el nombre: dos grafías serían dos personas.
+                await invoke("add_note_step", { noteId, body: nombre, pilotId: id });
                 // El piloto queda anclado a la nota, no solo escrito en la tarea: un nombre en un
                 // texto no se puede consultar; un ancla sí.
                 await invoke("add_note_anchor", { noteId, kind: "character", anchorId: id });
