@@ -2967,6 +2967,23 @@ const EN: Record<string, string> = {
   "a bordo": "aboard",
   Ala: "Wing",
   Escuadra: "Squad",
+  "Desconectar de EVE": "Disconnect from EVE",
+  "Koru deja de pedirle nada a EVE. Su histórico se queda entero y lo puedes seguir consultando.":
+    "Koru stops asking EVE for anything about them. Their history stays intact and you can still browse it.",
+  "Desconectado. Su histórico sigue aquí y ya no sincroniza.":
+    "Disconnected. Their history is still here and it no longer syncs.",
+  "Borrar sus datos": "Delete their data",
+  "Esto no se puede deshacer.": "This cannot be undone.",
+  "Se borra todo lo que Koru guarda de este personaje: assets, contratos, industria, PI, wallet, minería, killmails, gamelogs, posición y estudios.":
+    "Everything Koru stores about this character is deleted: assets, contracts, industry, PI, wallet, mining, killmails, game logs, location and studies.",
+  "NO se borran las ops de flota que grabó, tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo.":
+    "What is NOT deleted: the fleet ops they recorded, your Social conversations, and any notes you wrote about them — those are yours, not theirs.",
+  "Hacer copia de seguridad antes": "Back up first",
+  "Borrar definitivamente": "Delete permanently",
+  "Datos borrados": "Data deleted",
+  "filas borradas en": "rows deleted across",
+  tablas: "tables",
+  "No había ninguna fila que borrar.": "There was nothing to delete.",
   "Probar los avisos": "Test notifications",
   "Manda un aviso de prueba al sistema. Si no lo ves aparecer, Koru te dice si lo rechazó el sistema o si lo está silenciando Windows.":
     "Sends a test notification to the system. If you don't see it appear, Koru tells you whether the system refused it or Windows is silencing it.",

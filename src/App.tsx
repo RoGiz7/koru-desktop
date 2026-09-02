@@ -1952,14 +1952,49 @@ function App() {
     }
   }
 
-  async function handleLogout(id: number) {
+  /* ★★ CERRAR SESIÓN, EN DOS PASOS — decisión suya, y el modelo es el propio EVE.
+   *
+   *  El botón único de antes mezclaba dos deseos distintos: «que Koru deje de mirar a este alt» y
+   *  «quiero que no quede rastro». Y encima hacía mal el segundo: borraba 10 de las 44 tablas con
+   *  `character_id` y se dejaba 34 —assets, contratos, industria, PI, flotas, gamelogs…—, o sea
+   *  que decía borrar tus datos y borraba una cuarta parte.
+   *
+   *  PASO 1 · retirar el acceso: se va el token, no se va ni una fila. Deja de sincronizar y su
+   *  histórico se sigue viendo entero.
+   *  PASO 2 · borrar sus datos: irreversible, y solo aparece cuando ya está desconectado. Ofrece
+   *  copia de seguridad ANTES, y dice en claro lo que NO se lleva. */
+  async function handleRevoke(id: number) {
     setError(null);
     try {
-      await invoke("logout", { characterId: id });
-      if (subject === id) {
-        changeSubject("global");
-      }
+      await invoke("character_revoke", { characterId: id });
       await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  /** Personaje con el borrado definitivo pedido pero sin confirmar. `null` = nadie. */
+  const [borrarId, setBorrarId] = useState<number | null>(null);
+
+  async function handlePurge(id: number) {
+    setError(null);
+    try {
+      const filas = await invoke<{ tabla: string; filas: number }[]>("character_purge", {
+        characterId: id,
+      });
+      setBorrarId(null);
+      if (subject === id) changeSubject("global");
+      await refresh();
+      // El informe NO es decoración: un borrado que no dice qué borró es exactamente el problema
+      // que este cambio viene a arreglar. Si no salió ninguna fila, también se dice.
+      const total = filas.reduce((a, f) => a + f.filas, 0);
+      setDiag({
+        titulo: `🗑️ ${tr("Datos borrados")}`,
+        nota: `${total.toLocaleString()} ${tr("filas borradas en")} ${filas.length} ${tr("tablas")}`,
+        texto:
+          filas.map((f) => `${f.filas.toLocaleString().padStart(9)}  ${f.tabla}`).join("\n") ||
+          tr("No había ninguna fila que borrar."),
+      });
     } catch (e) {
       setError(String(e));
     }
@@ -2298,15 +2333,64 @@ function App() {
                         </button>
                       </div>
                     )}
-                    <button
-                      className="danger pj-logout"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleLogout(c.character_id);
-                      }}
-                    >
-                      {tr("Cerrar sesión")}
-                    </button>
+                    {/* PASO 1 · mientras tiene acceso, lo único que se ofrece es desconectar. */}
+                    {!c.sin_acceso && (
+                      <button
+                        className="danger pj-logout"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRevoke(c.character_id);
+                        }}
+                        title={tr(
+                          "Koru deja de pedirle nada a EVE. Su histórico se queda entero y lo puedes seguir consultando.",
+                        )}
+                      >
+                        {tr("Desconectar de EVE")}
+                      </button>
+                    )}
+                    {/* PASO 2 · ya desconectado: se dice en qué estado está y se ofrece el borrado. */}
+                    {c.sin_acceso && borrarId !== c.character_id && (
+                      <div className="pj-missing pj-off">
+                        <span className="small">
+                          🔌 {tr("Desconectado. Su histórico sigue aquí y ya no sincroniza.")}
+                        </span>
+                        <button
+                          className="danger pj-logout"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBorrarId(c.character_id);
+                          }}
+                        >
+                          {tr("Borrar sus datos")}
+                        </button>
+                      </div>
+                    )}
+                    {borrarId === c.character_id && (
+                      <div className="pj-missing" onClick={(e) => e.stopPropagation()}>
+                        <span className="small">
+                          ⚠️ <strong>{tr("Esto no se puede deshacer.")}</strong>{" "}
+                          {tr(
+                            "Se borra todo lo que Koru guarda de este personaje: assets, contratos, industria, PI, wallet, minería, killmails, gamelogs, posición y estudios.",
+                          )}
+                        </span>
+                        {/* Lo que NO se borra, dicho ANTES y no en la letra pequeña de después. */}
+                        <span className="small muted">
+                          {tr(
+                            "NO se borran las ops de flota que grabó, tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo.",
+                          )}
+                        </span>
+                        <button onClick={handleBackup}>
+                          {tr("Hacer copia de seguridad antes")}
+                        </button>
+                        <button
+                          className="danger"
+                          onClick={() => handlePurge(c.character_id)}
+                        >
+                          {tr("Borrar definitivamente")}
+                        </button>
+                        <button onClick={() => setBorrarId(null)}>{tr("Cancelar")}</button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

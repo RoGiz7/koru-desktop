@@ -5,6 +5,8 @@ export type Character = {
   name: string;
   scopes: string[];
   last_sync: string | null;
+  /** Token retirado a propósito (paso 1 de cerrar sesión): conserva su histórico y no sincroniza. */
+  sin_acceso: boolean;
 };
 export type LoginOutcome = { character_id: number; character_name: string; scopes: string[] };
 export type CharacterCard = {

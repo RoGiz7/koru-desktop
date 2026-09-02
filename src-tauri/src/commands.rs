@@ -284,6 +284,15 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         pi_thresholds.clear();
     }
     for c in state.db.list_characters()? {
+        // ★ SIN ACCESO: se le retiró el token a propósito. Se salta EN SILENCIO, sin apuntar un
+        // error — el token no falta por avería, falta porque lo pediste tú. Si no se saltara aquí,
+        // retirar el acceso sería cosmético: cada sincronización volvería a intentarlo y llenaría
+        // la lista de errores de un personaje que has desconectado adrede.
+        // Su histórico se sigue leyendo en todas las demás vistas; esto solo corta lo que habla
+        // con EVE.
+        if c.sin_acceso {
+            continue;
+        }
         let valid = match state
             .tokens
             .access_token(state.esi.http(), c.character_id)
@@ -2209,12 +2218,46 @@ pub fn get_trips(
     Ok(viajes)
 }
 
-/// Cierra sesión de un personaje: borra su refresh token del keyring y su fila de la BD.
+/// Una línea del informe de borrado. Existe para que el usuario VEA lo que se ha ido.
+#[derive(Serialize)]
+pub struct FilasBorradas {
+    pub tabla: String,
+    pub filas: usize,
+}
+
+/// ★ PASO 1 — RETIRAR EL ACCESO. Quita el refresh token del keyring y marca al personaje.
+///
+/// No borra ni una fila, y esa es toda la idea: **desconectar y borrar son dos deseos distintos**
+/// que el botón anterior confundía en uno. Quien solo quiere que Koru deje de mirar a un alt no
+/// tiene por qué perder su histórico, y quien quiere borrarlo puede pensárselo un día más.
 #[tauri::command]
-pub fn logout(character_id: i64, state: State<'_, AppState>) -> AppResult<()> {
+pub fn character_revoke(character_id: i64, state: State<'_, AppState>) -> AppResult<()> {
     sso::store::delete_refresh_token(character_id)?;
-    state.db.delete_character(character_id)?;
+    state.db.character_revoke(character_id)?;
     Ok(())
+}
+
+/// ★ PASO 2 — BORRAR SUS DATOS. Irreversible, y devuelve el INFORME de lo borrado.
+///
+/// El token se retira también aquí: se puede llegar a este paso sin haber pasado por el primero, y
+/// dejar vivo el token de un personaje cuyos datos acabas de borrar sería lo peor de los dos
+/// mundos. `delete_refresh_token` no falla si ya no estaba.
+///
+/// ⚠️ LO QUE NO BORRA, y hay que decirlo en la interfaz porque el barrido no puede alcanzarlo: las
+/// ops de flota que grabó, tus conversaciones de Social y las notas que le tuvieras puestas no
+/// llevan `character_id`. Son tuyas, no suyas — pero prometer un borrado completo y hacer uno
+/// parcial es justo el pecado que este cambio viene a arreglar.
+#[tauri::command]
+pub fn character_purge(
+    character_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<FilasBorradas>> {
+    let _ = sso::store::delete_refresh_token(character_id);
+    let informe = state.db.character_purge(character_id)?;
+    Ok(informe
+        .into_iter()
+        .map(|(tabla, filas)| FilasBorradas { tabla, filas })
+        .collect())
 }
 
 /// Prueba de extremo a extremo: refresca el token de un personaje y devuelve su nombre.

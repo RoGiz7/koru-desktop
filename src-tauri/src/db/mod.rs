@@ -42,6 +42,13 @@ impl Db {
             "ALTER TABLE killmails ADD COLUMN solo INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // «Cerrar sesión» en dos pasos (2026-09-02): el personaje sigue existiendo con su
+        // histórico, pero deja de sincronizar. DEFAULT 0 = todos los que ya había tienen acceso,
+        // que es justo lo que son.
+        let _ = conn.execute(
+            "ALTER TABLE characters ADD COLUMN sin_acceso INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         let _ = conn.execute(
             "ALTER TABLE killmails ADD COLUMN victim_ship_type_id INTEGER",
             [],
@@ -990,6 +997,8 @@ pub struct CharacterRow {
     pub name: String,
     pub scopes: Vec<String>,
     pub last_sync: Option<String>,
+    /// Token retirado: sigue su histórico, pero ya no habla con EVE. Ver `character_revoke`.
+    pub sin_acceso: bool,
 }
 
 impl Db {
@@ -1008,7 +1017,14 @@ impl Db {
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(character_id) DO UPDATE SET
                 name = excluded.name,
-                scopes = excluded.scopes",
+                scopes = excluded.scopes,
+                -- ★ VOLVER A ENTRAR DEVUELVE EL ACCESO (2026-09-02). Sin esta línea, un personaje
+                -- desconectado que volvía a conceder acceso se quedaba marcado para siempre: el
+                -- login iba bien, el token estaba, y `auto_sync` lo seguía saltando en silencio.
+                -- El fallo de fondo era tener DOS verdades sobre lo mismo — un token válido y una
+                -- marca que decía lo contrario. Manda el hecho: si acabas de iniciar sesión,
+                -- tienes acceso, y la marca se apaga sola.
+                sin_acceso = 0",
             rusqlite::params![character_id, name, scopes_str, now],
         )?;
         Ok(())
@@ -1017,7 +1033,8 @@ impl Db {
     pub fn list_characters(&self) -> AppResult<Vec<CharacterRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT character_id, name, scopes, last_sync FROM characters ORDER BY name",
+            "SELECT character_id, name, scopes, last_sync, \
+                    COALESCE(sin_acceso, 0) FROM characters ORDER BY name",
         )?;
         let rows = stmt
             .query_map([], |r| {
@@ -1027,12 +1044,101 @@ impl Db {
                     name: r.get(1)?,
                     scopes: scopes.split_whitespace().map(|s| s.to_string()).collect(),
                     last_sync: r.get(3)?,
+                    sin_acceso: r.get::<_, i64>(4)? != 0,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
+    /// PASO 1 de cerrar sesión: marca al personaje SIN ACCESO. No borra ni una fila.
+    ///
+    /// El token se retira aparte (keyring). Esto es lo que hace que el personaje siga existiendo
+    /// —con todo su histórico visible— pero deje de sincronizar: es lo que permite que el borrado
+    /// sea una segunda decisión, tomada con calma, y no un efecto colateral de querer desconectar.
+    pub fn character_revoke(&self, character_id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE characters SET sin_acceso = 1 WHERE character_id = ?1",
+            rusqlite::params![character_id],
+        )?;
+        Ok(())
+    }
+
+    /// ★★ PASO 2: BORRADO DE VERDAD, por BARRIDO DEL ESQUEMA EN EJECUCIÓN.
+    ///
+    /// La lista de tablas NO se escribe a mano, y no es manía: se intentó dos veces y las dos se
+    /// quedaron tablas fuera. Un barrido del código fuente tampoco vale —lo probamos: las tablas
+    /// viven repartidas entre `schema.sql` y el Rust, y el recuento salía distinto según dónde
+    /// mirases—. **Solo la base de datos en marcha sabe qué tablas hay.** Con la lista a mano,
+    /// cada tabla nueva se quedaba fuera EN SILENCIO: datos que el usuario cree borrados y siguen
+    /// ahí. Medido el 2026-09-02: 44 tablas con `character_id` y solo 10 se limpiaban.
+    ///
+    /// ⚠️ EXCEPCIONES, y son necesarias porque `character_id` NO siempre significa «esto es tuyo»:
+    ///   · `name_cache` — ahí es el id de la persona NOMBRADA. Es el diccionario global de nombres
+    ///     de New Eden, no datos de tu piloto.
+    ///   · `intel_sightings` — es el id del piloto AVISTADO. Borrar por ahí no quita datos suyos:
+    ///     borra tu histórico de intel.
+    /// Cualquier tabla nueva entra al barrido por defecto: es preferible a dejarse datos que el
+    /// usuario ha pedido borrar. Lo que evita que eso sea peligroso es el INFORME que devuelve —
+    /// tabla a tabla y con filas—, porque un borrado que no dice qué borró es exactamente el
+    /// problema que estamos arreglando.
+    pub fn character_purge(&self, character_id: i64) -> AppResult<Vec<(String, usize)>> {
+        const EXCEPCIONES: [&str; 2] = ["name_cache", "intel_sightings"];
+        let conn = self.conn.lock().unwrap();
+        let tablas: Vec<String> = {
+            let mut stmt = conn.prepare(
+                "SELECT name FROM sqlite_master \
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            )?;
+            let v = stmt
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            v
+        };
+        let tx = conn.unchecked_transaction()?;
+        let mut informe: Vec<(String, usize)> = Vec::new();
+        for t in tablas {
+            if EXCEPCIONES.contains(&t.as_str()) || t == "characters" {
+                continue; // `characters` va la última, ver abajo
+            }
+            // ¿Tiene columna `character_id`? Se le pregunta a la BD, no al código.
+            let tiene: bool = {
+                let mut stmt = tx.prepare(&format!("PRAGMA table_info({t})"))?;
+                let cols = stmt
+                    .query_map([], |r| r.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                cols.iter().any(|c| c == "character_id")
+            };
+            if !tiene {
+                continue;
+            }
+            let n = tx.execute(
+                &format!("DELETE FROM {t} WHERE character_id = ?1"),
+                rusqlite::params![character_id],
+            )?;
+            if n > 0 {
+                informe.push((t, n));
+            }
+        }
+        // La fila del personaje, al final: si algo fallara antes, la transacción lo deshace entero
+        // y el personaje sigue ahí. Al revés —borrarlo primero— dejaría huérfano todo lo demás.
+        let n = tx.execute(
+            "DELETE FROM characters WHERE character_id = ?1",
+            rusqlite::params![character_id],
+        )?;
+        if n > 0 {
+            informe.push(("characters".to_string(), n));
+        }
+        tx.commit()?;
+        informe.sort_by(|a, b| b.1.cmp(&a.1)); // lo más gordo arriba
+        Ok(informe)
+    }
+
+    /// ⚠️ OBSOLETA Y SIN USAR desde el 2026-09-02 — **NO VOLVER A LLAMARLA**. Es el borrado a mano
+    /// que se dejaba 34 de las 44 tablas con `character_id`: prometía borrar tus datos y borraba
+    /// una cuarta parte. Se conserva solo como recordatorio de por qué el barrido de
+    /// `character_purge` se hace preguntándole a la base de datos y no escribiendo una lista.
     pub fn delete_character(&self, character_id: i64) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

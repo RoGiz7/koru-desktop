@@ -5258,6 +5258,17 @@ h4 {
   font-size: 0.78rem;
 }
 
+/* ★ ESTADO PEDIDO ≠ AVERÍA. `.pj-missing` es rojo porque «Falta acceso» es un problema que hay que
+   arreglar. «Desconectado» no lo es: es exactamente lo que el usuario pidió al pulsar el botón.
+   Pintarlo del mismo rojo convierte una decisión suya en una alarma, y quien la ve piensa que algo
+   se ha roto. Mismo hueco y mismo separador, color neutro. */
+.pj-off {
+  color: var(--muted, #8a91a0);
+}
+.pj-off strong {
+  color: inherit;
+}
+
 .pj-addscope {
   font-size: 0.72rem;
   padding: 0.22rem 0.55rem;
