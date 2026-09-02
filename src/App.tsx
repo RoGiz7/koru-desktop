@@ -203,6 +203,17 @@ function App() {
   /** Copia local del interruptor de pistas, solo para que la etiqueta de Ajustes se actualice al
    *  pulsarla. La verdad vive en `localStorage` y la leen las propias pistas. */
   const [pistas, setPistas] = useState(pistasActivas());
+  /** «Mantener Koru en marcha». `null` = todavía no se ha preguntado al sistema.
+   *
+   *  ⚠️ El estado NO se guarda aquí: la verdad la tiene el registro de arranque del sistema
+   *  operativo, y esto es solo el reflejo. Si alguien quita Koru del arranque desde fuera, al
+   *  volver a abrir Ajustes el interruptor lo dirá — y no al revés. */
+  const [enMarcha, setEnMarcha] = useState<boolean | null>(null);
+  useEffect(() => {
+    invoke<boolean>("autostart_get")
+      .then(setEnMarcha)
+      .catch(() => setEnMarcha(false));
+  }, []);
   /** La guía se pinta ARRIBA del contenido, que con la vista bajada queda fuera de pantalla: pulsas
    *  el botón, no ves nada y das por hecho que no funciona (pasó en la primera prueba). Se lleva la
    *  vista hasta ella. Va en un efecto y no en el propio clic porque en ese instante el panel aún
@@ -2414,6 +2425,51 @@ function App() {
                       {tr(
                         "Una sola pista por sección, señalando lo que más cuesta encontrar. Al volver a activarlas reaparecen también las que hayas ido callando.",
                       )}
+                    </span>
+                  </span>
+                </button>
+                {/* ★ UN interruptor para dos comportamientos, y el texto los dice LOS DOS. Que la
+                    X deje de cerrar es una sorpresa desagradable si no se avisa; avisada, es una
+                    consecuencia de algo que has pedido tú. */}
+                <button
+                  className="tb-settings-item"
+                  disabled={enMarcha === null}
+                  onClick={() => {
+                    const v = !enMarcha;
+                    invoke<boolean>("autostart_set", { enabled: v })
+                      // Se pinta lo que responde el SISTEMA, no lo que pedimos: si el cambio no
+                      // cuajó (permisos, política, un antivirus), el interruptor se queda donde
+                      // estaba en vez de mentir.
+                      .then(setEnMarcha)
+                      .catch((e) => {
+                        // Y si falla, SE DICE. Un interruptor que vuelve solo a su sitio sin
+                        // explicar nada es indistinguible de uno roto — y el motivo (permisos,
+                        // política del equipo, o estar en compilación de desarrollo) es justo lo
+                        // que necesita saber quien lo ha pulsado.
+                        setEnMarcha(enMarcha);
+                        setDiag({
+                          titulo: `⚙️ ${tr("Mantener Koru en marcha")}`,
+                          nota: tr("No se ha podido cambiar. El sistema respondió esto:"),
+                          texto: String(e),
+                        });
+                      });
+                  }}
+                >
+                  <span className="tb-si-ic">{enMarcha ? "🟢" : "⚪"}</span>
+                  <span className="tb-si-tx">
+                    <strong>
+                      {enMarcha
+                        ? tr("Mantener Koru en marcha: activado")
+                        : tr("Mantener Koru en marcha: desactivado")}
+                    </strong>
+                    <span className="muted small">
+                      {enMarcha
+                        ? tr(
+                            "Koru arranca con el sistema, directo a la bandeja y sin abrir ventana. El botón de cerrar lo esconde ahí en vez de salir: para salir del todo, botón derecho en el icono de la bandeja → Salir.",
+                          )
+                        : tr(
+                            "Koru solo ve lo que pasa mientras está abierto: el intel, tu posición y los cambios de tus hangares dejan hueco cuando lo cierras, y ese hueco no se recupera. Activándolo arranca con el sistema y se queda en la bandeja, sin molestar.",
+                          )}
                     </span>
                   </span>
                 </button>

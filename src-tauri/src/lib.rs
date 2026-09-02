@@ -22,6 +22,55 @@ use esi::EsiClient;
 use sso::TokenManager;
 use tauri::Manager;
 
+/// Saca la ventana principal de la bandeja: mostrar, desminimizar y traer al frente.
+///
+/// Los tres pasos hacen falta. `show()` sola deja la ventana detrás de las demás si estaba oculta,
+/// y si el usuario la había minimizado antes de esconderla, reaparece minimizada — o sea, pulsas el
+/// icono y no ves nada, que es indistinguible de que Koru esté colgado.
+fn mostrar_principal(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// ★★ EL AVISO DE «SIGO EN MARCHA». Una sola vez POR EJECUCIÓN, que es la convención de toda la
+/// vida en las apps de bandeja, y no por capricho: Windows manda los iconos nuevos al desplegable
+/// de la flechita `^`, así que quien pulsa la X ve desaparecer la ventana y NO ve dónde ha ido.
+/// Sin este aviso, el ticket «Koru se cierra y no consigo abrirlo» es cuestión de tiempo.
+///
+/// «Por ejecución» y no «una vez para siempre» a propósito: no hay nada que persistir, y quien lo
+/// pase por alto —o a quien el Modo Concentración se lo coma— lo vuelve a tener a la sesión
+/// siguiente. Un flag guardado le daría UNA oportunidad en toda la vida de la instalación.
+static AVISO_BANDEJA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// ⚠️ BILINGÜE EN UNA SOLA CADENA, y es un apaño consciente: **Rust no sabe en qué idioma está la
+/// app**. El idioma vive en el frontend (`tr()`) y no se guarda en ningún sitio que se pueda leer
+/// desde aquí — comprobado, no hay `lang` ni en `meta` ni en la BD. Las otras notificaciones
+/// nativas (PI, Bitácora) ya son solo-castellano por lo mismo; esta al menos se entiende en las
+/// dos. Arreglo de verdad pendiente: persistir el idioma para que Rust pueda leerlo.
+fn avisar_bandeja_una_vez(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    // `swap` devuelve el valor ANTERIOR: si ya era `true`, este cierre no es el primero y no
+    // avisamos. Hacerlo atómico evita dos avisos si llegasen dos cierres a la vez.
+    if AVISO_BANDEJA.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("Koru sigue en marcha · Koru is still running")
+        .body(
+            "Está junto al reloj. Si no lo ves, pulsa la flecha ^. Clic para abrirlo; \
+             botón derecho → Salir para cerrarlo del todo.\n\
+             It's by the clock. If you can't see it, click the ^ arrow. Click to reopen; \
+             right-click → Salir to quit completely.",
+        )
+        .show();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // LO PRIMERO DE TODO, y no es negociable el orden: las variables de entorno del renderizado
@@ -38,21 +87,40 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        // ⚠️ CERRAR LA PRINCIPAL = SALIR DE VERDAD.
+        // ⚠️ CERRAR LA PRINCIPAL: qué significa depende de «Mantener Koru en marcha».
         //
+        // ★ HISTORIA, que explica por qué esto no puede ser un simple `prevent_close`:
         // Tauri termina el proceso cuando se destruyen TODAS las ventanas. Al añadir el overlay,
         // cerrar Koru dejaba viva esa segunda ventana (aunque estuviera oculta) → el proceso seguía
         // corriendo, el vigilante de intel seguía leyendo y los avisos SEGUÍAN SALIENDO encima del
-        // juego con la app "cerrada". Lo cazó RoGiz7: «le di a cerrar y sigo viendo el overlay».
+        // juego con la app «cerrada». Lo cazó RoGiz7: «le di a cerrar y sigo viendo el overlay».
+        // De ahí el `exit(0)` explícito de abajo.
         //
-        // Cerrar la ventana `main` es la forma en que la gente cierra Koru, así que eso tiene que
-        // significar salir. `exit(0)` se lleva por delante el overlay y el hilo de intel.
+        // ★★ Y DE AHÍ TAMBIÉN QUE `prevent_exit` NO SIRVA AQUÍ (2026-09-02): `app.exit(0)` emite
+        // `ExitRequested` con `code = Some(0)`, y un código explícito NO se puede prevenir. Se vio
+        // en la consola: `prevent_exit aplicado` … y el proceso murió igual. La salida no es
+        // interceptar la salida: es **no pedirla**.
         .on_window_event(|window, event| {
             if window.label() != "main" {
                 return;
             }
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                use tauri_plugin_autostart::ManagerExt;
                 let app = window.app_handle().clone();
+
+                // CON EL INTERRUPTOR ENCENDIDO: esconder y ya. Ni se toca el overlay ni se pide
+                // salir — el overlay tiene que seguir vivo, que para eso Koru se queda en marcha.
+                if app.autolaunch().is_enabled().unwrap_or(false) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    // El aviso va DESPUÉS de esconder, y ese orden importa: esconderse no puede
+                    // depender de que la notificación funcione. Si el sistema se la come, la X
+                    // sigue haciendo lo suyo.
+                    avisar_bandeja_una_vez(&app);
+                    return;
+                }
+
+                // APAGADO: exactamente lo de siempre, sin un cambio.
                 // 1) Cerrar el overlay a mano. Es la ventana que impedía salir, y destruirla antes
                 //    deja a Tauri sin motivos para seguir vivo.
                 if let Some(o) = app.get_webview_window("overlay") {
@@ -76,6 +144,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // ★ AUTOARRANQUE. El argumento `--autostart` es lo que permite distinguir «me ha abierto el
+        // sistema» de «me ha abierto la persona»: en el primer caso Koru se queda en la bandeja sin
+        // enseñar ventana, que es justo lo que la hace soportable. Sin esa marca habría que
+        // adivinarlo, y adivinar mal significa una ventana saltando en cada arranque del PC.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .setup(|app| {
             // BD en el directorio de datos de la app.
             let data_dir = app
@@ -115,6 +191,56 @@ pub fn run() {
                 cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 intel: std::sync::Arc::new(commands::IntelWatch::default()),
             });
+
+            // ★★ LA BANDEJA. Existe SIEMPRE, encendido o no el interruptor: es lo que garantiza
+            // que, si alguien lo enciende, tenga por dónde volver a abrir Koru y por dónde salir
+            // de verdad. Una app que se esconde sin dejar puerta es un ticket de soporte seguro.
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::TrayIconBuilder;
+
+                let abrir = MenuItem::with_id(app, "abrir", "Abrir Koru", true, None::<&str>)?;
+                // «Salir» cierra DE VERDAD. Con el interruptor encendido la X solo esconde, así
+                // que sin esta entrada no habría forma de terminar el proceso sin el administrador
+                // de tareas — y eso sí que es una queja garantizada.
+                let salir = MenuItem::with_id(app, "salir", "Salir", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&abrir, &salir])?;
+
+                TrayIconBuilder::with_id("koru")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("Koru Desktop")
+                    .menu(&menu)
+                    // `false` a propósito: en Windows el clic izquierdo abre el menú por defecto, y
+                    // aquí queremos que el clic izquierdo ENSEÑE la ventana, que es lo que espera
+                    // cualquiera. El menú se abre con el derecho.
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, ev| match ev.id.as_ref() {
+                        "abrir" => mostrar_principal(app),
+                        "salir" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, ev| {
+                        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = ev
+                        {
+                            mostrar_principal(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            // ★ ARRANQUE OCULTO. Solo cuando lo ha lanzado el sistema (`--autostart`). Si lo abres
+            // tú, la ventana sale como siempre — que alguien pulse el icono y no pase nada visible
+            // sería el peor estreno posible.
+            if std::env::args().any(|a| a == "--autostart") {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -307,6 +433,9 @@ pub fn run() {
             commands::get_wallet_global,
             commands::get_skills_global,
             commands::get_skill_states,
+            // ★ Mantener Koru en marcha: un interruptor, dos comportamientos.
+            commands::autostart_get,
+            commands::autostart_set,
             // ★ Planes de estudio guardados: un plan, todos los pilotos.
             commands::skill_plan_list,
             commands::skill_plan_create,

@@ -3456,6 +3456,54 @@ pub async fn delete_note_step(id: i64, state: State<'_, AppState>) -> AppResult<
     state.db.note_step_delete(id)
 }
 
+// ---- ★ MANTENER KORU EN MARCHA (autoarranque + bandeja) ----
+//
+// UN SOLO interruptor para dos comportamientos, a propósito: arrancar con el sistema y que la X
+// minimice en vez de cerrar. Separarlos daría cuatro combinaciones que explicar, y una de ellas
+// —«minimiza a la bandeja pero no arranca solo»— no le sirve a nadie.
+//
+// ★ EL ESTADO LO GUARDA EL SISTEMA OPERATIVO, no Koru. `is_enabled()` pregunta al registro de
+// arranque de verdad. Guardar una copia nuestra crearía dos verdades sobre lo mismo: bastaría con
+// que alguien quitara Koru del arranque desde fuera para que el interruptor mintiera y la X hiciera
+// lo contrario de lo que dice.
+
+#[tauri::command]
+pub async fn autostart_get(app: tauri::AppHandle) -> AppResult<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    Ok(app.autolaunch().is_enabled().unwrap_or(false))
+}
+
+#[tauri::command]
+pub async fn autostart_set(app: tauri::AppHandle, enabled: bool) -> AppResult<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    // ★ EN DESARROLLO NO SE DEJA ACTIVAR, y esto salió de pisar el charco (2026-09-01).
+    //
+    // Windows registra el ejecutable QUE ESTÁ CORRIENDO. Activándolo desde `npm run tauri dev` se
+    // registra `target\debug\koru-desktop.exe`, que no lleva la interfaz dentro: la pide a
+    // localhost:1420, o sea al servidor de Vite. Al encender el PC ese servidor no existe, así que
+    // arranca una ventana con «localhost rechazó la conexión» — y lo hace en CADA arranque hasta
+    // que alguien se acuerda de desactivarlo.
+    //
+    // Nadie que use Koru puede sufrirlo: solo pasa compilando. Pero quien lo desarrolla lo va a
+    // sufrir cada vez que pruebe esta función, así que se corta aquí en vez de recordarlo.
+    #[cfg(debug_assertions)]
+    if enabled {
+        return Err(AppError::Other(
+            "En compilación de desarrollo no se activa: Windows registraría el ejecutable de \
+             debug, que carga la interfaz desde el servidor de Vite y al arrancar el PC saldría un \
+             error de conexión. Pruébalo con el ejecutable de release."
+                .into(),
+        ));
+    }
+    let al = app.autolaunch();
+    let r = if enabled { al.enable() } else { al.disable() };
+    r.map_err(|e| AppError::Other(format!("no se pudo cambiar el arranque automático: {e}")))?;
+    // Se devuelve lo que dice el SISTEMA después de tocarlo, no lo que pedimos: si el cambio no
+    // cuajó —permisos, política de empresa, un antivirus— el interruptor debe quedarse donde está
+    // en vez de mentir sobre un estado que no tiene.
+    Ok(al.is_enabled().unwrap_or(false))
+}
+
 // ---- ★ PLANES DE ESTUDIO GUARDADOS ----
 //
 // UN plan, TODOS los pilotos: el plan no se repite por personaje. Al guardarlo se retrata a cada

@@ -2628,6 +2628,16 @@ const EN: Record<string, string> = {
   "Qué necesita Koru para funcionar y qué sabe hacer ya sin cuenta. Se puede abrir siempre, no solo la primera vez.":
     "What Koru needs in order to work, and what it can already do without an account. You can open it any time, not just on the first run.",
   "Cerrar la guía": "Close the guide",
+  // Mantener Koru en marcha: un interruptor, dos comportamientos, y el texto dice los dos.
+  "Mantener Koru en marcha": "Keep Koru running",
+  "No se ha podido cambiar. El sistema respondió esto:":
+    "It couldn't be changed. This is what the system said:",
+  "Mantener Koru en marcha: activado": "Keep Koru running: on",
+  "Mantener Koru en marcha: desactivado": "Keep Koru running: off",
+  "Koru arranca con el sistema, directo a la bandeja y sin abrir ventana. El botón de cerrar lo esconde ahí en vez de salir: para salir del todo, botón derecho en el icono de la bandeja → Salir.":
+    "Koru starts with your system, straight to the tray and without opening a window. The close button tucks it back there instead of quitting: to quit for good, right-click the tray icon → Quit.",
+  "Koru solo ve lo que pasa mientras está abierto: el intel, tu posición y los cambios de tus hangares dejan hueco cuando lo cierras, y ese hueco no se recupera. Activándolo arranca con el sistema y se queda en la bandeja, sin molestar.":
+    "Koru only sees what happens while it's open: intel, your position and changes in your hangars leave a gap when you close it, and that gap can't be recovered. Turn this on and it starts with your system and sits in the tray, out of the way.",
   // Pistas de sección: una por sección, pegada a lo que señala.
   "No volver a mostrar esta pista": "Don't show this hint again",
   "Pistas en las secciones: activadas": "Section hints: on",

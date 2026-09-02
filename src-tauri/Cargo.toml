@@ -18,8 +18,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `tray-icon` no venía activada: sin ella no existe el icono de bandeja, y sin bandeja «mantener
+# Koru en marcha» sería una app sin ninguna forma de volver a abrirla ni de cerrarla del todo.
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
+# Autoarranque con el sistema. Se usa SOLO desde Rust —no se añade el paquete JS— para no tocar
+# `package-lock.json`: el workflow de publicación va con `npm ci`, que exige lock y package.json
+# sincronizados o el Action falla.
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Parser CSV (maneja comillas y campos multilínea) para importar el histórico de wallet de corptools.
