@@ -771,6 +771,9 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             let sys_ids: Vec<i64> = fresh.iter().map(|(_, s, _, _)| *s).collect();
             let names = state.esi.resolve_names(&sys_ids).await.unwrap_or_default();
             let dead = fresh.iter().filter(|(_, _, _, h)| *h <= 0).count();
+            // El idioma se lee UNA vez, no dentro del bucle: `meta_get` coge el mutex de la BD y
+            // hacerlo por cada extractor sería pagar un candado por línea de texto.
+            let en = en_ingles(&state.db);
             // Capitaliza el tipo de planeta ("barren" → "Barren") para distinguir colonias del
             // mismo sistema (antes salían idénticas: "C-J6MT · C-J6MT · C-J6MT").
             let cap = |s: &str| -> String {
@@ -786,7 +789,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                     let s = names.get(sys).cloned().unwrap_or_else(|| format!("#{sys}"));
                     let planeta = if ptype.is_empty() { s } else { format!("{s} {}", cap(ptype)) };
                     if *h <= 0 {
-                        format!("{planeta} ({who}): parado")
+                        format!("{planeta} ({who}): {}", if en { "stopped" } else { "parado" })
                     } else {
                         format!("{planeta} ({who}): {h}h")
                     }
@@ -797,13 +800,22 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             let extra = fresh.len().saturating_sub(3);
             let cuerpo = format!(
                 "{head}{}",
-                if extra > 0 { format!(" · +{extra} más") } else { String::new() }
+                if extra > 0 {
+                    if en {
+                        format!(" · +{extra} more")
+                    } else {
+                        format!(" · +{extra} más")
+                    }
+                } else {
+                    String::new()
+                }
             );
             use tauri_plugin_notification::NotificationExt;
-            let titulo = if dead > 0 {
-                "⛏️ PI: extractores PARADOS"
-            } else {
-                "⛏️ PI: extractores a punto de caducar"
+            let titulo = match (dead > 0, en) {
+                (true, false) => "⛏️ PI: extractores PARADOS",
+                (true, true) => "⛏️ PI: extractors STOPPED",
+                (false, false) => "⛏️ PI: extractores a punto de caducar",
+                (false, true) => "⛏️ PI: extractors about to expire",
             };
             let _ = app.notification().builder().title(titulo).body(&cuerpo).show();
             let _ = app.emit("pi-alert", &cuerpo);
@@ -832,20 +844,29 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                 .collect();
             if !nuevos.is_empty() {
                 use tauri_plugin_notification::NotificationExt;
-                let cuerpo = if nuevos.len() == 1 {
-                    "Has desbloqueado un logro nuevo. Ábrelo en la Bitácora 📖".to_string()
-                } else {
-                    format!(
+                let en = en_ingles(&state.db);
+                let cuerpo = match (nuevos.len() == 1, en) {
+                    (true, false) => {
+                        "Has desbloqueado un logro nuevo. Ábrelo en la Bitácora 📖".to_string()
+                    }
+                    (true, true) => {
+                        "You've unlocked a new achievement. Open it in the Log 📖".to_string()
+                    }
+                    (false, false) => format!(
                         "Has desbloqueado {} logros nuevos. Ábrelos en la Bitácora 📖",
                         nuevos.len()
-                    )
+                    ),
+                    (false, true) => format!(
+                        "You've unlocked {} new achievements. Open them in the Log 📖",
+                        nuevos.len()
+                    ),
                 };
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("🏅 ¡Nuevo logro en Koru!")
-                    .body(cuerpo)
-                    .show();
+                let titulo = if en {
+                    "🏅 New achievement in Koru!"
+                } else {
+                    "🏅 ¡Nuevo logro en Koru!"
+                };
+                let _ = app.notification().builder().title(titulo).body(cuerpo).show();
                 let _ = app.emit("bitacora-unlock", BitacoraUnlockEvent { unlocks: nuevos });
             }
         }
@@ -3466,6 +3487,67 @@ pub async fn delete_note_step(id: i64, state: State<'_, AppState>) -> AppResult<
 // arranque de verdad. Guardar una copia nuestra crearía dos verdades sobre lo mismo: bastaría con
 // que alguien quitara Koru del arranque desde fuera para que el interruptor mintiera y la X hiciera
 // lo contrario de lo que dice.
+
+// ★★ EL IDIOMA, GUARDADO DONDE RUST PUEDA LEERLO (2026-09-02)
+//
+// El problema que resuelve: **Rust no sabía en qué idioma está la app.** El idioma vivía solo en el
+// frontend (`localStorage` + el `_lang` de i18n.ts), así que las notificaciones NATIVAS —las que
+// salen del sistema operativo, no de la ventana— estaban escritas a pelo en castellano y le salían
+// en castellano a todo el mundo, tuviera Koru en inglés o no. Llevaba así desde que existen.
+//
+// ★ POR QUÉ DEL SELECTOR Y NO DE LOS LOGS DEL JUEGO. Se planteó deducirlo de los logs de EVE, y se
+// descartó por una razón que vale más allá de este caso: **el idioma del juego NO es el idioma de
+// Koru** —se puede tener EVE en inglés y Koru en castellano—, y además dejaría sin idioma a quien
+// acaba de instalar o no tiene carpeta de logs configurada. Estaríamos DEDUCIENDO un dato que el
+// usuario YA HA DECLARADO pulsando un botón. **Si el usuario lo ha dicho, no lo deduzcas**; los
+// logs son para lo que no se puede preguntar. La idea de mirar el selector fue de RoGiz7.
+//
+// Se guarda en `meta` (la BD) y no en un fichero aparte a propósito: viaja en sus copias de
+// seguridad como cualquier otra preferencia, y ya estaba el mecanismo hecho.
+
+#[tauri::command]
+pub async fn idioma_set(state: State<'_, AppState>, lang: String) -> AppResult<()> {
+    // Se normaliza aquí: cualquier cosa que no sea "en" es castellano. Guardar en crudo lo que
+    // mande el frontend dejaría la puerta abierta a un valor raro que luego nadie sabría leer.
+    let l = if lang == "en" { "en" } else { "es" };
+    state.db.meta_set("lang", l)
+}
+
+/// ¿Está la app en inglés? Única fuente para los textos que escribe Rust.
+///
+/// Por defecto CASTELLANO, y eso es una decisión, no un descuido: si la clave no está —primer
+/// arranque, o una BD anterior a esta versión— se comporta exactamente como se comportaba antes,
+/// que es lo que ya conocen los que están usando Koru hoy.
+pub fn en_ingles(db: &Db) -> bool {
+    db.meta_get("lang").as_deref() == Some("en")
+}
+
+/// ★★ PROBAR LOS AVISOS DEL SISTEMA. Nació de un fallo mío (2026-09-02): el aviso de la bandeja no
+/// aparecía y **no había forma de saber por qué**, porque todas las notificaciones de Koru se
+/// mandaban con `let _ = ...show()` — el error se tiraba a la basura. Un fallo invisible obliga a
+/// adivinar, y adivinar fue exactamente lo que hicimos durante un rato.
+///
+/// Se queda como función permanente y no como diagnóstico de usar y tirar: «no me llegan los
+/// avisos» es una queja previsible —el intel avisa por aquí— y con esto cualquiera la resuelve
+/// solo. Distingue las dos causas que se confunden entre sí:
+///   · devuelve error → lo rechazó el sistema, y dice qué dijo;
+///   · devuelve bien pero no se ve nada → el aviso salió y **Windows lo está silenciando**
+///     (Modo Concentración, o Koru desactivado en su lista de notificaciones).
+#[tauri::command]
+pub async fn aviso_probar(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    use tauri_plugin_notification::NotificationExt;
+    let (titulo, cuerpo) = if en_ingles(&state.db) {
+        ("Koru", "This is a test notification. Alerts are working.")
+    } else {
+        ("Koru", "Esto es un aviso de prueba. Las notificaciones funcionan.")
+    };
+    app.notification()
+        .builder()
+        .title(titulo)
+        .body(cuerpo)
+        .show()
+        .map_err(|e| AppError::Other(format!("el sistema rechazó el aviso: {e}")))
+}
 
 #[tauri::command]
 pub async fn autostart_get(app: tauri::AppHandle) -> AppResult<bool> {

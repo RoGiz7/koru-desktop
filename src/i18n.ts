@@ -2967,6 +2967,14 @@ const EN: Record<string, string> = {
   "a bordo": "aboard",
   Ala: "Wing",
   Escuadra: "Squad",
+  "Probar los avisos": "Test notifications",
+  "Manda un aviso de prueba al sistema. Si no lo ves aparecer, Koru te dice si lo rechazó el sistema o si lo está silenciando Windows.":
+    "Sends a test notification to the system. If you don't see it appear, Koru tells you whether the system refused it or Windows is silencing it.",
+  "Aviso enviado sin errores.": "Notification sent, no errors.",
+  "Si NO ha aparecido nada junto al reloj, el aviso salió bien y es Windows quien lo está silenciando. Míralo en Configuración → Sistema → Notificaciones: que estén activadas, que Koru aparezca en la lista con el permiso puesto, y que no tengas el Modo Concentración encendido.":
+    "If NOTHING appeared by the clock, the notification went out fine and it's Windows silencing it. Check Settings → System → Notifications: that they're turned on, that Koru is listed and allowed, and that Focus Assist isn't on.",
+  "El sistema no ha aceptado el aviso. Respondió esto:":
+    "The system did not accept the notification. It replied:",
   "Sin encuadrar": "Unassigned",
   atracado: "docked",
   salió: "left",

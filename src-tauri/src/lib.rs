@@ -45,11 +45,10 @@ fn mostrar_principal(app: &tauri::AppHandle) {
 /// siguiente. Un flag guardado le daría UNA oportunidad en toda la vida de la instalación.
 static AVISO_BANDEJA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// ⚠️ BILINGÜE EN UNA SOLA CADENA, y es un apaño consciente: **Rust no sabe en qué idioma está la
-/// app**. El idioma vive en el frontend (`tr()`) y no se guarda en ningún sitio que se pueda leer
-/// desde aquí — comprobado, no hay `lang` ni en `meta` ni en la BD. Las otras notificaciones
-/// nativas (PI, Bitácora) ya son solo-castellano por lo mismo; esta al menos se entiende en las
-/// dos. Arreglo de verdad pendiente: persistir el idioma para que Rust pueda leerlo.
+/// El texto va en el idioma que el usuario eligió en el selector, leído de `meta.lang`
+/// (ver `commands::en_ingles`). `try_state` y no `state`: `state` entra en pánico si el estado no
+/// estuviera gestionado, y **un aviso no puede tumbar el cierre de la aplicación**. Sin estado,
+/// castellano, que es como se ha comportado siempre.
 fn avisar_bandeja_una_vez(app: &tauri::AppHandle) {
     use std::sync::atomic::Ordering;
     // `swap` devuelve el valor ANTERIOR: si ya era `true`, este cierre no es el primero y no
@@ -57,18 +56,25 @@ fn avisar_bandeja_una_vez(app: &tauri::AppHandle) {
     if AVISO_BANDEJA.swap(true, Ordering::Relaxed) {
         return;
     }
+    let en = app
+        .try_state::<AppState>()
+        .map(|s| commands::en_ingles(&s.db))
+        .unwrap_or(false);
     use tauri_plugin_notification::NotificationExt;
-    let _ = app
-        .notification()
-        .builder()
-        .title("Koru sigue en marcha · Koru is still running")
-        .body(
-            "Está junto al reloj. Si no lo ves, pulsa la flecha ^. Clic para abrirlo; \
-             botón derecho → Salir para cerrarlo del todo.\n\
-             It's by the clock. If you can't see it, click the ^ arrow. Click to reopen; \
-             right-click → Salir to quit completely.",
+    let (titulo, cuerpo) = if en {
+        (
+            "Koru is still running",
+            "It's by the clock. If you can't see it, click the ^ arrow. Click it to reopen Koru; \
+             right-click → «Salir» to close it completely.",
         )
-        .show();
+    } else {
+        (
+            "Koru sigue en marcha",
+            "Está junto al reloj. Si no lo ves, pulsa la flecha ^. Clic para volver a abrirlo; \
+             botón derecho → «Salir» para cerrarlo del todo.",
+        )
+    };
+    let _ = app.notification().builder().title(titulo).body(cuerpo).show();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -436,6 +442,8 @@ pub fn run() {
             // ★ Mantener Koru en marcha: un interruptor, dos comportamientos.
             commands::autostart_get,
             commands::autostart_set,
+            commands::idioma_set,
+            commands::aviso_probar,
             // ★ Planes de estudio guardados: un plan, todos los pilotos.
             commands::skill_plan_list,
             commands::skill_plan_create,

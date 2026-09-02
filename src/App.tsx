@@ -526,6 +526,13 @@ function App() {
   useEffect(() => {
     localStorage.setItem("koru-lang", lang);
     document.documentElement.lang = lang;
+    // ★ Y ADEMÁS se lo decimos a Rust, que es quien escribe las notificaciones NATIVAS (PI,
+    // Bitácora, el aviso de la bandeja). Sin esto Rust no tiene forma de saber el idioma y salían
+    // todas en castellano aunque tuvieras Koru en inglés. Se manda también en el primer render,
+    // no solo al cambiar, para que una instalación que nunca toca el selector quede declarada.
+    // Si falla no se avisa a nadie: lo peor que pasa es una notificación en el otro idioma, y
+    // molestar con un error por eso sería peor que el problema.
+    invoke("idioma_set", { lang }).catch(() => {});
   }, [lang]);
   setI18nLang(lang); // fija el idioma activo a nivel de módulo → todas las vistas usan tr()
 
@@ -2470,6 +2477,42 @@ function App() {
                         : tr(
                             "Koru solo ve lo que pasa mientras está abierto: el intel, tu posición y los cambios de tus hangares dejan hueco cuando lo cierras, y ese hueco no se recupera. Activándolo arranca con el sistema y se queda en la bandeja, sin molestar.",
                           )}
+                    </span>
+                  </span>
+                </button>
+                {/* ★ PROBAR LOS AVISOS. Aquí porque es donde primero hacen falta —si Koru se
+                    esconde, el aviso es lo único que te dice dónde ha ido—, pero sirve para
+                    todos: los del intel salen por el mismo sitio. Separa las dos causas que se
+                    confunden: que el sistema lo rechace, o que lo silencie. */}
+                <button
+                  className="tb-settings-item"
+                  onClick={() => {
+                    invoke("aviso_probar")
+                      .then(() =>
+                        setDiag({
+                          titulo: `🔔 ${tr("Probar los avisos")}`,
+                          nota: tr("Aviso enviado sin errores."),
+                          texto: tr(
+                            "Si NO ha aparecido nada junto al reloj, el aviso salió bien y es Windows quien lo está silenciando. Míralo en Configuración → Sistema → Notificaciones: que estén activadas, que Koru aparezca en la lista con el permiso puesto, y que no tengas el Modo Concentración encendido.",
+                          ),
+                        }),
+                      )
+                      .catch((e) =>
+                        setDiag({
+                          titulo: `🔔 ${tr("Probar los avisos")}`,
+                          nota: tr("El sistema no ha aceptado el aviso. Respondió esto:"),
+                          texto: String(e),
+                        }),
+                      );
+                  }}
+                >
+                  <span className="tb-si-ic">🔔</span>
+                  <span className="tb-si-tx">
+                    <strong>{tr("Probar los avisos")}</strong>
+                    <span className="muted small">
+                      {tr(
+                        "Manda un aviso de prueba al sistema. Si no lo ves aparecer, Koru te dice si lo rechazó el sistema o si lo está silenciando Windows.",
+                      )}
                     </span>
                   </span>
                 </button>
