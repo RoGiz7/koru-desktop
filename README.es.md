@@ -47,7 +47,7 @@ ningún killboard sabe, porque salen de datos que solo tienes tú.
 
 Y desde la v0.46, «la película» es literal: **graba una op de flota y reprodúcela sobre el mapa** —
 tu flota moviéndose por New Eden como se movió aquella noche, con los avisos de intel pulsando a su
-hora. Nadie había podido volver a ver su flota moverse. Ahora sí.
+hora. Tu op, sobre el mapa, tal y como pasó.
 
 <p align="center">
   <img src="branding/screenshots/intel-overlay.png" alt="El aviso flotante de Koru encima del juego" width="550">

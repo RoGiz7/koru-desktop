@@ -46,7 +46,7 @@ things no killboard can, because they're built from data only you have.
 
 And since v0.46, "the movie" is literal: **record a fleet op and replay it on the map** — your fleet
 moving across New Eden the way it did that night, with intel calls pulsing at their exact time.
-Nobody has ever been able to watch their fleet move again. Now you can.
+Your op, on the map, exactly as it happened.
 
 <p align="center">
   <img src="branding/screenshots/intel-overlay-en.png" alt="Koru's alert overlay on top of the game" width="550">
