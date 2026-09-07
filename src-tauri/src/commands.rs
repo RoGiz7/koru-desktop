@@ -8228,6 +8228,20 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                     for l in &lines {
                         let mut is_clear = false;
                         let mut matched: Vec<i64> = Vec::new();
+                        // ★★ UN APELLIDO PUEDE SER UN SISTEMA (2026-09-07). Lo destapó el caso de
+                        // Sir Rayl: en `G-QTSD Dee Yona vector-Z`, **«Yona» ES un sistema de New
+                        // Eden** (Essence, highsec) y colaba un aviso de un sistema que nadie ha
+                        // cantado. El frontend lo resuelve preguntando a ESI si «Dee Yona» existe,
+                        // pero **aquí no se puede**: esto es el vigilante en caliente y añadir una
+                        // petición por línea de chat es justo lo que la regla de fichas prohíbe.
+                        //
+                        // Con lo que hay en local: si la línea YA nombró un sistema y este token
+                        // viene **detrás de una palabra que parece un nombre propio**, se trata
+                        // como apellido y no como sistema. Es conservador a propósito —solo actúa
+                        // cuando ya hay un sistema en la línea, que es el formato normal del
+                        // intel— y no rompe «X0-6LH hostiles moving to Y-ABCD», porque «to» es
+                        // jerga, no un nombre.
+                        let mut anterior_parece_nombre = false;
                         for tok in l.message.split_whitespace() {
                             let c = clean_intel_token(tok);
                             if c.is_empty() {
@@ -8235,11 +8249,26 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                             }
                             if c == "clr" || c == "clear" || c == "cleared" {
                                 is_clear = true;
+                                anterior_parece_nombre = false;
                                 continue;
                             }
                             if let Some(&sid) = g.name_to_id.get(&c) {
-                                matched.push(sid);
+                                if matched.is_empty() || !anterior_parece_nombre {
+                                    matched.push(sid);
+                                }
+                                // Un sistema nunca es «el nombre de antes» del siguiente token.
+                                anterior_parece_nombre = false;
+                                continue;
                             }
+                            // ¿Este token puede ser parte del nombre de una persona? Solo si
+                            // empieza por mayúscula y no es jerga del chat.
+                            //
+                            // ⚠️ La mayúscula se mira sobre el token CRUDO: `clean_intel_token`
+                            // pasa a minúsculas, así que preguntárselo a `c` daría siempre `false`
+                            // y esta regla no se activaría jamás — compilando en verde.
+                            let crudo = tok.trim_start_matches(|ch: char| "*([".contains(ch));
+                            anterior_parece_nombre =
+                                parece_nombre(crudo) && !INTEL_JARGON.contains(&c.as_str());
                         }
                         for sid in matched {
                             if is_clear {
