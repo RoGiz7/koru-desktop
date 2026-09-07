@@ -2523,6 +2523,13 @@ const EN: Record<string, string> = {
   // --- Ajustes → Intel: el archivo de líneas y el selector de canales (2026-09-08) ---
   // ⚠️ Nueve de estas ya se usaban SIN traducir desde antes («Activado», «Probar», «vigilados»…):
   // en inglés salían en castellano. Se añaden aquí de paso, que es el mismo fallo.
+  "Rehacer los avistamientos": "Rebuild sightings",
+  "Rehaciendo…": "Rebuilding…",
+  "Vuelve a leer todo lo guardado con el lector de hoy.": "Re-reads everything stored with today's reader.",
+  "Se van a borrar los avistamientos y a rehacer desde las líneas guardadas. No se pierde nada: las líneas se conservan. Tarda un rato y conviene no cerrar Koru mientras.":
+    "Sightings will be deleted and rebuilt from the stored lines. Nothing is lost: the lines are kept. It takes a while, and it's best not to close Koru meanwhile.",
+  "líneas releídas": "lines re-read",
+  "No se pudo rehacer": "Could not rebuild",
   "Archivo del intel": "Intel archive",
   "Koru guarda cada línea tal como se escribió. Sirve para rehacer los avistamientos cuando se mejora el lector, y para que tu histórico sobreviva a una limpieza de la carpeta de EVE.":
     "Koru keeps every line exactly as it was written. It's what lets sightings be rebuilt when the reader improves, and what makes your history survive a cleanup of EVE's folder.",

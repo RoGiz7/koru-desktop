@@ -8840,6 +8840,45 @@ pub fn intel_lines_stats(state: State<'_, AppState>) -> AppResult<(i64, Option<i
     Ok(state.db.intel_lines_stats())
 }
 
+/// Una página de líneas guardadas, en orden cronológico, para reconstruir los avistamientos.
+///
+/// Se pagina por `desde_ms` en vez de por número de fila: el cursor es el `ts_ms` de la última
+/// devuelta. Como el corte se hace con `>=`, la frontera puede repetir alguna línea del mismo
+/// milisegundo — y da igual, porque insertar un avistamiento repetido no cambia nada (la clave de
+/// `intel_sightings` lo deduplica). Preferible eso a arriesgarse a saltarse una.
+#[tauri::command]
+pub fn intel_lines_read(
+    state: State<'_, AppState>,
+    canal: Option<String>,
+    desde_ms: i64,
+    limite: i64,
+) -> AppResult<Vec<IntelLine>> {
+    Ok(state
+        .db
+        .intel_lines_leer(canal.as_deref().unwrap_or(""), desde_ms, limite)
+        .into_iter()
+        .map(|(canal, ts_ms, autor, texto)| IntelLine {
+            ts_ms,
+            channel: canal,
+            author: autor,
+            message: texto,
+        })
+        .collect())
+}
+
+/// ★★ VACÍA LOS AVISTAMIENTOS PARA REHACERLOS. Devuelve `(avistamientos, contadores)`.
+///
+/// Ver `Db::intel_sightings_purgar` para lo importante: de `name_cache` **solo** se ponen a cero
+/// los contadores; los ids que resolvió ESI y los «este nombre no es de nadie» se quedan, porque
+/// costaron peticiones y son lo que hace que el troceador se afine solo.
+///
+/// ⚠️ Esto por sí solo DEJA LA APP SIN AVISTAMIENTOS. Quien lo llame tiene que reconstruir a
+/// continuación; el frontend lo hace en el mismo botón, seguido y sin soltar el control.
+#[tauri::command]
+pub fn intel_sightings_purgar(state: State<'_, AppState>) -> AppResult<(usize, usize)> {
+    Ok(state.db.intel_sightings_purgar())
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct IntelSighting {
     pub name: String,
@@ -8855,11 +8894,17 @@ pub struct IntelSighting {
 /// envía SOLO las líneas nuevas (ya clasificadas: nombres que son piloto, no nave/jerga/sistema).
 /// Cuando un nombre cruza `threshold` menciones y sigue sin resolver, se resuelve 1 vez por ESI
 /// (en lote, acotado) → así un cazador habitual que NO está en Rivales/killmails acaba en el índice.
+///
+/// ⚠️ `resolve = false` durante la RECONSTRUCCIÓN. Ahí se reprocesan cientos de miles de líneas de
+/// una tacada, y auto-resolver por ESI mientras tanto sería un chaparrón de peticiones por un dato
+/// que ya tenemos guardado (los ids resueltos NO se borran al purgar). Se vuelve a resolver solo,
+/// en su cadencia normal, en cuanto la app siga funcionando.
 #[tauri::command]
 pub async fn intel_record_sightings(
     state: State<'_, AppState>,
     sightings: Vec<IntelSighting>,
     threshold: Option<i64>,
+    resolve: Option<bool>,
 ) -> AppResult<usize> {
     for s in &sightings {
         let nl = s.name.trim().to_lowercase();
@@ -8896,6 +8941,9 @@ pub async fn intel_record_sightings(
         }
     }
     // Auto-resolución diferida de los que ya son "habituales" y siguen sin id.
+    if !resolve.unwrap_or(true) {
+        return Ok(0);
+    }
     let thr = threshold.unwrap_or(5).max(2);
     let due = state.db.name_cache_due_for_resolve(thr, 20);
     let mut resolved = 0usize;

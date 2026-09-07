@@ -533,6 +533,8 @@ pub fn run() {
             commands::intel_record_lines,
             commands::intel_import_historico,
             commands::intel_lines_stats,
+            commands::intel_lines_read,
+            commands::intel_sightings_purgar,
             commands::escalacion_abrir,
             commands::escalaciones_vivas,
             commands::escalaciones_historico,

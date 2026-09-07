@@ -8,6 +8,8 @@
 //     quiera en vez de tener que ir apagando los que le sobran.
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
+import { reconstruirAvistamientos } from "./reconstruirIntel";
 import { tr } from "./i18n";
 import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
 import type { IntelConfig, LogDirCandidate } from "./types";
@@ -42,6 +44,40 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
   /** `[cuántas, primera_ms, última_ms]`. `null` = todavía no se ha preguntado. */
   const [archivo, setArchivo] = useState<[number, number | null, number | null] | null>(null);
   const [buscaCanal, setBuscaCanal] = useState("");
+  const [rehaciendo, setRehaciendo] = useState(false);
+  const [progreso, setProgreso] = useState(0);
+  /** Rehace `intel_sightings` desde las líneas guardadas. Ver `reconstruirIntel.ts` para el porqué
+   *  y para las tres decisiones que lo hacen seguro (un solo troceador, sin ESI, por páginas).
+   *
+   *  Se avisa ANTES con `dialogConfirm` porque durante la pasada los avistamientos están vacíos: si
+   *  cerrase Koru a medias, el rastro histórico de sus hostiles se quedaría incompleto hasta que lo
+   *  volviera a lanzar. No se pierde nada —las líneas siguen ahí— pero hay que decirlo. */
+  const rehacer = async () => {
+    const ok = await dialogConfirm(
+      tr(
+        "Se van a borrar los avistamientos y a rehacer desde las líneas guardadas. No se pierde nada: las líneas se conservan. Tarda un rato y conviene no cerrar Koru mientras.",
+      ),
+      { title: tr("Rehacer los avistamientos"), kind: "warning" },
+    );
+    if (!ok) return;
+    setRehaciendo(true);
+    setProgreso(0);
+    setResultado(null);
+    try {
+      const r = await reconstruirAvistamientos((p) =>
+        setProgreso(p.total > 0 ? Math.min(100, Math.round((p.lineas / p.total) * 100)) : 0),
+      );
+      // Se enseñan las DOS cifras a propósito: cuántos había y cuántos hay. Que no coincidan es el
+      // resultado, no un error — es la basura que se va y los nombres que antes se partían.
+      setResultado(
+        `${tr("Avistamientos")}: ${r.borrados.toLocaleString()} → ${r.avistamientos.toLocaleString()} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
+      );
+    } catch (e) {
+      setResultado(`${tr("No se pudo rehacer")}: ${String(e)}`);
+    } finally {
+      setRehaciendo(false);
+    }
+  };
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState<string | null>(null);
   const contar = () =>
@@ -239,6 +275,21 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
           {/* Se dice cuántas eran NUEVAS, no cuántas se leyeron: repetir la importación es inocuo
               (la clave las deduplica) y sin ese número la segunda pasada parecería no hacer nada. */}
           {resultado && <div className="small ovs-hallazgos">{resultado}</div>}
+          {/* ★ REHACER LOS AVISTAMIENTOS. Esto es para lo que se guardan las líneas: cada mejora del
+              lector alcanza también a lo ya guardado. Va debajo de la importación porque ese es el
+              orden real — primero se tiene el material, después se reprocesa. */}
+          {archivo != null && archivo[0] > 0 && (
+            <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
+              <button onClick={rehacer} disabled={rehaciendo || importando}>
+                {rehaciendo
+                  ? `${tr("Rehaciendo…")} ${progreso}%`
+                  : `♻️ ${tr("Rehacer los avistamientos")}`}
+              </button>
+              <span className="small muted">
+                {tr("Vuelve a leer todo lo guardado con el lector de hoy.")}
+              </span>
+            </div>
+          )}
           {intel.channels.length === 0 && (
             <div className="small muted">{tr("Marca antes los canales que quieres archivar.")}</div>
           )}
