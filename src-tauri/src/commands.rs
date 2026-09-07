@@ -8560,12 +8560,47 @@ pub struct PilotProfile {
     pub by_system: Vec<CountItem>, // id = system_id
     pub by_ship: Vec<CountItem>,   // id = ship_type_id
     pub by_hour: Vec<i64>,         // 24 buckets (hora UTC 0-23)
+    /// ★ EL CARA A CARA, de tus killmails. `None` = no sabemos ni su `character_id`, así que ni
+    /// siquiera se ha podido mirar — que NO es lo mismo que un cara a cara vacío.
+    pub vs: Option<PilotVsUi>,
+}
+
+/// El cara a cara, ya con los nombres que Koru conocía puestos. Ver `Db::pilot_vs_you`.
+#[derive(Debug, serde::Serialize)]
+pub struct PilotVsUi {
+    pub te_mato: i64,
+    pub le_mataste: i64,
+    pub peleas: i64,
+    pub dano_recibido: i64,
+    pub mediana_atacantes: Option<i64>,
+    pub max_atacantes: Option<i64>,
+    pub naves: Vec<CountItem>,
+    pub acompanantes: Vec<VsPersona>,
+    pub ultima: Option<String>,
+}
+
+/// Un acompañante del hostil. `name` puede faltar: se resuelve SOLO contra `name_cache` (cero ESI),
+/// y con el id el enlace a zKillboard funciona igual.
+#[derive(Debug, serde::Serialize)]
+pub struct VsPersona {
+    pub character_id: i64,
+    pub name: Option<String>,
+    pub count: i64,
 }
 
 /// Ficha del hostil (modo cazador): perfil agregado de un objetivo a partir de sus avistamientos
-/// persistentes — total, primer/último visto, sistemas favoritos, naves y horas activas UTC.
+/// persistentes — total, primer/último visto, sistemas favoritos, naves y horas activas UTC— **más
+/// el cara a cara sacado de tus killmails**.
+///
+/// ⚠️ **`async` A PROPÓSITO, no por costumbre.** El cara a cara recorre y parsea el JSON crudo de
+/// TODOS tus killmails. Un comando síncrono de Tauri corre en el hilo principal: la ficha
+/// congelaría la ventana justo cuando se abre, que es con un hostil a un salto. En async va al
+/// pool y la interfaz sigue viva.
 #[tauri::command]
-pub fn get_pilot_profile(state: State<'_, AppState>, name: String) -> AppResult<PilotProfile> {
+pub async fn get_pilot_profile(
+    state: State<'_, AppState>,
+    name: String,
+) -> AppResult<PilotProfile> {
     let nl = name.trim().to_lowercase();
     let (total, first_ms, last_ms, mut character_id) = state.db.pilot_stats(&nl);
     // Fichados por nombre (Fase 3.5) o aprendidos aún sin avistamientos: el id vive en
@@ -8591,6 +8626,41 @@ pub fn get_pilot_profile(state: State<'_, AppState>, name: String) -> AppResult<
         .map(|(id, count)| CountItem { id, count })
         .collect();
     let by_hour = state.db.pilot_by_hour(&nl).to_vec();
+
+    // El cara a cara necesita su `character_id`: los killmails hablan de ids, no de nombres. Sin id
+    // se devuelve `None` y la pantalla dice «no se ha podido mirar», que no es «no hay nada».
+    let vs = character_id.map(|cid| {
+        let v = state.db.pilot_vs_you(cid);
+        let ids: Vec<i64> = v.acompanantes.iter().map(|a| a.id).collect();
+        let names = state.db.name_cache_names(&ids);
+        PilotVsUi {
+            te_mato: v.te_mato,
+            le_mataste: v.le_mataste,
+            peleas: v.peleas,
+            dano_recibido: v.dano_recibido,
+            mediana_atacantes: v.mediana_atacantes,
+            max_atacantes: v.max_atacantes,
+            naves: v
+                .naves
+                .iter()
+                .map(|n| CountItem {
+                    id: n.id,
+                    count: n.count,
+                })
+                .collect(),
+            acompanantes: v
+                .acompanantes
+                .iter()
+                .map(|a| VsPersona {
+                    character_id: a.id,
+                    name: names.get(&a.id).cloned(),
+                    count: a.count,
+                })
+                .collect(),
+            ultima: v.ultima,
+        }
+    });
+
     Ok(PilotProfile {
         name: name.trim().to_string(),
         character_id,
@@ -8600,6 +8670,7 @@ pub fn get_pilot_profile(state: State<'_, AppState>, name: String) -> AppResult<
         by_system,
         by_ship,
         by_hour,
+        vs,
     })
 }
 

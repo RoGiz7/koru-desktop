@@ -20,6 +20,18 @@ type Habitual = {
 const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 
 type CountItem = { id: number; count: number };
+type VsPersona = { character_id: number; name: string | null; count: number };
+type PilotVs = {
+  te_mato: number;
+  le_mataste: number;
+  peleas: number;
+  dano_recibido: number;
+  mediana_atacantes: number | null;
+  max_atacantes: number | null;
+  naves: CountItem[];
+  acompanantes: VsPersona[];
+  ultima: string | null;
+};
 type PilotProfile = {
   name: string;
   character_id: number | null;
@@ -29,6 +41,7 @@ type PilotProfile = {
   by_system: CountItem[];
   by_ship: CountItem[];
   by_hour: number[];
+  vs: PilotVs | null;
 };
 
 // ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
@@ -51,6 +64,153 @@ function loadShipNamesPorId(): Promise<Map<number, string>> {
       })
       .catch(() => new Map<number, string>());
   return shipByIdPromise;
+}
+
+// ---- ★★ EL CARA A CARA ----
+// Esta ficha se lee con el hostil A UN SALTO, así que arriba va un VEREDICTO de una línea y el
+// detalle debajo. Las dos reglas que no se negocian:
+//   1. **El alcance se dice en cada línea.** Todo esto sale de killmails en los que estabas TÚ.
+//      No son «sus naves», son las que le has visto usar. Sin la etiqueta, el número miente.
+//   2. **Vacío ≠ inofensivo.** «0 encuentros» tiene que decirse CON PALABRAS —«nunca te has
+//      cruzado con él»—, nunca como un marcador a cero, que se lee como «no es peligroso».
+function CaraACara({
+  vs,
+  shipNames,
+  onAbrir,
+}: {
+  vs: PilotVs | null;
+  shipNames: Map<number, string>;
+  onAbrir: (id: number) => void;
+}) {
+  // `null` = ni siquiera se ha podido mirar (Koru no conoce su ID). Distinto de mirarlo y no
+  // encontrar nada, y por eso no comparten mensaje.
+  if (!vs) {
+    return (
+      <div className="cazador-vs vacia">
+        <p className="muted small">
+          {tr("Sin cara a cara: Koru todavía no conoce su ID, así que no ha podido mirar en tus killmails.")}
+        </p>
+      </div>
+    );
+  }
+  const cruces = vs.te_mato + vs.le_mataste + vs.peleas;
+  if (cruces === 0) {
+    return (
+      <div className="cazador-vs vacia">
+        <p className="small">
+          <strong>{tr("Nunca te has cruzado con él en un killmail.")}</strong>{" "}
+          {tr("Eso no dice que sea inofensivo: dice que no os habéis visto. Lo que haga fuera de tus peleas no está aquí.")}
+        </p>
+      </div>
+    );
+  }
+  // ⚠️ Los umbrales van sobre la MEDIANA, nunca sobre la media. Con la media, un piloto de null
+  // que suele salir en banda de diez salía como «suele ir en flota (153,9 por pelea)» porque dos
+  // batallas de bloque tiraban del promedio — un número que no describía ninguna de sus peleas.
+  const mediana = vs.mediana_atacantes;
+  const compania =
+    mediana == null
+      ? null
+      : mediana <= 1
+        ? tr("suele ir solo")
+        : mediana <= 5
+          ? tr("suele ir en banda pequeña")
+          : mediana <= 20
+            ? tr("suele ir en banda")
+            : tr("suele ir en flota");
+  // La mayor solo se enseña si de verdad se sale de lo normal: si su pelea más grande es como
+  // las demás, repetir la cifra es ruido.
+  const picoRelevante =
+    mediana != null && vs.max_atacantes != null && vs.max_atacantes >= mediana * 3 && vs.max_atacantes > 5;
+  return (
+    <div className="cazador-vs">
+      <p className="cazador-veredicto">
+        ⚔️ <strong>{tr("Te ha matado")} {fmtSp(vs.te_mato)}</strong> · {tr("tú a él")}{" "}
+        <strong>{fmtSp(vs.le_mataste)}</strong>
+        {compania && (
+          <>
+            {" — "}
+            {compania}
+            <span className="muted">
+              {" ("}
+              {fmtSp(mediana as number)} {tr("de mediana")}
+              {picoRelevante && (
+                <>
+                  {" · "}
+                  {tr("su mayor")}: {fmtSp(vs.max_atacantes as number)}
+                </>
+              )}
+              {")"}
+            </span>
+          </>
+        )}
+      </p>
+      <p className="muted small cazador-vs-alcance">
+        {tr("Todo esto sale de killmails en los que estabas tú. Lo que haya hecho sin ti delante no aparece.")}
+      </p>
+      <div className="kpis">
+        <Kpi label={tr("Peleas compartidas")} value={fmtSp(vs.peleas)} />
+        <Kpi label={tr("Daño que te ha hecho")} value={fmtSp(vs.dano_recibido)} />
+        {vs.ultima && (
+          <Kpi
+            label={tr("Último encuentro")}
+            value={fmtAgo(Date.now() - new Date(vs.ultima).getTime())}
+          />
+        )}
+      </div>
+      <div className="cazador-grid">
+        <div className="cazador-sec">
+          <h4>🚀 {tr("Naves que le has visto usar")}</h4>
+          {vs.naves.length === 0 ? (
+            <p className="muted small">{tr("Ninguna registrada en esos killmails.")}</p>
+          ) : (
+            <div className="cazador-ships">
+              {vs.naves.map((s) => (
+                <div
+                  className="cazador-ship"
+                  key={s.id}
+                  title={shipNames.has(s.id) ? titleCase(shipNames.get(s.id)!) : `#${s.id}`}
+                >
+                  <img src={typeIcon(s.id, 32)} alt="" width={30} height={30} />
+                  <span className="cazador-ship-name">
+                    {shipNames.has(s.id) ? titleCase(shipNames.get(s.id)!) : `#${s.id}`}
+                  </span>
+                  <span className="intel-count fleet">×{s.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="cazador-sec">
+          <h4>👥 {tr("Con quién le has visto")}</h4>
+          {vs.acompanantes.length === 0 ? (
+            <p className="muted small">{tr("En esas peleas no había nadie más con nombre.")}</p>
+          ) : (
+            <table className="km-table cat-table">
+              <tbody>
+                {vs.acompanantes.map((a) => (
+                  <tr key={a.character_id}>
+                    <td>
+                      <button
+                        className="linklike"
+                        onClick={() => onAbrir(a.character_id)}
+                        title={tr("Ver su killboard")}
+                      >
+                        {/* Sin nombre = Koru no lo tiene en casa. Se enseña el id antes que
+                            inventarle un nombre; el enlace a zKill funciona igual. */}
+                        {a.name ?? `#${a.character_id}`}
+                      </button>
+                    </td>
+                    <td style={{ textAlign: "right" }}>×{a.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Sección PvP → "Cazador": análisis de hostiles aprendidos del intel local. Lista buscable/ordenable
@@ -254,6 +414,14 @@ export function CazadorView({
             <p className="muted small">
               {tr("Fichado. Aún sin avistamientos: en cuanto aparezca en tu intel, su rastro, sus horas y sus naves nacen aquí.")}
             </p>
+            {/* ★ El cara a cara TAMBIÉN aquí, y aquí es donde más vale: «nunca lo has visto en el
+                intel, pero te ha matado dos veces» es exactamente el aviso que salva la ficha de
+                un recién fichado. Sale de los killmails, que no dependen de los avistamientos. */}
+            <CaraACara
+              vs={profile.vs}
+              shipNames={shipNames}
+              onAbrir={(id) => openExternal(`https://zkillboard.com/character/${id}/`)}
+            />
           </>
         ) : (
           <>
@@ -272,6 +440,13 @@ export function CazadorView({
                 )}
               </div>
             </div>
+            {/* ★ ARRIBA DEL TODO, antes que ningún avistamiento: con el hostil a un salto lo que
+                se necesita es el veredicto, no el dossier. Lo demás se lee si da tiempo. */}
+            <CaraACara
+              vs={profile.vs}
+              shipNames={shipNames}
+              onAbrir={(id) => openExternal(`https://zkillboard.com/character/${id}/`)}
+            />
             <div className="kpis">
               <Kpi label={tr("Avistamientos")} value={fmtSp(profile.total)} />
               {profile.last_ms != null && (
@@ -314,7 +489,10 @@ export function CazadorView({
                 </table>
               </div>
               <div className="cazador-sec">
-                <h4>🚀 {tr("Naves que vuela")}</h4>
+                {/* Etiqueta CAMBIADA a propósito: ahora hay DOS listas de naves en la misma ficha
+                    —ésta del intel, la otra de tus killmails— y «naves que vuela» a secas ya no
+                    dice de cuál de las dos ventanas viene. */}
+                <h4>🚀 {tr("Naves reportadas en el intel")}</h4>
                 {profile.by_ship.length === 0 ? (
                   <p className="muted small">
                     {tr("Aún sin datos (solo se atribuye en reportes de un único piloto).")}

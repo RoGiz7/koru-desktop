@@ -2368,6 +2368,46 @@ pub struct TopKill {
     pub killed_at: Option<String>,
 }
 
+/// Una entrada contada de la ficha del hostil: `id` es un type_id de nave o un character_id,
+/// según la lista en la que viaje. Gemela de `CountItem` en commands.rs, pero vive aquí porque
+/// `db` no debe depender de `commands`.
+#[derive(Debug, Clone, serde::Serialize, Default)]
+pub struct VsItem {
+    pub id: i64,
+    pub count: i64,
+}
+
+/// El cara a cara con un hostil. Ver `Db::pilot_vs_you` para el alcance —que hay que repetir en
+/// pantalla— y para por qué `mediana_atacantes` es `Option` y no un 0.
+#[derive(Debug, Clone, serde::Serialize, Default)]
+pub struct PilotVs {
+    /// Veces que apareció como atacante en una pérdida TUYA.
+    pub te_mato: i64,
+    /// Veces que fue la víctima en un kill TUYO.
+    pub le_mataste: i64,
+    /// Killmails tuyos en los que él aparece atacando. Es de donde salen `mediana_atacantes` y
+    /// `max_atacantes`: una cifra de tamaño por cada una de estas peleas.
+    pub peleas: i64,
+    /// Daño que te hizo a ti, sumado solo en tus pérdidas.
+    pub dano_recibido: i64,
+    /// ★ MEDIANA de atacantes con nombre en esas peleas, no la media — y la diferencia no es
+    /// cosmética. Visto en pantalla el 2026-09-07: la media daba **153,9 por pelea** sobre 20
+    /// encuentros, o sea «viene con 154 tíos», cuando lo que había eran dieciocho peleas normales
+    /// y un par de batallas de bloque de varios cientos. En null una sola pelea grande arrastra la
+    /// media hasta un número que no describe ninguna de las peleas que hubo.
+    /// `None` = no hay ninguna pelea, que NO es «viene solo».
+    pub mediana_atacantes: Option<i64>,
+    /// La pelea más grande en la que le has visto. Va JUNTO a la mediana a propósito: la mediana
+    /// sola escondería que este tío aparece en batallas de bloque, que es media respuesta.
+    pub max_atacantes: Option<i64>,
+    /// Las naves que LE HAS VISTO usar (type_id), no «sus naves».
+    pub naves: Vec<VsItem>,
+    /// Con quién aparece, tus personajes fuera (character_id).
+    pub acompanantes: Vec<VsItem>,
+    /// `killed_at` (RFC3339) del encuentro más reciente entre vosotros.
+    pub ultima: Option<String>,
+}
+
 /// Datos "vivos" para el ticker del dock. TODO sale de la BD local (cero ESI):
 /// deltas de la semana, patrimonio vs snapshot anterior, balance del mes y PLEX.
 #[derive(Debug, serde::Serialize)]
@@ -5611,6 +5651,43 @@ impl Db {
         .ok()
     }
 
+    /// Nombres de una lista de ids, **solo con lo que ya está en casa**.
+    ///
+    /// Es el camino inverso de `name_cache_get` y existe para la ficha del hostil: los acompañantes
+    /// salen de los killmails como ids desnudos, y preguntar sus nombres a ESI cada vez que se abre
+    /// una ficha es justo lo que prohíbe [[koru-esi-limites-peticiones]] — «solo lo nuevo, nunca
+    /// repreguntar lo que ya sabemos». Y esa ficha se abre con un hostil a un salto.
+    ///
+    /// El que no esté, no sale con nombre: la pantalla enseña el id y el enlace a zKillboard, que
+    /// funciona igual. **Preferible a inventarle un nombre o a gastar una petición en caliente.**
+    pub fn name_cache_names(&self, ids: &[i64]) -> HashMap<i64, String> {
+        let mut out: HashMap<i64, String> = HashMap::new();
+        let vivos: Vec<i64> = ids.iter().copied().filter(|&v| v > 0).collect();
+        if vivos.is_empty() {
+            return out;
+        }
+        let conn = self.conn.lock().unwrap();
+        // Los ids son i64 nuestros, nunca texto de fuera: interpolarlos no abre una inyección.
+        let lista = vivos
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT character_id, COALESCE(display_name, name_lower) FROM name_cache
+              WHERE character_id IN ({lista})"
+        );
+        if let Ok(mut st) = conn.prepare(&sql) {
+            if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            {
+                for (id, n) in rows.flatten() {
+                    out.entry(id).or_insert(n);
+                }
+            }
+        }
+        out
+    }
+
     /// Autocompletar de pilotos SOBRE LO QUE KORU YA CONOCE (2026-08-31).
     ///
     /// ★ Por qué hace falta: ESI **no busca por aproximación**, así que anclar un piloto obligaba a
@@ -6233,6 +6310,127 @@ impl Db {
                 |r| r.get::<_, Option<i64>>(0),
             )
             .unwrap_or(None))
+    }
+
+    /// ★★ EL CARA A CARA CON UN HOSTIL, sacado de TUS killmails. Cero peticiones a ESI.
+    ///
+    /// Idea suya (2026-09-02): *«si va solo o en compañía en esos zkills, naves más usadas según
+    /// reportes y kills, daños»*. Todo eso ya estaba en el JSON crudo de los killmails —que guarda
+    /// a TODOS los atacantes con su nave y su daño— y no se leía para nadie que no fueras tú.
+    ///
+    /// ⚠️ ALCANCE, y hay que decirlo EN LA PANTALLA, no solo aquí: esto sale SOLO de killmails en
+    /// los que estabas TÚ. Si mató a otro sin ti delante, no aparece. Así que no son «sus naves»,
+    /// son **las que le has visto usar**, y el 0 no significa inofensivo: significa que no os
+    /// habéis cruzado. Misma familia que «files = 0 no es cero actividad, es que no se vio».
+    ///
+    /// Nota de esquema: `killmail_id` es PRIMARY KEY, así que **cada killmail está una sola vez**
+    /// aunque en él fueran tres de tus personajes. No hace falta deduplicar; lo que sí hace falta
+    /// es leer a los atacantes del JSON y no la columna `character_id`, que solo guarda a uno de
+    /// los tuyos (la misma razón por la que `get_wingmates` mira el crudo).
+    pub fn pilot_vs_you(&self, hostil_id: i64) -> PilotVs {
+        use std::collections::HashSet; // HashMap ya viene del módulo
+        let mut out = PilotVs::default();
+        if hostil_id <= 0 {
+            return out;
+        }
+        // Tus personajes: se excluyen del ranking de acompañantes. Con 9 alts en multibox coparían
+        // el podio y taparían a la gente con la que de verdad vuela el hostil.
+        let mios: HashSet<i64> = self
+            .list_characters()
+            .map(|v| v.into_iter().map(|c| c.character_id).collect())
+            .unwrap_or_default();
+
+        let mut naves: HashMap<i64, i64> = HashMap::new();
+        let mut acompanantes: HashMap<i64, i64> = HashMap::new();
+        // Se guardan TODOS los tamaños, no un acumulador: para la mediana hay que ordenar. Son una
+        // cifra por pelea suya, no por killmail, así que la lista es corta.
+        let mut tamanos: Vec<i64> = Vec::new();
+
+        let Ok(filas) = self.killmails_raw_dated() else {
+            return out;
+        };
+        for (is_loss, killed_at, raw) in filas {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            let victima = v.pointer("/victim/character_id").and_then(|x| x.as_i64());
+            let mut el_ataca = false;
+            if let Some(arr) = v.get("attackers").and_then(|a| a.as_array()) {
+                for a in arr {
+                    if a.get("character_id").and_then(|c| c.as_i64()) != Some(hostil_id) {
+                        continue;
+                    }
+                    el_ataca = true;
+                    if let Some(t) = a.get("ship_type_id").and_then(|x| x.as_i64()) {
+                        *naves.entry(t).or_insert(0) += 1;
+                    }
+                    // El daño solo se suma cuando la víctima eres TÚ: es lo que te ha hecho A TI.
+                    // Sumar el que le hizo a un tercero sería su killboard, no vuestro cara a cara
+                    // — y el killboard ya lo da zKillboard.
+                    if is_loss {
+                        out.dano_recibido +=
+                            a.get("damage_done").and_then(|x| x.as_i64()).unwrap_or(0);
+                    }
+                }
+                if el_ataca {
+                    // Con cuántos viene. Se cuentan solo los atacantes CON `character_id`: drones,
+                    // estructuras y torretas aparecen en la lista y no son gente — contarlos
+                    // inflaría «viene en banda» en cualquier pelea cerca de una estación.
+                    let con_nombre: Vec<i64> = arr
+                        .iter()
+                        .filter_map(|x| x.get("character_id").and_then(|c| c.as_i64()))
+                        .collect();
+                    tamanos.push(con_nombre.len() as i64);
+                    out.peleas += 1;
+                    for c in con_nombre {
+                        if c != hostil_id && !mios.contains(&c) {
+                            *acompanantes.entry(c).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+            if el_ataca && is_loss {
+                out.te_mato += 1;
+            }
+            if !is_loss && victima == Some(hostil_id) {
+                out.le_mataste += 1;
+            }
+            if el_ataca || victima == Some(hostil_id) {
+                // `killed_at` es RFC3339 y se compara como texto: sirve para quedarse con el más
+                // reciente, que es lo único que se le pide.
+                if let Some(k) = killed_at {
+                    if out.ultima.as_deref().map(|u| k.as_str() > u).unwrap_or(true) {
+                        out.ultima = Some(k);
+                    }
+                }
+            }
+        }
+
+        // Solo si hubo peleas. Un 0 aquí se leería como «viene solo», que es justo lo contrario de
+        // «no lo sé»: sin dato, `None`, y la pantalla calla.
+        //
+        // Mediana baja (el elemento n/2 del vector ordenado, sin promediar los dos centrales en el
+        // caso par): son personas, y «11,5 pilotos» no es una banda que exista.
+        if !tamanos.is_empty() {
+            tamanos.sort_unstable();
+            out.mediana_atacantes = Some(tamanos[tamanos.len() / 2]);
+            out.max_atacantes = tamanos.last().copied();
+        }
+        let mut nv: Vec<VsItem> = naves
+            .into_iter()
+            .map(|(id, count)| VsItem { id, count })
+            .collect();
+        nv.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+        nv.truncate(6);
+        out.naves = nv;
+        let mut ac: Vec<VsItem> = acompanantes
+            .into_iter()
+            .map(|(id, count)| VsItem { id, count })
+            .collect();
+        ac.sort_by(|a, b| b.count.cmp(&a.count).then(a.id.cmp(&b.id)));
+        ac.truncate(3);
+        out.acompanantes = ac;
+        out
     }
 
     /// Ficha del hostil (modo cazador): estadísticas de sus avistamientos persistentes.

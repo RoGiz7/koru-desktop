@@ -11,10 +11,51 @@ import { getLang } from "./i18n";
  *  Estaba clavado en castellano hasta el 2026-08-10: salía «hace 8 min» en la barra de estado y en
  *  el feed de intel aunque la app estuviera en inglés. Lo vio RoGiz7 preparando las capturas EN. */
 export function fmtAgo(ms: number): string {
+  const en = getLang() === "en";
+  const cant = fmtAgoCant(ms, en);
+  return en ? `${cant} ago` : `hace ${cant}`;
+}
+
+/** La cantidad sola, sin «hace» ni «ago».
+ *
+ *  ★ SUBE DE UNIDAD desde el 2026-09-07, a petición suya: *«mejor pasar de horas a días a semanas,
+ *  a meses y años»*. Antes se paraba en horas y la ficha de un hostil enseñaba **«hace 10222h»**
+ *  — catorce meses escritos en horas. No estaba mal calculado; es que nadie lee eso como «hace más
+ *  de un año», que es la única lectura que cambia una decisión. Un hostil de «hace 4 min» y uno de
+ *  «hace 14 meses» son fichas distintas, y en horas los dos parecen lo mismo: un número grande.
+ *
+ *  Los saltos NO son en cuanto cambia la unidad, sino cuando la unidad vieja deja de ser legible:
+ *  36 h se sigue leyendo bien y «1 d» pierde media jornada, así que los días empiezan a las 48 h.
+ *  Mismo criterio hacia arriba.
+ *
+ *  Mes = 30,44 días y año = 365,25: son las medias reales, no 30 y 360. Con 30 y 360, «hace 12
+ *  meses» aparecería casi tres semanas antes de cumplirse el año.
+ *
+ *  🚨 **Y ARRIBA SE REDONDEA, NO SE TRUNCA.** La primera versión hacía `floor` de los días y luego
+ *  dividía, y **un año exacto salía como «hace 11 meses»** (365 ÷ 30,44 = 11,99 → 11). Lo cazó la
+ *  prueba de bordes, no la lectura: es de los fallos que compilan, no dan error y solo mienten en
+ *  el sitio donde más se mira, que es justo al cumplirse la unidad. Los días sí se truncan, para
+ *  que no aparezca «14 d» un instante antes de pasar a semanas. */
+function fmtAgoCant(ms: number, en: boolean): string {
   const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
-  const cant = s < 60 ? `${s}s` : m < 60 ? `${m} min` : `${Math.floor(m / 60)}h`;
-  return getLang() === "en" ? `${cant} ago` : `hace ${cant}`;
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h`;
+  // Días EXACTOS (con decimales) para todo lo de aquí abajo: es lo que evita el «11 meses».
+  const dias = ms / 86_400_000;
+  if (dias < 14) return `${Math.floor(dias)} d`;
+  const sem = Math.round(dias / 7);
+  if (sem < 9) return en ? `${sem} w` : `${sem} sem`;
+  const meses = Math.round(dias / 30.44);
+  // El plural se escribe a mano y no con `tr()`: la frase entera («hace X meses») cambia de orden
+  // entre idiomas, que es la misma razón por la que `fmtAgo` no pasa por el diccionario.
+  // Se llega hasta 23 meses antes de saltar a años a propósito: «hace 14 meses» dice más de un
+  // hostil que «hace 1 año», y a partir de dos años la precisión del mes ya no cambia nada.
+  if (meses < 24) return en ? `${meses} mo` : `${meses} ${meses === 1 ? "mes" : "meses"}`;
+  const anos = Math.round(dias / 365.25);
+  return en ? `${anos} y` : `${anos} ${anos === 1 ? "año" : "años"}`;
 }
 
 export function fmtMMSS(ms: number): string {

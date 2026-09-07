@@ -1077,6 +1077,35 @@ const EN: Record<string, string> = {
   "Horas activas (UTC)": "Active hours (UTC)",
   "Sistemas favoritos": "Favorite systems",
   "Naves que vuela": "Ships flown",
+  // --- Ficha del hostil: el cara a cara (sale de TUS killmails) ---
+  // ⚠️ Las etiquetas llevan el alcance DENTRO ("que le has visto", "compartidas"): si al traducir
+  // se pierde, el número pasa a decir algo que no es. No acortarlas por que quepan.
+  "Naves reportadas en el intel": "Ships reported in intel",
+  "Naves que le has visto usar": "Ships you've seen him fly",
+  "Con quién le has visto": "Who you've seen him with",
+  "Sin cara a cara: Koru todavía no conoce su ID, así que no ha podido mirar en tus killmails.":
+    "No head-to-head: Koru doesn't know his ID yet, so it couldn't check your killmails.",
+  "Nunca te has cruzado con él en un killmail.": "You've never crossed paths with him in a killmail.",
+  "Eso no dice que sea inofensivo: dice que no os habéis visto. Lo que haga fuera de tus peleas no está aquí.":
+    "That doesn't mean he's harmless: it means you haven't met. What he does outside your fights isn't here.",
+  "Todo esto sale de killmails en los que estabas tú. Lo que haya hecho sin ti delante no aparece.":
+    "All of this comes from killmails you were in. Anything he did without you there isn't shown.",
+  "Te ha matado": "He's killed you",
+  "tú a él": "you've killed him",
+  "suele ir solo": "usually flies alone",
+  "suele ir en banda pequeña": "usually flies in a small gang",
+  "suele ir en banda": "usually flies in a gang",
+  "suele ir en flota": "usually flies with a fleet",
+  // MEDIANA, no media: ver el comentario en cazador.tsx. Si al traducir esto acaba diciendo
+  // "average", el número pasa a significar otra cosa.
+  "de mediana": "median",
+  "su mayor": "his biggest",
+  "Peleas compartidas": "Shared fights",
+  "Daño que te ha hecho": "Damage he's done to you",
+  "Último encuentro": "Last encounter",
+  "Ninguna registrada en esos killmails.": "None recorded in those killmails.",
+  "En esas peleas no había nadie más con nombre.": "No other named pilots in those fights.",
+  "Ver su killboard": "View his killboard",
   "Buscar hostil…": "Search hostile…",
   Menciones: "Mentions",
   Reciente: "Recent",

@@ -7670,6 +7670,51 @@ h4 {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
+/* ★ EL CARA A CARA de la ficha del hostil.
+   Va ARRIBA y tiene que ganar al resto de la ficha de un vistazo: se lee con el enemigo a un
+   salto. El borde ámbar es el mismo lenguaje que el aviso de región del overlay — «esto es una
+   alarma, no decoración», que es justo la lección del reporte de los dos canales. */
+.cazador-vs {
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #b4711e;
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: rgba(180, 113, 30, 0.08);
+}
+/* Sin encuentros NO se pinta como alarma: no hay nada que avisar. Pero tampoco se esconde, porque
+   el texto («nunca te has cruzado con él») es en sí mismo la información. */
+.cazador-vs.vacia {
+  border-color: var(--border, #333);
+  border-left-width: 1px;
+  background: transparent;
+}
+.cazador-veredicto {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+.cazador-vs-alcance {
+  margin: 0.25rem 0 0.5rem;
+}
+.cazador-vs .kpis {
+  margin-bottom: 0.25rem;
+}
+/* Un nombre que se pulsa pero no es un botón de acción: no debe pesar como los de la cabecera. */
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.linklike:hover {
+  color: #ffd1f0;
+}
 .hourbars.big {
   height: 92px;
 }
