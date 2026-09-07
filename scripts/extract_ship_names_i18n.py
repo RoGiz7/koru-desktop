@@ -47,10 +47,25 @@ SDE_DIR = os.path.join(os.path.dirname(ROOT), "documentacion", "sde-source")
 CATEGORIA_NAVES = 6
 SALIDA = os.path.join(ROOT, "public", "ship_names_i18n.json")
 
-# Por defecto SOLO chino: es el unico idioma del que hay evidencia en el intel real. Añadir
-# idiomas "por si acaso" mete miles de cadenas en el matcher a cambio de nada, y cada una es una
-# oportunidad de colision con un nombre de piloto.
-IDIOMAS_POR_DEFECTO = ["zh"]
+# ★ TODOS los idiomas del cliente, y la decision tiene historia (2026-09-07).
+#
+# Empezo siendo solo `zh`, que es del unico del que habia evidencia. El pregunto si convenia un
+# ajuste para decir «este canal esta en idioma X». La respuesta es NO, y sale de su propia frase:
+# **un canal no tiene idioma, lo tienen las personas.** Su alianza tiene la regla del ingles y aun
+# asi aparecen naves en chino — con un selector, ese canal estaria marcado «ingles» y habria
+# excluido justo los nombres que motivaron todo esto.
+#
+# Asi que la pregunta buena no era cual elegir sino **si caben todos a la vez**. Medido:
+#   · 1.327 nombres nuevos, 0 chocan con un sistema, 0 chocan con el catalogo ingles.
+#   · 1.260 son CJK/hangul/katakana: NO PUEDEN confundirse con un nombre de piloto latino.
+#   · De los 67 latinos, 65 son frances de varias palabras («apocalypse modele imperial»).
+#   · Nombres de UNA palabra en alfabeto latino, el unico riesgo real: **dos** — `hecate` y
+#     `moniteur`. Y «Hecate» ya estaba en ingles, asi que solo se añade uno de riesgo.
+#   · 34 KB. `neweden.json` ya carga 5.485 sistemas.
+#
+# Un ajuste habria sido una pregunta al usuario para ahorrar 34 KB y dos cadenas. La regla de la
+# casa: si Koru ya sabe la respuesta, no se pregunta.
+IDIOMAS_POR_DEFECTO = ["de", "es", "fr", "ja", "ko", "ru", "zh"]
 
 
 def sde_mas_nuevo() -> str:

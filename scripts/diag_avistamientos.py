@@ -12,6 +12,7 @@ SOLO LEE. No escribe en la base de datos. Abre en modo lectura por si Koru esta 
     python scripts\\diag_avistamientos.py "C:\\otra\\ruta\\koru-desktop.sqlite3"
 """
 
+import json
 import os
 import sqlite3
 import sys
@@ -160,6 +161,29 @@ def main() -> int:
         "SELECT COUNT(*) FROM name_cache WHERE character_id IS NULL"
     ).fetchone()[0]
     print(f"  sin resolver aun (nunca preguntados a ESI): {sin_preguntar} nombres")
+
+    # ★ EL RIESGO QUE EL EXTRACTOR NO PUEDE MEDIR: que un nombre de nave en otro idioma sea igual
+    # que el nombre de una PERSONA. Las naves ganan al clasificar, asi que ese piloto dejaria de
+    # verse. `extract_ship_names_i18n.py` comprueba las colisiones contra sistemas y contra el
+    # catalogo ingles, pero de pilotos reales no sabe nada: los unicos que hay estan AQUI, en la
+    # BD, resueltos por ESI. Por eso esta comprobacion vive en el diagnostico y no en el extractor.
+    p_i18n = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "public", "ship_names_i18n.json")
+    print("\n--- ¿Alguna nave en otro idioma se llama como un piloto REAL tuyo? ---")
+    if not os.path.exists(p_i18n):
+        print("  (no hay ship_names_i18n.json; nada que comprobar)")
+    else:
+        with open(p_i18n, encoding="utf-8") as fh:
+            naves_i18n = set(json.load(fh))
+        reales = {r[0] for r in db.execute(
+            "SELECT name_lower FROM name_cache WHERE character_id > 0")}
+        choque = sorted(naves_i18n & reales)
+        print(f"  naves en otros idiomas: {len(naves_i18n)} · pilotos reales conocidos: {len(reales)}")
+        if choque:
+            print(f"  ⚠️ COINCIDEN {len(choque)}: {choque[:10]}")
+            print("     Esos pilotos se leerian como naves. Hay que sacarlos del catalogo.")
+        else:
+            print("  ✅ ninguna. Se pueden tener todos los idiomas encendidos a la vez.")
 
     # Cuantos avistamientos NO tienen character_id: son los que no se pueden cruzar con killmails.
     sin_id = db.execute(

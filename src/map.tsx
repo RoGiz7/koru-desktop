@@ -1311,7 +1311,7 @@ export function MapView(props: {
   // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
   const [shipNames, setShipNames] = useState<Map<string, number>>(new Map());
   useEffect(() => {
-    // ★ DOS ficheros: `ship_names_i18n.json` trae los nombres de nave en los idiomas que NO son
+    // ★ DOS ficheros: `ship_names_i18n.json` trae los nombres de nave en los SIETE idiomas que NO son
     // inglés. Hay gente con el cliente en chino en el canal de intel — en la BD real aparecen
     // `剑齿虎级`, `狞獾级海军型` y `秃鹰级`, que contra el SDE son **Sabre**, Caracal Navy Issue
     // y Buzzard.
