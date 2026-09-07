@@ -1074,6 +1074,27 @@ const EN: Record<string, string> = {
   "Abrir ficha completa en Cazador (PvP)": "Open full profile in Hunter (PvP)",
   "último visto": "last seen",
   "primer visto": "first seen",
+  // --- Cazador: menciones vs avistamientos (los dos números que se leían igual) ---
+  // ⚠️ «Menciones» y «Avistamientos» NO son sinónimos aquí. Si al traducir se igualan, vuelve el
+  // problema que esto arregla: dos cifras distintas en la misma pantalla diciendo lo mismo.
+  // (la clave `Menciones` ya existía más abajo, para el botón de ordenar de la lista: es la
+  //  misma palabra y el mismo significado, así que se reutiliza.)
+  "menciones en el intel": "mentions in intel",
+  "Se le ha nombrado": "Named",
+  "veces, y de ahí salen": "times, and that yields",
+  "avistamientos distintos: los que traían sistema y hora, sin contar dos veces una línea repetida. Son los que alimentan su rastro, sus horas y sus sistemas.":
+    "distinct sightings: the ones that came with a system and a time, not counting a repeated line twice. Those are what feed his trail, his hours and his systems.",
+  // --- Historial de avistamientos (la ventana que abre el KPI) ---
+  "Avistamientos de": "Sightings of",
+  "Cada vez que se le ha reportado con sistema y hora.":
+    "Every time he was reported with a system and a time.",
+  "Sin avistamientos con sistema y hora.": "No sightings with a system and a time.",
+  // (`avistamientos` y `Todos los sistemas` ya existían más abajo: se reutilizan.)
+  "Ver el historial con sus filtros": "See the history with its filters",
+  "Centrar este sistema en el mapa": "Centre this system on the map",
+  "Dónde, en este periodo": "Where, in this period",
+  "solo se guardan los 1.000 más recientes: antes de esa fecha no es que no apareciera, es que no se está mirando.":
+    "only the 1,000 most recent are kept: before that date it is not that he did not appear, it is that we are not looking.",
   "Horas activas (UTC)": "Active hours (UTC)",
   "Sistemas favoritos": "Favorite systems",
   "Naves que vuela": "Ships flown",

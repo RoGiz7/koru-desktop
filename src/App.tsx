@@ -3227,6 +3227,8 @@ function App() {
           {tab === "cazador" && (
             <CazadorView
               initialPilot={cazadorPilot}
+              onFicha={abrirFicha}
+              onVerEnMapa={verEnMapa}
               onTrackOnMap={(name) => {
                 handleOverlayChange("intel");
                 setMapTrackReq({ name, nonce: Date.now() });

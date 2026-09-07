@@ -6121,32 +6121,59 @@ h4 {
    contexto de apilamiento y los desplegables (watch-ac, autocompletar…) quedaban DEBAJO de las
    tablas hermanas que venían después en el DOM aunque tuvieran z-index 30 (bug del Watchlist,
    2026-07-30). Con el arte a z:-1 dentro del contexto aislado, el contenido pinta encima solo. */
+/* ★ ARREGLADO EL 2026-09-07 — el arte se veía como un RECUADRO pegado, con un borde recto abajo.
+   Lo cazó él mirándolo: «siguen siendo un recuadro y no toma todo el ancho».
+
+   LA CAUSA ERA ARITMÉTICA, no de gusto. `typeRender` devuelve un PNG CUADRADO (1024×1024). La caja
+   medía 520×320 con `overflow: hidden`, y la imagen iba a `width: 100%` → **520 de ancho y 520 de
+   alto**: los 200 px de abajo se cortaban en seco. Y la máscara que debía difuminarla estaba puesta
+   SOBRE LA IMAGEN, con `closest-side` = 260 px, así que el degradado aún era casi opaco a la altura
+   del corte. **La máscara nunca llegaba al sitio donde se producía el borde.**
+
+   EL ARREGLO es el patrón que la variante ancha ya usaba y que funciona: **que la imagen y su caja
+   midan lo mismo** (`width/height: 100%` + `object-fit`), para que la máscara se calcule sobre lo
+   que de verdad se ve. Y fuera el scrim lineal, por la misma razón que se quitó allí: metía OTRO
+   borde recto por la izquierda.
+   ⚠️ Esto se valida A OJO, en claro y en oscuro y a tamaño real — es su regla, y aquí es la única
+   forma: no hay compilador que diga si un degradado queda fino. */
 .sec-art {
   position: absolute;
   right: 0;
   top: 0; /* anclado ARRIBA del contenido: visible al entrar sin depender del scroll vertical */
-  width: 520px;
-  height: 320px;
-  max-width: 52%;
+  width: 72%;
+  height: 480px;
   overflow: hidden;
   pointer-events: none;
   z-index: -1;
 }
 .sec-art img {
-  position: absolute;
-  right: -30px;
-  top: -20px;
-  width: 100%;
-  opacity: 0.38;
-  filter: brightness(1.2) contrast(1.08);
-  -webkit-mask-image: radial-gradient(closest-side at 55% 45%, #000 38%, transparent 86%);
-  mask-image: radial-gradient(closest-side at 55% 45%, #000 38%, transparent 86%);
-}
-.sec-art::after {
-  content: "";
+  /* ⚠️ `cover`, NO `contain` — y esto lo enseñó el segundo intento (2026-09-07).
+     Puse `contain` creyendo que los renders de nave son recortes con transparencia. **No lo son:
+     `/types/{id}/render` trae su propio fondo cuadrado.** Y `object-fit: contain` encoge el
+     CONTENIDO dentro del elemento, pero `mask-image` se aplica al ELEMENTO: el degradado se
+     desvanecía en los bordes de la caja mientras el contenido terminaba de golpe 200 px antes.
+     Resultado, un borde vertical limpísimo — el mismo síntoma de antes por otra causa.
+     Con `cover` el contenido llena el elemento exactamente, así que máscara y contenido coinciden
+     y no queda un solo canto recto. Es lo que hace `.sec-art-wide`, que por eso nunca falló.
+     Se recorta parte de la nave: aceptable, es un fondo al 26 % de opacidad, no una ilustración. */
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, rgba(9, 12, 18, 0.85) 22%, rgba(9, 12, 18, 0.4) 55%, transparent 90%);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 72% 28%;
+  opacity: 0.26;
+  filter: brightness(1.15) contrast(1.05);
+  /* La elipse se cierra ANTES de tocar ningún borde: centro al 74/42 %, y transparente al 62 % de
+     un radio del 70 %, o sea a ±43 % — el borde izquierdo queda a cero desde el 30 % y el superior
+     justo al límite. Los números son ajustables; lo que no lo es es que ninguno llegue al canto. */
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 74% 42%, #000 12%, transparent 62%);
+  mask-image: radial-gradient(ellipse 70% 70% at 74% 42%, #000 12%, transparent 62%);
+}
+.sec-art::after {
+  /* Sin scrim: el fundido lo hace la máscara. Un degradado lineal sobre una caja rectangular vuelve
+     a dibujar el borde que estamos quitando. La legibilidad la da la opacidad, más baja ahora. */
+  content: none;
 }
 /* Variante ANCHA, para fotos (capturas panorámicas como el hangar de Social). La carta de 520px
    está pensada para renders con transparencia; una foto opaca ahí dentro se ve como un rectángulo
@@ -6169,9 +6196,8 @@ h4 {
   -webkit-mask-image: radial-gradient(ellipse 90% 85% at 78% 18%, #000 25%, transparent 78%);
   mask-image: radial-gradient(ellipse 90% 85% at 78% 18%, #000 25%, transparent 78%);
 }
-.sec-art-wide::after {
-  background: none; /* el fundido lo hace la máscara; el scrim lineal metería otro borde */
-}
+/* (Su `::after { background: none }` ya no hace falta: ahora NINGUNA variante pinta scrim —
+   la carta de naves aprendió de ésta que un degradado lineal sobre una caja recta dibuja un borde.) */
 /* Pestañas de cubo de firmas (combate/minado/exploración/WH). Ahorran espacio vertical; la activa se
    tiñe con su color y el panel de abajo lleva un lavado del mismo color. */
 .sig-btabs {
@@ -7530,12 +7556,19 @@ h4 {
 .intel-prof-kpis b {
   font-size: 0.95rem;
 }
+/* ★ LAS HORAS ACTIVAS, VIVAS AL PASAR POR ENCIMA (2026-09-07, idea suya: «solo muestra algo
+   cuando dejas el ratón encima un segundo»). El `title` nativo del navegador tarda casi un
+   segundo, y una franja horaria se lee de un vistazo o no se lee. Aquí el valor sale YA, con
+   `content: attr(data-v)` — el dato viaja en el atributo desde el JSX. El `title` se queda como
+   reserva para quien navegue con teclado o lector de pantalla. */
 .hourbars {
   display: flex;
   align-items: flex-end;
   gap: 1px;
   height: 48px;
   margin-top: 0.25rem;
+  position: relative; /* ancla del globo; sin esto se posiciona contra media app */
+  overflow: visible; /* el globo se sale por arriba a propósito */
 }
 .hourbar {
   flex: 1;
@@ -7544,12 +7577,60 @@ h4 {
   align-items: center;
   justify-content: flex-end;
   height: 100%;
+  position: relative;
+  cursor: default;
+}
+/* La columna entera se ilumina, no solo la barra: con horas de valor 1 la barra es un píxel y no
+   había NADA que iluminar — el objetivo por el que pasas el ratón tiene que ser la columna. */
+.hourbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.1s ease;
+}
+.hourbar:hover::before {
+  background: rgba(255, 106, 213, 0.14);
+}
+/* El globo con la hora y la cuenta. `left: 50%` + `translateX(-50%)` lo centra sobre su columna;
+   las de los extremos se pegan al borde con `clamp` para no salirse del panel. */
+.hourbar:hover::after {
+  content: attr(data-v);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.15rem 0.4rem;
+  border-radius: 5px;
+  border: 1px solid #b4711e;
+  background: rgba(9, 12, 18, 0.96);
+  color: #ffd1f0;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
 }
 .hourbar-fill {
   width: 100%;
   min-height: 1px;
   background: #ff6ad5;
   border-radius: 1px 1px 0 0;
+  transition: background 0.1s ease, box-shadow 0.1s ease;
+}
+.hourbar:hover .hourbar-fill {
+  background: #ffa8e4;
+  box-shadow: 0 0 8px rgba(255, 106, 213, 0.7);
+}
+/* Una hora SIN actividad no es un hueco: es un cero. Un suelo tenue deja leer el día entero y da
+   dónde pasar el ratón — si no, las horas muertas no responden y parecen zona muerta de la UI. */
+.hourbar.vacia .hourbar-fill {
+  background: #2a3340;
+  height: 2px !important;
+}
+/* La hora actual, marcada siempre: es la referencia con la que se lee todo lo demás. */
+.hourbar.ahora .hourbar-fill {
+  outline: 1px solid rgba(255, 209, 240, 0.55);
 }
 .hourbar-lbl {
   font-size: 0.55rem;
@@ -10809,3 +10890,67 @@ h4 {
 .nd-paso.nueva input[type="text"]:focus { border-style: solid; border-color: var(--accent-border); }
 .nd-elegir { margin: 2px 0 2px 4px; }
 
+
+/* La línea que explica menciones vs avistamientos. Va pegada bajo los KPI porque es su pie de
+   foto: separada, se lee como una curiosidad y no como la aclaración de los dos números de arriba. */
+.cazador-dosnum {
+  margin: -0.35rem 0 0.6rem;
+  line-height: 1.4;
+}
+
+/* Retratos e iconos de EVE en el Cazador. El retrato circular es como se ven en el juego; el
+   icono de objeto va cuadrado, que también es como los pinta EVE. */
+.cz-retrato {
+  border-radius: 50%;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+.cz-sinretrato {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  opacity: 0.5;
+}
+.cz-ico {
+  vertical-align: -0.22em;
+}
+/* La celda del acompañante: retrato y nombre en la misma línea, sin que el nombre salte. */
+.cz-acomp {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* El KPI de avistamientos es un botón: tiene que seguir pareciendo un KPI, no un botón. Solo se
+   delata al pasar por encima — la afford justa para que se descubra sin ensuciar la fila. */
+.kpi-boton {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: box-shadow 0.12s ease;
+}
+.kpi-boton:hover {
+  box-shadow: 0 0 0 1px #ff6ad5;
+}
+/* El modal del historial. Hereda de `.md-modal` (fondo, borde, sombra); aquí solo el ancho, más
+   contenido que el de medallas porque dentro hay una serie temporal y apretada no se lee. */
+.cz-modal {
+  width: min(780px, 92vw);
+}
+.cz-modal-filtros {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0;
+}
+.cz-modal-graf {
+  max-height: 46vh;
+  overflow: auto;
+}
