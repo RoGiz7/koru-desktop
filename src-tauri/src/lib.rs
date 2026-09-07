@@ -187,6 +187,25 @@ pub fn run() {
             }
 
             let db = Db::open(db_path.clone()).expect("no se pudo abrir la BD");
+
+            // ★ EL SELLO. Se LEE antes de escribirlo, o se leería lo de este mismo arranque.
+            //
+            // ⚠️ AVISA, NO BLOQUEA — y es una decisión, no un descuido. Las migraciones de Koru son
+            // aditivas, así que un binario viejo leyendo una BD nueva funciona casi siempre. Dejar
+            // a alguien sin poder abrir Koru con sus datos intactos ahí al lado es peor que el
+            // riesgo que evitaría, y basta un límite mal puesto para encerrar a todo el mundo.
+            // Donde SÍ hay que plantarse es al RESTAURAR una copia: ahí se sobrescriben datos
+            // buenos y la decisión la toma el usuario (ver `restore_db`).
+            {
+                let s = db.sello();
+                if s.mas_nueva_que_yo {
+                    eprintln!(
+                        "[koru] ⚠️ Esta base de datos la escribió una versión más nueva de Koru                          (esquema {:?}, escrita por {:?}) y esta versión entiende hasta el {}.                          Se abre igualmente, pero puede que no leas todo. Actualiza Koru.",
+                        s.esquema, s.escrito_por, crate::db::ESQUEMA
+                    );
+                }
+                db.sellar(app.package_info().version.to_string().as_str());
+            }
             // Reintentar resoluciones de ubicación fallidas (estructuras de jugador que antes
             // no se pudieron resolver, p. ej. por faltar el scope read_structures).
             let _ = db.location_system_clear_negative();

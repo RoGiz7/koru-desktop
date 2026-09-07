@@ -1095,6 +1095,11 @@ const EN: Record<string, string> = {
   "Dónde, en este periodo": "Where, in this period",
   "solo se guardan los 1.000 más recientes: antes de esa fecha no es que no apareciera, es que no se está mirando.":
     "only the 1,000 most recent are kept: before that date it is not that he did not appear, it is that we are not looking.",
+  // --- Sello de versión de la base de datos (restaurar una copia más nueva) ---
+  "Copia de una versión más nueva": "Backup from a newer version",
+  "Esta copia la hizo Koru": "This backup was made by Koru",
+  "y trae un formato que esta versión no conoce del todo. Si la restauras, puede que no se lea entera — y reemplazará tus datos actuales. Lo recomendable es actualizar Koru primero.":
+    "and it carries a format this version doesn't fully know. Restoring it may not read all of it — and it will replace your current data. The safe move is to update Koru first.",
   "Horas activas (UTC)": "Active hours (UTC)",
   "Sistemas favoritos": "Favorite systems",
   "Naves que vuela": "Ships flown",

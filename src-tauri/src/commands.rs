@@ -142,7 +142,16 @@ pub fn auto_backup(state: State<'_, AppState>, dir: String, keep: usize) -> AppR
 /// conexión está abierta, así que dejamos el archivo en "staging" junto a la BD y reiniciamos:
 /// en el próximo arranque se aplica el reemplazo con la BD ya cerrada (ver `lib.rs`).
 #[tauri::command]
-pub fn restore_db(app: tauri::AppHandle, state: State<'_, AppState>, src: String) -> AppResult<()> {
+///
+/// `forzar` = el usuario ya vio el aviso de incompatibilidad y quiere seguir de todas formas.
+/// **Nunca lo pone Koru solo**: es su respuesta, no un atajo nuestro.
+pub fn restore_db(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    src: String,
+    forzar: Option<bool>,
+) -> AppResult<()> {
+    let forzar = forzar.unwrap_or(false);
     // 1) Validar que es una BD SQLite de Koru (abrir solo-lectura y comprobar el esquema).
     {
         let test = rusqlite::Connection::open_with_flags(
@@ -161,6 +170,31 @@ pub fn restore_db(app: tauri::AppHandle, state: State<'_, AppState>, src: String
             return Err(AppError::Other(
                 "el archivo no parece una copia de Koru (falta la tabla characters)".into(),
             ));
+        }
+        // ★ ¿La hizo una versión que declara una rotura que esta no entiende? AQUÍ SÍ se para,
+        // al contrario que al arrancar: restaurar SOBRESCRIBE datos buenos, y si la copia no se
+        // lee del todo el usuario se queda sin las dos cosas. Se le cuenta y decide él —
+        // `forzar` es su respuesta, no un atajo nuestro.
+        //
+        // ⚠️ Tabla `meta` leída a mano y no con `Db`: esto es el FICHERO DE ORIGEN, abierto en
+        // solo lectura, no la base de datos en marcha.
+        let esquema: Option<i64> = test
+            .query_row("SELECT value FROM meta WHERE key = 'esquema'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .ok()
+            .and_then(|v| v.parse().ok());
+        let quien: Option<String> = test
+            .query_row("SELECT value FROM meta WHERE key = 'escrito_por'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .ok();
+        if !forzar && esquema.is_some_and(|e| e > crate::db::ESQUEMA) {
+            return Err(AppError::Other(format!(
+                "INCOMPATIBLE|{}|{}",
+                quien.unwrap_or_else(|| "?".into()),
+                esquema.unwrap_or(0)
+            )));
         }
     }
     // 2) Copiar a <bd>.restore (staging). Se aplica en el próximo arranque.

@@ -470,7 +470,27 @@ function App() {
       if (!ok) return;
       // restore_db deja la copia en staging y reinicia la app para aplicarla (la BD no se
       // puede reemplazar en caliente). El proceso se reinicia, así que no esperamos respuesta.
-      await invoke("restore_db", { src });
+      //
+      // ★ Si la copia la hizo una versión de Koru que declara una rotura que ésta no entiende,
+      // `restore_db` NO restaura: devuelve «INCOMPATIBLE|quién|esquema» y aquí se convierte en una
+      // decisión del usuario. Se para aquí y no al arrancar porque restaurar SOBRESCRIBE datos
+      // buenos: si la copia no se lee del todo, se queda sin las dos cosas.
+      try {
+        await invoke("restore_db", { src });
+      } catch (e) {
+        const m = String(e).match(/INCOMPATIBLE\|(.*)\|(.*)/);
+        if (!m) throw e;
+        const seguir = await dialogConfirm(
+          tr("Esta copia la hizo Koru") +
+            ` ${m[1]} ` +
+            tr(
+              "y trae un formato que esta versión no conoce del todo. Si la restauras, puede que no se lea entera — y reemplazará tus datos actuales. Lo recomendable es actualizar Koru primero.",
+            ),
+          { title: tr("Copia de una versión más nueva"), kind: "warning" },
+        );
+        if (!seguir) return;
+        await invoke("restore_db", { src, forzar: true });
+      }
     } catch (e) {
       setError(String(e));
     }

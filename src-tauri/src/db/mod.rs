@@ -2368,6 +2368,34 @@ pub struct TopKill {
     pub killed_at: Option<String>,
 }
 
+/// ★★ EL NIVEL DE COMPATIBILIDAD DE LA BASE DE DATOS. **Se sube A MANO, y casi nunca.**
+///
+/// # Por qué no es «versión mínima de Koru» (idea suya, 2026-09-07, afinada)
+///
+/// Él propuso marcar en la BD «la versión mínima de Koru necesaria para leerla». La idea es buena,
+/// pero tal cual sería **una promesa sobre el futuro**: cuando la 0.51 escribe la base de datos no
+/// puede saber si la 0.60 romperá algo. Estaría estampando una suposición con aspecto de dato.
+///
+/// Lo que sí es un hecho es esto: **un número que subimos NOSOTROS el día que hacemos, a
+/// sabiendas, un cambio que una versión anterior ya no puede leer bien.** Mientras las migraciones
+/// sigan siendo aditivas (`ALTER TABLE ... ADD COLUMN`, que un binario viejo simplemente ignora),
+/// este número NO se toca.
+///
+/// ⚠️ **Subirlo es declarar una rotura.** Si se sube por costumbre al cambiar el esquema, en dos
+/// versiones nadie se fía del número y deja de servir para lo único que sirve.
+pub const ESQUEMA: i64 = 1;
+
+/// Lo que la base de datos dice de sí misma. Ver `Db::sello`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Sello {
+    /// Versión de Koru que la abrió por última vez. `None` en una BD anterior a esto.
+    pub escrito_por: Option<String>,
+    /// Nivel de compatibilidad grabado. `None` = anterior al sello → se asume compatible.
+    pub esquema: Option<i64>,
+    /// `true` si esta BD viene de un Koru que declara una rotura que este binario no entiende.
+    pub mas_nueva_que_yo: bool,
+}
+
 /// Una entrada contada de la ficha del hostil: `id` es un type_id de nave o un character_id,
 /// según la lista en la que viaje. Gemela de `CountItem` en commands.rs, pero vive aquí porque
 /// `db` no debe depender de `commands`.
@@ -6353,6 +6381,34 @@ impl Db {
                 |r| r.get::<_, Option<i64>>(0),
             )
             .unwrap_or(None))
+    }
+
+    /// Lee el sello SIN escribirlo. Se llama ANTES de sellar, o se leería lo que acaba de poner
+    /// este mismo arranque y la comparación no diría nada.
+    pub fn sello(&self) -> Sello {
+        let esquema = self.meta_get("esquema").and_then(|v| v.parse::<i64>().ok());
+        Sello {
+            escrito_por: self.meta_get("escrito_por"),
+            esquema,
+            mas_nueva_que_yo: esquema.is_some_and(|e| e > ESQUEMA),
+        }
+    }
+
+    /// Deja constancia de quién la abrió. Se llama en cada arranque, DESPUÉS de leer el sello.
+    ///
+    /// ⚠️ **`esquema` NUNCA baja.** Si una versión más nueva grabó un 2 y hoy abre esta, que
+    /// entiende 1, sobrescribirlo con 1 borraría la única señal de que hay una rotura declarada —
+    /// y el aviso desaparecería justo en el caso en que hace falta. Solo sube.
+    ///
+    /// `escrito_por` sí se sobrescribe siempre: es un hecho sobre el último que la tocó, y de paso
+    /// contesta en soporte la pregunta que hoy no tiene respuesta —«¿con qué versión se hizo esta
+    /// copia?»—, porque el `VACUUM INTO` de la copia de seguridad se lleva la tabla `meta` dentro.
+    pub fn sellar(&self, version: &str) {
+        let _ = self.meta_set("escrito_por", version);
+        let actual = self.meta_get("esquema").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+        if ESQUEMA > actual {
+            let _ = self.meta_set("esquema", &ESQUEMA.to_string());
+        }
     }
 
     /// ★★ EL CARA A CARA CON UN HOSTIL, sacado de TUS killmails. Cero peticiones a ESI.
