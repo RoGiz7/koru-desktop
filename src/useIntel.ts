@@ -101,15 +101,37 @@ export function useIntel({
     for (const s of p.ships) shipMap.set(s.id, s.name);
     const ships = [...shipMap].map(([id, name]) => ({ id, name }));
     const pilots = [...new Set(p.pilots)];
-    if (pilots.length === 0) {
+    // ★★ LAS DOS LECTURAS DE UN NOMBRE PARTIDO POR UN SISTEMA (ver `pilotAlts` en intel.ts).
+    //
+    // `G-QTSD Dee Yona vector-Z` daba el piloto «Dee» porque **«Yona» es un sistema de verdad**
+    // (Essence, highsec, a 23 saltos de G-QTSD) y cortaba el nombre. Y «Dee» resuelve a otra
+    // persona: el aviso enlazaba al killboard equivocado — lo reportó Sir Rayl.
+    //
+    // No se elige aquí: se mandan las DOS y **decide quien puede comprobarlo**, que es el índice
+    // local y, si no lo sabe, ESI. No cuesta ninguna petición extra: los desconocidos ya iban en
+    // la misma llamada en lote.
+    const largos = p.pilotAlts.map((a) => a.largo);
+    if (pilots.length === 0 && largos.length === 0) {
       setIntelEntities({ characters: [], ships });
       return;
     }
     setIntelEntLoading(true);
     invoke<{ characters: { id: number; name: string }[] }>("resolve_intel_entities", {
-      names: pilots,
+      names: [...new Set([...pilots, ...largos])],
     })
-      .then((e) => setIntelEntities({ characters: e.characters, ships }))
+      .then((e) => {
+        // Si la lectura LARGA existe, gana y la corta desaparece: «Dee Yona» y «Dee» no son dos
+        // hostiles, son una lectura buena y otra mala del mismo. Si NO existe, no se toca nada y
+        // todo se queda exactamente como estaba.
+        const resueltos = new Set(e.characters.map((c) => c.name.toLowerCase()));
+        const fuera = new Set(
+          p.pilotAlts
+            .filter((a) => resueltos.has(a.largo.toLowerCase()))
+            .map((a) => a.corto.toLowerCase()),
+        );
+        const characters = e.characters.filter((c) => !fuera.has(c.name.toLowerCase()));
+        setIntelEntities({ characters, ships });
+      })
       .catch(() => setIntelEntities({ characters: [], ships }))
       .finally(() => setIntelEntLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
