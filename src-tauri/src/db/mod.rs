@@ -2396,6 +2396,53 @@ pub struct Sello {
     pub mas_nueva_que_yo: bool,
 }
 
+/// ★★ UNA ESCALACIÓN. Ver el comentario de la tabla en `schema.sql` para el porqué de las dos
+/// modalidades y de por qué el reloj significa cosas distintas en cada una.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Escalacion {
+    pub id: i64,
+    pub character_id: Option<i64>,
+    pub titulo: String,
+    /// 1..10. `None` = **sin rating**, y eso NO es un hueco del catálogo: las escalaciones de
+    /// anomalía y las expediciones de cuatro partes no tienen valoración DED.
+    pub ded: Option<i64>,
+    pub faccion_id: Option<i64>,
+    pub system_id: Option<i64>,
+    pub system_name: String,
+    pub cadena_id: Option<i64>,
+    pub parte: i64,
+    pub modo: String,
+    pub estado: String,
+    pub abierta_at: String,
+    pub caduca_at: String,
+    pub cerrada_at: Option<String>,
+    pub run_id: Option<i64>,
+    pub nota: Option<String>,
+    pub comprador: Option<String>,
+    pub precio: Option<f64>,
+    pub lista_acceso: Option<String>,
+    pub cobrada_at: Option<String>,
+    pub entregada_at: Option<String>,
+    pub acceso_retirado_at: Option<String>,
+    /// Minutos que quedan. **Negativo = ya caducó.** Se calcula en SQL y no en el frontend para que
+    /// la lista y el vigilante que avisa usen exactamente el mismo número: si cada uno lo calculara
+    /// por su cuenta, podrían discrepar y el aviso saldría cuando en pantalla aún hay tiempo.
+    pub quedan_min: i64,
+}
+
+/// Lo que Koru quiere avisarte. Cada variante es una condición distinta — ver `escalaciones_avisar`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AvisoEscalacion {
+    pub id: i64,
+    /// `caduca` · `entrega` · `acceso`
+    pub tipo: String,
+    pub titulo: String,
+    pub system_name: String,
+    pub quedan_min: i64,
+    pub comprador: Option<String>,
+    pub lista_acceso: Option<String>,
+}
+
 /// Una entrada contada de la ficha del hostil: `id` es un type_id de nave o un character_id,
 /// según la lista en la que viaje. Gemela de `CountItem` en commands.rs, pero vive aquí porque
 /// `db` no debe depender de `commands`.
@@ -6409,6 +6456,289 @@ impl Db {
         if ESQUEMA > actual {
             let _ = self.meta_set("esquema", &ESQUEMA.to_string());
         }
+    }
+
+    // ---- ESCALACIONES ------------------------------------------------------------------------
+    //
+    // Todo esto es dato DECLARADO por el usuario: ESI no expone las escalaciones (confirmado el
+    // 2026-09-02) y los bookmarks se retiraron de ESI en febrero de 2025. **Cero peticiones.**
+
+    /// Las columnas, en un sitio, para que las tres consultas no puedan divergir.
+    const ESC_COLS: &'static str = "id, character_id, titulo, ded, faccion_id, system_id, \
+        system_name, cadena_id, parte, modo, estado, abierta_at, caduca_at, cerrada_at, run_id, \
+        nota, comprador, precio, lista_acceso, cobrada_at, entregada_at, acceso_retirado_at, \
+        CAST((julianday(caduca_at) - julianday('now')) * 1440 AS INTEGER) AS quedan_min";
+
+    fn esc_de_fila(r: &rusqlite::Row<'_>) -> rusqlite::Result<Escalacion> {
+        Ok(Escalacion {
+            id: r.get(0)?,
+            character_id: r.get(1)?,
+            titulo: r.get(2)?,
+            ded: r.get(3)?,
+            faccion_id: r.get(4)?,
+            system_id: r.get(5)?,
+            system_name: r.get(6)?,
+            cadena_id: r.get(7)?,
+            parte: r.get(8)?,
+            modo: r.get(9)?,
+            estado: r.get(10)?,
+            abierta_at: r.get(11)?,
+            caduca_at: r.get(12)?,
+            cerrada_at: r.get(13)?,
+            run_id: r.get(14)?,
+            nota: r.get(15)?,
+            comprador: r.get(16)?,
+            precio: r.get(17)?,
+            lista_acceso: r.get(18)?,
+            cobrada_at: r.get(19)?,
+            entregada_at: r.get(20)?,
+            acceso_retirado_at: r.get(21)?,
+            quedan_min: r.get(22)?,
+        })
+    }
+
+    /// Apunta una escalación. `minutos` = lo que le queda **según el juego** (la ventana dice
+    /// «CADUCA EN 17 h 20 m», no una hora), así que se cuenta hacia delante desde ahora.
+    ///
+    /// `cadena_de` = id de la parte anterior cuando esto es la siguiente de una expedición. Cada
+    /// parte trae sus **24 h nuevas** al completarse la anterior (confirmado por él), así que no se
+    /// hereda el reloj, solo la identidad de la cadena.
+    #[allow(clippy::too_many_arguments)]
+    pub fn escalacion_abrir(
+        &self,
+        character_id: Option<i64>,
+        titulo: &str,
+        ded: Option<i64>,
+        faccion_id: Option<i64>,
+        system_id: Option<i64>,
+        system_name: &str,
+        minutos: i64,
+        modo: &str,
+        cadena_de: Option<i64>,
+    ) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let ahora = chrono::Utc::now();
+        let caduca = ahora + chrono::Duration::minutes(minutos.max(1));
+        // El estado inicial depende de la modalidad: una venta nace «en venta», no «pendiente».
+        let estado = if modo == "venta" { "en_venta" } else { "pendiente" };
+        conn.execute(
+            "INSERT INTO escalaciones (character_id, titulo, ded, faccion_id, system_id, \
+             system_name, cadena_id, parte, modo, estado, abierta_at, caduca_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,NULL,1,?7,?8,?9,?10)",
+            rusqlite::params![
+                character_id, titulo, ded, faccion_id, system_id, system_name, modo, estado,
+                ahora.to_rfc3339(), caduca.to_rfc3339()
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        // La cadena se identifica por su PRIMERA parte. Sin `cadena_de`, esta es la primera y se
+        // apunta a sí misma: así una consulta por `cadena_id` devuelve la expedición entera sin
+        // tener que tratar la parte 1 como un caso especial.
+        match cadena_de {
+            Some(padre) => {
+                conn.execute(
+                    "UPDATE escalaciones SET cadena_id = COALESCE((SELECT cadena_id FROM \
+                     escalaciones WHERE id = ?2), ?2), parte = COALESCE((SELECT parte + 1 FROM \
+                     escalaciones WHERE id = ?2), 2) WHERE id = ?1",
+                    rusqlite::params![id, padre],
+                )?;
+            }
+            None => {
+                conn.execute("UPDATE escalaciones SET cadena_id = id WHERE id = ?1", [id])?;
+            }
+        }
+        Ok(id)
+    }
+
+    /// Las vivas, **ordenadas por lo que caduca antes**, que es el único orden útil aquí.
+    /// Incluye las ya caducadas que aún no se han cerrado: verlas es lo que enseña que se perdieron.
+    pub fn escalaciones_vivas(&self) -> AppResult<Vec<Escalacion>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM escalaciones WHERE estado NOT IN ('hecha','caducada','abandonada',\
+             'cerrada') ORDER BY caduca_at",
+            Self::ESC_COLS
+        );
+        let mut st = conn.prepare(&sql)?;
+        let v = st
+            .query_map([], Self::esc_de_fila)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(v)
+    }
+
+    /// El histórico: lo cerrado, lo más reciente primero.
+    pub fn escalaciones_historico(&self, limit: i64) -> AppResult<Vec<Escalacion>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM escalaciones WHERE estado IN ('hecha','caducada','abandonada',\
+             'cerrada') ORDER BY COALESCE(cerrada_at, caduca_at) DESC LIMIT ?1",
+            Self::ESC_COLS
+        );
+        let mut st = conn.prepare(&sql)?;
+        let v = st
+            .query_map([limit.clamp(1, 500)], Self::esc_de_fila)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(v)
+    }
+
+    /// ★★ QUIÉN NECESITA UN AVISO — y sobre todo a quién NO se molesta.
+    ///
+    /// Tres condiciones distintas, y la diferencia entre ellas es toda la sección:
+    ///
+    /// 1. **`caduca`** — es TUYA, sigue pendiente y le queda menos de `umbral_min`. «Córrela ya».
+    /// 2. **`entrega`** — la VENDISTE, ya cobraste y **aún no has dado acceso**. Aquí lo que se
+    ///    pierde no es ISK, es reputación: el comprador tiene su ventana quemándose con tu dinero
+    ///    en tu cartera.
+    /// 3. **`acceso`** — la vendiste, la entregaste, y **ya caducó para el comprador**. A partir de
+    ///    ese instante no hay ni un motivo para que siga dentro de tu lista de acceso: sigue viendo
+    ///    tu safe y te tiene la ranura ocupada.
+    ///
+    /// ⚠️ **A las vendidas NO se les avisa de que caducan.** Ya no son tuyas y avisar de algo que
+    /// no vas a hacer es ruido — y el ruido mata las alarmas, que es por lo que silenciar un
+    /// sistema en el intel calla la alarma y nunca el dato.
+    ///
+    /// ⚠️ `avisado` lleva las marcas de lo ya avisado para no repetirse en cada vuelta del reloj.
+    /// Sin eso, la alarma se dispara cada minuto y en dos días nadie la mira. Mismo patrón que las
+    /// alarmas de extractores de PI.
+    pub fn escalaciones_avisar(&self, umbral_min: i64) -> AppResult<Vec<AvisoEscalacion>> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        let mut leer = |sql: &str, tipo: &str| -> AppResult<()> {
+            let mut st = conn.prepare(sql)?;
+            let filas = st.query_map([umbral_min], |r| {
+                Ok(AvisoEscalacion {
+                    id: r.get(0)?,
+                    tipo: tipo.to_string(),
+                    titulo: r.get(1)?,
+                    system_name: r.get(2)?,
+                    quedan_min: r.get(3)?,
+                    comprador: r.get(4)?,
+                    lista_acceso: r.get(5)?,
+                })
+            })?;
+            for f in filas {
+                out.push(f?);
+            }
+            Ok(())
+        };
+        const QUEDAN: &str =
+            "CAST((julianday(caduca_at) - julianday('now')) * 1440 AS INTEGER)";
+        // 1) Tuya y a punto de caducar.
+        leer(&format!(
+            "SELECT id, titulo, system_name, {QUEDAN}, comprador, lista_acceso FROM escalaciones \
+             WHERE modo='propia' AND estado='pendiente' AND {QUEDAN} > 0 AND {QUEDAN} <= ?1 \
+             AND avisado NOT LIKE '%caduca%'"
+        ), "caduca")?;
+        // 2) Cobrada y sin entregar. Mismo umbral: si al comprador le queda poco, corre prisa.
+        leer(&format!(
+            "SELECT id, titulo, system_name, {QUEDAN}, comprador, lista_acceso FROM escalaciones \
+             WHERE modo='venta' AND estado='cobrada' AND {QUEDAN} > 0 AND {QUEDAN} <= ?1 \
+             AND avisado NOT LIKE '%entrega%'"
+        ), "entrega")?;
+        // 3) Entregada y YA CADUCADA → el acceso sobra. El umbral no se usa aquí (la condición es
+        //    «ya pasó», no «va a pasar»), pero la consulta lo acepta para compartir el helper.
+        leer(&format!(
+            "SELECT id, titulo, system_name, {QUEDAN}, comprador, lista_acceso FROM escalaciones \
+             WHERE modo='venta' AND entregada_at IS NOT NULL AND acceso_retirado_at IS NULL \
+             AND {QUEDAN} <= 0 AND ?1 IS NOT NULL AND avisado NOT LIKE '%acceso%'"
+        ), "acceso")?;
+        Ok(out)
+    }
+
+    /// Deja constancia de que un aviso ya se dio. Se acumulan como texto porque una misma
+    /// escalación puede recibir los tres a lo largo de su vida.
+    pub fn escalacion_marcar_avisada(&self, id: i64, tipo: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE escalaciones SET avisado = avisado || ?2 || ',' WHERE id = ?1",
+            rusqlite::params![id, tipo],
+        )?;
+        Ok(())
+    }
+
+    /// Cambia el estado y sella la fecha que corresponda a ese paso.
+    ///
+    /// Los sellos son campos distintos y no uno solo porque **cada uno responde a una pregunta que
+    /// se hace por separado**: cuánto tardaste en cobrar, cuánto en entregar, y cuánto tardaste en
+    /// quitar el acceso. Con un único `cerrada_at` esas tres se perderían en una.
+    pub fn escalacion_estado(&self, id: i64, estado: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let ahora = chrono::Utc::now().to_rfc3339();
+        let campo = match estado {
+            "cobrada" => Some("cobrada_at"),
+            "entregada" => Some("entregada_at"),
+            "cerrada" => Some("acceso_retirado_at"),
+            _ => None,
+        };
+        conn.execute(
+            "UPDATE escalaciones SET estado = ?2 WHERE id = ?1",
+            rusqlite::params![id, estado],
+        )?;
+        if let Some(c) = campo {
+            conn.execute(
+                &format!("UPDATE escalaciones SET {c} = ?2 WHERE id = ?1 AND {c} IS NULL"),
+                rusqlite::params![id, ahora],
+            )?;
+        }
+        // Las que salen de circulación llevan además la fecha de cierre, que es la que ordena el
+        // histórico. `AND cerrada_at IS NULL` para no repisar la de un cierre anterior.
+        if matches!(estado, "hecha" | "caducada" | "abandonada" | "cerrada") {
+            conn.execute(
+                "UPDATE escalaciones SET cerrada_at = ?2 WHERE id = ?1 AND cerrada_at IS NULL",
+                rusqlite::params![id, ahora],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Los datos de la venta. Van aparte de `escalacion_estado` porque se rellenan en momentos
+    /// distintos: primero pactas con alguien, luego cobras, luego entregas.
+    pub fn escalacion_venta(
+        &self,
+        id: i64,
+        comprador: Option<&str>,
+        precio: Option<f64>,
+        lista_acceso: Option<&str>,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE escalaciones SET modo='venta', comprador = COALESCE(?2, comprador), \
+             precio = COALESCE(?3, precio), lista_acceso = COALESCE(?4, lista_acceso) WHERE id = ?1",
+            rusqlite::params![id, comprador, precio, lista_acceso],
+        )?;
+        Ok(())
+    }
+
+    /// Marca como caducadas las que se pasaron de hora sin cerrarse. **No borra**: una escalación
+    /// perdida es justo el dato que enseña que hay que ir antes, y borrarla lo escondería.
+    ///
+    /// Las vendidas quedan fuera: para ellas «caducada» no es un fracaso tuyo — la corrió el
+    /// comprador o no, pero tú ya cobraste. Su cierre es haber retirado el acceso.
+    pub fn escalaciones_caducar(&self) -> AppResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE escalaciones SET estado='caducada', cerrada_at = COALESCE(cerrada_at, \
+             caduca_at) WHERE modo='propia' AND estado='pendiente' AND caduca_at < ?1",
+            [chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(n)
+    }
+
+    /// Las ranuras de acceso ocupadas ahora mismo: quién sigue dentro y por qué escalación.
+    ///
+    /// Que no te queden libres es información **antes** de aceptar otra venta, no después.
+    pub fn escalaciones_ranuras(&self) -> AppResult<Vec<(String, String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT COALESCE(lista_acceso,''), COALESCE(comprador,''), system_name \
+             FROM escalaciones WHERE modo='venta' AND entregada_at IS NOT NULL \
+             AND acceso_retirado_at IS NULL AND COALESCE(lista_acceso,'') <> '' \
+             ORDER BY entregada_at",
+        )?;
+        let v = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(v)
     }
 
     /// ★★ EL CARA A CARA CON UN HOSTIL, sacado de TUS killmails. Cero peticiones a ESI.

@@ -1,10 +1,10 @@
 # Inventario de endpoints ESI
 
-- **Capturado:** 2026-08-26T13:04:18.918Z
-- **compatibility_date:** 2026-08-26
-- **Versión spec:** 2026-08-18
-- **Total endpoints:** 233
-- **Categorías:** 39
+- **Capturado:** 2026-09-07T15:40:43.775Z
+- **compatibility_date:** 2026-08-04
+- **Versión spec:** 2026-08-04
+- **Total endpoints:** 225
+- **Categorías:** 37
 
 > Generado por `scripts/capture-esi-spec.mjs`. Ejecútalo de nuevo (`npm run esi:capture`) para detectar cambios.
 
@@ -23,7 +23,6 @@
 | Contracts | 9 |
 | Corporation | 22 |
 | Corporation Projects | 4 |
-| Cosmetics | 3 |
 | Dogma | 5 |
 | Faction Warfare | 8 |
 | Fittings | 3 |
@@ -39,7 +38,6 @@
 | Market | 11 |
 | Meta | 4 |
 | Military Campaigns | 6 |
-| Paragon Hub | 5 |
 | Planetary Interaction | 4 |
 | Routes | 1 |
 | Search | 1 |
@@ -185,14 +183,6 @@
 | GET | `/corporations/{corporation_id}/projects/{project_id}` | esi-corporations.read_projects.v1 | Get project details |
 | GET | `/corporations/{corporation_id}/projects/{project_id}/contribution/{character_id}` | esi-corporations.read_projects.v1 | Get your project contribution |
 | GET | `/corporations/{corporation_id}/projects/{project_id}/contributors` | esi-corporations.read_projects.v1 | List project contributors |
-
-## Cosmetics (3)
-
-| Método | Ruta | Scope | Descripción |
-|---|---|---|---|
-| GET | `/characters/{character_id}/cosmetics/skinr` | esi.cosmetic.char:read | List a character's owned SKINR licenses |
-| GET | `/characters/{character_id}/cosmetics/skinr/components` | esi.cosmetic.char:read | List a character's owned SKINR component licenses |
-| GET | `/cosmetics/skinr/{skinr_id}` | — (público) | Get SKINR attributes |
 
 ## Dogma (5)
 
@@ -352,16 +342,6 @@
 | GET | `/military-campaigns/{campaign_id}` | — (público) | Get military campaign details |
 | GET | `/military-campaigns/{campaign_id}/objectives` | — (público) | List military campaign objectives |
 | GET | `/military-campaigns/{campaign_id}/objectives/{objective_id}` | — (público) | Get military campaign objective details |
-
-## Paragon Hub (5)
-
-| Método | Ruta | Scope | Descripción |
-|---|---|---|---|
-| GET | `/characters/{character_id}/paragon-hub/skinr` | esi.cosmetic.char:read | List a character's Paragon Hub SKINR listings |
-| GET | `/paragon-hub/skinr` | — (público) | List public Paragon Hub SKINR listings |
-| GET | `/paragon-hub/skinr/alliances/{alliance_id}` | esi.cosmetic.char:read | List Paragon Hub SKINR listings targeted at an alliance |
-| GET | `/paragon-hub/skinr/characters/{character_id}` | esi.cosmetic.char:read | List Paragon Hub SKINR listings targeted at a character |
-| GET | `/paragon-hub/skinr/corporations/{corporation_id}` | esi.cosmetic.char:read | List Paragon Hub SKINR listings targeted at a corporation |
 
 ## Planetary Interaction (4)
 

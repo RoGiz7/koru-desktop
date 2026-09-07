@@ -27,6 +27,16 @@ const INTEL_JARGON = new Set([
  *  («Bedwin Al Ishira») pasan porque todas sus partes van en mayúscula. Un falso negativo es mucho
  *  mejor que un falso positivo: inventarle nombre a un hostil es peor que admitir que no se sabe. */
 const pareceNombre = (s: string) => /^\p{Lu}/u.test(s);
+
+/** ¿Es este token la COLA de un nombre que ya se está escribiendo?
+ *
+ *  Solo los dígitos, y **solo si hay algo en el buffer**. Un «1» detrás de «Lucy Lee» es su
+ *  apellido; un «1» suelto no es nadie. La condición del buffer es lo que impide que
+ *  `X0-6LH  3 hostiles` invente un piloto llamado «3».
+ *
+ *  ⚠️ Se comprueba DESPUÉS de la jerga, de las naves y del contador `+N`, así que un «x4» o un
+ *  «+3» ya se han ido por su rama y no llegan aquí. */
+const esColaDeNombre = (s: string, buf: string[]) => buf.length > 0 && /^\d{1,4}$/.test(s);
 export type IntelParsed = {
   systems: { id: number; name: string }[];
   pilots: string[];
@@ -230,6 +240,19 @@ export function classifyIntel(
       } else if (k.kind === "jargon" || k.kind === "empty" || k.kind === "ticker") {
         // ticker de corp/alianza cierra el nombre del piloto que lo precede
         flush();
+      } else if (esColaDeNombre(k.text!, buf)) {
+        // ★ UN NÚMERO PEGADO A UN NOMBRE ES PARTE DEL NOMBRE (2026-09-08).
+        //
+        // Reporte suyo con una línea real: `74-VZA  Lucy Lee 1` sacaba el piloto **«Lucy Lee»** —
+        // el `1` se caía porque no empieza por mayúscula y cerraba el nombre. Pero el personaje se
+        // llama «Lucy Lee 1». Y no es raro: en su propia lista de hostiles están «Riley1» y
+        // «MSZ 006». Los nombres de EVE llevan dígitos con toda normalidad.
+        //
+        // Es la misma familia que el arreglo de «Yona»: **lo decide el CONTEXTO**. Un token de
+        // dígitos solo se traga si YA se está construyendo un nombre; suelto no significa nada.
+        // Por eso «X0-6LH  3 hostiles» sigue sin inventar un piloto llamado «3»: ahí el buffer
+        // está vacío porque el sistema acaba de cerrarlo.
+        buf.push(k.text!);
       } else if (!pareceNombre(k.text!)) {
         // No empieza por mayúscula → no es nombre: cierra lo que hubiera y se descarta.
         flush();

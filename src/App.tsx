@@ -19,6 +19,7 @@ import { fmtAgo, fmtMMSS, fmtSp, fmtBytes, typeIcon } from "./format";
 import { FitsView } from "./fit";
 import { MapView } from "./map";
 import { CazadorView } from "./cazador";
+import { EscalacionesView } from "./escalaciones";
 import { PvpView } from "./pvp";
 import { NetworthViewC, WalletViewC } from "./wallet";
 import { RateoView } from "./rateo";
@@ -3244,6 +3245,7 @@ function App() {
             />
           )}
           {tab === "batallas" && <BattlesView data={battlesData} busy={sectionBusy} />}
+          {tab === "escalaciones" && <EscalacionesView />}
           {tab === "cazador" && (
             <CazadorView
               initialPilot={cazadorPilot}

@@ -1100,6 +1100,42 @@ const EN: Record<string, string> = {
   "Esta copia la hizo Koru": "This backup was made by Koru",
   "y trae un formato que esta versión no conoce del todo. Si la restauras, puede que no se lea entera — y reemplazará tus datos actuales. Lo recomendable es actualizar Koru primero.":
     "and it carries a format this version doesn't fully know. Restoring it may not read all of it — and it will replace your current data. The safe move is to update Koru first.",
+  // --- Escalaciones (el cliente ES las llama «intensificaciones»; los jugadores, escalaciones) ---
+  Escalaciones: "Escalations",
+  "Caducan a las 24 h. Apúntalas y Koru te avisa antes de que se pierdan":
+    "They expire in 24 h. Note them down and Koru warns you before they are lost",
+  Vivas: "Live",
+  "Urgen (menos de 3 h)": "Urgent (under 3 h)",
+  "Ranuras ocupadas": "Slots in use",
+  "Título, tal como lo pone el juego": "Title, exactly as the game writes it",
+  "p. ej. Astillero naval del Cártel de los Ángeles": "e.g. Angel Cartel Naval Shipyard",
+  Reconocida: "Recognised",
+  "¿Cuánto le queda?": "How long is left?",
+  "no lo entiendo": "can't read that",
+  "Qué vas a hacer con ella": "What will you do with it",
+  "La hago yo": "I'll run it",
+  "La vendo": "I'll sell it",
+  Apuntar: "Add",
+  "Copia el «CADUCA EN» del juego tal cual —«17 h 20 m»— o escribe las horas a secas. Si la apuntas nada más sacarla, son 24 h y no tienes que tocar nada.":
+    "Copy the game's «EXPIRES IN» verbatim —«17 h 20 m»— or just type the hours. If you note it the moment it drops, it's 24 h and you touch nothing.",
+  "Ninguna apuntada. Cuando te salte una, apúntala aquí y Koru te avisa antes de que caduque.":
+    "None noted. When one drops, add it here and Koru will warn you before it expires.",
+  "Falta el sistema.": "The system is missing.",
+  "sin título": "no title",
+  parte: "part",
+  "en venta": "for sale",
+  "vendida a": "sold to",
+  // (`caducada`, `Histórico`, `Hecha` y `caduca en` ya existían con el MISMO sentido: se
+  //  reutilizan. `para` también existía… pero traducido «to reach» — otro sentido. Por eso
+  //  aquí la clave es «vendida a»: misma palabra en castellano NO es la misma clave.)
+  Paso: "Skip",
+  Cobrada: "Paid",
+  "Acceso dado": "Access given",
+  "Acceso retirado": "Access revoked",
+  "Listas de acceso ocupadas": "Access lists in use",
+  hecha: "done",
+  abandonada: "skipped",
+  cerrada: "closed",
   "Horas activas (UTC)": "Active hours (UTC)",
   "Sistemas favoritos": "Favorite systems",
   "Naves que vuela": "Ships flown",

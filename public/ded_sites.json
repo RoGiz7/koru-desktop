@@ -1,0 +1,812 @@
+{
+"ableger der raubdrohnen-verseuchung": {
+"f": 500021,
+"n": "Ableger der Raubdrohnen-Verseuchung",
+"r": 2
+},
+"almacén de narcóticos serpentis": {
+"f": 500020,
+"n": "Almacén de narcóticos serpentis",
+"r": 3
+},
+"almacén mercantil pith": {
+"f": 500010,
+"n": "Almacén mercantil pith",
+"r": 2
+},
+"angel cartel naval shipyard": {
+"f": 500011,
+"n": "Angel Cartel Naval Shipyard",
+"r": 10
+},
+"angel cartel-werft": {
+"f": 500011,
+"n": "Angel Cartel-Werft",
+"r": 10
+},
+"angel creo-corp mining": {
+"f": 500011,
+"n": "Angel Creo-Corp Mining",
+"r": 2
+},
+"angel military operations complex": {
+"f": 500011,
+"n": "Angel Military Operations Complex",
+"r": 7
+},
+"angel's red light district": {
+"f": 500011,
+"n": "Angel's Red Light District",
+"r": 5
+},
+"asteroiden-verseuchung durch raubdrohnen": {
+"f": 500021,
+"n": "Asteroiden-Verseuchung durch Raubdrohnen",
+"r": 3
+},
+"astillero de la flota serpentis": {
+"f": 500020,
+"n": "Astillero de la flota serpentis",
+"r": 10
+},
+"astillero naval del cártel de los ángeles": {
+"f": 500011,
+"n": "Astillero naval del Cártel de los Ángeles",
+"r": 10
+},
+"astéroïde infesté de drones renégats": {
+"f": 500021,
+"n": "Astéroïde infesté de drones renégats",
+"r": 3
+},
+"avant-poste de reconnaissance guristas": {
+"f": 500010,
+"n": "Avant-poste de reconnaissance guristas",
+"r": 4
+},
+"avant-poste de relais de commandement sansha": {
+"f": 500019,
+"n": "Avant-poste de relais de commandement sansha",
+"r": 3
+},
+"avant-poste militaire sansha": {
+"f": 500019,
+"n": "Avant-poste militaire sansha",
+"r": 1
+},
+"avant-poste serpentis phi": {
+"f": 500020,
+"n": "Avant-poste serpentis phi",
+"r": 4
+},
+"barrio rojo de los ángeles": {
+"f": 500011,
+"n": "Barrio Rojo de los Ángeles",
+"r": 5
+},
+"bergbau der angel creo-corporation": {
+"f": 500011,
+"n": "Bergbau der Angel Creo-Corporation",
+"r": 2
+},
+"betäubungsmittel-lager der serpentis": {
+"f": 500020,
+"n": "Betäubungsmittel-Lager der Serpentis",
+"r": 3
+},
+"bio-farm unter minmatar-vertrag": {
+"f": 500011,
+"n": "Bio-Farm unter Minmatar-Vertrag",
+"r": 1
+},
+"bioferme sous contrat minmatar": {
+"f": 500011,
+"n": "Bioferme sous contrat minmatar",
+"r": 1
+},
+"biogranja contratada minmatariana": {
+"f": 500011,
+"n": "Biogranja contratada minmatariana",
+"r": 1
+},
+"brote infestado de drones rebeldes": {
+"f": 500021,
+"n": "Brote infestado de drones rebeldes",
+"r": 2
+},
+"camp de loisirs pour soldats guristas": {
+"f": 500010,
+"n": "Camp de loisirs pour soldats guristas",
+"r": 6
+},
+"cartel prisoner retention": {
+"f": 500011,
+"n": "Cartel Prisoner Retention",
+"r": 8
+},
+"centre de rétention du cartel": {
+"f": 500011,
+"n": "Centre de rétention du cartel",
+"r": 8
+},
+"chantier naval de la flotte serpentis": {
+"f": 500020,
+"n": "Chantier naval de la flotte serpentis",
+"r": 10
+},
+"chantier naval du cartel angel": {
+"f": 500011,
+"n": "Chantier naval du cartel angel",
+"r": 10
+},
+"complejo de ops. militares de los ángeles": {
+"f": 500011,
+"n": "Complejo de ops. militares de los Ángeles",
+"r": 7
+},
+"complexe des opérations militaires angel": {
+"f": 500011,
+"n": "Complexe des opérations militaires angel",
+"r": 7
+},
+"corporation minière creocorp angel": {
+"f": 500011,
+"n": "Corporation minière CreoCorp angel",
+"r": 2
+},
+"cpto. de revitalización de tropas de los guristas": {
+"f": 500010,
+"n": "Cpto. de revitalización de tropas de los Guristas",
+"r": 6
+},
+"creo-corp mining de los ángeles": {
+"f": 500011,
+"n": "Creo-Corp Mining de los Ángeles",
+"r": 2
+},
+"crimson hand supply depot": {
+"f": 500012,
+"n": "Crimson Hand Supply Depot",
+"r": 6
+},
+"crimson hand-versorgungsdepot": {
+"f": 500012,
+"n": "Crimson Hand-Versorgungsdepot",
+"r": 6
+},
+"dep. de suministros de la mano carmesí": {
+"f": 500012,
+"n": "Dep. de suministros de la Mano Carmesí",
+"r": 6
+},
+"detención de reclusos del cártel": {
+"f": 500011,
+"n": "Detención de reclusos del Cártel",
+"r": 8
+},
+"dépôt commercial pith": {
+"f": 500010,
+"n": "Dépôt commercial pith",
+"r": 2
+},
+"dépôt d'approvisionnement de crimson hand": {
+"f": 500012,
+"n": "Dépôt d'approvisionnement de Crimson Hand",
+"r": 6
+},
+"entrepôt de narcotiques serpentis": {
+"f": 500020,
+"n": "Entrepôt de narcotiques serpentis",
+"r": 3
+},
+"gefangenenverwahrung des angel cartels": {
+"f": 500011,
+"n": "Gefangenenverwahrung des Angel Cartels",
+"r": 8
+},
+"guristas scout outpost": {
+"f": 500010,
+"n": "Guristas Scout Outpost",
+"r": 4
+},
+"guristas troop reinvigoration camp": {
+"f": 500010,
+"n": "Guristas Troop Reinvigoration Camp",
+"r": 6
+},
+"guristas-erkundungsaußenposten": {
+"f": 500010,
+"n": "Guristas-Erkundungsaußenposten",
+"r": 4
+},
+"guristas-truppenerholungszentrum": {
+"f": 500010,
+"n": "Guristas-Truppenerholungszentrum",
+"r": 6
+},
+"infestación en asteroide de drones rebeldes": {
+"f": 500021,
+"n": "Infestación en asteroide de drones rebeldes",
+"r": 3
+},
+"kernhändler-depot": {
+"f": 500010,
+"n": "Kernhändler-Depot",
+"r": 2
+},
+"komplex für militäroperationen der angel": {
+"f": 500011,
+"n": "Komplex für Militäroperationen der Angel",
+"r": 7
+},
+"marché de la drogue serpentis": {
+"f": 500020,
+"n": "Marché de la drogue serpentis",
+"r": 1
+},
+"mercado de estupefacientes serpentis": {
+"f": 500020,
+"n": "Mercado de estupefacientes serpentis",
+"r": 1
+},
+"minmatar contracted bio-farm": {
+"f": 500011,
+"n": "Minmatar Contracted Bio-Farm",
+"r": 1
+},
+"monasterio mul-zatah": {
+"f": 500012,
+"n": "Monasterio mul-zatah",
+"r": 4
+},
+"monastère de mul-zatah": {
+"f": 500012,
+"n": "Monastère de Mul-Zatah",
+"r": 4
+},
+"mul-zatah monastery": {
+"f": 500012,
+"n": "Mul-Zatah Monastery",
+"r": 4
+},
+"old meanie - cultivation center": {
+"f": 500012,
+"n": "Old Meanie - Cultivation Center",
+"r": 1
+},
+"old meanie - kultivierungszentrum": {
+"f": 500012,
+"n": "Old Meanie - Kultivierungszentrum",
+"r": 1
+},
+"old meanie — центр культивации (old meanie - cultivation center)": {
+"f": 500012,
+"n": "Old Meanie — Центр культивации (Old Meanie - Cultivation Center)",
+"r": 1
+},
+"pith merchant depot": {
+"f": 500010,
+"n": "Pith Merchant Depot",
+"r": 2
+},
+"pith-robux asteroid mining co.": {
+"f": 500010,
+"n": "Pith-Robux Asteroid Mining Co.",
+"r": 1
+},
+"puesto avanzado de serpentis-phi": {
+"f": 500020,
+"n": "Puesto avanzado de Serpentis-Phi",
+"r": 4
+},
+"puesto avanzado militar sansha": {
+"f": 500019,
+"n": "Puesto avanzado militar sansha",
+"r": 1
+},
+"puesto de exploración de los guristas": {
+"f": 500010,
+"n": "Puesto de exploración de los Guristas",
+"r": 4
+},
+"puesto de relés de mando sansha": {
+"f": 500019,
+"n": "Puesto de relés de mando sansha",
+"r": 3
+},
+"quartier des plaisirs angel": {
+"f": 500011,
+"n": "Quartier des plaisirs angel",
+"r": 5
+},
+"robux asteroiden-bergbau co.": {
+"f": 500010,
+"n": "Robux Asteroiden-Bergbau Co.",
+"r": 1
+},
+"rogue drone asteroid infestation": {
+"f": 500021,
+"n": "Rogue Drone Asteroid Infestation",
+"r": 3
+},
+"rogue drone infestation sprout": {
+"f": 500021,
+"n": "Rogue Drone Infestation Sprout",
+"r": 2
+},
+"rotlichtbezirk der angel": {
+"f": 500011,
+"n": "Rotlichtbezirk der Angel",
+"r": 5
+},
+"sansha military outpost": {
+"f": 500019,
+"n": "Sansha Military Outpost",
+"r": 1
+},
+"sansha's command relay outpost": {
+"f": 500019,
+"n": "Sansha's Command Relay Outpost",
+"r": 3
+},
+"sansha-kommandorelais-außenposten": {
+"f": 500019,
+"n": "Sansha-Kommandorelais-Außenposten",
+"r": 3
+},
+"sansha-militäraußenposten": {
+"f": 500019,
+"n": "Sansha-Militäraußenposten",
+"r": 1
+},
+"serpentis drug outlet": {
+"f": 500020,
+"n": "Serpentis Drug Outlet",
+"r": 1
+},
+"serpentis fleet shipyard": {
+"f": 500020,
+"n": "Serpentis Fleet Shipyard",
+"r": 10
+},
+"serpentis narcotic warehouses": {
+"f": 500020,
+"n": "Serpentis Narcotic Warehouses",
+"r": 3
+},
+"serpentis phi-außenposten": {
+"f": 500020,
+"n": "Serpentis Phi-Außenposten",
+"r": 4
+},
+"serpentis phi-outpost": {
+"f": 500020,
+"n": "Serpentis Phi-Outpost",
+"r": 4
+},
+"serpentis-drogenvertriebsstelle": {
+"f": 500020,
+"n": "Serpentis-Drogenvertriebsstelle",
+"r": 1
+},
+"vieille carne - centre de culture": {
+"f": 500012,
+"n": "Vieille carne - Centre de culture",
+"r": 1
+},
+"viejo cruel: centro de cultivo": {
+"f": 500012,
+"n": "Viejo Cruel: centro de cultivo",
+"r": 1
+},
+"werft der serpentis-flotte": {
+"f": 500020,
+"n": "Werft der Serpentis-Flotte",
+"r": 10
+},
+"zone d'infestation de drones renégats": {
+"f": 500021,
+"n": "Zone d'infestation de drones renégats",
+"r": 2
+},
+"ангар поставки crimson hand (crimson hand supply depot)": {
+"f": 500012,
+"n": "Ангар поставки Crimson Hand (Crimson Hand Supply Depot)",
+"r": 6
+},
+"база разведки gurista (guristas scout outpost)": {
+"f": 500010,
+"n": "База разведки Gurista (Guristas Scout Outpost)",
+"r": 4
+},
+"верфь флота serpentis (serpentis fleet shipyard)": {
+"f": 500020,
+"n": "Верфь флота Serpentis (Serpentis Fleet Shipyard)",
+"r": 10
+},
+"военная база angel (angel military operations complex)": {
+"f": 500011,
+"n": "Военная база Angel (Angel Military Operations Complex)",
+"r": 7
+},
+"военная верфь картеля angel (angel cartel naval shipyard)": {
+"f": 500011,
+"n": "Военная верфь Картеля Angel (Angel Cartel Naval Shipyard)",
+"r": 10
+},
+"военная застава sansha (sansha military outpost)": {
+"f": 500019,
+"n": "Военная застава Sansha (Sansha Military Outpost)",
+"r": 1
+},
+"зараженные восставшими дронами астероиды (rogue drone asteroid infestation)": {
+"f": 500021,
+"n": "Зараженные восставшими дронами астероиды (Rogue Drone Asteroid Infestation)",
+"r": 3
+},
+"застава serpentis-phi (serpentis phi-outpost)": {
+"f": 500020,
+"n": "Застава Serpentis-Phi (Serpentis Phi-Outpost)",
+"r": 4
+},
+"командный ретранслятор sansha (sansha's command relay outpost)": {
+"f": 500019,
+"n": "Командный ретранслятор Sansha (Sansha's Command Relay Outpost)",
+"r": 3
+},
+"лицензированная биоферма minmatar (minmatar contracted bio-farm)": {
+"f": 500011,
+"n": "Лицензированная биоферма Minmatar (Minmatar Contracted Bio-Farm)",
+"r": 1
+},
+"очаг заражения восставшими дронами (rogue drone infestation sprout)": {
+"f": 500021,
+"n": "Очаг заражения восставшими дронами (Rogue Drone Infestation Sprout)",
+"r": 2
+},
+"пункт торговли наркотиками serpentis (serpentis drug outlet)": {
+"f": 500020,
+"n": "Пункт торговли наркотиками Serpentis (Serpentis Drug Outlet)",
+"r": 1
+},
+"район красных фонарей angel (angel's red light district)": {
+"f": 500011,
+"n": "Район красных фонарей Angel (Angel's Red Light District)",
+"r": 5
+},
+"рекреационный лагерь войск gurista (guristas troop reinvigoration camp)": {
+"f": 500010,
+"n": "Рекреационный лагерь войск Gurista (Guristas Troop Reinvigoration Camp)",
+"r": 6
+},
+"склады наркотиков serpentis (serpentis narcotic warehouses)": {
+"f": 500020,
+"n": "Склады наркотиков Serpentis (Serpentis Narcotic Warehouses)",
+"r": 3
+},
+"торговая база pith (pith merchant depot)": {
+"f": 500010,
+"n": "Торговая база Pith (Pith Merchant Depot)",
+"r": 2
+},
+"тюремный комплекс картеля (cartel prisoner retention)": {
+"f": 500011,
+"n": "Тюремный комплекс Картеля (Cartel Prisoner Retention)",
+"r": 8
+},
+"“小气鬼”修心场": {
+"f": 500012,
+"n": "“小气鬼”修心场",
+"r": 1
+},
+"エンジェルのレッドライト地帯": {
+"f": 500011,
+"n": "エンジェルのレッドライト地帯",
+"r": 5
+},
+"エンジェルカルテル海軍造船所": {
+"f": 500011,
+"n": "エンジェルカルテル海軍造船所",
+"r": 10
+},
+"エンジェルクレオコープマイニング": {
+"f": 500011,
+"n": "エンジェルクレオコープマイニング",
+"r": 2
+},
+"エンジェル軍事作戦複合施設": {
+"f": 500011,
+"n": "エンジェル軍事作戦複合施設",
+"r": 7
+},
+"カルテル囚人収容施設": {
+"f": 500011,
+"n": "カルテル囚人収容施設",
+"r": 8
+},
+"ガリスタストループ活性化キャンプ": {
+"f": 500010,
+"n": "ガリスタストループ活性化キャンプ",
+"r": 6
+},
+"ガリスタス偵察アウトポスト": {
+"f": 500010,
+"n": "ガリスタス偵察アウトポスト",
+"r": 4
+},
+"クリムゾンハンド貯蔵庫": {
+"f": 500012,
+"n": "クリムゾンハンド貯蔵庫",
+"r": 6
+},
+"サンシャ司令中継アウトポスト": {
+"f": 500019,
+"n": "サンシャ司令中継アウトポスト",
+"r": 3
+},
+"サンシャ軍事アウトポスト": {
+"f": 500019,
+"n": "サンシャ軍事アウトポスト",
+"r": 1
+},
+"サーペンティスドラッグアウトレット": {
+"f": 500020,
+"n": "サーペンティスドラッグアウトレット",
+"r": 1
+},
+"サーペンティスフィアウトポスト": {
+"f": 500020,
+"n": "サーペンティスフィアウトポスト",
+"r": 4
+},
+"サーペンティスフリート造船所": {
+"f": 500020,
+"n": "サーペンティスフリート造船所",
+"r": 10
+},
+"サーペンティス麻薬倉庫": {
+"f": 500020,
+"n": "サーペンティス麻薬倉庫",
+"r": 3
+},
+"ピスロブックスアステロイド採掘会社": {
+"f": 500010,
+"n": "ピスロブックスアステロイド採掘会社",
+"r": 1
+},
+"ピス商人貯蔵所": {
+"f": 500010,
+"n": "ピス商人貯蔵所",
+"r": 2
+},
+"ミンマターが建設したバイオファーム": {
+"f": 500011,
+"n": "ミンマターが建設したバイオファーム",
+"r": 1
+},
+"ムルザタ修道院": {
+"f": 500012,
+"n": "ムルザタ修道院",
+"r": 4
+},
+"ローグドローンアステロイド侵蝕": {
+"f": 500021,
+"n": "ローグドローンアステロイド侵蝕",
+"r": 3
+},
+"ローグドローン侵蝕スプラウト": {
+"f": 500021,
+"n": "ローグドローン侵蝕スプラウト",
+"r": 2
+},
+"古いミーニー-栽培センター": {
+"f": 500012,
+"n": "古いミーニー-栽培センター",
+"r": 1
+},
+"古斯塔斯侦察哨站": {
+"f": 500010,
+"n": "古斯塔斯侦察哨站",
+"r": 4
+},
+"古斯塔斯复兴营地": {
+"f": 500010,
+"n": "古斯塔斯复兴营地",
+"r": 6
+},
+"天使军用复合体": {
+"f": 500011,
+"n": "天使军用复合体",
+"r": 7
+},
+"天使创造工业矿冶": {
+"f": 500011,
+"n": "天使创造工业矿冶",
+"r": 2
+},
+"天使拘留所": {
+"f": 500011,
+"n": "天使拘留所",
+"r": 8
+},
+"天使海军造船厂": {
+"f": 500011,
+"n": "天使海军造船厂",
+"r": 10
+},
+"天使红灯区": {
+"f": 500011,
+"n": "天使红灯区",
+"r": 5
+},
+"天蛇二十一哨站": {
+"f": 500020,
+"n": "天蛇二十一哨站",
+"r": 4
+},
+"天蛇毒品出口": {
+"f": 500020,
+"n": "天蛇毒品出口",
+"r": 1
+},
+"天蛇舰队船坞": {
+"f": 500020,
+"n": "天蛇舰队船坞",
+"r": 10
+},
+"天蛇迷幻药贮藏所": {
+"f": 500020,
+"n": "天蛇迷幻药贮藏所",
+"r": 3
+},
+"毛—扎塔修道院": {
+"f": 500012,
+"n": "毛—扎塔修道院",
+"r": 4
+},
+"波希佣兵站": {
+"f": 500010,
+"n": "波希佣兵站",
+"r": 2
+},
+"皮特—洛波斯小行星矿冶公司": {
+"f": 500010,
+"n": "皮特—洛波斯小行星矿冶公司",
+"r": 1
+},
+"米玛塔尔承包模拟生态农场": {
+"f": 500011,
+"n": "米玛塔尔承包模拟生态农场",
+"r": 1
+},
+"自由无人机出没的小行星": {
+"f": 500021,
+"n": "自由无人机出没的小行星",
+"r": 3
+},
+"自由无人机萌生地": {
+"f": 500021,
+"n": "自由无人机萌生地",
+"r": 2
+},
+"萨沙军事哨站": {
+"f": 500019,
+"n": "萨沙军事哨站",
+"r": 1
+},
+"萨沙司令部": {
+"f": 500019,
+"n": "萨沙司令部",
+"r": 3
+},
+"血腥傀儡补给站": {
+"f": 500012,
+"n": "血腥傀儡补给站",
+"r": 6
+},
+"구리스타스 정찰기지": {
+"f": 500010,
+"n": "구리스타스 정찰기지",
+"r": 4
+},
+"구리스타스 휴양기지": {
+"f": 500010,
+"n": "구리스타스 휴양기지",
+"r": 6
+},
+"로그 드론 감염 경보": {
+"f": 500021,
+"n": "로그 드론 감염 경보",
+"r": 2
+},
+"로그 드론 소행성 감염 사태": {
+"f": 500021,
+"n": "로그 드론 소행성 감염 사태",
+"r": 3
+},
+"뮬자타 수도원": {
+"f": 500012,
+"n": "뮬자타 수도원",
+"r": 4
+},
+"산샤 군사기지": {
+"f": 500019,
+"n": "산샤 군사기지",
+"r": 1
+},
+"산샤 지휘통신소": {
+"f": 500019,
+"n": "산샤 지휘통신소",
+"r": 3
+},
+"서펜티스 마약소굴": {
+"f": 500020,
+"n": "서펜티스 마약소굴",
+"r": 1
+},
+"서펜티스 마약창고": {
+"f": 500020,
+"n": "서펜티스 마약창고",
+"r": 3
+},
+"서펜티스 쉽야드": {
+"f": 500020,
+"n": "서펜티스 쉽야드",
+"r": 10
+},
+"서펜티스 파이-전초기지": {
+"f": 500020,
+"n": "서펜티스 파이-전초기지",
+"r": 4
+},
+"엔젤 군사시설": {
+"f": 500011,
+"n": "엔젤 군사시설",
+"r": 7
+},
+"엔젤 무법지대": {
+"f": 500011,
+"n": "엔젤 무법지대",
+"r": 5
+},
+"엔젤 카르텔 바이오 농장": {
+"f": 500011,
+"n": "엔젤 카르텔 바이오 농장",
+"r": 1
+},
+"엔젤 카르텔 수감시설": {
+"f": 500011,
+"n": "엔젤 카르텔 수감시설",
+"r": 8
+},
+"엔젤 카르텔 함선 건조장": {
+"f": 500011,
+"n": "엔젤 카르텔 함선 건조장",
+"r": 10
+},
+"엔젤 크레오 코퍼레이션 채굴 시설": {
+"f": 500011,
+"n": "엔젤 크레오 코퍼레이션 채굴 시설",
+"r": 2
+},
+"올드 미니 - 바이오돔": {
+"f": 500012,
+"n": "올드 미니 - 바이오돔",
+"r": 1
+},
+"크림슨 핸드 보급고": {
+"f": 500012,
+"n": "크림슨 핸드 보급고",
+"r": 6
+},
+"피스 거래상 보급소": {
+"f": 500010,
+"n": "피스 거래상 보급소",
+"r": 2
+},
+"피스-로벅스 채굴 시설": {
+"f": 500010,
+"n": "피스-로벅스 채굴 시설",
+"r": 1
+}
+}

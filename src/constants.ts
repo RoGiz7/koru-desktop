@@ -23,6 +23,7 @@ export type Tab =
   | "rateo"
   | "abyssals"
   | "crab"
+  | "escalaciones"
   | "campanas"
   | "factional"
   | "mineria"
@@ -125,6 +126,9 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
       // CRAB: tracker manual de runs (sesión+cronómetro+loot), sin scope ESI — siempre habilitada.
       { key: "crab", label: "CRAB" },
+      // Escalaciones: como CRAB, tracker manual sin scope. Lo que la hace distinta es el RELOJ:
+      // caducan a las 24 h y una olvidada se pierde entera.
+      { key: "escalaciones", label: "Escalaciones" },
       { key: "factional", label: "Factional", scopes: ["esi-characters.read_fw_stats.v1"] },
       // Misiones: LP por corp NPC + agentes con los que progresas (standings). Scope read_loyalty.
       { key: "lealtad", label: "Misiones", scopes: ["esi-characters.read_loyalty.v1"] },
@@ -375,6 +379,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   comercio_contratos: { title: "Contratos", subtitle: "Tus contratos de los últimos 30 días · courier, intercambio, subasta y préstamo" },
   rateo: { title: "Ingresos PvE", subtitle: "Ingresos por bounties (PvE)" },
   abyssals: { title: "Abyssals", subtitle: "Sesiones cronometradas + estimación por filamentos" },
+  escalaciones: {
+    title: "Escalaciones",
+    subtitle: "Caducan a las 24 h. Apúntalas y Koru te avisa antes de que se pierdan",
+  },
   crab: { title: "CRAB", subtitle: "Sesiones cronometradas de CONCORD Rogue Analysis Beacon (ISK/hora, tasa de muerte, P&L)" },
   campanas: { title: "Campañas", subtitle: "Las campañas militares de Nueva Eden: progreso en vivo, objetivos y recompensas" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },

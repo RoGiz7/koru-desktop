@@ -653,6 +653,65 @@ CREATE TABLE IF NOT EXISTS activity_runs (
 -- `character_id` es el único participante) — por eso no hace falta migrar el histórico.
 -- El botín se reparte a partes iguales entre los participantes, pero la nave perdida es de quien
 -- la perdió: así el alt que muere mucho sale en rojo aunque el conjunto gane dinero.
+-- ★★ ESCALACIONES (el cliente en español las llama «intensificaciones»).
+--
+-- Pedida por la comunidad. Rateando una anomalía puede escalar a un complejo, y el juego te da un
+-- SISTEMA y **24 horas**. Si se te pasa, se pierde entera.
+--
+-- ★ POR QUÉ NO ES UNA `activity_run` MÁS: una run se registra DESPUÉS de hacerla. Aquí lo que vale
+--   es el rato en que la escalación existe y todavía NO la has hecho — el reloj es el producto, el
+--   registro es la excusa. Cuando se hace, se enlaza con su `activity_runs` (`run_id`) y el botín,
+--   los participantes y el ISK/hora salen del aparato que ya existe para CRAB y abismo.
+--
+-- ★ Y TIENE DOS MODALIDADES, porque así se juega de verdad (RoGiz7, 2026-09-08):
+--   · `propia` — la haces tú. El reloj de 24 h es tuyo y hay que avisar antes de que caduque.
+--   · `venta`  — la guardas en un safe, das acceso a la carpeta con una LISTA DE ACCESO y cobras.
+--     A partir de ahí el reloj **deja de ser tuyo** y avisarte de él sería ruido — y el ruido mata
+--     las alarmas, que es la lección de silenciar sistemas en el intel.
+--
+-- ⚠️ PERO EL RELOJ SIGUE SIRVIENDO, PARA OTRA COSA. Las listas de acceso son ranuras con nombre
+--    que se REUTILIZAN («Seller & buyer 1», «2»…). Si no sacas al comprador cuando termina, sigue
+--    teniendo acceso a tu safe y la ranura se queda ocupada para la siguiente venta. Y el momento
+--    exacto en que ya no hay ningún motivo para que siga dentro es **cuando caducan sus 24 h**.
+--    Así que el mismo reloj que se ignora para «córrela» es el disparador de «quítale el acceso».
+CREATE TABLE IF NOT EXISTS escalaciones (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    character_id  INTEGER,                        -- a quién le salió (en multibox importa)
+    titulo        TEXT NOT NULL DEFAULT '',       -- tal como lo escribe el juego, en su idioma
+    ded           INTEGER,                        -- 1..10. NULL = SIN RATING, y eso no es un hueco:
+                                                  -- las de anomalía y las expediciones no tienen.
+    faccion_id    INTEGER,                        -- 500010 Guristas · 500011 Angel · 500012 Blood
+                                                  -- 500019 Sansha · 500020 Serpentis · 500025 Drones
+    system_id     INTEGER,
+    system_name   TEXT NOT NULL DEFAULT '',
+    -- La cadena: las expediciones de firma sin rating son de hasta CUATRO partes, y cada parte da
+    -- 24 h NUEVAS al completarse la anterior (confirmado por él). `cadena_id` = id de la parte 1.
+    cadena_id     INTEGER,
+    parte         INTEGER NOT NULL DEFAULT 1,
+    modo          TEXT NOT NULL DEFAULT 'propia', -- propia | venta
+    -- propia: pendiente | hecha | caducada | abandonada
+    -- venta:  en_venta | cobrada | entregada | cerrada   (cerrada = acceso retirado)
+    estado        TEXT NOT NULL DEFAULT 'pendiente',
+    abierta_at    TEXT NOT NULL,                  -- cuándo se apuntó
+    caduca_at     TEXT NOT NULL,                  -- abierta + lo que le quedara (24 h por defecto)
+    cerrada_at    TEXT,
+    run_id        INTEGER,                        -- → activity_runs cuando se registre la run
+    nota          TEXT,
+    -- ---- Solo en la modalidad de venta ----
+    comprador     TEXT,
+    precio        REAL,
+    lista_acceso  TEXT,                           -- la ranura ocupada («Seller & buyer 1»)
+    cobrada_at    TEXT,
+    entregada_at  TEXT,
+    acceso_retirado_at TEXT,
+    -- Qué avisos ya se dieron, para no repetirlos en cada tick. Mismo patrón que las alarmas de
+    -- extractores: sin esto, la alarma se dispara cada minuto y se convierte en ruido de fondo.
+    avisado       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_esc_vivas  ON escalaciones(estado, caduca_at);
+CREATE INDEX IF NOT EXISTS idx_esc_cadena ON escalaciones(cadena_id, parte);
+CREATE INDEX IF NOT EXISTS idx_esc_char   ON escalaciones(character_id);
+
 CREATE TABLE IF NOT EXISTS activity_run_chars (
     run_id       INTEGER NOT NULL REFERENCES activity_runs(id) ON DELETE CASCADE,
     character_id INTEGER NOT NULL,

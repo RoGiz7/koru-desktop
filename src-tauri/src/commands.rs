@@ -926,9 +926,175 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         }
     }
 
+    // ---- ★★ ESCALACIONES: avisar antes de que caduquen ----
+    //
+    // Va aquí, en el mismo latido que ya avisa de extractores y logros, y no en un temporizador
+    // propio: **no cuesta ni una peticion** (es todo dato local) y reutiliza el idioma y el camino
+    // de notificacion que ya funcionan. Con 30 minutos de granularidad sobre un reloj de 24 horas
+    // sobra de largo.
+    //
+    // ⚠️ Y una consecuencia que hay que asumir: **con Koru cerrado no hay aviso.** Es inherente a
+    // una app de escritorio, y es justo el segundo motivo del interruptor de «mantener Koru en
+    // marcha» — el primero eran los avisos de intel.
+    {
+        // Primero se marcan las que ya se pasaron: si no, una caducada seguiria pidiendo aviso
+        // para siempre y ensuciaria la lista de vivas.
+        let _ = state.db.escalaciones_caducar();
+        // 3 horas: da tiempo a viajar y hacerla. Menos seria un aviso que llega tarde, y mas
+        // convertiria en urgente algo que aun no lo es — que es como se entrena a ignorar avisos.
+        if let Ok(avisos) = state.db.escalaciones_avisar(180) {
+            if !avisos.is_empty() {
+                let en = en_ingles(&state.db);
+                use tauri_plugin_notification::NotificationExt;
+                for a in &avisos {
+                    let horas = (a.quedan_min.max(0) + 59) / 60;
+                    let (titulo, cuerpo) = match (a.tipo.as_str(), en) {
+                        ("caduca", false) => (
+                            "⏳ Escalación a punto de caducar",
+                            format!("{} en {} · te quedan ~{} h", a.titulo, a.system_name, horas),
+                        ),
+                        ("caduca", true) => (
+                            "⏳ Escalation about to expire",
+                            format!("{} in {} · ~{} h left", a.titulo, a.system_name, horas),
+                        ),
+                        ("entrega", false) => (
+                            "💰 Cobrada y sin entregar",
+                            format!(
+                                "Le cobraste a {} y aún no le has dado acceso. Le quedan ~{} h.",
+                                a.comprador.clone().unwrap_or_default(), horas
+                            ),
+                        ),
+                        ("entrega", true) => (
+                            "💰 Paid for, not delivered",
+                            format!(
+                                "{} paid you and still has no access. ~{} h left for them.",
+                                a.comprador.clone().unwrap_or_default(), horas
+                            ),
+                        ),
+                        (_, false) => (
+                            "🔑 Quítale el acceso",
+                            format!(
+                                "La escalación de {} ya caducó: {} sigue en «{}» y ve tu safe.",
+                                a.system_name,
+                                a.comprador.clone().unwrap_or_default(),
+                                a.lista_acceso.clone().unwrap_or_default()
+                            ),
+                        ),
+                        (_, true) => (
+                            "🔑 Revoke the access",
+                            format!(
+                                "The {} escalation has expired: {} is still in «{}» and can see your safe.",
+                                a.system_name,
+                                a.comprador.clone().unwrap_or_default(),
+                                a.lista_acceso.clone().unwrap_or_default()
+                            ),
+                        ),
+                    };
+                    let _ = app.notification().builder().title(titulo).body(&cuerpo).show();
+                    // Marcar SOLO despues de mandarlo: si el aviso falla, que se reintente.
+                    let _ = state.db.escalacion_marcar_avisada(a.id, &a.tipo);
+                }
+                let _ = app.emit("escalacion-aviso", &avisos);
+            }
+        }
+    }
+
     res.fired_notes = notas_assets;
     res.fired_steps = tareas_hechas;
     Ok(res)
+}
+
+// ---- ESCALACIONES: los comandos ----------------------------------------------------------
+//
+// Todo dato declarado: ESI no expone las escalaciones y los bookmarks se retiraron de ESI en
+// febrero de 2025. **Cero peticiones.** Ver el comentario de la tabla en `schema.sql`.
+
+/// Apunta una escalación. `minutos` = lo que dice la ventana del juego («CADUCA EN 17 h 20 m»),
+/// por eso se cuenta hacia delante y no se pide una hora.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn escalacion_abrir(
+    state: State<'_, AppState>,
+    character_id: Option<i64>,
+    titulo: String,
+    ded: Option<i64>,
+    faccion_id: Option<i64>,
+    system_id: Option<i64>,
+    system_name: String,
+    minutos: Option<i64>,
+    modo: Option<String>,
+    cadena_de: Option<i64>,
+) -> AppResult<i64> {
+    state.db.escalacion_abrir(
+        character_id,
+        titulo.trim(),
+        ded,
+        faccion_id,
+        system_id,
+        system_name.trim(),
+        // 24 h por defecto: es el caso de siempre, apuntarla nada más sacarla.
+        minutos.unwrap_or(24 * 60),
+        modo.as_deref().unwrap_or("propia"),
+        cadena_de,
+    )
+}
+
+/// Las vivas, lo que caduca antes primero. De paso marca las que ya se pasaron, para que la lista
+/// no mienta si Koru llevaba rato abierto sin sincronizar.
+#[tauri::command]
+pub fn escalaciones_vivas(state: State<'_, AppState>) -> AppResult<Vec<crate::db::Escalacion>> {
+    let _ = state.db.escalaciones_caducar();
+    state.db.escalaciones_vivas()
+}
+
+#[tauri::command]
+pub fn escalaciones_historico(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> AppResult<Vec<crate::db::Escalacion>> {
+    state.db.escalaciones_historico(limit.unwrap_or(100))
+}
+
+#[tauri::command]
+pub fn escalacion_estado(state: State<'_, AppState>, id: i64, estado: String) -> AppResult<()> {
+    state.db.escalacion_estado(id, &estado)
+}
+
+#[tauri::command]
+pub fn escalacion_venta(
+    state: State<'_, AppState>,
+    id: i64,
+    comprador: Option<String>,
+    precio: Option<f64>,
+    lista_acceso: Option<String>,
+) -> AppResult<()> {
+    state
+        .db
+        .escalacion_venta(id, comprador.as_deref(), precio, lista_acceso.as_deref())
+}
+
+/// Ranura de acceso ocupada: qué lista, con quién dentro y por qué escalación.
+#[derive(Debug, serde::Serialize)]
+pub struct RanuraAcceso {
+    pub lista: String,
+    pub comprador: String,
+    pub system_name: String,
+}
+
+/// Las ranuras ocupadas ahora mismo. Que no te queden libres es información **antes** de aceptar
+/// otra venta, no después.
+#[tauri::command]
+pub fn escalaciones_ranuras(state: State<'_, AppState>) -> AppResult<Vec<RanuraAcceso>> {
+    Ok(state
+        .db
+        .escalaciones_ranuras()?
+        .into_iter()
+        .map(|(lista, comprador, system_name)| RanuraAcceso {
+            lista,
+            comprador,
+            system_name,
+        })
+        .collect())
 }
 
 /// Sincroniza precios de mercado (público) bajo demanda. Devuelve nº de tipos guardados.
