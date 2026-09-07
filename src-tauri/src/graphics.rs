@@ -60,7 +60,14 @@ fn dir_datos() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(base.join("com.rekium.korudesktop"))
+    // ★ La MISMA regla que el resto de la app, no un nombre escrito a mano.
+    //
+    // Aquí vivía el identifier duplicado: `com.rekium.korudesktop` literal. Dos sitios que tenían
+    // que coincidir y nada que lo obligara — el día que uno cambiara, la bandera de modo
+    // compatible se habría perdido en silencio y un usuario de Linux habría vuelto a la ventana
+    // en blanco sin que nadie entendiera por qué. Por eso `resolver_desde_base` no pide
+    // `AppHandle`: esto corre antes de que exista el `App`.
+    Some(crate::datadir::resolver_desde_base(&base))
 }
 
 #[cfg(not(target_os = "linux"))]

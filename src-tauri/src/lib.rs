@@ -7,6 +7,7 @@ mod chatlog;
 mod commands;
 mod diagnostico;
 mod config;
+mod datadir;
 mod db;
 mod error;
 mod esi;
@@ -159,12 +160,16 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         .setup(|app| {
-            // BD en el directorio de datos de la app.
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("no se pudo resolver app_data_dir");
-            let db_path = data_dir.join("koru-desktop.sqlite3");
+            // ★ La carpeta de datos la decide `datadir`, NO `app_data_dir()`. Ver el porqué y la
+            // trampa en `datadir.rs`: el identifier sigue diciendo «rekium» a propósito, así que
+            // `app_data_dir()` apunta a la carpeta heredada y usarlo a pelo escribiría fuera.
+            let data_dir = datadir::resolver(app.handle());
+            // Puede no existir todavía (instalación nueva): se crea aquí, antes de abrir la BD.
+            if let Err(e) = std::fs::create_dir_all(&data_dir) {
+                eprintln!("[koru] no se pudo crear {data_dir:?}: {e}");
+            }
+            let db_path = data_dir.join(datadir::FICHERO_BD);
+            eprintln!("[koru] datos en {db_path:?}");
 
             // Restauración pendiente: si existe un archivo .restore (dejado por restore_db),
             // lo aplicamos AHORA, con la BD aún cerrada. Reemplazamos la BD vigente y

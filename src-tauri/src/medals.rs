@@ -17,7 +17,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
-use tauri::Manager;
+// `tauri::Manager` ya no hace falta: la carpeta la da `datadir::resolver`, no `app.path()`.
 
 use crate::error::{AppError, AppResult};
 
@@ -142,11 +142,11 @@ pub struct MedalExtractResult {
 
 /// Carpeta de salida `app-data/medals`, creada si no existe.
 fn out_dir(app: &tauri::AppHandle) -> AppResult<PathBuf> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::Other(format!("app_data_dir: {e}")))?
-        .join(OUT_SUBDIR);
+    // ⚠️ `datadir::resolver`, NUNCA `app_data_dir()`: el identifier sigue siendo el heredado, así
+    // que `app_data_dir()` apunta a la carpeta vieja. Aquí se escribía a pelo y era el ejemplo
+    // exacto de la trampa que documenta `datadir.rs` — las medallas habrían acabado en una
+    // carpeta y la base de datos en otra, sin un solo error por ningún lado.
+    let dir = crate::datadir::resolver(app).join(OUT_SUBDIR);
     std::fs::create_dir_all(&dir).map_err(|e| AppError::Other(format!("crear {dir:?}: {e}")))?;
     Ok(dir)
 }
@@ -225,14 +225,11 @@ pub async fn extract_medal_textures(
 /// medallas reales o cae al marco genérico (evita disparar N invokes que fallarían).
 #[tauri::command]
 pub fn medal_textures_ready(app: tauri::AppHandle) -> bool {
-    app.path()
-        .app_data_dir()
-        .map(|d| {
-            let dir = d.join(OUT_SUBDIR);
-            std::fs::read_dir(&dir)
-                .map(|mut rd| rd.any(|e| e.is_ok()))
-                .unwrap_or(false)
-        })
+    // Misma carpeta que `out_dir`, y por la misma razón. Si estas dos se separaran, el frontend
+    // creería que no hay texturas justo después de extraerlas.
+    let dir = crate::datadir::resolver(&app).join(OUT_SUBDIR);
+    std::fs::read_dir(&dir)
+        .map(|mut rd| rd.any(|e| e.is_ok()))
         .unwrap_or(false)
 }
 
