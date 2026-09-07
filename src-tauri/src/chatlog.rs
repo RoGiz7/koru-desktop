@@ -4,7 +4,7 @@
 //!
 //! El canal Local escribe una línea en CADA cambio de sistema, incluidos el login y el clon de salto:
 //!   `[ 2026.06.29 08:40:52 ] Sistema EVE > El canal ha cambiado a Local: TTP-2B.`
-//!   `[ 2020.06.06 13:49:22 ] EVE System > Channel changed to Local : 1DQ1-A.`
+//!   `[ 2020.06.06 13:49:22 ] EVE System > Channel changed to Local : 1ABC-D.`
 //!
 //! REGLA DE ORO: **no se arrastra el sistema entre sesiones.** Cada fichero de gamelog es una sesión y
 //! se empareja con SU fichero `Local_*` (mismo personaje, mismo arranque). Sin gemelo no se atribuye
@@ -238,7 +238,7 @@ pub fn presence(path: &Path) -> Vec<Presence> {
             continue;
         }
         // El sistema va tras el último ':' y puede acabar en punto. El cliente añade además un '*' a
-        // veces (`PS-94K*` y `PS-94K` son el mismo sistema: 6 de los 9 casos aparecen de las dos
+        // veces (`AB-12C*` y `AB-12C` son el mismo sistema: 6 de los 9 casos aparecen de las dos
         // formas). Sin quitarlo, el ranking partiría un sistema en dos.
         let sys = match l.rsplit(':').next() {
             Some(s) => s.trim().trim_end_matches('.').trim_end_matches('*').trim(),

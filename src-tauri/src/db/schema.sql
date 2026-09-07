@@ -221,6 +221,44 @@ CREATE TABLE IF NOT EXISTS intel_sightings (
 );
 CREATE INDEX IF NOT EXISTS idx_sight_name ON intel_sightings(name_lower, ts_ms);
 
+-- ★★ LA LÍNEA DE INTEL, CRUDA. Idea de RoGiz7 (2026-09-08), y de las que cambian los cimientos.
+--
+-- Hasta hoy Koru guardaba la CONCLUSIÓN (`intel_sightings`: quién, dónde, cuándo) y tiraba el
+-- HECHO (la línea que alguien escribió). Al revés de como debe ser, y se vio en un caso suyo: una
+-- línea decía `Lucy Lee 1` y quedó archivada como el piloto «Lucy Lee», porque el troceador de
+-- entonces se comía el número. `intel_sightings` solo se escribe con INSERT OR IGNORE y no tiene
+-- un solo DELETE, así que ese error —y el piloto «Navy» del Brutix, y el «Dee» que salió de
+-- partir un nombre por el sistema Yona, y los `WH`/`YPW`— siguen ahí para siempre. Son
+-- conclusiones sin premisas: no se pueden rehacer.
+--
+-- Con la línea guardada, cada arreglo del troceador alcanza HACIA ATRÁS: se vacían los
+-- avistamientos y se reconstruyen. Medido sobre 250.000 filas: 164 ms leerlas todas.
+--
+-- Y resuelve algo más grande que él vio antes que yo: hoy el histórico de intel vive en una
+-- carpeta de EVE que Koru no controla y que cualquier reinstalación se lleva. Es la misma lección
+-- que `fleet_op_balance`, que existe por una pregunta suya sobre backups.
+--
+-- ⚠️ WITHOUT ROWID a propósito, no por costumbre: si la clave ES la tabla, el texto se guarda UNA
+--    vez. Con tabla normal + índice único se guardaría DOS. Medido con 250.000 líneas reales:
+--    21,0 MB frente a 48,7 MB. La forma pesa más del doble que el contenido.
+--
+-- ⚠️ La clave incluye el TEXTO, y eso es lo que arregla el multibox: el mismo mensaje aparece en
+--    un fichero por cada personaje tuyo que escuche el canal, y aquí entra una sola vez.
+--
+-- ⚠️ SOLO CANALES DE INTEL. `Local` son 39.028 líneas suyas y no aporta nada al intel; sus
+--    ficheros llegan a 34 MB. El histórico de intel entero (246.188 líneas) ocupa 22 MB, un 9 %
+--    de su base de datos actual.
+--
+-- ⚠️ El texto entra TAL CUAL, con su marcado, sus dobles espacios y sus faltas. Limpiarlo ya
+--    sería interpretar, y la interpretación es justo lo que queremos poder rehacer mañana.
+CREATE TABLE IF NOT EXISTS intel_line (
+    canal   TEXT NOT NULL,
+    ts_ms   INTEGER NOT NULL,
+    autor   TEXT NOT NULL,
+    texto   TEXT NOT NULL,
+    PRIMARY KEY (canal, ts_ms, autor, texto)
+) WITHOUT ROWID;
+
 -- Watchlist de mercado (Comercio → inteligencia de mercado): tipos que el usuario vigila.
 -- Solo el typeID; el precio/spread/volumen se piden en vivo a ESI (públicos, cacheados).
 CREATE TABLE IF NOT EXISTS market_watch (

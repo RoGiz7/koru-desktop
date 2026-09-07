@@ -728,7 +728,7 @@ fn parse_combat_line(line: &str) -> Option<CombatEvent> {
     let wreck = quality == 6;
     // Objetivo/origen: el contenido del `<b>…</b>` que sigue al marcador, en la línea CRUDA.
     // Anclarse al bold es lo único fiable — los nombres de estructura de jugador llevan " - "
-    // dentro (`M2-XFE - Grandma shark…[THXFC](Astrahus)`) y el antiguo corte por " - " en texto
+    // dentro (`N3-QRS - Grandma shark…[THXFC](Astrahus)`) y el antiguo corte por " - " en texto
     // plano los partía: años registrando el SISTEMA como si fuera una rata. Validado en Python:
     // 784k golpes, 14 sin extraer (0,002%).
     let mut kind = 0u8;

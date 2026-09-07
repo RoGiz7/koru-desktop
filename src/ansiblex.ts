@@ -77,14 +77,14 @@ export type AnsiblexParseReport = {
   oneWay: { a: string; b: string }[];
 };
 
-/** Un nombre de sistema de New Eden: "1DQ1-A", "T6GY-Y", "Jita", "PS-94K". Admite el sufijo de
- *  ubicación que trae el wiki ("C-6YHJ @ 1-1") y lo descarta. */
+/** Un nombre de sistema de New Eden: "1ABC-D", "2DEF-G", "Jita", "AB-12C". Admite el sufijo de
+ *  ubicación que trae el wiki ("A-1BCD @ 1-1") y lo descarta. */
 const SYSTEM_FIELD = /^([A-Za-z0-9][A-Za-z0-9-]{1,14})(?:\s*@.*)?$/;
 /** Un número decimal suelto (la columna de años luz). */
 const DECIMAL = /^\d+(?:\.\d+)?$/;
 const STATUS = /^(online|offline|unanchoring|anchoring)$/i;
 const YESNO = /^(yes|no|s[ií])$/i;
-/** Forma de nombre de sistema de nullsec ("C-6YHJ", "1DQ1-A"). Sirve para no llenar el aviso de
+/** Forma de nombre de sistema de nullsec ("A-1BCD", "1ABC-D"). Sirve para no llenar el aviso de
  *  "sistemas desconocidos" con ruido: sin esto, una fila con una errata chivaba TODAS sus celdas
  *  (Cache, FNT, Grey, Online, Yes…) como si fueran sistemas que no encontramos. */
 const NULLSEC_SHAPED = /^[A-Za-z0-9]{1,6}-[A-Za-z0-9]{1,6}$/;

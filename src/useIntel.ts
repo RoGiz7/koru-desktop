@@ -107,8 +107,8 @@ export function useIntel({
     const pilots = [...new Set(p.pilots)];
     // ★★ LAS DOS LECTURAS DE UN NOMBRE PARTIDO POR UN SISTEMA (ver `pilotAlts` en intel.ts).
     //
-    // `G-QTSD Dee Yona vector-Z` daba el piloto «Dee» porque **«Yona» es un sistema de verdad**
-    // (Essence, highsec, a 23 saltos de G-QTSD) y cortaba el nombre. Y «Dee» resuelve a otra
+    // `X-ABCD Dee Yona vector-Z` daba el piloto «Dee» porque **«Yona» es un sistema de verdad**
+    // (Essence, highsec, a 23 saltos de X-ABCD) y cortaba el nombre. Y «Dee» resuelve a otra
     // persona: el aviso enlazaba al killboard equivocado — lo reportó Sir Rayl.
     //
     // No se elige aquí: se mandan las DOS y **decide quien puede comprobarlo**, que es el índice

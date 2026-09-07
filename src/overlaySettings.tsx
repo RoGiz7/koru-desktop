@@ -38,6 +38,46 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
     }
   };
 
+  // --- El archivo de líneas de intel (`intel_line`) ---
+  /** `[cuántas, primera_ms, última_ms]`. `null` = todavía no se ha preguntado. */
+  const [archivo, setArchivo] = useState<[number, number | null, number | null] | null>(null);
+  const [buscaCanal, setBuscaCanal] = useState("");
+  const [importando, setImportando] = useState(false);
+  const [resultado, setResultado] = useState<string | null>(null);
+  const contar = () =>
+    invoke<[number, number | null, number | null]>("intel_lines_stats")
+      .then(setArchivo)
+      .catch(() => setArchivo([0, null, null]));
+  useEffect(() => {
+    contar();
+  }, []);
+  /** Trae de golpe lo ya cantado: una pasada por TODOS los logs de los canales marcados.
+   *
+   *  Se puede pulsar las veces que haga falta — `INSERT OR IGNORE` hace que la segunda pasada no
+   *  cambie nada. Por eso se enseñan las NUEVAS y no las leídas: si dijera «246.188 líneas» cada
+   *  vez, parecería que duplica. */
+  const importar = async () => {
+    setImportando(true);
+    setResultado(null);
+    try {
+      const r = await invoke<{ ficheros: number; lineas: number; nuevas: number; ms: number }>(
+        "intel_import_historico",
+        { folder: intel.folder, channels: intel.channels },
+      );
+      setResultado(
+        `${r.ficheros.toLocaleString()} ${tr("ficheros")} · ${r.lineas.toLocaleString()} ${tr(
+          "líneas leídas",
+        )} · ${r.nuevas.toLocaleString()} ${tr("nuevas")} · ${(r.ms / 1000).toFixed(1)} s`,
+      );
+      contar();
+    } catch (e) {
+      // El error se ENSEÑA. Una importación que no hace nada y no dice por qué es peor que un error.
+      setResultado(`${tr("No se pudo importar")}: ${String(e)}`);
+    } finally {
+      setImportando(false);
+    }
+  };
+
   return (
     <>
       <div className="tb-settings-title small muted">{tr("Lectura de los chats de intel")}</div>
@@ -104,23 +144,104 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
                   : tr("No se encontraron canales en la carpeta.")
                 : `${intel.channels.length} / ${intel.availChannels.length} ${tr("vigilados")}`}
           </span>
-          <div className="ovs-chans">
-            {intel.availChannels.map((c) => (
-              <label key={c} className="ovs-chan">
-                <input
-                  type="checkbox"
-                  checked={intel.channels.includes(c)}
-                  onChange={(e) => {
-                    const next = e.target.checked
-                      ? [...intel.channels, c]
-                      : intel.channels.filter((x) => x !== c);
-                    intel.onConfig({ channels: next });
-                  }}
-                />
-                {c}
-              </label>
+          {/* ★ SOLO LOS ELEGIDOS, Y UN BUSCADOR PARA AÑADIR. Antes eran 153 casillas en una parrilla
+              con barra de desplazamiento propia: para ver los DOS que de verdad vigilas había que
+              rebuscarlos entre `WindrunnerFits`, `bigaugswarm` y `Why Was I Ganked_`. Y el número
+              solo crece — al aprender a mirar en `old\` pasó de 14 canales a 153.
+
+              La lista completa no desaparece, se pide: se escribe y aparece. Es lo mismo que hace
+              el buscador de sistemas del mapa, y por eso se ve igual. */}
+          <div className="ovs-chans-sel">
+            {intel.channels.length === 0 && (
+              <span className="small muted">{tr("Ninguno todavía.")}</span>
+            )}
+            {intel.channels.map((c) => (
+              <button
+                key={c}
+                className="ovs-chip"
+                title={tr("Dejar de vigilar")}
+                onClick={() => intel.onConfig({ channels: intel.channels.filter((x) => x !== c) })}
+              >
+                {c} <span className="ovs-chip-x">✕</span>
+              </button>
             ))}
           </div>
+          <div className="ovs-chan-add sys-search">
+            <input
+              value={buscaCanal}
+              onChange={(e) => setBuscaCanal(e.target.value)}
+              placeholder={`${tr("Añadir canal…")}  (${intel.availChannels.length})`}
+            />
+            {buscaCanal.trim() !== "" && (
+              <ul className="sys-search-list">
+                {(() => {
+                  const q = buscaCanal.trim().toLowerCase();
+                  const hay = intel.availChannels
+                    .filter((c) => !intel.channels.includes(c) && c.toLowerCase().includes(q))
+                    // Primero los que EMPIEZAN por lo escrito: quien teclea «delve» busca
+                    // «delve.imperium», no «xxx-delve-yyy».
+                    .sort((a, b) => {
+                      const pa = Number(a.toLowerCase().startsWith(q));
+                      const pb = Number(b.toLowerCase().startsWith(q));
+                      return pb - pa || a.localeCompare(b);
+                    });
+                  if (hay.length === 0) {
+                    return <li className="muted">{tr("Ningún canal con ese nombre.")}</li>;
+                  }
+                  return hay.slice(0, 12).map((c) => (
+                    <li
+                      key={c}
+                      onClick={() => {
+                        intel.onConfig({ channels: [...intel.channels, c] });
+                        setBuscaCanal("");
+                      }}
+                    >
+                      {c}
+                    </li>
+                  ));
+                })()}
+              </ul>
+            )}
+          </div>
+        </span>
+      </div>
+
+      {/* ★★ EL ARCHIVO. Idea de RoGiz7 (2026-09-08): hasta ahora Koru guardaba la CONCLUSIÓN de
+          cada línea y tiraba la línea. Eso hacía que sus errores fueran permanentes —una línea que
+          decía «Lucy Lee 1» quedó archivada como «Lucy Lee» y no había forma de rehacerla— y que
+          todo el histórico dependiera de una carpeta de EVE que Koru no controla.
+
+          Va DEBAJO de los canales a propósito: importa lo que esté marcado ahí arriba, así que la
+          decisión de qué canales se guardan se toma justo antes de pulsar. */}
+      <div className="tb-settings-item">
+        <span className="tb-si-ic">🗄️</span>
+        <span className="tb-si-tx">
+          <strong>{tr("Archivo del intel")}</strong>
+          <span className="small muted">
+            {tr(
+              "Koru guarda cada línea tal como se escribió. Sirve para rehacer los avistamientos cuando se mejora el lector, y para que tu histórico sobreviva a una limpieza de la carpeta de EVE.",
+            )}
+          </span>
+          <div className="ovs-row">
+            <span className="small">
+              {archivo == null
+                ? tr("contando…")
+                : archivo[0] === 0
+                  ? tr("todavía no hay nada guardado")
+                  : `${archivo[0].toLocaleString()} ${tr("líneas")}${
+                      archivo[1] ? ` · ${tr("desde")} ${new Date(archivo[1]).toLocaleDateString()}` : ""
+                    }`}
+            </span>
+            <button onClick={importar} disabled={importando || !intel.folder || intel.channels.length === 0}>
+              {importando ? tr("Importando…") : `📥 ${tr("Importar lo ya cantado")}`}
+            </button>
+          </div>
+          {/* Se dice cuántas eran NUEVAS, no cuántas se leyeron: repetir la importación es inocuo
+              (la clave las deduplica) y sin ese número la segunda pasada parecería no hacer nada. */}
+          {resultado && <div className="small ovs-hallazgos">{resultado}</div>}
+          {intel.channels.length === 0 && (
+            <div className="small muted">{tr("Marca antes los canales que quieres archivar.")}</div>
+          )}
         </span>
       </div>
 

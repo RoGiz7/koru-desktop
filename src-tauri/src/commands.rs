@@ -829,7 +829,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             // hacerlo por cada extractor sería pagar un candado por línea de texto.
             let en = en_ingles(&state.db);
             // Capitaliza el tipo de planeta ("barren" → "Barren") para distinguir colonias del
-            // mismo sistema (antes salían idénticas: "C-J6MT · C-J6MT · C-J6MT").
+            // mismo sistema (antes salían idénticas: "D-K7NU · D-K7NU · D-K7NU").
             let cap = |s: &str| -> String {
                 let mut ch = s.chars();
                 match ch.next() {
@@ -1578,7 +1578,7 @@ pub async fn facility_seed_from_esi(state: State<'_, AppState>) -> AppResult<usi
 
 /// F1b — Índices de coste de industria de UN sistema (actividad → índice). Público, sin scope.
 /// El coste BRUTO de un job es `VEO × índice(actividad)`. Verificado contra el juego:
-/// C-J6MT manufacturing ≈ 0,0998 → 279.893 × 0,0998 = 27.938 ISK.
+/// D-K7NU manufacturing ≈ 0,0998 → 279.893 × 0,0998 = 27.938 ISK.
 #[tauri::command]
 pub async fn get_industry_index(
     system_id: i64,
@@ -7443,33 +7443,98 @@ pub struct IntelFolderScan {
     pub sample: Option<String>,
 }
 
+/// ★★ EL CANAL, A PARTIR DEL NOMBRE DEL FICHERO. **Hay DOS formatos y solo conocíamos uno.**
+///
+/// El actual es `Canal_AAAAMMDD_HHMMSS_charID.txt`, pero los logs de hace años son
+/// `Canal_AAAAMMDD_HHMMSS.txt`, **sin el id del personaje**. El código pedía «al menos 4 campos»,
+/// así que todos los antiguos se descartaban en silencio y sus canales no existían para Koru.
+///
+/// Además ahora se COMPRUEBA que la cola sea de verdad una fecha y una hora, en vez de cortar tres
+/// campos a ciegas: un canal que lleve guiones bajos en el nombre ya no se parte por la mitad.
+fn canal_de_fichero(name: &str) -> Option<String> {
+    let stem = name.strip_suffix(".txt")?;
+    let p: Vec<&str> = stem.split('_').collect();
+    let digitos = |s: &str, n: usize| s.len() == n && s.chars().all(|c| c.is_ascii_digit());
+    // Formato actual: ..._FECHA_HORA_CHARID
+    if p.len() >= 4
+        && digitos(p[p.len() - 3], 8)
+        && digitos(p[p.len() - 2], 6)
+        && !p[p.len() - 1].is_empty()
+        && p[p.len() - 1].chars().all(|c| c.is_ascii_digit())
+    {
+        let ch = p[..p.len() - 3].join("_");
+        if !ch.is_empty() {
+            return Some(ch);
+        }
+    }
+    // Formato antiguo: ..._FECHA_HORA
+    if p.len() >= 3 && digitos(p[p.len() - 2], 8) && digitos(p[p.len() - 1], 6) {
+        let ch = p[..p.len() - 2].join("_");
+        if !ch.is_empty() {
+            return Some(ch);
+        }
+    }
+    None
+}
+
+/// ★★ LOS `.txt` DE LA CARPETA **Y DE SUS SUBCARPETAS**.
+///
+/// EVE archiva solo las sesiones viejas en `old\`, y ahí estaba la mayor parte del histórico: en la
+/// carpeta de RoGiz7, `delve.imperium` con 712.211 líneas desde febrero de 2021, más otros dos
+/// canales de intel de regiones anteriores. Mirando solo el primer nivel, todo eso «no existía» —
+/// y una carpeta que no se mira no es una carpeta vacía.
+///
+/// Un solo nivel de profundidad, a propósito: es lo que hace EVE, y recorrer un árbol entero de
+/// una carpeta que elige el usuario invita a sorpresas.
+///
+/// ⚠️ EL ESCANEO DE GAMELOGS YA LO HACÍA (`scan_gamelogs` mira `base` y `base/old`, y lo dice en su
+/// comentario). O sea que la regla estaba escrita y aplicada en la mitad de la app: el intel se
+/// quedó fuera y nadie lo notó en años. Lo vio él antes que yo. Aquí se mira CUALQUIER subcarpeta
+/// en vez de solo `old`, porque también hay quien las organiza a mano — es un superconjunto de lo
+/// que hace el gamelog, no otra regla distinta.
+fn logs_txt(folder: &str) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(folder)?.flatten() {
+        let ruta = e.path();
+        if ruta.is_dir() {
+            if let Ok(rd) = std::fs::read_dir(&ruta) {
+                out.extend(rd.flatten().map(|x| x.path()).filter(|p| {
+                    p.extension()
+                        .map_or(false, |x| x.eq_ignore_ascii_case("txt"))
+                }));
+            }
+        } else if ruta
+            .extension()
+            .map_or(false, |x| x.eq_ignore_ascii_case("txt"))
+        {
+            out.push(ruta);
+        }
+    }
+    Ok(out)
+}
+
 /// Lista los canales presentes en la carpeta (prefijo antes de `_AAAAMMDD_HHMMSS_charID.txt`).
 #[tauri::command]
 pub fn intel_channels(folder: String) -> AppResult<IntelFolderScan> {
     // ⚠️ ESTO ANTES SE TRAGABA EL ERROR (`if let Ok(rd)`), y por eso un tester de Linux se pasó un
     // rato mirando una carpeta CORRECTA que decía «no se encontraron canales». No es lo mismo «he
     // mirado y no hay» que «no he podido mirar», y sin distinguirlo no hay forma de diagnosticar.
-    let rd = std::fs::read_dir(&folder)
+    let ficheros = logs_txt(&folder)
         .map_err(|e| AppError::Other(format!("No se pudo leer la carpeta «{folder}»: {e}")))?;
     let mut set = std::collections::BTreeSet::new();
     let mut entries = 0usize;
     let mut txt = 0usize;
     let mut sample: Option<String> = None;
-    for e in rd.flatten() {
+    for ruta in ficheros {
         entries += 1;
-        let name = e.file_name().to_string_lossy().to_string();
-        let Some(stem) = name.strip_suffix(".txt") else {
-            continue;
-        };
+        let name = ruta
+            .file_name()
+            .map(|x| x.to_string_lossy().to_string())
+            .unwrap_or_default();
         txt += 1;
-        // Quitar los 3 últimos campos separados por '_' (fecha, hora, charID).
-        let parts: Vec<&str> = stem.split('_').collect();
-        if parts.len() >= 4 {
-            let ch = parts[..parts.len() - 3].join("_");
-            if !ch.is_empty() {
-                set.insert(ch);
-                continue;
-            }
+        if let Some(ch) = canal_de_fichero(&name) {
+            set.insert(ch);
+            continue;
         }
         // Se guarda UN ejemplo de lo descartado. Uno basta: si el formato no encaja, no encaja en
         // todos igual, y una lista larga no diría más que el primero.
@@ -7946,11 +8011,16 @@ fn ship_name_by_id() -> &'static std::collections::HashMap<i64, String> {
 /// Palabras que NO son ni piloto ni nave. Espejo de `INTEL_JARGON` en `intel.ts`.
 ///
 /// La segunda fila son verbos y muletillas del chat de intel real. Se añadieron tras ver el aviso
-/// anunciar «he jump» como si fuera un hostil (la línea era «he jump to 8-WYQZ»).
+/// anunciar «he jump» como si fuera un hostil (la línea era «he jump to 9-MNOP»).
 const INTEL_JARGON: &[&str] = &[
     "nv", "neut", "neuts", "neutral", "neutrals", "red", "reds", "hostile", "hostiles", "status",
     "gate", "gates", "stargate", "dock", "docked", "docking", "station", "pos", "cyno", "near",
     "on", "the", "in", "at", "and", "is", "to", "a",
+    // Estructuras y tacticas: NUNCA son personas. `ansi` es como se escribe «Ansiblex» en el intel
+    // (Koru fichó un hostil llamado «ansi» de «... Sabre and Gnosis on ANSI»), `jb` es el jump
+    // bridge y `bubble` la burbuja. ⚠️ Espejo de INTEL_JARGON en src/intel.ts.
+    "ansi", "ansis", "ansiblex", "jb", "jbs", "bridge", "gatecamp",
+    "bubble", "bubbles", "bubbled", "bubbling", "insta", "instas",
     // Cómo habla la gente en un canal de intel:
     "jump", "jumps", "jumped", "jumping", "warp", "warped", "warping", "camp", "camped", "camping",
     "move", "moves", "moved", "moving", "coming", "came", "going", "gone", "left", "back", "out",
@@ -8429,7 +8499,7 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                         let mut is_clear = false;
                         let mut matched: Vec<i64> = Vec::new();
                         // ★★ UN APELLIDO PUEDE SER UN SISTEMA (2026-09-07). Lo destapó el caso de
-                        // Sir Rayl: en `G-QTSD Dee Yona vector-Z`, **«Yona» ES un sistema de New
+                        // Sir Rayl: en `X-ABCD Dee Yona vector-Z`, **«Yona» ES un sistema de New
                         // Eden** (Essence, highsec) y colaba un aviso de un sistema que nadie ha
                         // cantado. El frontend lo resuelve preguntando a ESI si «Dee Yona» existe,
                         // pero **aquí no se puede**: esto es el vigilante en caliente y añadir una
@@ -8439,7 +8509,7 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                         // viene **detrás de una palabra que parece un nombre propio**, se trata
                         // como apellido y no como sistema. Es conservador a propósito —solo actúa
                         // cuando ya hay un sistema en la línea, que es el formato normal del
-                        // intel— y no rompe «X0-6LH hostiles moving to Y-ABCD», porque «to» es
+                        // intel— y no rompe «Y0-1AB hostiles moving to Y-ABCD», porque «to» es
                         // jerga, no un nombre.
                         let mut anterior_parece_nombre = false;
                         for tok in l.message.split_whitespace() {
@@ -8652,6 +8722,124 @@ pub fn intel_inexistentes(state: State<'_, AppState>) -> AppResult<Vec<String>> 
     Ok(state.db.name_cache_inexistentes())
 }
 
+/// Una línea de intel tal como la recibió el frontend, para devolverla a guardar.
+#[derive(Debug, serde::Deserialize)]
+pub struct IntelLineIn {
+    pub channel: String,
+    pub ts_ms: i64,
+    pub author: String,
+    pub message: String,
+}
+
+/// ★★ GUARDA LA LÍNEA DE INTEL, CRUDA. La captura continua mientras juegas.
+///
+/// Va por el camino del frontend, que es el que ya recibe las líneas y ya sabe cuáles son nuevas.
+/// **No se engancha en `intel_tail` a propósito**, y no es por comodidad: ahí vive el código más
+/// delicado de la app (el offset del fichero, el multibox y el mtime congelado de Windows que ya
+/// nos dejó el intel mudo dos veces). Además el aviso lo dispara el hilo vigilante en Rust, así
+/// que escribir por otro camino significa que **la alerta no se retrasa ni un paso**.
+///
+/// Lo único que comparten es el mutex de la conexión. Medido: un tic normal bloquea ~5 ms y el
+/// vigilante pasa cada 3 s. Invisible.
+///
+/// Idempotente: reenviar líneas ya guardadas no hace nada (la clave primaria las deduplica).
+/// Devuelve cuántas eran NUEVAS de verdad.
+#[tauri::command]
+pub fn intel_record_lines(state: State<'_, AppState>, lines: Vec<IntelLineIn>) -> AppResult<usize> {
+    let filas: Vec<(String, i64, String, String)> = lines
+        .into_iter()
+        .filter(|l| !l.channel.trim().is_empty() && !l.message.trim().is_empty())
+        .map(|l| (l.channel, l.ts_ms, l.author, l.message))
+        .collect();
+    state.db.intel_lines_insert(&filas)
+}
+
+/// Lo que devuelve la importación del histórico, para poder enseñarlo en pantalla.
+#[derive(Debug, serde::Serialize)]
+pub struct IntelImport {
+    pub ficheros: usize,
+    pub lineas: usize,
+    pub nuevas: usize,
+    pub ms: u64,
+}
+
+/// ★★ IMPORTA EL HISTÓRICO: una pasada por TODOS los logs de los canales de intel.
+///
+/// La captura continua solo ve lo que se cante a partir de ahora. Esto trae lo ya cantado — en su
+/// carpeta, 6.202 ficheros y 246.188 líneas del canal de intel, unos 22 MB.
+///
+/// ⚠️ EN LOTES DE 20.000, y esa cifra está medida, no elegida a ojo. Koru comparte UNA conexión
+/// con un mutex: de una sola tacada, 250.000 líneas la tienen bloqueada 352 ms, y eso retrasaría
+/// un aviso de hostiles. En lotes de 20.000 ningún bloqueo pasa de 42 ms **y el tiempo total es el
+/// mismo**. Con lotes más pequeños no se gana nada y se tarda cuatro veces más: cada commit tiene
+/// su coste fijo.
+///
+/// ⚠️ Aquí NO se usa `intel_tail` ni su caché: eso lee la COLA de los logs vivos y avanza un
+/// offset. Esto quiere el fichero entero y no debe tocar ese estado — si moviera los offsets, el
+/// intel en marcha se saltaría líneas.
+///
+/// Se puede repetir sin miedo: `INSERT OR IGNORE` hace que la segunda pasada no cambie nada.
+#[tauri::command]
+pub async fn intel_import_historico(
+    state: State<'_, AppState>,
+    folder: String,
+    channels: Vec<String>,
+) -> AppResult<IntelImport> {
+    let t0 = std::time::Instant::now();
+    // ⚠️ INCLUYE `old\`, donde EVE archiva las sesiones viejas. Ahí estaba la mayor parte del
+    // histórico de intel; sin esto la importación traía solo los últimos meses. Ver `logs_txt`.
+    let ficheros = logs_txt(&folder)
+        .map_err(|e| AppError::Other(format!("no se pudo leer la carpeta de logs: {e}")))?;
+    // El canal sale del NOMBRE del fichero, con las dos convenciones (con y sin charID). Antes se
+    // comparaba por prefijo `{canal}_`, que además de no distinguir formatos habría metido
+    // «delve.imperium2» dentro de «delve.imperium».
+    let quiero: std::collections::HashSet<&str> = channels.iter().map(|c| c.as_str()).collect();
+    let mut paths: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for ruta in ficheros {
+        let name = ruta
+            .file_name()
+            .map(|x| x.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if let Some(ch) = canal_de_fichero(&name) {
+            if quiero.contains(ch.as_str()) {
+                paths.push((ch, ruta));
+            }
+        }
+    }
+    const LOTE: usize = 20_000;
+    let ficheros = paths.len();
+    let mut buf: Vec<(String, i64, String, String)> = Vec::with_capacity(LOTE);
+    let mut lineas = 0usize;
+    let mut nuevas = 0usize;
+    for (ch, path) in paths {
+        let text = match crate::chatlog::decode(&path) {
+            Some(t) => t,
+            None => continue,
+        };
+        for l in parse_intel_text(&text, &ch) {
+            lineas += 1;
+            buf.push((l.channel, l.ts_ms, l.author, l.message));
+            if buf.len() >= LOTE {
+                nuevas += state.db.intel_lines_insert(&buf)?;
+                buf.clear();
+            }
+        }
+    }
+    nuevas += state.db.intel_lines_insert(&buf)?;
+    Ok(IntelImport {
+        ficheros,
+        lineas,
+        nuevas,
+        ms: t0.elapsed().as_millis() as u64,
+    })
+}
+
+/// Cuántas líneas de intel hay guardadas y desde cuándo. `(n, primera_ms, ultima_ms)`.
+#[tauri::command]
+pub fn intel_lines_stats(state: State<'_, AppState>) -> AppResult<(i64, Option<i64>, Option<i64>)> {
+    Ok(state.db.intel_lines_stats())
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct IntelSighting {
     pub name: String,
@@ -8850,10 +9038,33 @@ pub async fn get_pilot_profile(
 
     // El cara a cara necesita su `character_id`: los killmails hablan de ids, no de nombres. Sin id
     // se devuelve `None` y la pantalla dice «no se ha podido mirar», que no es «no hay nada».
-    let vs = character_id.map(|cid| {
+    let vs = match character_id {
+        None => None,
+        Some(cid) => Some({
         let v = state.db.pilot_vs_you(cid);
         let ids: Vec<i64> = v.acompanantes.iter().map(|a| a.id).collect();
-        let names = state.db.name_cache_names(&ids);
+        let mut names = state.db.name_cache_names(&ids);
+        // ★ SI KORU NO CONOCE EL NOMBRE, SE PREGUNTA UNA VEZ. Reporte suyo (2026-09-08): la ficha
+        // enseñaba «#344886237» en «Con quién le has visto». Los killmails hablan de ids, y esos
+        // compañeros pueden no haber aparecido NUNCA por nombre en su intel — así que `name_cache`
+        // no los tenía y no había forma de que apareciesen solos.
+        //
+        // ⚠️ Son como mucho TRES ids por ficha y se guardan en `name_cache`, así que cada persona
+        // se pregunta una vez en la vida. Respeta la regla: solo lo nuevo, nunca repreguntar.
+        // Y es `/universe/names`, público y en lote — ni scope ni token.
+        let faltan: Vec<i64> = ids
+            .iter()
+            .copied()
+            .filter(|id| *id > 0 && !names.contains_key(id))
+            .collect();
+        if !faltan.is_empty() {
+            if let Ok(nuevos) = state.esi.resolve_names(&faltan).await {
+                for (id, nm) in nuevos {
+                    state.db.name_cache_put(&nm.to_lowercase(), id, &nm);
+                    names.insert(id, nm);
+                }
+            }
+        }
         PilotVsUi {
             te_mato: v.te_mato,
             le_mataste: v.le_mataste,
@@ -8880,7 +9091,8 @@ pub async fn get_pilot_profile(
                 .collect(),
             ultima: v.ultima,
         }
-    });
+        }),
+    };
 
     Ok(PilotProfile {
         name: name.trim().to_string(),

@@ -355,7 +355,7 @@ const EN: Record<string, string> = {
   "Buscando…": "Fetching…",
   "escribe 2 letras…": "type 2 letters…",
   "— no lo sé —": "— I don't know —",
-  "p. ej. Sotiyo de C-J6MT (naves T2)": "e.g. Sotiyo in C-J6MT (T2 ships)",
+  "p. ej. el Sotiyo de tu corp (naves T2)": "e.g. your corp's Sotiyo (T2 ships)",
   "para ti: el que te ayude a reconocerla": "for you: whatever helps you recognise it",
   "bonos del SDE": "SDE bonuses",
   "tiene planta de fabricación instalada": "has a manufacturing plant installed",
@@ -1047,7 +1047,7 @@ const EN: Record<string, string> = {
   "Mostrar solo intel en rango": "Show only intel in range",
   saltos: "jumps",
   "Puntos de ancla (proximidad)": "Anchor points (proximity)",
-  "Sistema… (p. ej. 9PX2-F)": "System… (e.g. 9PX2-F)",
+  "Sistema… (nombre o parte)": "System… (name or part)",
   "Sin anclas. También puedes pinchar un sistema → “⚓ Anclar aquí”.":
     "No anchors. You can also click a system → “⚓ Anchor here”.",
   "La alerta usa el sistema más cercano entre tu personaje y tus anclas.":
@@ -1367,7 +1367,6 @@ const EN: Record<string, string> = {
   "Importar CSV de wallet (corptools)": "Import wallet CSV (corptools)",
   "Importar el histórico de wallet exportado por corptools/Alliance Auth (backfill de años más allá de la ventana de ESI)":
     "Import the wallet history exported by corptools/Alliance Auth (backfill years beyond the ESI window)",
-  "Importando…": "Importing…",
   "Importar histórico (CSV corptools)": "Import history (corptools CSV)",
   "Importación completada": "Import complete",
   "Backfillea años de wallet desde un export de corptools/Alliance Auth. No duplica al reimportar.":
@@ -2521,6 +2520,25 @@ const EN: Record<string, string> = {
   "De paso": "Passing through",
 
   // --- Ajustes → Intel: la config que se pone una vez (overlaySettings.tsx, IntelSettings) ---
+  // --- Ajustes → Intel: el archivo de líneas y el selector de canales (2026-09-08) ---
+  // ⚠️ Nueve de estas ya se usaban SIN traducir desde antes («Activado», «Probar», «vigilados»…):
+  // en inglés salían en castellano. Se añaden aquí de paso, que es el mismo fallo.
+  "Archivo del intel": "Intel archive",
+  "Koru guarda cada línea tal como se escribió. Sirve para rehacer los avistamientos cuando se mejora el lector, y para que tu histórico sobreviva a una limpieza de la carpeta de EVE.":
+    "Koru keeps every line exactly as it was written. It's what lets sightings be rebuilt when the reader improves, and what makes your history survive a cleanup of EVE's folder.",
+  "Importar lo ya cantado": "Import what's already been called",
+  "Importando…": "Importing…",
+  "contando…": "counting…",
+  "todavía no hay nada guardado": "nothing stored yet",
+  "líneas leídas": "lines read",
+  "nuevas": "new",
+  "desde": "since",
+  "No se pudo importar": "Could not import",
+  "Marca antes los canales que quieres archivar.": "Tick the channels you want archived first.",
+  "Ninguno todavía.": "None yet.",
+  "Dejar de vigilar": "Stop watching",
+  "Añadir canal…": "Add channel…",
+  "Ningún canal con ese nombre.": "No channel by that name.",
   "Lectura de los chats de intel": "Reading the intel chats",
   "Carpeta de logs de EVE": "EVE log folder",
   "Donde el juego escribe los chats. Sin esto el intel no puede leer nada.":

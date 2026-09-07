@@ -43,7 +43,7 @@ POR_DEFECTO = [
     RAIZ / "README.es.md",
 ]
 
-# Un código de sistema de nullsec: letras/números, guion, letras/números. `4-CM8I`, `PS-94K`, `C-J6MT`.
+# Un código de sistema de nullsec: letras/números, guion, letras/números. `5-DN9J`, `AB-12C`, `D-K7NU`.
 SISTEMA = re.compile(r"\b[A-Z0-9]{1,4}-[A-Z0-9]{2,5}\b")
 
 # Falsos positivos con la misma forma. Se listan a propósito en vez de aflojar el patrón: aflojarlo

@@ -932,7 +932,7 @@ impl Db {
         //      El parser bilingüe de v16 filtraba TODOS los dígitos y se comía la coma decimal.
         // v18: PvP del gamelog (#45): tabla gamelog_pvp (daño/golpes/fallos contra jugadores,
         //      drones y estructuras, con piloto/ticker/nave). De paso arregla DOS venenos: los
-        //      golpes a estructuras registraban el SISTEMA como rata ("M2-XFE"), y los fallos
+        //      golpes a estructuras registraban el SISTEMA como rata ("N3-QRS"), y los fallos
         //      recibidos de jugador se contaban como fallos propios.
         // v19: fix de la era 2026: el "preferir hint" de v18 se comía el `)` tras la nave
         //      localizada y TODO el PvP de 2026 caía como rata ("Hoeybye[UKMF](Scimitar").
@@ -6391,6 +6391,139 @@ impl Db {
              VALUES (?1, ?2, ?3, ?4, ?5)",
             rusqlite::params![name_lower, character_id, system_id, ts_ms, ship_type_id],
         );
+    }
+
+    /// ★★ LA LÍNEA DE INTEL, CRUDA. Guarda un lote y devuelve cuántas eran NUEVAS de verdad.
+    ///
+    /// Idea de RoGiz7: hasta ahora Koru guardaba la conclusión (`intel_sightings`) y tiraba el
+    /// hecho. Ver el comentario largo en `schema.sql`, que es donde está el porqué.
+    ///
+    /// `INSERT OR IGNORE` no es descuido: en multibox la MISMA línea llega una vez por cada
+    /// personaje tuyo que escuche el canal, y la clave primaria la deduplica sola. Como `execute`
+    /// devuelve las filas realmente cambiadas, el contador dice líneas nuevas, no intentos.
+    ///
+    /// ⚠️ TODO EN UNA TRANSACCIÓN, y el lote lo acota quien llama. Koru comparte UNA conexión con
+    /// un mutex, así que mientras esto escribe, el hilo que vigila el intel ESPERA. Medido con
+    /// 250.000 líneas: de una tacada bloquea 352 ms —y eso sí retrasaría un aviso—; en lotes de
+    /// 20.000, ningún bloqueo pasa de 42 ms y el tiempo total es el mismo. Por eso la importación
+    /// del histórico va troceada: no es una optimización, es la condición para no volverse lenta
+    /// justo cuando alguien está cantando un hostil.
+    pub fn intel_lines_insert(&self, filas: &[(String, i64, String, String)]) -> AppResult<usize> {
+        if filas.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut nuevas = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR IGNORE INTO intel_line (canal, ts_ms, autor, texto)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            for (canal, ts_ms, autor, texto) in filas {
+                nuevas += stmt.execute(rusqlite::params![canal, ts_ms, autor, texto])?;
+            }
+        }
+        tx.commit()?;
+        Ok(nuevas)
+    }
+
+    /// Cuántas líneas hay y qué periodo cubren. Es lo que la pantalla necesita para poder decir
+    /// «tengo tu intel desde marzo», que es distinto de «tengo 246.188 líneas»: lo primero se
+    /// entiende y lo segundo no.
+    pub fn intel_lines_stats(&self) -> (i64, Option<i64>, Option<i64>) {
+        let conn = self.conn.lock().unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM intel_line", [], |r| r.get(0))
+            .unwrap_or(0);
+        let (min, max) = conn
+            .query_row("SELECT MIN(ts_ms), MAX(ts_ms) FROM intel_line", [], |r| {
+                Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<i64>>(1)?))
+            })
+            .unwrap_or((None, None));
+        (n, min, max)
+    }
+
+    /// Las líneas guardadas a partir de `desde_ms`, en orden cronológico. `canal` vacío = todos.
+    ///
+    /// Con `limite` a 0 no hay tope: es el camino de la RECONSTRUCCIÓN, que necesita leerlas todas.
+    ///
+    /// Medido sobre 250.000 filas: **con canal, 0,5 ms** — va por la clave primaria, porque `canal`
+    /// es su primer campo (`SEARCH ... USING PRIMARY KEY (canal=? AND ts_ms>?)`). **Sin canal, 317
+    /// ms**, porque entonces hay que recorrerlo todo y ordenar. Esa asimetría está bien donde está:
+    /// sin canal solo lo llama la reconstrucción, que lee las 250.000 de una vez y no le importa.
+    /// Si algún día hiciera falta «las últimas N de TODOS los canales», eso pediría otro índice —
+    /// hoy no existe ese caso y no se paga por adelantado.
+    pub fn intel_lines_leer(
+        &self,
+        canal: &str,
+        desde_ms: i64,
+        limite: i64,
+    ) -> Vec<(String, i64, String, String)> {
+        let conn = self.conn.lock().unwrap();
+        let sql = if canal.is_empty() {
+            "SELECT canal, ts_ms, autor, texto FROM intel_line WHERE ts_ms >= ?2
+             ORDER BY ts_ms LIMIT CASE WHEN ?3 > 0 THEN ?3 ELSE -1 END"
+        } else {
+            "SELECT canal, ts_ms, autor, texto FROM intel_line WHERE canal = ?1 AND ts_ms >= ?2
+             ORDER BY ts_ms LIMIT CASE WHEN ?3 > 0 THEN ?3 ELSE -1 END"
+        };
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let filas = stmt.query_map(rusqlite::params![canal, desde_ms, limite], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        });
+        match filas {
+            Ok(it) => it.filter_map(|x| x.ok()).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Caducidad: tira las líneas anteriores a `antes_de_ms` y devuelve cuántas cayeron.
+    ///
+    /// La línea cruda vale para poder REHACER las conclusiones cuando se arregla el troceador. Una
+    /// de hace cuatro años ya no va a cambiar nada, así que esto es lo que acota la tabla por
+    /// arriba para siempre. Devuelve el número por una razón: un borrado silencioso no se audita.
+    pub fn intel_lines_purgar(&self, antes_de_ms: i64) -> usize {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM intel_line WHERE ts_ms < ?1",
+            rusqlite::params![antes_de_ms],
+        )
+        .unwrap_or(0)
+    }
+
+    /// ★★ VACÍA LOS AVISTAMIENTOS PARA REHACERLOS. Devuelve `(avistamientos, nombres)`.
+    ///
+    /// `intel_sightings` es DERIVADO: sale de trocear las líneas. Pero solo se escribía con
+    /// `INSERT OR IGNORE` y no tenía un solo `DELETE`, así que cada equivocación del troceador se
+    /// quedaba dentro para siempre — «Lucy Lee» sin el 1, el piloto «Navy» del Brutix, el «Dee» que
+    /// salió de partir un nombre por Yona, el «G-Q» que era una puerta. Ahora que la línea cruda
+    /// vive en `intel_line`, esto se puede tirar y rehacer.
+    ///
+    /// ⚠️ DE `name_cache` SOLO SE PONEN A CERO LOS CONTADORES. Esa tabla mezcla tres cosas y solo
+    /// una está sucia:
+    ///   · `seen_count` / `last_system_id` — cuentas del troceador viejo: se resetean.
+    ///   · `character_id > 0` — lo que ESI resolvió: **se queda**.
+    ///   · `character_id = -1` — los «este nombre no es de nadie»: **se quedan**, y son los que
+    ///     hacen que el troceador se afine solo. Tirarlos sería repreguntar lo que ya sabemos.
+    ///
+    /// No se borra ninguna fila: un nombre basura con el contador a cero desaparece de la lista de
+    /// habituales (que pide 3 menciones) sin perder por el camino nada que costara una petición.
+    /// `first_seen` se conserva a propósito: es cuándo se vio por primera vez, y eso no cambia
+    /// porque hayamos mejorado el lector.
+    pub fn intel_sightings_purgar(&self) -> (usize, usize) {
+        let conn = self.conn.lock().unwrap();
+        let a = conn.execute("DELETE FROM intel_sightings", []).unwrap_or(0);
+        let b = conn
+            .execute(
+                "UPDATE name_cache SET seen_count = 0, last_system_id = NULL WHERE seen_count > 0",
+                [],
+            )
+            .unwrap_or(0);
+        (a, b)
     }
 
     /// Rastro de un piloto: los `limit` avistamientos más recientes, en orden CRONOLÓGICO ascendente

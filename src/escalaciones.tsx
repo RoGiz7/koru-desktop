@@ -80,25 +80,45 @@ function loadDed(): Promise<Record<string, DedSite>> {
  *  hacer y en la que se puede uno equivocar. **Así que se copia y se pega tal cual.**
  *
  *  Un número suelto se lee como HORAS, que es lo que espera quien teclea «24». Probado con doce
- *  casos antes de escribirlo, incluidos los que deben devolver `null`. */
+ *  casos antes de escribirlo, incluidos los que deben devolver `null`.
+ *
+ *  ★ Y REESCRITA después, porque la primera versión FALLABA CALLANDO. Buscaba «número + unidad»
+ *  sueltos por la cadena, así que en `17h20` el `20` no casaba con nada y se caía al suelo:
+ *  contestaba «17 h 0 m» con toda la seguridad del mundo. Un error silencioso en el reloj de una
+ *  escalación te hace llegar veinte minutos tarde a un sitio que caduca. Lo mismo con `24 h zzz`.
+ *
+ *  Ahora se recorre la cadena ENTERA y lo que no se entiende devuelve `null` — que en pantalla es
+ *  una «?» roja. Y un número sin unidad hereda la siguiente unidad más pequeña, que es como se lee
+ *  `17h20` en cualquier idioma. 24 casos, incluidos los que deben fallar. */
 export function minutosDe(txt: string): number | null {
   const t = txt.trim().toLowerCase().replace(",", ".");
   if (!t) return null;
-  const reloj = t.match(/^(\d{1,2})\s*:\s*(\d{1,2})$/); // "17:20"
-  if (reloj) return +reloj[1] * 60 + +reloj[2];
-  const partes = t.match(/(\d+(?:\.\d+)?)\s*([hms])/g); // "17 h 20 m 15 s", "90m", "2h"
-  if (partes) {
-    let min = 0;
-    for (const p of partes) {
-      const n = parseFloat(p);
-      if (p.includes("h")) min += n * 60;
-      else if (p.includes("m")) min += n;
-      else min += n / 60;
-    }
-    return Math.round(min);
+  // "17:20" y "17:20:15" — el otro modo en que la gente escribe un tiempo.
+  const reloj = t.match(/^(\d{1,2})\s*:\s*(\d{1,2})(?:\s*:\s*(\d{1,2}))?$/);
+  if (reloj) return Math.round(+reloj[1] * 60 + +reloj[2] + Number(reloj[3] ?? 0) / 60);
+  const re = /\s*(\d+(?:\.\d+)?)\s*([hms])?/y; // pegajosa: obliga a consumirlo TODO
+  let i = 0;
+  let min = 0;
+  let visto = false;
+  let ultima: "h" | "m" | "s" | null = null;
+  while (i < t.length) {
+    re.lastIndex = i;
+    const m = re.exec(t);
+    if (!m) return null; // sobra algo que no es un número: mejor «?» que inventarse una cifra
+    i = re.lastIndex;
+    const n = parseFloat(m[1]);
+    // La anotación es obligatoria: `u` sale de `ultima` y `ultima` sale de `u`, y sin ella TS no
+    // puede cerrar el círculo (TS7022).
+    const u: "h" | "m" | "s" | null = (m[2] as "h" | "m" | "s" | undefined)
+      ?? (ultima === "h" ? "m" : ultima === "m" ? "s" : ultima === "s" ? null : "h");
+    if (!u) return null; // «17h20m15s30»: después de los segundos no queda nada más pequeño
+    if (u === "h") min += n * 60;
+    else if (u === "m") min += n;
+    else min += n / 60;
+    ultima = u;
+    visto = true;
   }
-  const n = parseFloat(t);
-  return Number.isFinite(n) ? Math.round(n * 60) : null;
+  return visto ? Math.round(min) : null;
 }
 
 /** «17 h 20 m», como lo escribe el juego. En negativo dice que se pasó, no un número raro. */
@@ -255,19 +275,28 @@ export function EscalacionesView() {
             <SystemSearch systems={systems} value={sysId} onPick={setSysId} placeholder={tr("Buscar sistema…")} />
           </div>
           <div className="esc-campo esc-horas">
-            {/* La etiqueta pregunta lo que hay que TECLEAR, no lo que significa el campo. Y debajo
-                se confirma cómo se ha entendido: sin eso, escribir «17h20» es un acto de fe. */}
+            {/* La etiqueta pregunta lo que hay que TECLEAR, no lo que significa el campo.
+                ★ Y la confirmación va DENTRO de la casilla, a la derecha, y **solo cuando dice algo
+                distinto de lo que tecleaste**. Estaba debajo y en dos líneas: descuadraba el alto
+                de la fila (lo vio él) y, escribiendo «24 h», contestar «= 24 h 0 m» no confirma
+                nada — repite. Confirmar sin aportar es ruido con buenas intenciones. */}
             <label className="small muted">{tr("¿Cuánto le queda?")}</label>
-            <input
-              value={queda}
-              onChange={(e) => setQueda(e.target.value)}
-              placeholder="17 h 20 m"
-            />
-            <span className={`small ${minutosDe(queda) == null ? "err" : "muted"}`}>
-              {minutosDe(queda) == null
-                ? tr("no lo entiendo")
-                : `= ${restante(minutosDe(queda) as number)}`}
-            </span>
+            <div className="esc-conreloj">
+              <input
+                value={queda}
+                onChange={(e) => setQueda(e.target.value)}
+                placeholder="17 h 20 m"
+              />
+              {(() => {
+                const min = minutosDe(queda);
+                if (queda.trim() === "") return null;
+                if (min == null) return <span className="esc-eco err">?</span>;
+                const eco = restante(min);
+                // Comparación laxa: «24 h» y «24 h 0 m» son lo mismo escrito distinto.
+                const igual = queda.replace(/\s|0\s*m$/g, "").toLowerCase() === eco.replace(/\s|0\s*m$/g, "").toLowerCase();
+                return igual ? null : <span className="esc-eco">{eco}</span>;
+              })()}
+            </div>
           </div>
           <div className="esc-campo">
             <label className="small muted">{tr("Qué vas a hacer con ella")}</label>

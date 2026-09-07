@@ -149,7 +149,7 @@ pub struct CostIndex {
 
 /// Índices de coste de un sistema (`/industry/systems/`, **público, sin scope**).
 /// Es la pieza que faltaba para F1b: el coste BRUTO de un job = VEO × índice del sistema.
-/// Verificado contra el juego (fixture): C-J6MT manufacturing ≈ 9,98 % → 279.893 × 0,0998 = 27.938.
+/// Verificado contra el juego (fixture): D-K7NU manufacturing ≈ 9,98 % → 279.893 × 0,0998 = 27.938.
 #[derive(Debug, Clone, Deserialize)]
 pub struct IndustrySystemRaw {
     #[serde(default)]

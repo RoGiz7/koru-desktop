@@ -224,7 +224,7 @@ function Confianza({ f, bonos }: { f: Facility; bonos: Bonos | null }) {
 const RIG_SIZE: Record<number, string> = { 1: "S", 2: "M", 3: "L", 4: "XL" };
 
 /** Multiplicador del rig según la seguridad. Los valores viven en el propio rig (`sec`), pero la
- *  BANDA se decide con la seguridad REDONDEADA a un decimal: C-J6MT vale −0,29 y cuenta como −0,3. */
+ *  BANDA se decide con la seguridad REDONDEADA a un decimal: D-K7NU vale −0,29 y cuenta como −0,3. */
 function secBand(sec: number): "hi" | "low" | "null" {
   const disp = Math.round(sec * 10) / 10;
   return disp >= 0.5 ? "hi" : disp >= 0.1 ? "low" : "null";
@@ -1772,7 +1772,7 @@ function BomPanel({
   );
 
   /** Coste del job de reacción. Fórmula VERIFICADA AL ISK contra el juego (Carbon Polymers ×100 en
-   *  el Tatara «T2 Repro» de C-J6MT): total 1.053.491 exacto.
+   *  el Tatara «T2 Repro» de D-K7NU): total 1.053.491 exacto.
    *
    *      bruto = VEO × índice(reaction)          ← SIN bonos: no existen para reaccionar
    *      + impuesto de centro (% DEL VEO)
@@ -3077,7 +3077,7 @@ function BlueprintLibrary({
  * más), sino un ASISTENTE que le pregunte al fabricante lo que sabe. La hoja de los Goons sirvió
  * para validar el modelo de datos, no como fuente: su forma —Sistema | Estructura | Nombre |
  * Servicios | Rig 1-3— es exactamente lo que se pregunta aquí. Y confirmó el fixture por su cuenta
- * (dice que el Sotiyo de C-J6MT lleva el rig 37181, el mismo que dedujimos del job del Bantam).
+ * (dice que el Sotiyo de D-K7NU lleva el rig 37181, el mismo que dedujimos del job del Bantam).
  *
  * Regla de oro: aquí NO se piden porcentajes. Se pide QUÉ es y QUÉ lleva; los números los pone el
  * SDE. Pedir % a mano fue la trampa que ya nos mordió (tres bonos con el mismo nombre in-game, y
@@ -3454,7 +3454,7 @@ function FacilityWizard({
         <span>1 · {tr("Nombre")}</span>
         <input
           value={d.name}
-          placeholder={tr("p. ej. Sotiyo de C-J6MT (naves T2)")}
+          placeholder={tr("p. ej. el Sotiyo de tu corp (naves T2)")}
           onChange={(e) => set({ name: e.target.value })}
         />
         <em className="muted">{tr("para ti: el que te ayude a reconocerla")}</em>

@@ -12,7 +12,7 @@ import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
-import { buildIntelReports, pilotTrack } from "./intel";
+import { buildIntelReports, limpiarMarcadoEve, pilotTrack } from "./intel";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import { PilotoNombre } from "./fichaPiloto";
@@ -1470,7 +1470,7 @@ export function MapView(props: {
     return out;
   }, [trips]);
 
-  /** El rótulo de un viaje. En una IDA Y VUELTA, «C-J6MT → C-J6MT» no dice nada: lo que quieres
+  /** El rótulo de un viaje. En una IDA Y VUELTA, «D-K7NU → D-K7NU» no dice nada: lo que quieres
    *  saber es **hasta dónde llegaste**, no que volviste a casa. Se usa el punto medio del recorrido,
    *  que en un trayecto de ida y vuelta ES el punto de retorno. */
   const rotuloViaje = useCallback(
@@ -1684,7 +1684,7 @@ export function MapView(props: {
                 hay red importada y acorta, en cuánto llegas TÚ usando además tus Ansiblex. */}
             <title>{`${s.n}${j != null ? ` · ${j} ${tr("saltos")}` : ""}${
               h != null && j != null && h < j ? ` · ${tr("llegas en")} ${h} (Ansiblex)` : ""
-            }\n${r.author}: ${r.message}\n${tr("(clic para ver detalle)")}`}</title>
+            }\n${r.author}: ${limpiarMarcadoEve(r.message)}\n${tr("(clic para ver detalle)")}`}</title>
           </circle>
           <circle
             cx={p.px}
@@ -4384,7 +4384,7 @@ export function MapView(props: {
                   <div className="intel-anchor-add">
                     <input
                       type="text"
-                      placeholder={tr("Sistema… (p. ej. 9PX2-F)")}
+                      placeholder={tr("Sistema… (nombre o parte)")}
                       value={anchorInput}
                       onChange={(e) => setAnchorInput(e.target.value)}
                       onKeyDown={(e) => {
@@ -4516,7 +4516,7 @@ export function MapView(props: {
                       )}
                     </div>
                     <div className="intel-msg">
-                      <span className="intel-author">{f.author}:</span> {f.message}
+                      <span className="intel-author">{f.author}:</span> {limpiarMarcadoEve(f.message)}
                     </div>
                   </div>
                 );
@@ -4587,7 +4587,7 @@ export function MapView(props: {
                   <button
                     key={h.sid}
                     className="route-intel-row"
-                    title={h.message}
+                    title={limpiarMarcadoEve(h.message)}
                     onClick={() =>
                       openIntelDetail({
                         sysId: h.sid,
@@ -5074,7 +5074,7 @@ export function MapView(props: {
                   : tr("• 1 hostil (cazador individual)")}
               </div>
             )}
-            <div className="intel-detail-msg">{intelDetail.message}</div>
+            <div className="intel-detail-msg">{limpiarMarcadoEve(intelDetail.message)}</div>
 
             <div className="intel-detail-sec">
               <span className="muted small">{tr("Pilotos")}</span>

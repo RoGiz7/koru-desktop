@@ -829,8 +829,46 @@ function App() {
   // El intel lo vigila ahora un hilo en Rust (start_intel_watch en MapView): emite el evento
   // "intel-lines" que escuchamos aquí para pintar mapa/feed, sin polling JS (no se ralentiza
   // minimizado). Las alertas + notificación nativa las dispara el propio hilo de Rust.
+  // ★★ Y DE PASO SE GUARDAN, CRUDAS (`intel_line`). Idea de RoGiz7: hasta ahora Koru guardaba la
+  // CONCLUSIÓN (`intel_sightings`: quién, dónde, cuándo) y tiraba el HECHO. Como esa tabla solo se
+  // escribe con INSERT OR IGNORE y no tiene un solo DELETE, cada equivocación del troceador se
+  // quedaba dentro para siempre y sin forma de rehacerla — una línea que decía «Lucy Lee 1» quedó
+  // archivada como «Lucy Lee». Con la línea guardada, arreglar el troceador alcanza hacia atrás.
+  //
+  // Va AQUÍ y no en el hilo de Rust a propósito: el aviso lo dispara el vigilante, así que escribir
+  // por este otro camino **no le añade ni un paso a la alerta**. Ver `intel_record_lines`.
+  const intelGuardadasRef = useRef<Set<string>>(new Set());
+  const intelGuardarAvisadoRef = useRef(false);
   useEffect(() => {
-    const un = listen<IntelLine[]>("intel-lines", (e) => setIntelLines(e.payload));
+    const un = listen<IntelLine[]>("intel-lines", (e) => {
+      setIntelLines(e.payload);
+      // El vigilante reenvía su ventana entera en cada vuelta, así que sin este filtro mandaríamos
+      // las mismas líneas cada 3 s. La base de datos las ignoraría igual (la clave las deduplica),
+      // pero es trabajo y bloqueo de conexión a cambio de nada.
+      const nuevas = e.payload.filter((l) => {
+        const k = `${l.channel}|${l.ts_ms}|${l.author}|${l.message}`;
+        if (intelGuardadasRef.current.has(k)) return false;
+        intelGuardadasRef.current.add(k);
+        return true;
+      });
+      if (nuevas.length === 0) return;
+      if (intelGuardadasRef.current.size > 6000) {
+        intelGuardadasRef.current = new Set(
+          [...intelGuardadasRef.current].slice(-3000),
+        );
+      }
+      // Se manda TODO, también lo que no tiene pilotos: un `clear` o un `WH` son intel de pleno
+      // derecho, y sin la línea entera no se puede reconstruir nada después.
+      // ⚠️ NO se traga el error. Un `.catch(() => {})` aquí dejaría la tabla vacía sin que nada lo
+      // dijera, y la única pista sería una tabla que no crece — exactamente el fallo silencioso que
+      // llevamos toda la sesión persiguiendo. Se avisa UNA vez para no llenar la consola.
+      invoke<number>("intel_record_lines", { lines: nuevas }).catch((err) => {
+        if (!intelGuardarAvisadoRef.current) {
+          intelGuardarAvisadoRef.current = true;
+          console.error("[intel_line] no se pudieron guardar las líneas:", err);
+        }
+      });
+    });
     return () => {
       un.then((f) => f());
     };

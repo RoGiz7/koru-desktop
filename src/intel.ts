@@ -6,7 +6,7 @@ import type { NeSystem, IntelLine } from "./types";
 // cualquier orden); con fallback a espacio simple. Devuelve sistemas, pilotos, naves, +N y clear.
 const INTEL_CLEAR = new Set(["clr", "clear", "cleared"]);
 // La segunda mitad son verbos y muletillas del chat de intel real. Se añadieron tras ver un aviso
-// anunciar «he jump» como si fuera un hostil (la línea era «he jump to 8-WYQZ»).
+// anunciar «he jump» como si fuera un hostil (la línea era «he jump to 9-MNOP»).
 // ⚠️ Espejo de INTEL_JARGON en commands.rs: si cambia uno, cambia el otro.
 const INTEL_JARGON = new Set([
   "nv", "neut", "neuts", "neutral", "neutrals", "red", "reds", "hostile", "hostiles",
@@ -18,6 +18,113 @@ const INTEL_JARGON = new Set([
   "spotted", "seen", "sitting", "sits", "roam", "roaming", "local", "he", "she", "they", "his",
   "her", "their", "with", "from", "for", "of", "seem", "seems", "like", "just", "was", "were",
   "have", "has", "had", "not", "no", "yes", "now", "watch", "look", "looking", "check", "x", "o",
+  // Estructuras y tácticas: NUNCA son personas, y se colaban como hostiles. `ansi` es como se
+  // escribe «Ansiblex» en el intel — Koru llegó a fichar un piloto llamado «ansi» de la línea
+  // «... Sabre and Gnosis on ANSI» (en mayúsculas pasa `pareceNombre` con todo el derecho).
+  // `jb` es el jump bridge y `bubble` la burbuja de interdicción. Esto SÍ es una lista a mano, y
+  // se justifica porque son términos del JUEGO, no jerga de un idioma: no crecen con las personas.
+  "ansi", "ansis", "ansiblex", "jb", "jbs", "bridge", "gatecamp",
+  "bubble", "bubbles", "bubbled", "bubbling", "insta", "instas",
+]);
+
+/** ★★ EL MARCADO DE ENLACES DE EVE, FUERA — pero quedándonos con lo que dice.
+ *
+ *  Cuando alguien **enlaza** algo en el chat (arrastrar un sistema, un personaje, una nave), el log
+ *  no guarda el nombre: guarda el marcado del juego.
+ *
+ *      <url=showinfo:5//30000785>SIS-TE</url>  <url=showinfo:1383//2123737549>Lucy Lee 1</url>
+ *
+ *  Reporte suyo (2026-09-08): esa línea seguía apuntando al personaje sin el `1`. Y el arreglo del
+ *  «1 pegado al nombre» ya estaba puesto y probado — **lo que pasaba es que nunca llegaba a
+ *  ejecutarse**. El troceador ve `<url=showinfo:1383//2123737549>Lucy`, que empieza por `<`, no
+ *  pasa por nombre y se tira. Medido: esa línea daba el piloto **«Lee»** y CERO sistemas, así que
+ *  además no generaba reporte. Un fallo de parser se disfrazó de fallo de nombres.
+ *
+ *  El texto enlazado se devuelve entre DOS espacios a propósito: un enlace es una unidad y el
+ *  juego ya ha dicho dónde empieza y dónde acaba, así que se convierte en su propio campo — que es
+ *  justo lo que la convención del intel expresa con el doble espacio.
+ *
+ *  ⚠️ Se quitan solo las etiquetas CONOCIDAS, no todo lo que vaya entre `<` y `>`: en un chat se
+ *  escribe `a < b > c` y borrarlo sería inventarse un silencio.
+ *
+ *  ⚠️ El marcado NO se limpia al guardar: la línea cruda se conserva en la base de datos porque
+ *  dentro viene el **id del personaje dicho por el juego**, y eso vale más que el nombre. */
+const TAGS_EVE = /<\/?(?:url|font|color|b|i|u|br|localized|a)\b[^>]*>/gi;
+export function limpiarMarcadoEve(s: string): string {
+  return s
+    .replace(/<url=[^>]*>([\s\S]*?)<\/url>/gi, "  $1  ")
+    .replace(TAGS_EVE, " ")
+    .replace(/[ \t]+$/gm, "");
+}
+
+/** ★ ÍNDICE DE PREFIJOS DE NAVE, construido UNA vez por catálogo.
+ *
+ *  «Brutix Navy» tiene que reconocerse aunque el catálogo diga «Brutix Navy Issue», y solo si ese
+ *  prefijo es inequívoco — si diera dos candidatas, adivinar la nave del hostil es peor que no
+ *  nombrarla. Eso ya funcionaba; lo que estaba mal era CÓMO: se recorrían las 512 naves en cada
+ *  intento, y un intento es cada palabra × cada longitud × cada línea.
+ *
+ *  Medido sobre 110.632 líneas reales: **11.848 ms con catálogo frente a 874 ms sin él**. El 93 %
+ *  del troceador se iba aquí, y el intel en vivo lo repite cada 3 segundos.
+ *
+ *  El valor es `null` cuando el prefijo lo reclaman DOS naves: así «no vale» se distingue de «no
+ *  está», y `get()` devuelve `undefined` en un caso y `null` en el otro.
+ *
+ *  ⚠️ Cacheado en un `WeakMap` con el propio catálogo de clave: si algún día se recarga el
+ *  catálogo (otro idioma, otro SDE), el índice viejo se va con él en vez de quedarse mintiendo. */
+const prefijosCache = new WeakMap<Map<string, number>, Map<string, number | null>>();
+function prefijosDe(shipNames: Map<string, number>): Map<string, number | null> {
+  const ya = prefijosCache.get(shipNames);
+  if (ya) return ya;
+  const idx = new Map<string, number | null>();
+  for (const [nombre, tid] of shipNames) {
+    const partes = nombre.split(" ");
+    for (let k = 1; k < partes.length; k++) {
+      const pre = partes.slice(0, k).join(" ");
+      // Ojo: el mismo typeID llega con varios nombres (un idioma cada uno), así que dos entradas
+      // que compartan prefijo se descartan aunque sean la MISMA nave. Es lo que hacía el bucle
+      // viejo contando candidatas, y se mantiene igual para no cambiar el comportamiento.
+      idx.set(pre, idx.has(pre) ? null : tid);
+    }
+  }
+  prefijosCache.set(shipNames, idx);
+  return idx;
+}
+
+/** ¿Va esta palabra seguida de «gate»? Entonces es un DESTINO, no una persona.
+ *
+ *  Reporte suyo (2026-09-08) con una línea real: `SIS-TE on AB-C gate Gnosis and Sabre now` sacaba
+ *  un piloto llamado **«AB-C»**. Lo que dice la línea es que están en SIS-TE campeando la puerta
+ *  que lleva a AB-CDE. Es la abreviatura de un sistema, y pasa todos los filtros: tres
+ *  caracteres, empieza por mayúscula y no está en el índice porque el índice tiene el nombre
+ *  entero, no cómo lo abrevia la gente.
+ *
+ *  El arreglo no es apuntar «G-Q» en una lista —mañana es «M-O» y pasado «1DQ»—: **es que la
+ *  palabra `gate` ya estaba ahí diciéndolo**. Lo que va justo antes de «gate» es a dónde lleva esa
+ *  puerta. Misma familia que «Yona» y que el `1` de «Lucy Lee 1»: lo decide el contexto.
+ *
+ *  Se descarta SOLO el token pegado a «gate», no el nombre entero: en `Yaris Motsu AB-C gate` el
+ *  piloto sigue saliendo. Y un falso negativo es mejor que un falso positivo — perder a alguien que
+ *  se llamara así de verdad es menos grave que inventarse un hostil. */
+const ESJERGA_GATE = new Set(["gate", "gates", "stargate"]);
+
+/** ★★ PARTÍCULAS QUE VIVEN DENTRO DE UN NOMBRE: «Lurm **the** Slurm», «Jan **van** Dijk».
+ *
+ *  Reporte suyo (2026-09-08) con una línea real: `384-IN  Lurm the Slurm svipul` sacaba **DOS
+ *  hostiles**, «Lurm» y «Slurm», y el aviso cantaba «2 hostiles (posible flota)» cuando era uno.
+ *  El motivo: `the` está en la lista de jerga —y con razón, porque en «on the gate» no es nadie— así
+ *  que cerraba el nombre por la mitad. «Bedwin Al Ishira» se salvaba solo porque su partícula va en
+ *  mayúscula.
+ *
+ *  ⚠️ NO vale con dejar pasar cualquier jerga entre dos nombres: «Piloto Uno **and** Piloto Dos» son
+ *  dos personas, y absorber el `and` las fundiría en una. Por eso la lista es CORTA y solo tiene
+ *  palabras que aparecen DENTRO de nombres propios, nunca conectores entre dos personas.
+ *
+ *  Y aun así hacen falta las dos condiciones: que ya se esté escribiendo un nombre, y que lo que
+ *  venga detrás **también** parezca parte de él — ni nave, ni sistema, ni más jerga. En
+ *  `Juan Perez in SIS-TE` el `in` no se absorbe porque detrás hay un sistema. */
+const PARTICULAS_NOMBRE = new Set([
+  "the", "of", "de", "del", "la", "el", "von", "van", "der", "den", "da", "di", "du", "le", "bin",
 ]);
 
 /** ¿Puede esta palabra formar parte de un nombre de piloto?
@@ -32,7 +139,7 @@ const pareceNombre = (s: string) => /^\p{Lu}/u.test(s);
  *
  *  Solo los dígitos, y **solo si hay algo en el buffer**. Un «1» detrás de «Lucy Lee» es su
  *  apellido; un «1» suelto no es nadie. La condición del buffer es lo que impide que
- *  `X0-6LH  3 hostiles` invente un piloto llamado «3».
+ *  `Y0-1AB  3 hostiles` invente un piloto llamado «3».
  *
  *  ⚠️ Se comprueba DESPUÉS de la jerga, de las naves y del contador `+N`, así que un «x4» o un
  *  «+3» ya se han ido por su rama y no llegan aquí. */
@@ -45,7 +152,7 @@ export type IntelParsed = {
   isClear: boolean;
   /** ★★ NOMBRES QUE UN SISTEMA PARTIÓ POR LA MITAD — las dos lecturas, sin elegir.
    *
-   *  Caso real (2026-09-07): la línea `G-QTSD Dee Yona vector-Z` sacaba un piloto llamado «Dee»…
+   *  Caso real (2026-09-07): la línea `X-ABCD Dee Yona vector-Z` sacaba un piloto llamado «Dee»…
    *  porque **«Yona» ES un sistema de New Eden** (Essence, highsec 0.8) y cortaba el nombre ahí.
    *  Y «Dee» resuelve a un personaje real, así que el aviso enlazaba al killboard de otra persona.
    *
@@ -120,7 +227,7 @@ export function classifyIntel(
   };
   /** ★★ LA NAVE MÁS LARGA QUE EMPIECE AQUÍ. Devuelve cuántas palabras consume.
    *
-   *  Nació de un reporte suyo: la línea `5E-CMA Brutix Navy x4 Celestis…` sacaba **un piloto
+   *  Nació de un reporte suyo: la línea `3F-GHI Brutix Navy x4 Celestis…` sacaba **un piloto
    *  llamado «Navy»**. El motivo: se clasificaba PALABRA A PALABRA, así que «Brutix» casaba como
    *  nave, cortaba, y «Navy» se quedaba suelto — y como empieza por mayúscula, pasaba por nombre.
    *
@@ -141,16 +248,16 @@ export function classifyIntel(
       const exacta = shipNames.get(frag);
       if (exacta != null) return { consume: len, typeId: exacta, name: trozo.join(" ") };
       // Prefijo: solo vale si hay UNA candidata. Con dos, no se nombra.
-      let unica: number | null = null;
-      let cuantas = 0;
-      for (const [n, tid] of shipNames) {
-        if (n.startsWith(frag + " ")) {
-          cuantas++;
-          if (cuantas > 1) break;
-          unica = tid;
-        }
-      }
-      if (cuantas === 1 && unica != null && len > 1) {
+      //
+      // ★ ANTES ESTO RECORRÍA LAS 512 NAVES EN CADA INTENTO, y un intento es cada palabra × cada
+      //   longitud × cada línea. Medido sobre 110.632 líneas reales: **11.848 ms con catálogo
+      //   frente a 874 ms sin él** — el 93 % del trabajo del troceador se iba aquí. Y no es un
+      //   coste de una vez: el intel en vivo trocea su ventana cada 3 segundos.
+      //   El índice de prefijos se construye UNA vez por catálogo (`prefijosDe`) y la búsqueda pasa
+      //   a ser una consulta. El resultado es idéntico: se comprobó línea a línea contra la versión
+      //   vieja antes de cambiarlo.
+      const unica = len > 1 ? prefijosDe(shipNames).get(frag) : undefined;
+      if (unica != null) {
         return { consume: len, typeId: unica, name: trozo.join(" ") };
       }
     }
@@ -163,7 +270,9 @@ export function classifyIntel(
       systems.push({ id, name });
     }
   };
-  for (const field of message.split(/\s{2,}/).map((f) => f.trim()).filter(Boolean)) {
+  // Es idempotente, así que da igual si la línea venía ya limpia: limpiar dos veces no hace nada.
+  // Y va AQUÍ, no al guardar, para que arregle también las miles de líneas ya almacenadas.
+  for (const field of limpiarMarcadoEve(message).split(/\s{2,}/).map((f) => f.trim()).filter(Boolean)) {
     const whole = classifyWord(field);
     if (whole.kind === "sys") {
       addSys(whole.id!, whole.name!);
@@ -237,20 +346,47 @@ export function classifyIntel(
       } else if (k.kind === "count") {
         flush();
         count = k.n!;
+        // ★ «Lurm the Slurm», «Jan van Dijk»: una partícula ENTRE dos partes de un nombre es parte
+        //   del nombre. Va ANTES de las ramas de jerga y de minúscula porque el fallo llega por las
+        //   dos: `the` es jerga (y con razón: «on the gate»), pero `van` no lo es y se caía igual
+        //   por no empezar en mayúscula. Una sola regla, en el único sitio por el que pasan ambas.
+      } else if (
+        buf.length > 0 &&
+        PARTICULAS_NOMBRE.has(clean(w).toLowerCase()) &&
+        (() => {
+          // Y lo de DETRÁS tiene que seguir pareciendo el mismo nombre: ni nave, ni sistema, ni
+          // más jerga. Sin esto, «Juan Perez in SIS-TE» se tragaría el sistema.
+          const sig = words[wi + 1];
+          if (!sig) return false;
+          const limpio = clean(sig);
+          return (
+            !!limpio &&
+            classifyWord(sig).kind === "other" &&
+            pareceNombre(limpio) &&
+            naveDesde(words, wi + 1) == null
+          );
+        })()
+      ) {
+        buf.push(clean(w));
       } else if (k.kind === "jargon" || k.kind === "empty" || k.kind === "ticker") {
+        // ★ «... G-Q gate ...»: lo pegado a «gate» es a DÓNDE lleva la puerta, no quién está en
+        //   ella. Se quita ese token del nombre que se estaba montando antes de cerrarlo.
+        if (k.kind === "jargon" && ESJERGA_GATE.has(clean(w).toLowerCase()) && buf.length > 0) {
+          buf.pop();
+        }
         // ticker de corp/alianza cierra el nombre del piloto que lo precede
         flush();
       } else if (esColaDeNombre(k.text!, buf)) {
         // ★ UN NÚMERO PEGADO A UN NOMBRE ES PARTE DEL NOMBRE (2026-09-08).
         //
-        // Reporte suyo con una línea real: `74-VZA  Lucy Lee 1` sacaba el piloto **«Lucy Lee»** —
+        // Reporte suyo con una línea real: `82-JKL  Lucy Lee 1` sacaba el piloto **«Lucy Lee»** —
         // el `1` se caía porque no empieza por mayúscula y cerraba el nombre. Pero el personaje se
         // llama «Lucy Lee 1». Y no es raro: en su propia lista de hostiles están «Riley1» y
         // «MSZ 006». Los nombres de EVE llevan dígitos con toda normalidad.
         //
         // Es la misma familia que el arreglo de «Yona»: **lo decide el CONTEXTO**. Un token de
         // dígitos solo se traga si YA se está construyendo un nombre; suelto no significa nada.
-        // Por eso «X0-6LH  3 hostiles» sigue sin inventar un piloto llamado «3»: ahí el buffer
+        // Por eso «Y0-1AB  3 hostiles» sigue sin inventar un piloto llamado «3»: ahí el buffer
         // está vacío porque el sistema acaba de cerrarlo.
         buf.push(k.text!);
       } else if (!pareceNombre(k.text!)) {
