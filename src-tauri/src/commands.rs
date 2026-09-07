@@ -8445,6 +8445,13 @@ pub async fn resolve_intel_entities(
     })
 }
 
+/// Los nombres que ESI ya dijo que no son de nadie, para que el troceador deje de proponerlos.
+/// Ver `Db::name_cache_inexistentes` — incluida la razón por la que esto no silencia a nadie real.
+#[tauri::command]
+pub fn intel_inexistentes(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    Ok(state.db.name_cache_inexistentes())
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct IntelSighting {
     pub name: String,
@@ -8469,6 +8476,20 @@ pub async fn intel_record_sightings(
     for s in &sightings {
         let nl = s.name.trim().to_lowercase();
         if nl.is_empty() {
+            continue;
+        }
+        // ★ No se cuenta lo que ESI ya dijo que no existe. Sin esto, `WH` seguiría sumando
+        // menciones para siempre y saldría en la lista del Cazador entre los hostiles habituales.
+        // El frontend ya los filtra antes de mandarlos, pero este es el cinturón: una versión
+        // vieja de la interfaz, o un camino nuevo que se nos escape, no debe poder ensuciar el
+        // contador — que es de las pocas tablas que el borrado NO limpia.
+        // Y lo que no puede ser un personaje por longitud: EVE no admite nombres de 1-2
+        // caracteres. Comprobado sobre su BD antes de escribirlo: de 1.706 nombres que ESI
+        // resolvió como personas, ninguno baja de 3. `I`, `V`, `D` y `+` estaban contando.
+        if nl.chars().count() < 3 {
+            continue;
+        }
+        if state.db.name_cache_es_inexistente(&nl) {
             continue;
         }
         state

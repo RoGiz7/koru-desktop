@@ -32,6 +32,7 @@ export function useIntel({
   overlay,
   intelDetail,
   shipNames,
+  noExisten,
   intelReports,
   intelOrigins,
   charLocations,
@@ -42,6 +43,9 @@ export function useIntel({
   overlay: MapOverlay;
   intelDetail: IntelDetail;
   shipNames: Map<string, number>;
+  /** Nombres que ESI dijo que no existen — ver `classifyIntel`. Sin esto, `WH` o `YPW` seguirían
+   *  saliendo como hostiles en la tarjeta y en el aviso. */
+  noExisten?: Set<string>;
   intelReports: IntelReports;
   intelOrigins: number[];
   /** Dónde está y en qué vuela cada personaje tuyo. Se manda a Rust para que el aviso pueda decir
@@ -76,10 +80,10 @@ export function useIntel({
   // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
   const intelDetailCount = useMemo(() => {
     if (!intelDetail || !geo) return null;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames);
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten);
     return p.count ?? (p.pilots.length || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail, shipNames]);
+  }, [intelDetail, shipNames, noExisten]);
 
   // Abrir la config automáticamente si la capa intel está activa y aún no hay canales elegidos.
   // Y pedir permiso de notificación al entrar (para que el SO pregunte en buen momento).
@@ -95,7 +99,7 @@ export function useIntel({
   // solo sobre los candidatos limpios (sin naves ni jerga) → ya no salen Eris/ansi/near como pilotos.
   useEffect(() => {
     if (!intelDetail || !geo) return;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames);
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten);
     // naves locales, deduplicadas por type_id
     const shipMap = new Map<number, string>();
     for (const s of p.ships) shipMap.set(s.id, s.name);
@@ -135,7 +139,7 @@ export function useIntel({
       .catch(() => setIntelEntities({ characters: [], ships }))
       .finally(() => setIntelEntLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail, shipNames]);
+  }, [intelDetail, shipNames, noExisten]);
 
   // --- Intel: aprender "hostiles habituales" ---
   // Cada línea NUEVA aporta sus pilotos al índice (seen_count++ en backend). Dedup por clave de

@@ -505,6 +505,7 @@ pub fn run() {
             commands::read_intel,
             commands::resolve_intel_entities,
             commands::intel_record_sightings,
+            commands::intel_inexistentes,
             commands::get_habitual_hostiles,
             commands::get_pilot_track,
             commands::get_pilot_profile,

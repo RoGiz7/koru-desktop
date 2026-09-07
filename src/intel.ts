@@ -49,8 +49,35 @@ export type IntelParsed = {
 export function classifyIntel(
   message: string,
   nameIdx: Map<string, NeSystem>,
-  shipNames: Map<string, number>
+  shipNames: Map<string, number>,
+  /** ★★ NOMBRES QUE ESI YA DIJO QUE NO SON DE NADIE (en minúsculas).
+   *
+   *  Medido en la base de datos real el 2026-09-07: seguían entrando como pilotos `WH`, `YPW`,
+   *  `MC`, `NI`, `I`… — abreviaturas y jerga que la gente escribe EN MAYÚSCULAS, así que pasan
+   *  `pareceNombre` con todo el derecho y ninguna lista de jerga a mano las cubre: `YPW` es la
+   *  abreviatura de un sistema de TU región, y mañana es otra distinta.
+   *
+   *  Koru ya tenía la respuesta apuntada. Cada nombre falso se pregunta a ESI UNA vez, se guarda
+   *  el «no existe», y desde entonces el troceador deja de proponerlo. Se aprende solo.
+   *
+   *  Opcional a propósito: si no se pasa, el comportamiento es exactamente el de antes. */
+  noExisten?: Set<string>
 ): IntelParsed {
+  const esNadie = (s: string) => !!noExisten && noExisten.has(s.trim().toLowerCase());
+  /** ¿Este candidato es demasiado corto para ser un personaje?
+   *
+   *  EVE no deja nombres de personaje de una o dos letras, así que `I`, `V`, `D` o `+` no pueden
+   *  ser nadie — y estaban entrando como hostiles. **Verificado sobre datos reales antes de
+   *  escribirlo**: de los 1.706 nombres que ESI resolvió como personas en su base de datos, ni uno
+   *  tiene menos de tres caracteres; y la regla descarta 37 de los inexistentes.
+   *
+   *  ⚠️ VA SOBRE EL CANDIDATO ENTERO, NUNCA PALABRA A PALABRA. Metida en `pareceNombre` habría
+   *  roto los nombres compuestos con partículas cortas —«Bedwin **Al** Ishira»— y lo habría hecho
+   *  en silencio, partiendo nombres reales por la mitad. El sitio importa más que la regla.
+   *
+   *  Se cuentan puntos de código, no unidades UTF-16, para no juzgar mal un nombre con caracteres
+   *  fuera del plano básico. */
+  const demasiadoCorto = (s: string) => [...s.trim()].length < 3;
   const systems: { id: number; name: string }[] = [];
   const ships: { id: number; name: string }[] = [];
   const pilots: string[] = [];
@@ -148,13 +175,17 @@ export function classifyIntel(
     // 'other': si es 1 palabra → piloto; si son varias (espacio simple) → separar reconocidos.
     const words = field.split(/\s+/);
     if (words.length === 1) {
-      if (pareceNombre(whole.text!)) pilots.push(whole.text!);
+      if (pareceNombre(whole.text!) && !esNadie(whole.text!) && !demasiadoCorto(whole.text!))
+        pilots.push(whole.text!);
       continue;
     }
     let buf: string[] = [];
     const flush = () => {
       if (buf.length) {
-        pilots.push(buf.join(" "));
+        // El filtro va también AQUÍ, sobre el nombre ya montado, no solo palabra a palabra: los
+        // falsos de varias palabras («Navy issue», «Drifter WH») solo existen una vez unidos.
+        const candidato = buf.join(" ");
+        if (!esNadie(candidato) && !demasiadoCorto(candidato)) pilots.push(candidato);
         buf = [];
       }
     };
@@ -239,11 +270,13 @@ export function buildIntelReports(
   lines: IntelLine[],
   nameIdx: Map<string, NeSystem>,
   shipNames: Map<string, number>,
+  /** Los nombres que ESI dijo que no existen — ver `classifyIntel`. Se pasa tal cual. */
+  noExisten?: Set<string>,
 ): { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } {
   const rep = new Map<number, IntelRep>();
   const feed: IntelFeedRow[] = [];
   for (const l of lines) {
-    const p = classifyIntel(l.message, nameIdx, shipNames);
+    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten);
     const primary = p.systems[0];
     feed.push({
       ts: l.ts_ms,

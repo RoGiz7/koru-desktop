@@ -1311,14 +1311,46 @@ export function MapView(props: {
   // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
   const [shipNames, setShipNames] = useState<Map<string, number>>(new Map());
   useEffect(() => {
-    loadJson<Record<string, number>>("/ship_names.json", {}).then((o) =>
-      setShipNames(new Map(Object.entries(o))),
+    // ★ DOS ficheros: `ship_names_i18n.json` trae los nombres de nave en los idiomas que NO son
+    // inglés. Hay gente con el cliente en chino en el canal de intel — en la BD real aparecen
+    // `剑齿虎级`, `狞獾级海军型` y `秃鹰级`, que contra el SDE son **Sabre**, Caracal Navy Issue
+    // y Buzzard.
+    //
+    // ⚠️ QUÉ ARREGLA ESTO EXACTAMENTE, porque primero me equivoqué al contarlo: NO es que se
+    // ficharan como pilotos. `pareceNombre` es `/^\p{Lu}/u` y los caracteres Han dan `false`, así
+    // que el troceador de HOY no los admite como nombre por ninguna de sus dos ramas (los que hay
+    // en `name_cache` son poso de antes de que existiera ese criterio).
+    // Lo que pasa hoy es que **se tiran en silencio**: la nave no se reconoce, no es nombre, y la
+    // línea de intel se queda sin nave. Un Sabre cantado en chino hoy es un Sabre INVISIBLE — y un
+    // Sabre es la nave que te pone la burbuja. Se gana un dato que se estaba perdiendo, no se quita
+    // uno falso.
+    //
+    // ⚠️ El inglés se carga DESPUÉS y pisa: si un texto estuviera en los dos ficheros, manda el
+    // catálogo de siempre, que es el que lleva los alias a mano y está probado. El extractor ya
+    // descarta las colisiones, así que esto es un cinturón sobre un tirante — pero el día que se
+    // añada un idioma nuevo, el orden es lo que evita que un fichero generado cambie algo que
+    // funcionaba.
+    Promise.all([
+      loadJson<Record<string, number>>("/ship_names_i18n.json", {}),
+      loadJson<Record<string, number>>("/ship_names.json", {}),
+    ]).then(([i18n, en]) =>
+      setShipNames(new Map([...Object.entries(i18n), ...Object.entries(en)])),
     );
   }, []);
 
+  // ★ Lo que ESI ya dijo que NO ES DE NADIE, para que el troceador deje de proponerlo como piloto.
+  // Se pide UNA vez al montar: es una lectura local (cero ESI) de una tabla que solo crece.
+  // Si falla, se queda vacío y el troceador se comporta exactamente como antes.
+  const [noExisten, setNoExisten] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    invoke<string[]>("intel_inexistentes")
+      .then((v) => setNoExisten(new Set(v)))
+      .catch(() => {});
+  }, []);
+
   const intelReports = useMemo(
-    () => (geo && intel ? buildIntelReports(intel.lines, geo.nameIdx, shipNames) : null),
-    [geo, intel?.lines, shipNames],
+    () => (geo && intel ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten) : null),
+    [geo, intel?.lines, shipNames, noExisten],
   );
 
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
@@ -1787,7 +1819,7 @@ export function MapView(props: {
     intelDetailCount,
     intelAlert,
     setIntelAlert,
-  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, intelReports, intelOrigins, charLocations: intelPilots });
+  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, noExisten, intelReports, intelOrigins, charLocations: intelPilots });
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---

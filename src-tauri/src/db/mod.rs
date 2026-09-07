@@ -5651,6 +5651,49 @@ impl Db {
         .ok()
     }
 
+    /// ★★ LO QUE ESI YA DIJO QUE NO EXISTE. La lista con la que el troceador aprende solo.
+    ///
+    /// Medido en la BD real el 2026-09-07: seguían entrando como «pilotos» cosas como `WH`, `YPW`,
+    /// `MC`, `NI` o `I` — abreviaturas y jerga que la gente escribe **en mayúsculas**, así que
+    /// pasan `pareceNombre` con todo el derecho. Una lista de jerga a mano no las cubre nunca:
+    /// `YPW` es la abreviatura de un sistema de SU región y mañana es otra.
+    ///
+    /// Pero Koru ya tenía la respuesta apuntada: `character_id = -1` significa que ESI contestó
+    /// que ese nombre **no es de nadie**. Devolverla al troceador cierra el círculo — cada nombre
+    /// falso se paga UNA vez y no vuelve.
+    ///
+    /// ⚠️ Por qué esto no puede silenciar a un hostil de verdad: el `-1` solo se escribe dentro de
+    /// un `Ok(...)` de `resolve_entities`. Si la llamada a ESI falla, no se marca nada. Un
+    /// problema de red no puede convertir a nadie en inexistente.
+    ///
+    /// ⚠️ Lo que sí queda pendiente: el `-1` hoy es para siempre. Si alguien CREA un personaje con
+    /// un nombre que antes no existía, quedaría mudo. Es raro, pero `updated_at` está guardado y
+    /// el día que moleste se caducan los negativos y se vuelve a preguntar.
+    pub fn name_cache_inexistentes(&self) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) =
+            conn.prepare("SELECT name_lower FROM name_cache WHERE character_id = -1")
+        {
+            if let Ok(rows) = st.query_map([], |r| r.get::<_, String>(0)) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// ¿ESI ya dijo que este nombre no es de nadie? Consulta de una fila por la clave primaria,
+    /// para el camino caliente de registrar avistamientos.
+    pub fn name_cache_es_inexistente(&self, name_lower: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM name_cache WHERE name_lower = ?1 AND character_id = -1",
+            rusqlite::params![name_lower],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
     /// Nombres de una lista de ids, **solo con lo que ya está en casa**.
     ///
     /// Es el camino inverso de `name_cache_get` y existe para la ficha del hostil: los acompañantes
