@@ -6,10 +6,8 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
-    // tres ficheros de versión. Ver el checklist de release.
     version: "0.49.0",
-    date: "2026-09-02",
+    date: "2026-09-07",
     es: [
       "🖼️ Y las naves de fondo de cada sección ya no parecen un recorte pegado. Se veían como un rectángulo con un canto recto, y no era cuestión de gusto: la imagen que sirve EVE es cuadrada y con su propio fondo, la caja donde la metíamos era más baja, y el degradado que debía difuminarla estaba calculado sobre un tamaño distinto del que se recortaba — así que nunca llegaba al borde. Ahora el degradado se cierra antes de tocar ningún canto, y la nave ocupa bastante más ancho.",
       "🔢 Y en el Cazador ya se entiende por qué hay dos números. La lista decía «×232» y la ficha del mismo piloto «155 avistamientos», y las dos cosas se leían igual: «cuántas veces le he visto». Son dos preguntas distintas y las dos son ciertas: cuántas veces se le ha NOMBRADO en el intel, y cuántos avistamientos distintos salen de ahí, que son los que traen sistema y hora y alimentan su rastro. Ahora aparecen juntos, etiquetados, y con una línea que lo explica cuando no coinciden.",
