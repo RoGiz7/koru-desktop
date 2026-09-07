@@ -73,6 +73,8 @@ type IntelAlert = {
   pilots?: PilotProximity[];
   anchor?: Ancla | null;
   parse?: IntelParse;
+  /** Región del sistema del aviso. `undefined` = el grafo no la sabe. */
+  region?: string | null;
 };
 
 /** Un aviso en la pila: el evento + su identidad propia y cuándo le toca irse. */
@@ -318,6 +320,12 @@ export function Overlay() {
   // Se MIDE el alto real en vez de calcularlo: con textos de largo variable y escalados de pantalla
   // distintos, cualquier fórmula acaba desajustada.
   const ajustar = useCallback(() => {
+    // ⚠️ NO «AMPLIAR POR SI ACASO» ESTA MEDIDA (2026-09-07). Lo intenté —max con `scrollHeight`
+    // y +2 px— creyendo que la ventana nacía corta y cortaba el último renglón. **Era un error de
+    // lectura mío:** lo que se veía «cortado» debajo del renglón era el JUEGO asomando por el
+    // borde de la ventana transparente, no contenido nuestro. El renglón no tiene segunda línea.
+    // La medida del rectángulo de la pila es correcta; agrandarla solo dejaría un pico de ventana
+    // invisible tapando el juego.
     const h = Math.ceil(stackRef.current?.getBoundingClientRect().height ?? 0);
     if (h <= 0) return;
     void invoke("overlay_fit", {
@@ -478,6 +486,16 @@ export function Overlay() {
     const saltos = saltosDe(a);
     const nivel = saltos <= 0 ? "aqui" : saltos <= 2 ? "cerca" : "lejos";
     const quien = a.parse?.hostiles?.[0]?.name ?? a.author;
+    // ★★ LA REGIÓN, SOLO CUANDO ES OTRA (2026-09-07). Decisión suya tras reproducirlo juntos.
+    //
+    // El overlay abre en tarjeta el aviso más CERCANO y baja los demás a renglón. Con avisos de la
+    // misma pelea eso está bien —10, 11 y 12 saltos son el mismo jaleo—, pero con DOS canales de
+    // intel de dos regiones el renglón se lee como decoración y no como una alarma: de ahí el
+    // reporte de *«solo me pinta un aviso»*, que resultó ser *«solo me pinta una tarjeta»*.
+    //
+    // Se nombra la región únicamente si difiere de la del aviso abierto: repetirla cuando es la
+    // misma sería ruido, y el overlay no puede permitirse una palabra de más.
+    const otraRegion = !!a.region && !!abierta?.region && a.region !== abierta.region;
     return (
       <div
         key={a.key}
@@ -487,6 +505,11 @@ export function Overlay() {
       >
         <i className="ovr-dot" />
         <span className="ovr-sys">{a.system}</span>
+        {otraRegion && (
+          <span className="ovr-reg" title={tr("Otra región")}>
+            {a.region}
+          </span>
+        )}
         <span className="ovr-j">{saltos <= 0 ? "0" : saltos}</span>
         <span className="ovr-quien">{quien}</span>
         <span className="ovr-age">{edad(a.ts_ms)}</span>

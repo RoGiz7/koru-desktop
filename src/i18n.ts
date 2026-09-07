@@ -2995,6 +2995,7 @@ const EN: Record<string, string> = {
   "Lo que está fallando:": "What is failing:",
   "CCP pone los topes entre 1.000 y 1.800 fichas por ventana de 15 minutos, y las fichas vuelven al cubo pasados esos 15 minutos. Ojo: la cifra de arriba es la MEDIA desde que arrancó Koru, no un pico.":
     "CCP sets the caps between 1,000 and 1,800 tokens per 15-minute window, and tokens return to the bucket after those 15 minutes. Note: the figure above is the AVERAGE since Koru started, not a peak.",
+  "Otra región": "Another region",
   Activos: "Active",
   COMPLETADOS: "COMPLETED",
   "SIN COMPLETAR": "NOT COMPLETED",

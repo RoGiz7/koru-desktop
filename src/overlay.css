@@ -369,6 +369,22 @@ html.koru-overlay #root {
   white-space: nowrap;
   flex: 0 0 auto;
 }
+/* LA REGIÓN, solo cuando el renglón viene de OTRA distinta a la del aviso abierto.
+   Salió del reporte de «con dos canales de intel solo me pinta un aviso», que resultó ser «solo me
+   pinta una TARJETA»: el renglón estaba, pero una línea fina sobre el juego no se lee como alarma.
+   Con la región delante deja de parecer la continuación del de arriba y pasa a ser OTRO sitio.
+   Discreta a propósito —borde y no relleno—: tiene que distinguirse, no competir con los saltos,
+   que son el dato que decide si miras. */
+.ovr-reg {
+  flex: 0 0 auto;
+  font-size: 0.72em;
+  letter-spacing: 0.02em;
+  padding: 0 4px;
+  border: 1px solid rgba(210, 153, 34, 0.55);
+  border-radius: 4px;
+  color: #d29922;
+  white-space: nowrap;
+}
 /* Los saltos, en su color: es el dato que hace mirar o no mirar. */
 .ovr-j {
   flex: 0 0 auto;

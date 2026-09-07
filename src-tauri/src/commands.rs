@@ -7597,6 +7597,13 @@ pub struct IntelGraph {
     pub name_to_id: std::collections::HashMap<String, i64>,
     pub id_to_name: std::collections::HashMap<i64, String>,
     pub adj: std::collections::HashMap<i64, Vec<i64>>,
+    /// Sistema → REGIÓN. Lo manda el frontend con el resto del grafo (ya tiene New Eden cargado).
+    ///
+    /// ★ Para qué (2026-09-07): el overlay abre en tarjeta el aviso MÁS CERCANO y baja los demás a
+    /// renglón. Con dos canales de intel de dos regiones eso se lee mal — el de la otra región
+    /// queda en una línea fina que no parece un aviso, y así nació el reporte de *«solo me pinta
+    /// un aviso»*. Sabiendo la región, el renglón puede DECIRLO y dejar de parecer decoración.
+    pub id_to_region: std::collections::HashMap<i64, String>,
 }
 
 /// Lo que el vigilante está haciendo DE VERDAD. Nace de un fallo de diseño que nos costó dos
@@ -7666,6 +7673,12 @@ pub struct IntelAlertEvent {
     pub anchor: Option<AnchorProximity>,
     /// QUIÉN viene y en qué. Es el protagonista del aviso: lo que decide si huyes o peleas.
     pub parse: IntelParse,
+    /// La REGIÓN del sistema del aviso. `None` = el grafo no la sabe (frontend viejo).
+    ///
+    /// La usa el overlay para que un renglón de OTRA región diga de dónde viene: con dos canales
+    /// de intel, dos avisos lejanos entre sí no son la misma pelea, y el renglón a secas no lo
+    /// contaba. Ver `IntelGraph::id_to_region`.
+    pub region: Option<String>,
 }
 
 /// Un sistema silenciado. `until_ms` nulo = indefinido; con valor, caduca solo.
@@ -8037,11 +8050,17 @@ pub fn set_intel_graph(
     state: State<'_, AppState>,
     names: Vec<(String, i64)>,
     edges: Vec<(i64, i64)>,
+    // Opcional a propósito: si una versión vieja del frontend no lo manda, el grafo se queda sin
+    // regiones y el overlay simplemente no las nombra. Nada se rompe por no saberlas.
+    regions: Option<Vec<(i64, String)>>,
 ) -> AppResult<()> {
     let mut g = IntelGraph::default();
     for (n, id) in names {
         g.name_to_id.insert(n.to_lowercase(), id);
         g.id_to_name.entry(id).or_insert(n);
+    }
+    for (id, r) in regions.unwrap_or_default() {
+        g.id_to_region.insert(id, r);
     }
     for (a, b) in edges {
         g.adj.entry(a).or_default().push(b);
@@ -8296,6 +8315,7 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                                 pilots,
                                                 anchor,
                                                 parse: hostiles_de(&app, &g.name_to_id, message),
+                                                region: g.id_to_region.get(sid).cloned(),
                                             },
                                         );
                                         // El overlay se despierta SOLO si el jugador lo encendió.
@@ -12585,6 +12605,50 @@ pub fn overlay_test(
                 ships: vec![NaveCitada { type_id: 17715, name: "Gila".into() }],
                 count: Some(2),
             },
+            region: Some("The Forge".into()),
+        },
+    );
+
+    // ★★ SEGUNDO AVISO, DE OTRO SISTEMA — añadido el 2026-09-07 y por DOS razones.
+    //
+    // 1. EL TEST NUNCA ENSEÑABA LA PILA. El overlay está diseñado como «una tarjeta abierta + el
+    //    resto en renglones», y con un solo aviso esa mitad del diseño no se veía nunca. Quien
+    //    pulsaba «ver un aviso de prueba» no llegaba a saber cómo se comporta con dos.
+    // 2. REPRODUCE EL FALLO REPORTADO. Alguien con DOS canales de intel (dos regiones) dijo que el
+    //    overlay **solo pintaba uno de los dos avisos**, mientras el mapa y las notificaciones de
+    //    Windows enseñaban los dos. Dos avisos de sistemas DISTINTOS emitidos en el mismo instante
+    //    es exactamente ese caso — y así se puede reproducir en cualquier equipo, sin esperar a
+    //    que a alguien le canten dos regiones a la vez.
+    //
+    // Va MÁS LEJOS que el primero (9 saltos) a propósito: así el que manda la tarjeta abierta
+    // sigue siendo el cercano, y este cae al renglón. Si algún día el overlay ordenara por
+    // llegada en vez de por peligro, este test lo delataría.
+    let _ = app.emit(
+        "intel-alert",
+        IntelAlertEvent {
+            sys_id: 30000180,
+            system: "Sobaseki".into(),
+            jumps: 9,
+            author: "Koru".into(),
+            message: "Segundo reporte de prueba, de otro sistema.".into(),
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            pilots: vec![PilotProximity {
+                name: "Dana-FeSe".into(),
+                jumps: 9,
+                ship: Some("Venture".into()),
+                ship_type_id: Some(32880),
+                system_id: 30000180,
+                system: Some("Sobaseki".into()),
+            }],
+            anchor: None,
+            parse: IntelParse {
+                hostiles: vec![],
+                ships: vec![],
+                count: Some(1),
+            },
+            // Región DISTINTA de la del primero a propósito: es lo que ejerce la mejora del
+            // renglón — sin dos regiones, el caso que se quiere ver no aparece.
+            region: Some("Lonetrek".into()),
         },
     );
     Ok(())

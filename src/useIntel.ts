@@ -174,7 +174,16 @@ export function useIntel({
     // («de ttp-2b») y afecta también al título de la notificación del sistema.
     const names: [string, number][] = [...geo.nameIdx.values()].map((s) => [s.n, s.id]);
     const edges: [number, number][] = ne.jumps as [number, number][];
-    invoke("set_intel_graph", { names, edges }).catch(() => {});
+    // La REGIÓN de cada sistema. Se manda aquí porque esta ventana ya tiene New Eden cargado y el
+    // overlay no puede permitirse ese megabyte — es una ventana que vive sobre el juego.
+    // La usa para que un renglón de otra región diga de dónde viene: con dos canales de intel, dos
+    // avisos lejanos entre sí no son la misma pelea. Ver `IntelGraph::id_to_region`.
+    const reg = new Map(ne.regions.map((r) => [r.id, r.n] as const));
+    const regions: [number, string][] = [...geo.nameIdx.values()].flatMap((s) => {
+      const n = reg.get(s.r);
+      return n ? ([[s.id, n]] as [number, string][]) : [];
+    });
+    invoke("set_intel_graph", { names, edges, regions }).catch(() => {});
   }, [geo, ne]);
 
   // Interruptor del aviso flotante. Se guarda en localStorage (es preferencia de UI, no dato), pero
