@@ -199,16 +199,26 @@ function prefijosDe(shipNames: Map<string, number>): Map<string, number | null> 
  *  Queda una lista, y una lista se justifica cuando **cada entrada sale de una medición**. Estas
  *  salen. Si mañana la auditoría saca otra, se añade una línea.
  *
- *  ★ DOS COSAS LA HACEN INCAPAZ DE HACER DAÑO:
- *  1. Solo se mira lo que NO parece un nombre, o sea lo que ya iba a la basura. Medido sobre 51
- *     pilotos reales suyos: la versión por prefijos se tragaba **«BuZZ», de «BuZZ Oelk»**
- *     («Buzzard»). Con la puerta puesta, `BuZZ` empieza por mayúscula y ni entra.
- *  2. El destino se resuelve CONTRA EL CATÁLOGO. Si CCP renombra una nave, el apodo deja de
- *     funcionar en vez de apuntar a un typeID inventado.
+ *  ★ LO QUE LA HACE INCAPAZ DE HACER DAÑO: el destino se resuelve CONTRA EL CATÁLOGO. Si CCP
+ *  renombra una nave, el apodo deja de funcionar en vez de apuntar a un typeID inventado.
  *
- *  ❓ `retri` (943 veces) NO está, y es el más frecuente de todos: es Retribution **y** Retriever,
- *  una fragata de asalto y un barco minero. Eso no lo decide el catálogo, lo decide quien vuela
- *  allí. Sin respuesta, mejor no nombrar la nave que nombrar la que no es. */
+ *  ⚠️ HUBO UNA PUERTA DE MAYÚSCULAS AQUÍ Y SE QUITÓ, a propósito. Existía para protegerse del
+ *  MECANISMO por prefijos —que se tragaba «BuZZ», de «BuZZ Oelk», por «Buzzard»— y ese mecanismo ya
+ *  no está. Con una lista de once entradas juzgadas una a una no hace falta, y estorbaba: `Stilleto`
+ *  en mayúscula seguía dando **112 avistamientos falsos**, y él fue claro — *«lo más normal es que
+ *  se diga que es la nave, aún no me he cruzado con ningún personaje así llamado»*.
+ *  El precio: si alguien se llamara «Manti Loquesea», se perdería. Once entradas, todas revisadas.
+ *
+ *  ★ LAS DOS QUE RESOLVIÓ ÉL, y que ningún catálogo podía resolver (2026-09-08):
+ *
+ *  · `retri` (943) era ambigua entre Retribution y Retriever. Su respuesta no fue lingüística sino
+ *    del juego: *«Retribution, una Retriever minera no es una amenaza XD»*. Claro — esto es un
+ *    canal de intel: **se canta lo que te puede matar**. El catálogo no sabe eso.
+ *  · `kiki` (1.822, y Koru fichaba 178 avistamientos con ese nombre) **no es una persona: es la
+ *    Kikimora**, la destructora triglaviana. Yo llevaba dos informes buscándole apellido.
+ *
+ *  ❓ Sin resolver a propósito: `only` («Only Akiga» 102) y el trío `meme tea` / `lemon meme`. No lo
+ *  sabe él y yo menos; se quedan como están hasta que alguien lo sepa. */
 const APODOS_NAVE: Record<string, string> = {
   stilleto: "stiletto",
   stileto: "stiletto",
@@ -219,6 +229,8 @@ const APODOS_NAVE: Record<string, string> = {
   loky: "loki",
   proc: "procurer",
   maledicrion: "malediction",
+  retri: "retribution",
+  kiki: "kikimora",
 };
 const apodosCache = new WeakMap<Map<string, number>, Map<string, number>>();
 function apodosDeNave(shipNames: Map<string, number>): Map<string, number> {
@@ -241,8 +253,9 @@ function naveApodada(
   shipNames: Map<string, number>
 ): { typeId: number; name: string } | null {
   const lc = tok.toLowerCase();
-  // ★ LA PUERTA: si parece un nombre, ni se mira. Ver el comentario de arriba.
-  if (pareceNombre(tok) || !FORMA_APODO.test(lc)) return null;
+  // Solo letras y al menos tres: lo demás no puede ser ninguno de los once apodos. La comparación
+  // es en minúsculas a propósito — ver arriba por qué se quitó la puerta de mayúsculas.
+  if (!FORMA_APODO.test(lc)) return null;
   const idx = apodosDeNave(shipNames);
   const t = idx.get(lc) ?? (lc.endsWith("s") ? idx.get(lc.slice(0, -1)) : undefined);
   return t != null ? { typeId: t, name: tok } : null;
