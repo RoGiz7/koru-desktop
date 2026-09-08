@@ -133,13 +133,20 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
    *  No borra nada, así que **no se confirma**: lo peor que puede pasar es gastar unas peticiones.
    *  Y se puede repetir: lo ya sabido no se vuelve a preguntar. */
   const [aprendiendo, setAprendiendo] = useState(false);
-  const [progAprender, setProgAprender] = useState(0);
+  /** ⚠️ El texto del botón lleva la FASE, no solo un porcentaje. Antes decía «Aprendiendo… 100 %»
+   *  durante toda la parte de preguntar a ESI, que es la que de verdad tarda — un 100 % que no ha
+   *  terminado. Lo vio él en pantalla. */
+  const [progAprender, setProgAprender] = useState("");
   const aprender = async () => {
     setAprendiendo(true);
     setResultado(null);
     try {
       const r = await aprenderNombresMinuscula((p) =>
-        setProgAprender(p.total > 0 ? Math.min(100, Math.round((p.lineas / p.total) * 100)) : 0),
+        setProgAprender(
+          p.fase === "leyendo"
+            ? `${tr("Leyendo…")} ${p.total > 0 ? Math.min(100, Math.round((p.lineas / p.total) * 100)) : 0}%`
+            : `${tr("Preguntando…")} ${p.hechos}/${p.candidatos}`,
+        ),
       );
       anotarResultado(
         `${tr("Nombres preguntados")}: ${r.preguntados.toLocaleString()} · ${tr("son personas")}: ${r.personas.toLocaleString()}`,
@@ -148,7 +155,7 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
       anotarResultado(`${tr("No se pudo aprender")}: ${String(e)}`);
     } finally {
       setAprendiendo(false);
-      setProgAprender(0);
+      setProgAprender("");
     }
   };
   const [importando, setImportando] = useState(false);
@@ -356,12 +363,17 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
               {/* ★ CON UNA PASADA A MEDIAS, «Continuar» va PRIMERO y «Empezar de cero» al lado.
                   Reanudar en silencio sería tan malo como perder el trabajo: quien vuelve tiene
                   que ver que quedó algo a medias y decidir. */}
+              {/* ⚠️ BLOQUEADOS MIENTRAS SE APRENDE, y no es cosmético. La reconstrucción carga los
+                  veredictos de `name_cache` UNA vez, al empezar: si arranca mientras las preguntas
+                  siguen en vuelo, se pierde todo lo que llegue después y hay que repetir 20 minutos.
+                  Se lo advertí por escrito… y el botón le dejaba hacerlo igual. Un aviso que el
+                  código no respalda no es una salvaguarda. */}
               {pendiente && pendiente.continuable && !rehaciendo && (
-                <button onClick={continuar} disabled={importando}>
+                <button onClick={continuar} disabled={importando || aprendiendo}>
                   ▶️ {tr("Continuar")} ({pendiente.pct} %)
                 </button>
               )}
-              <button onClick={rehacer} disabled={rehaciendo || importando}>
+              <button onClick={rehacer} disabled={rehaciendo || importando || aprendiendo}>
                 {rehaciendo
                   ? `${tr("Rehaciendo…")} ${progreso}%`
                   : pendiente && pendiente.continuable
@@ -382,9 +394,7 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
           {archivo != null && archivo[0] > 0 && (
             <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
               <button onClick={aprender} disabled={aprendiendo || rehaciendo || importando}>
-                {aprendiendo
-                  ? `${tr("Aprendiendo…")} ${progAprender}%`
-                  : `🔤 ${tr("Aprender nombres en minúscula")}`}
+                {aprendiendo ? progAprender : `🔤 ${tr("Aprender nombres en minúscula")}`}
               </button>
               <span className="small muted">
                 {tr(

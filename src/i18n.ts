@@ -2535,7 +2535,8 @@ const EN: Record<string, string> = {
   "líneas releídas": "lines re-read",
   "No se pudo rehacer": "Could not rebuild",
   "Aprender nombres en minúscula": "Learn lowercase names",
-  "Aprendiendo…": "Learning…",
+  "Leyendo…": "Reading…",
+  "Preguntando…": "Asking…",
   "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre. Hazlo antes de rehacer.":
     "Plenty of people type names in lowercase and Koru used to drop them. This walks through what's stored and asks ONCE about each; the answer is kept forever. Do this before rebuilding.",
   "Nombres preguntados": "Names asked",

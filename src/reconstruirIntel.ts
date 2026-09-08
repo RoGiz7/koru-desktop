@@ -94,7 +94,18 @@ const respirar = () => new Promise((r) => setTimeout(r, 0));
 const TANDA_ESI = 200;
 const MIN_VECES = 3;
 
-export type ProgresoAprender = { lineas: number; total: number; candidatos: number };
+/** ⚠️ LA FASE, NO SOLO EL PORCENTAJE. Sin esto la barra llegaba al 100 % al acabar de LEER y se
+ *  quedaba ahí clavada mientras seguía preguntando a ESI — o sea, el botón decía «Aprendiendo…
+ *  100 %» durante toda la parte que de verdad tarda. Él lo vio en pantalla y tenía toda la razón en
+ *  desconfiar: un 100 % que no ha terminado es un cartel que miente. */
+export type ProgresoAprender = {
+  fase: "leyendo" | "preguntando";
+  lineas: number;
+  total: number;
+  /** En la fase de preguntar: cuántos nombres van pedidos y cuántos hay en total. */
+  hechos: number;
+  candidatos: number;
+};
 
 export async function aprenderNombresMinuscula(
   onProgreso?: (p: ProgresoAprender) => void,
@@ -120,7 +131,7 @@ export async function aprenderNombresMinuscula(
     }
     lineas += pagina.length;
     cursor = pagina[pagina.length - 1].ts_ms;
-    onProgreso?.({ lineas, total, candidatos: veces.size });
+    onProgreso?.({ fase: "leyendo", lineas, total, hechos: 0, candidatos: veces.size });
     await respirar();
   }
 
@@ -139,7 +150,13 @@ export async function aprenderNombresMinuscula(
     } catch {
       /* se reintenta en la próxima pasada */
     }
-    onProgreso?.({ lineas, total, candidatos: candidatos.length });
+    onProgreso?.({
+      fase: "preguntando",
+      lineas,
+      total,
+      hechos: Math.min(i + TANDA_ESI, candidatos.length),
+      candidatos: candidatos.length,
+    });
     await respirar();
   }
   return { lineas, candidatos: veces.size, preguntados: candidatos.length, personas };
