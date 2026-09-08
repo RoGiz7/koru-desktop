@@ -6,7 +6,7 @@
 // Los efectos se movieron VERBATIM desde map.tsx con sus mismas dependencias → comportamiento igual.
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { tr } from "./i18n";
 import { ensureNotifPerm, playAlertChoice, loadCustomSound } from "./sound";
 import { classifyIntel } from "./intel";
@@ -80,6 +80,14 @@ export function useIntel({
     intelAlertRef.current = intelAlert;
   }, [intelAlert]);
   const intelAlertTimer = useRef<number | null>(null);
+  /** ★★ LOS CATÁLOGOS, EN UN ESPEJO. Idea suya, y hace falta por una trampa de React: el `listen`
+   *  de «intel-alert» se registra UNA vez y su clausura se queda con los valores del primer render
+   *  —cuando `geo` todavía es `null`—. Sin este espejo, el troceo de abajo se haría siempre con un
+   *  catálogo vacío y el overlay nunca mejoraría. Compilando en verde, además. */
+  const catalogosRef = useRef({ geo, shipNames, noExisten, existen });
+  useEffect(() => {
+    catalogosRef.current = { geo, shipNames, noExisten, existen };
+  }, [geo, shipNames, noExisten, existen]);
 
   // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
   const intelDetailCount = useMemo(() => {
@@ -300,6 +308,41 @@ export function useIntel({
       const next = { text, extra, jumps: lead.jumps, report: lead.report };
       intelAlertRef.current = next;
       setIntelAlert(next);
+      // ★★ EL OVERLAY NO TIENE POR QUÉ TROCEAR: QUE CONSUMA LO QUE EL MAPA YA TIENE (idea suya).
+      //
+      //  Caso real suyo, en la misma línea y a la vez: el mapa decía **«ACG JITA»** con su retrato y
+      //  el overlay **«ACG»** con un interrogante. El troceador de Rust no sabe de `name_cache`, ni
+      //  de apodos de nave, ni de las dos lecturas de un nombre partido — le faltan los quince
+      //  mecanismos que se le han ido añadiendo al de la app.
+      //
+      //  Mi plan era cargar `neweden.json` (1 MB) en la ventana del overlay para que troceara por su
+      //  cuenta. **Él propuso lo correcto**: eso son DOS sitios haciendo el mismo trabajo, que es
+      //  justo lo que estamos arreglando. Aquí ya está troceado; solo hay que mandarlo.
+      //  Queda consistente POR CONSTRUCCIÓN: no puede volver a haber dos respuestas, es el mismo dato.
+      //
+      //  ⚠️ NO retrasa la alarma ni depende de esto: el overlay pinta primero lo de Rust y se mejora
+      //  al llegar esto. Si esta ventana está dormida o el evento no llega, se queda EXACTAMENTE
+      //  como hoy. Nunca peor.
+      //
+      //  ⚠️ Va sin `character_id`: el retrato lo resuelve Rust sobre el nombre que él sacó, y aquí
+      //  el nombre puede ser otro (más largo y correcto). Mejor el nombre bueno sin cara que la cara
+      //  de un nombre a medias.
+      const cat = catalogosRef.current;
+      if (cat.geo) {
+        try {
+          const p = classifyIntel(
+            a.message, cat.geo.nameIdx, cat.shipNames, cat.noExisten, cat.geo.zonaIdx, cat.existen,
+          );
+          void emit("intel-parse", {
+            key: `${a.sys_id}-${a.ts_ms}`,
+            hostiles: p.pilots.map((n) => ({ name: n, character_id: null })),
+            ships: p.ships.map((s) => ({ type_id: s.id, name: s.name })),
+            count: p.count,
+          });
+        } catch {
+          /* el aviso ya está dado: que el overlay se quede con lo de Rust es un final aceptable */
+        }
+      }
       intel?.onIntelAlert?.(text); // toast global (visible en cualquier sección)
       if (intel?.sound) playAlertChoice(intel.soundChoice);
       if (intelAlertTimer.current) window.clearTimeout(intelAlertTimer.current);

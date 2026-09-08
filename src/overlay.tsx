@@ -292,6 +292,55 @@ export function Overlay() {
     };
   }, []);
 
+  // ★★ EL TROCEO BUENO, QUE MANDA EL MAPA (idea suya, 2026-09-08).
+  //
+  //  Rust trocea lo justo para decidir si hay alarma, y le faltan los quince mecanismos que tiene el
+  //  troceador de la app: `name_cache` para los nombres en minúscula, apodos y siglas de nave, naves
+  //  de varias palabras, partículas, dígitos pegados… Su captura lo enseñó en la misma línea y a la
+  //  vez: el mapa decía **«ACG JITA»** con retrato, el overlay **«ACG»** con un interrogante.
+  //
+  //  La alternativa era cargar `neweden.json` (1 MB) aquí y trocear otra vez. **Dos sitios haciendo
+  //  el mismo trabajo es justo el problema**, así que la app manda lo que YA tiene troceado y esto
+  //  solo lo consume. Una verdad, no dos.
+  //
+  //  ⚠️ ES UNA MEJORA, NO UNA DEPENDENCIA. El aviso ya se pintó con lo de Rust cuando esto llega. Si
+  //  la ventana principal está dormida, o el evento no llega, el overlay se queda exactamente como
+  //  hoy — nunca peor, y la alarma nunca espera a nadie.
+  //
+  //  ⚠️ Solo mejora avisos que YA están en la pila: si llegara antes que el suyo (no puede: Rust
+  //  emite primero), el `map` no encuentra la clave y se descarta sin ruido.
+  useEffect(() => {
+    const un = listen<{ key: string } & IntelParse>("intel-parse", (e) => {
+      const { key, hostiles, ships, count } = e.payload;
+      if (!hostiles?.length && !ships?.length) return;
+      setAvisos((prev) =>
+        prev.map((a) =>
+          a.key !== key
+            ? a
+            : {
+                ...a,
+                parse: {
+                  // El retrato lo resolvió Rust sobre SU nombre; si el bueno coincide, se conserva.
+                  hostiles: hostiles.map((h) => ({
+                    name: h.name,
+                    character_id:
+                      a.parse?.hostiles.find(
+                        (v) => v.name.toLowerCase() === h.name.toLowerCase(),
+                      )?.character_id ?? null,
+                  })),
+                  ships,
+                  // El contador `+N` de Rust vale igual; solo se pisa si el bueno trae uno.
+                  count: count ?? a.parse?.count ?? null,
+                },
+              },
+        ),
+      );
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
+
   // Un ÚNICO reloj para toda la pila: refresca las edades y retira lo caducado. Un timer por aviso
   // sería más "limpio" en apariencia y una fuente de fugas: al recortar por el tope, los timers de
   // los descartados quedarían sueltos.

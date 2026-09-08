@@ -7894,6 +7894,23 @@ pub struct IntelGraph {
     pub name_to_id: std::collections::HashMap<String, i64>,
     pub id_to_name: std::collections::HashMap<i64, String>,
     pub adj: std::collections::HashMap<i64, Vec<i64>>,
+    /// ★★ LAS ABREVIATURAS DE SISTEMA, PARA QUE LA ALARMA SUENE (tarea #31, 2026-09-08).
+    ///
+    /// Prefijo (en minúsculas) → id del sistema, o `None` si DOS sistemas lo comparten. Espejo de
+    /// `prefijosSistema` en `src/intel.ts`, y con el mismo cerrojo: con dos candidatos no se
+    /// nombra ninguno, porque mandar a alguien al sistema equivocado es peor que no decirle nada.
+    ///
+    /// ⚠️ POR QUÉ ESTO NO ERA COSMÉTICO. El troceador de la app resuelve abreviaturas desde hace
+    /// semanas; **el vigilante no**, y el vigilante es quien decide si hay alarma. Medido sobre sus
+    /// 827.864 líneas (`scripts/audit_troceadores.py`): de las 660.357 que resuelven un sistema,
+    /// **14.535 (2,2 %) lo nombran SOLO abreviado**. En esas el vigilante se quedaba sin sistema, y
+    /// sin sistema no hay proximidad, ni aviso, ni overlay: **la alarma no sonaba**.
+    ///
+    /// Y no caen al azar: el sistema más afectado se lleva 3.748 él solo. Se abrevia lo que más se
+    /// nombra, así que la ceguera estaba justo en los sistemas de los que más se habla.
+    ///
+    /// Se calcula UNA vez, al recibir el grafo, no por línea: el bucle corre cada 3 segundos.
+    pub prefijos: std::collections::HashMap<String, Option<i64>>,
     /// Sistema → REGIÓN. Lo manda el frontend con el resto del grafo (ya tiene New Eden cargado).
     ///
     /// ★ Para qué (2026-09-07): el overlay abre en tarjeta el aviso MÁS CERCANO y baja los demás a
@@ -8097,6 +8114,44 @@ const INTEL_JARGON: &[&str] = &[
 /// Se rechazan también los que empiezan por dígito: existen, pero son rarísimos, y aquí un falso
 /// negativo («hostil sin identificar») es mucho mejor que un falso positivo — inventarle un nombre
 /// a quien viene a matarte es peor que admitir que no lo sabes.
+/// ¿Tiene este token FORMA de código de sistema de null? Espejo de `FORMA_SISTEMA` en `intel.ts`.
+///
+/// ⚠️ Las tres condiciones son las tres que costó aprender allí, y las tres siguen haciendo falta:
+///   · **al menos una letra** — sin ella, `006` casaba con el prefijo de un sistema real y partía
+///     en dos al piloto «MSZ 006». Lo cazó una prueba de regresión, no el razonamiento.
+///   · **un dígito o un guion** — es lo único que separa una abreviatura de una palabra corriente
+///     que empieza igual; sin esto, `fleet` o `spike` se convertían en coordenadas.
+///   · **tres caracteres** — con dos, media galaxia empieza igual y la unicidad deja de proteger.
+fn forma_sistema(c: &str) -> bool {
+    if c.chars().count() < 3 {
+        return false;
+    }
+    let mut letra = false;
+    let mut digito_o_guion = false;
+    for ch in c.chars() {
+        if ch.is_ascii_alphabetic() {
+            letra = true;
+        } else if ch.is_ascii_digit() || ch == '-' {
+            digito_o_guion = true;
+        } else {
+            return false; // cualquier otra cosa no es un código de sistema
+        }
+    }
+    // El primero no puede ser el guion: los códigos empiezan por letra o dígito.
+    let primero_ok = c.chars().next().is_some_and(|ch| ch.is_ascii_alphanumeric());
+    letra && digito_o_guion && primero_ok
+}
+
+/// `x4`, `2x`: son CANTIDADES, no sistemas, aunque lleven letra y dígito. Espejo de `ES_CANTIDAD`.
+fn es_cantidad(c: &str) -> bool {
+    let s = c.to_ascii_lowercase();
+    let resto = s.strip_prefix('x').or_else(|| s.strip_suffix('x'));
+    match resto {
+        Some(r) => !r.is_empty() && r.chars().all(|ch| ch.is_ascii_digit()),
+        None => false,
+    }
+}
+
 fn parece_nombre(palabra: &str) -> bool {
     palabra.chars().next().is_some_and(|c| c.is_uppercase())
 }
@@ -8386,6 +8441,20 @@ pub fn set_intel_graph(
         g.name_to_id.insert(n.to_lowercase(), id);
         g.id_to_name.entry(id).or_insert(n);
     }
+    // ★ El índice de abreviaturas, una sola vez. Ver `IntelGraph::prefijos` para el porqué y las
+    //   cifras. Se cortan los prefijos de 3 caracteres en adelante y SIN llegar al nombre entero:
+    //   ese ya lo cubre `name_to_id`. `and_modify` marca la ambigüedad en cuanto un segundo sistema
+    //   reclama el mismo prefijo — igual que hace el troceador de la app.
+    for (n, id) in &g.name_to_id {
+        let chars: Vec<char> = n.chars().collect();
+        for k in 3..chars.len() {
+            let pre: String = chars[..k].iter().collect();
+            g.prefijos
+                .entry(pre)
+                .and_modify(|v| *v = None)
+                .or_insert(Some(*id));
+        }
+    }
     for (id, r) in regions.unwrap_or_default() {
         g.id_to_region.insert(id, r);
     }
@@ -8579,7 +8648,18 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                 anterior_parece_nombre = false;
                                 continue;
                             }
-                            if let Some(&sid) = g.name_to_id.get(&c) {
+                            // ★★ EXACTO PRIMERO Y, SI NO, LA ABREVIATURA (tarea #31, 2026-09-08).
+                            //    Ver `IntelGraph::prefijos`: 14.535 líneas suyas nombraban el
+                            //    sistema SOLO abreviado y aquí no se encontraba nada, así que no
+                            //    había alarma. El nombre entero siempre manda sobre un prefijo.
+                            let sid_tok = g.name_to_id.get(&c).copied().or_else(|| {
+                                if forma_sistema(&c) && !es_cantidad(&c) {
+                                    g.prefijos.get(&c).copied().flatten()
+                                } else {
+                                    None
+                                }
+                            });
+                            if let Some(sid) = sid_tok {
                                 if matched.is_empty() || !anterior_parece_nombre {
                                     matched.push(sid);
                                 }
