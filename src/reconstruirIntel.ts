@@ -137,6 +137,11 @@ export async function aprenderNombresMinuscula(
 
   const candidatos = [...veces].filter(([, n]) => n >= MIN_VECES).map(([k]) => k);
   let personas = 0;
+  // ⚠️ EL AVISO VA ANTES DE PREGUNTAR, NO DESPUÉS. Lo emitía al volver cada tanda, así que entre
+  // acabar de leer y recibir la primera respuesta el botón seguía diciendo «Leyendo… 100 %» — otra
+  // vez un cartel clavado en el 100 % sin haber terminado, dos líneas debajo de donde acababa de
+  // arreglar el mismo fallo. Él lo vio en pantalla. **El progreso se anuncia al EMPEZAR un paso.**
+  onProgreso?.({ fase: "preguntando", lineas, total, hechos: 0, candidatos: candidatos.length });
   for (let i = 0; i < candidatos.length; i += TANDA_ESI) {
     const tanda = candidatos.slice(i, i + TANDA_ESI);
     // Si una tanda falla (red, ESI caído), se sigue con las demás: lo aprendido se queda guardado y
