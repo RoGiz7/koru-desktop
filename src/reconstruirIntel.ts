@@ -130,8 +130,20 @@ export async function aprenderNombresMinuscula(
       }
     }
     lineas += pagina.length;
-    cursor = pagina[pagina.length - 1].ts_ms;
     onProgreso?.({ fase: "leyendo", lineas, total, hechos: 0, candidatos: veces.size });
+    // ⚠️ LAS DOS GUARDAS DEL BUCLE, Y ME LAS DEJÉ FUERA AL COPIARLO (2026-09-08).
+    //
+    // La consulta es `ts_ms >= ?`, así que la última página **se devuelve otra vez** en la
+    // siguiente vuelta: `pagina.length === 0` NUNCA llega y esto no termina jamás. En pantalla se
+    // veía como «Leyendo… 100 %» clavado para siempre y todos los botones bloqueados — porque
+    // `lineas` seguía creciendo por encima de `total` y el `Math.min(100, …)` lo tapaba.
+    //
+    // Las dos guardas existen veinte líneas más abajo, en la reconstrucción, **con el comentario
+    // que explica exactamente este fallo**. Copié el bucle y dejé fuera su red de seguridad.
+    const ultima = pagina[pagina.length - 1].ts_ms;
+    cursor = ultima > cursor ? ultima : cursor + 1;
+    // Una página corta es la última: esta es la condición de parada de verdad.
+    if (pagina.length < PAGINA) break;
     await respirar();
   }
 
