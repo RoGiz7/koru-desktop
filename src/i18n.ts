@@ -2545,6 +2545,9 @@ const EN: Record<string, string> = {
   "Aprender nombres en minúscula": "Learn lowercase names",
   "Leyendo…": "Reading…",
   "Preguntando…": "Asking…",
+  // Respaldo del botón cuando se vuelve a Ajustes con la pasada ya en marcha: la FASE vivía en el
+  // componente y se pierde al desmontar, pero el porcentaje del módulo sigue ahí.
+  "Aprendiendo…": "Learning…",
   // ⚠️ Se quitó el «Hazlo antes de rehacer» del final: el orden ya no hay que recordarlo, lo lleva
   //    la pantalla (ver `veredictosNuevos` en overlaySettings.tsx).
   "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre.":
@@ -2553,7 +2556,10 @@ const EN: Record<string, string> = {
     "new verdicts. To bring them into your sightings, what's stored has to be read again; it takes a while.",
   "Nada nuevo que aprender: no hace falta rehacer los avistamientos.":
     "Nothing new to learn: no need to rebuild the sightings.",
-  "Nombres preguntados": "Names asked",
+  // ⚠️ «comprobados», no «preguntados»: la mayoría de las veces no se pregunta a ESI nada, porque
+  //    `resolve_intel_entities` mira primero la caché local. Ver el porqué en overlaySettings.tsx.
+  "Nombres comprobados": "Names checked",
+  "veredictos nuevos": "new verdicts",
   "son personas": "are people",
   "No se pudo aprender": "Could not learn",
   "Archivo del intel": "Intel archive",

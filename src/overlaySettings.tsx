@@ -55,18 +55,31 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
   //   a mitad dejaba el panel como si no pasara nada mientras el proceso seguía corriendo a solas
   //   — y el botón habilitado para lanzar una segunda que purgaría lo de la primera. Lo vio él en
   //   vivo, al 46 %.
-  const [rehaciendo, setRehaciendo] = useState(() => estadoReconstruccion().activo);
+  // ⚠️ SON DOS COSAS DISTINTAS Y HAY QUE LEERLAS POR SEPARADO (2026-09-08). `estado.activo` significa
+  //    «hay un trabajo largo del intel en marcha», y desde que aprender nombres también lo enciende,
+  //    ya no significa «se está rehaciendo». Lo mezclé y el botón de rehacer se puso a decir
+  //    «Rehaciendo… 21 %» mientras el de al lado decía «Leyendo… 41 %»: **dos carteles contándose
+  //    cosas distintas sobre la misma máquina.** Lo vio él en una captura.
+  //
+  //    · `ocupado`   → hay ALGO corriendo. Es lo que bloquea los botones, y por eso sobrevive a
+  //                    salirse de Ajustes: sin él, volver a la pestaña reactivaba los dos.
+  //    · `rehaciendo`/`aprendiendoYa` → CUÁL. Solo deciden qué se pinta.
+  const [ocupado, setOcupado] = useState(() => estadoReconstruccion().activo);
+  const [rehaciendo, setRehaciendo] = useState(() => estadoReconstruccion().que === "rehacer");
+  const [aprendiendoYa, setAprendiendoYa] = useState(
+    () => estadoReconstruccion().que === "aprender",
+  );
   const [progreso, setProgreso] = useState(() => estadoReconstruccion().progreso);
   useEffect(() => {
-    const e = estadoReconstruccion();
-    setRehaciendo(e.activo);
-    setProgreso(e.progreso);
-    if (e.resultado) setResultado(e.resultado);
-    return escucharReconstruccion((n) => {
-      setRehaciendo(n.activo);
-      setProgreso(n.progreso);
-      if (n.resultado) setResultado(n.resultado);
-    });
+    const aplicar = (e: ReturnType<typeof estadoReconstruccion>) => {
+      setOcupado(e.activo);
+      setRehaciendo(e.activo && e.que === "rehacer");
+      setAprendiendoYa(e.activo && e.que === "aprender");
+      setProgreso(e.progreso);
+      if (e.resultado) setResultado(e.resultado);
+    };
+    aplicar(estadoReconstruccion());
+    return escucharReconstruccion(aplicar);
   }, []);
   /** Rehace `intel_sightings` desde las líneas guardadas. Ver `reconstruirIntel.ts` para el porqué
    *  y para las tres decisiones que lo hacen seguro (un solo troceador, sin ESI, por páginas).
@@ -138,7 +151,10 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
    *
    *  No borra nada, así que **no se confirma**: lo peor que puede pasar es gastar unas peticiones.
    *  Y se puede repetir: lo ya sabido no se vuelve a preguntar. */
-  const [aprendiendo, setAprendiendo] = useState(false);
+  // ⚠️ AQUÍ HABÍA UN `aprendiendo` LOCAL Y LO HE QUITADO, que es la raíz del fallo de los dos
+  //    carteles: había DOS fuentes de verdad para lo mismo —esta bandera y `estado.activo`— y en
+  //    cuanto aprender empezó a encender la del módulo, se contradijeron. Ahora manda el módulo
+  //    (`ocupado` / `aprendiendoYa`), que además sobrevive a salirse de la pestaña.
   /** ⚠️ El texto del botón lleva la FASE, no solo un porcentaje. Antes decía «Aprendiendo… 100 %»
    *  durante toda la parte de preguntar a ESI, que es la que de verdad tarda — un 100 % que no ha
    *  terminado. Lo vio él en pantalla. */
@@ -177,7 +193,7 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
     return si.length + no.length;
   };
   const aprender = async () => {
-    setAprendiendo(true);
+    // La bandera de «en marcha» la pone `aprenderNombresMinuscula` en el estado del módulo, no aquí.
     setResultado(null);
     setVeredictosNuevos(null);
     const antes = await tamCache().catch(() => -1);
@@ -189,17 +205,24 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
             : `${tr("Preguntando…")} ${p.hechos}/${p.candidatos}`,
         ),
       );
-      anotarResultado(
-        `${tr("Nombres preguntados")}: ${r.preguntados.toLocaleString()} · ${tr("son personas")}: ${r.personas.toLocaleString()}`,
-      );
       // Si no se pudo medir el antes (`-1`), se ofrece rehacer igual: mejor ofrecer de más que
       // callarse y dejar el trabajo a medias sin decirlo.
       const despues = await tamCache().catch(() => -1);
-      setVeredictosNuevos(antes < 0 || despues < 0 ? r.personas : despues - antes);
+      const nuevos = antes < 0 || despues < 0 ? r.personas : despues - antes;
+      setVeredictosNuevos(nuevos);
+      // ⚠️ DICE «COMPROBADOS», NO «PREGUNTADOS», Y ESO NO ES UN MATIZ (2026-09-08). Su captura:
+      //    «Nombres preguntados: 350 · son personas: 320» justo encima de «Nada nuevo que aprender».
+      //    Las dos frases eran ciertas y juntas se leían como un disparate — porque **no se preguntó
+      //    nada**: `resolve_intel_entities` mira primero la caché local, y esos 350 ya tenían
+      //    veredicto. Decir «preguntados» insinúa además un gasto de peticiones a ESI que no hubo.
+      //    Y va la cifra de NUEVOS al lado, que es la única que explica por qué no hay que rehacer.
+      //    Tercer cartel que arreglamos hoy por el mismo motivo: la frase era verdad y engañaba.
+      anotarResultado(
+        `${tr("Nombres comprobados")}: ${r.preguntados.toLocaleString()} · ${tr("son personas")}: ${r.personas.toLocaleString()} · ${tr("veredictos nuevos")}: ${nuevos.toLocaleString()}`,
+      );
     } catch (e) {
       anotarResultado(`${tr("No se pudo aprender")}: ${String(e)}`);
     } finally {
-      setAprendiendo(false);
       setProgAprender("");
     }
   };
@@ -413,12 +436,14 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
                   siguen en vuelo, se pierde todo lo que llegue después y hay que repetir 20 minutos.
                   Se lo advertí por escrito… y el botón le dejaba hacerlo igual. Un aviso que el
                   código no respalda no es una salvaguarda. */}
-              {pendiente && pendiente.continuable && !rehaciendo && (
-                <button onClick={continuar} disabled={importando || aprendiendo}>
+              {/* `ocupado` y no `aprendiendo`: el candado tiene que sobrevivir a salirse de la
+                  pestaña, y `aprendiendo` es estado del componente — se pierde al desmontar. */}
+              {pendiente && pendiente.continuable && !ocupado && (
+                <button onClick={continuar} disabled={importando || ocupado}>
                   ▶️ {tr("Continuar")} ({pendiente.pct} %)
                 </button>
               )}
-              <button onClick={rehacer} disabled={rehaciendo || importando || aprendiendo}>
+              <button onClick={rehacer} disabled={ocupado || importando}>
                 {rehaciendo
                   ? `${tr("Rehaciendo…")} ${progreso}%`
                   : pendiente && pendiente.continuable
@@ -438,8 +463,14 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
               se reprocesa— pero se pinta debajo porque rehacer es lo que la gente busca. */}
           {archivo != null && archivo[0] > 0 && (
             <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
-              <button onClick={aprender} disabled={aprendiendo || rehaciendo || importando}>
-                {aprendiendo ? progAprender : `🔤 ${tr("Aprender nombres en minúscula")}`}
+              <button onClick={aprender} disabled={ocupado || importando}>
+                {/* `progAprender` trae la FASE («Leyendo…» / «Preguntando…»), que es lo bueno, pero
+                    vive en el componente y se pierde al salir de Ajustes. Si volvemos a la pestaña
+                    con la pasada en marcha, se cae al porcentaje del módulo: menos detalle, pero
+                    nunca el cartel de «pulsa aquí» sobre algo que ya está corriendo. */}
+                {aprendiendoYa
+                  ? progAprender || `${tr("Aprendiendo…")} ${progreso}%`
+                  : `🔤 ${tr("Aprender nombres en minúscula")}`}
               </button>
               <span className="small muted">
                 {tr(
@@ -451,7 +482,7 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
           {/* ★★ LO QUE ACABA DE APRENDERSE, TERMINANDO EN UN BOTÓN. Ver `veredictosNuevos`.
               Antes esto era una frase que te pedía RECORDAR el orden; ahora el orden lo lleva la
               pantalla. Y solo sale si de verdad hay algo que reprocesar: rehacer son ~20 minutos. */}
-          {veredictosNuevos != null && !aprendiendo && !rehaciendo && (
+          {veredictosNuevos != null && !ocupado && (
             <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
               {veredictosNuevos > 0 ? (
                 <>
