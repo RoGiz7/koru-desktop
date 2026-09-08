@@ -69,6 +69,7 @@ import {
 import type { Tab, MapOverlay } from "./constants";
 import { openExternal, setOpenExternalFallback } from "./openExternal";
 import { ThemePicker } from "./themePicker";
+import { estadoReconstruccion, escucharReconstruccion } from "./reconstruirIntel";
 import { shipForSection } from "./sectionShips";
 import type {
   IntelFolderScan,
@@ -176,6 +177,31 @@ function SyncBadge({ lastSync, autoBusy }: { lastSync: number | null; autoBusy: 
         : lastSync
           ? `${tr("Sync")} ${fmtAgo(now - lastSync)} · ${tr("próxima")} ${fmtMMSS(lastSync + AUTO_SYNC_MS - now)}`
           : tr("Sin sincronizar")}
+    </span>
+  );
+}
+/** ★★ LOS TRABAJOS LARGOS DEL INTEL, VISIBLES DESDE CUALQUIER SITIO (2026-09-08, idea suya).
+ *
+ *  *«tarda mucho en completarse jajaja pero lo entiendo, tal vez podemos poner una barra de progreso
+ *  que aparezca abajo… por si alguien le da al botón»*. Rehacer los avistamientos son ~20 minutos
+ *  sobre 827.000 líneas: si te vas de Ajustes, hasta hoy no había NADA que dijera que sigue
+ *  trabajando. Y una operación larga sin señal no se lee como lenta, se lee como rota — es la misma
+ *  lección del «Leyendo… 100 %» clavado y la del icono de bandeja que desaparece.
+ *
+ *  No cuesta maquinaria nueva: el estado ya vivía en el módulo (`escucharReconstruccion`), y vivía
+ *  ahí precisamente porque salirse de la pestaña dejaba el proceso sin testigo.
+ *
+ *  Solo se pinta cuando hay algo en marcha: una barra permanente al 0 % es ruido en una barra de
+ *  estado que ya lleva seis cosas. */
+function ReconBadge() {
+  const [e, setE] = useState(estadoReconstruccion);
+  useEffect(() => escucharReconstruccion(setE), []);
+  if (!e.activo) return null;
+  const que = e.que === "aprender" ? tr("Aprendiendo nombres") : tr("Rehaciendo avistamientos");
+  return (
+    <span className="sb-badge" title={tr("Un trabajo del intel en marcha. Puedes seguir usando Koru.")}>
+      <span className="sb-dot busy" />
+      {que} {e.progreso}%
     </span>
   );
 }
@@ -3535,6 +3561,8 @@ function App() {
           </span>
           <span className="sb-sep" />
           <SyncBadge lastSync={lastSync} autoBusy={autoBusy} />
+          {/* Va DETRÁS de la sincronización y solo aparece si hay algo corriendo: ver `ReconBadge`. */}
+          <ReconBadge />
           <span className="sb-sep" />
           <button
             className="sb-kofi"

@@ -143,9 +143,44 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
    *  durante toda la parte de preguntar a ESI, que es la que de verdad tarda — un 100 % que no ha
    *  terminado. Lo vio él en pantalla. */
   const [progAprender, setProgAprender] = useState("");
+  /** ★★ CUÁNTOS VEREDICTOS NUEVOS TRAJO LA ÚLTIMA PASADA (2026-09-08, pregunta suya).
+   *
+   *  Él preguntó si aprender no debería lanzar el rehacer al terminar. Encadenarlos NO, por dos
+   *  motivos: rehacer **purga los avistamientos**, y lanzar algo destructivo como efecto secundario
+   *  de algo que suena inofensivo es de lo que no se deshace con un «vaya»; y si una tanda de ESI
+   *  falla, encadenar reconstruiría sobre una caché a medias.
+   *
+   *  Pero tenía razón en el fondo: **aprender no hace nada visible por sí solo**. Crece `name_cache`
+   *  y ya; los avistamientos no se mueven hasta que rehaces. Un botón cuyo efecto no existe hasta
+   *  que pulsas otro es medio botón — y el cartel te obligaba a RECORDAR el orden («Hazlo antes de
+   *  rehacer»), que es justo el tipo de regla que la gente se salta.
+   *
+   *  Así que ni encadenar ni dejarlo: al terminar, **el resultado termina en el botón**, con la
+   *  cifra delante. Y si no aprendió nada, se dice y el botón no aparece — rehacer son veinte
+   *  minutos y no se regalan.
+   *
+   *  ⚠️ El número es el CRECIMIENTO REAL de `name_cache`, no «cuántos se preguntaron»: se pregunta
+   *  también por cosas que ya tenían veredicto, y ese número no significaría nada. Y cuenta los DOS
+   *  veredictos —sí y no—, porque un «no» también cambia los avistamientos: retira a un piloto que
+   *  hasta ahora se fichaba.
+   *
+   *  ⚠️ Esto SÍ vive en el componente, a diferencia del progreso de los trabajos largos: es un
+   *  empujón de después, no un proceso. Si te sales de Ajustes se pierde — y no pasa nada, porque el
+   *  resultado de la pasada sigue escrito (`anotarResultado`, que sí es de módulo) y volver a pulsar
+   *  aprender no cuesta ninguna petición: lo ya sabido no se repregunta. */
+  const [veredictosNuevos, setVeredictosNuevos] = useState<number | null>(null);
+  const tamCache = async () => {
+    const [si, no] = await Promise.all([
+      invoke<string[]>("intel_existentes"),
+      invoke<string[]>("intel_inexistentes"),
+    ]);
+    return si.length + no.length;
+  };
   const aprender = async () => {
     setAprendiendo(true);
     setResultado(null);
+    setVeredictosNuevos(null);
+    const antes = await tamCache().catch(() => -1);
     try {
       const r = await aprenderNombresMinuscula((p) =>
         setProgAprender(
@@ -157,6 +192,10 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
       anotarResultado(
         `${tr("Nombres preguntados")}: ${r.preguntados.toLocaleString()} · ${tr("son personas")}: ${r.personas.toLocaleString()}`,
       );
+      // Si no se pudo medir el antes (`-1`), se ofrece rehacer igual: mejor ofrecer de más que
+      // callarse y dejar el trabajo a medias sin decirlo.
+      const despues = await tamCache().catch(() => -1);
+      setVeredictosNuevos(antes < 0 || despues < 0 ? r.personas : despues - antes);
     } catch (e) {
       anotarResultado(`${tr("No se pudo aprender")}: ${String(e)}`);
     } finally {
@@ -404,9 +443,30 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
               </button>
               <span className="small muted">
                 {tr(
-                  "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre. Hazlo antes de rehacer.",
+                  "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre.",
                 )}
               </span>
+            </div>
+          )}
+          {/* ★★ LO QUE ACABA DE APRENDERSE, TERMINANDO EN UN BOTÓN. Ver `veredictosNuevos`.
+              Antes esto era una frase que te pedía RECORDAR el orden; ahora el orden lo lleva la
+              pantalla. Y solo sale si de verdad hay algo que reprocesar: rehacer son ~20 minutos. */}
+          {veredictosNuevos != null && !aprendiendo && !rehaciendo && (
+            <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
+              {veredictosNuevos > 0 ? (
+                <>
+                  <button onClick={() => { setVeredictosNuevos(null); void rehacer(); }}>
+                    ♻️ {tr("Rehacer los avistamientos")}
+                  </button>
+                  <span className="small">
+                    {`${veredictosNuevos.toLocaleString()} ${tr("veredictos nuevos. Para que entren en tus avistamientos hay que releer lo guardado; tarda un rato.")}`}
+                  </span>
+                </>
+              ) : (
+                <span className="small muted">
+                  {tr("Nada nuevo que aprender: no hace falta rehacer los avistamientos.")}
+                </span>
+              )}
             </div>
           )}
           {intel.channels.length === 0 && (

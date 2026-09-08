@@ -199,7 +199,7 @@ function prefijosDe(shipNames: Map<string, number>): Map<string, number | null> 
  *  Queda una lista, y una lista se justifica cuando **cada entrada sale de una medición**. Estas
  *  salen. Si mañana la auditoría saca otra, se añade una línea.
  *
- *  ★ LO QUE LA HACE INCAPAZ DE HACER DAÑO: el destino se resuelve CONTRA EL CATÁLOGO. Si CCP
+ *  ★ LO QUE LA HACE INCAPAZ DE HACER DAÑO: el destino se resuelve CONTRA EL CATÁLOGO. Si FC
  *  renombra una nave, el apodo deja de funcionar en vez de apuntar a un typeID inventado.
  *
  *  ⚠️ HUBO UNA PUERTA DE MAYÚSCULAS AQUÍ Y SE QUITÓ, a propósito. Existía para protegerse del
@@ -365,6 +365,48 @@ function sistemaAbreviado(tok: string, nameIdx: Map<string, NeSystem>): NeSystem
  *  se llamara así de verdad es menos grave que inventarse un hostil. */
 const ESJERGA_GATE = new Set(["gate", "gates", "stargate"]);
 
+/** ★★ LA JERGA QUE ES LA SEGUNDA MITAD DE UN NOMBRE PROPIO (2026-09-08).
+ *
+ *  `INTEL_JARGON` cierra el nombre que se esté montando, y casi siempre acierta. Pero hay palabras
+ *  que son las dos cosas, y entonces **parten a una persona por el medio**:
+ *
+ *      «Iam Neutral»  →  piloto «Iam»      ·  «CCTV Eyes»  →  piloto «CCTV»
+ *
+ *  Es el mismo patrón que «Dee Yona», solo que ahí el que cortaba era un sistema. Y se arregla
+ *  igual: **no se adivina**, se proponen las dos lecturas en `pilotAlts` y decide `name_cache`.
+ *
+ *  ★ CÓMO SE ELIGIÓ ESTA LISTA, que es lo único que la justifica. Auditoría de sus 827.356 líneas
+ *  (`scripts/audit_jerga_parte.py`): la jerga corta un nombre **94.987 veces**. Casi todo es
+ *  correcto, y el decisor que lo separa es **VECES ÷ GENTE DISTINTA** — un apellido lo lleva poca
+ *  gente y se repite mucho; una palabra de jerga la lleva detrás todo el mundo:
+ *
+ *      meme  144 (10 personas)   neutral  96 (13)   eyes 36,5 (88)   fight 24 (10)   she 19 (9)
+ *      ────────────────────────── puerta ───────────────────────────────────────────────────────
+ *      nv    2,2 (17.618)        in 1,4 (2.057)     loc 1,5 (1.735)  kill 1,7 (7.087)
+ *
+ *  ⚠️ Y esto tiene GRUPO DE CONTROL, que es lo que le faltó a la dispersión que probamos antes: las
+ *  198 palabras de `INTEL_JARGON` son jerga confirmada, y **187 caen por debajo de 10**. Si la señal
+ *  no separara lo que ya sabemos separar, no valdría.
+ *
+ *  ★ `nv` ES EL CASO QUE LO EXPLICA, y lo contestó él, no un catálogo: encabezaba la lista con
+ *  38.440 cortes y **no parte nada**. En su intel `nv` significa **«nuevo»** —que los hostiles han
+ *  vuelto a aparecer aunque el aviso sea idéntico al de hace un minuto—, por eso lo llevan detrás
+ *  17.618 personas distintas. Ninguna lista de vocabulario podía saber eso.
+ *
+ *  ⚠️ ESTO NO QUITA NINGUNA PALABRA DE LA JERGA. Sigue cortando exactamente igual; lo único que
+ *  añade es una PROPUESTA. Si `name_cache` no confirma la lectura larga, no cambia absolutamente
+ *  nada — y por eso añadir una palabra aquí no puede repetir lo de `mobile`/`Small`.
+ *
+ *  ⚠️ La lista es de SU corpus, pero lo que generaliza es la palabra, no el par: que `eyes` pueda
+ *  ser un apellido vale para cualquiera; quién se llama «CCTV Eyes» lo decide el `name_cache` de
+ *  cada uno. */
+const JERGA_PARTE_NOMBRE = new Set([
+  // Pasan la puerta por DETRÁS del nombre:
+  "meme", "neutral", "eyes", "fight", "she", "lol",
+  // …y por DELANTE («Good Spirit», «Combat Scanner», «Eye Janne», «HE XAMU»):
+  "combat", "good", "eye", "he", "watch",
+]);
+
 /** ★★ PARTÍCULAS QUE VIVEN DENTRO DE UN NOMBRE: «Lurm **the** Slurm», «Jan **van** Dijk».
  *
  *  Reporte suyo (2026-09-08) con una línea real: `384-IN  Lurm the Slurm svipul` sacaba **DOS
@@ -448,9 +490,17 @@ export type IntelParsed = {
    *  ⚠️ LAS DOS LECTURAS SON VÁLIDAS y ningún criterio local las separa: «Dee Yona» puede ser un
    *  piloto, o puede ser «el piloto Dee, en el sistema Yona». Así que **no se adivina**: se
    *  proponen las dos y decide quien puede saberlo — el índice local de nombres, y si no, ESI.
-   *  Si la larga se confirma, gana y `sysId` deja de contar como sistema en esa línea: no puede
-   *  ser las dos cosas. Si no se confirma, no cambia absolutamente nada. */
-  pilotAlts: { corto: string; largo: string; sysId: number }[];
+   *  Si la larga se confirma, gana. Si no se confirma, no cambia absolutamente nada.
+   *
+   *  ★ AMPLIADO (2026-09-08): el que corta ya no es solo un sistema. **Una palabra de jerga hace
+   *  exactamente lo mismo** —«Iam Neutral» daba «Iam»— y el arreglo es el mismo mecanismo, no uno
+   *  nuevo: una sola regla en los dos sitios. Por eso `sysId` pasa a ser opcional; vale `null`
+   *  cuando quien cortó fue una palabra (ver `JERGA_PARTE_NOMBRE`).
+   *
+   *  ⚠️ `sysId` NO SE USA todavía en ningún sitio: se guardó para poder descontar el sistema si la
+   *  lectura larga ganaba, y eso nunca se llegó a escribir. Se deja porque el dato es correcto y
+   *  la decisión sigue abierta — ver la nota de traspaso. */
+  pilotAlts: { corto: string; largo: string; sysId: number | null }[];
   /** Regiones y constelaciones nombradas en la línea. Se recogen para no fichar a un piloto
    *  llamado «Delve» y porque «van hacia Delve» es un dato; todavía no se pinta en ningún sitio. */
   zones: Zona[];
@@ -545,7 +595,7 @@ export function classifyIntel(
   const systems: { id: number; name: string }[] = [];
   const ships: { id: number; name: string }[] = [];
   const pilots: string[] = [];
-  const pilotAlts: { corto: string; largo: string; sysId: number }[] = [];
+  const pilotAlts: { corto: string; largo: string; sysId: number | null }[] = [];
   const zones: Zona[] = [];
   const seenZona = new Set<number>();
   const addZona = (w: Word) => {
@@ -690,14 +740,26 @@ export function classifyIntel(
       continue;
     }
     let buf: string[] = [];
+    /** ★ La palabra de jerga que venía JUSTO ANTES de empezar este nombre, si puede ser su primera
+     *  mitad: «**Good** Spirit», «**Eye** Janne», «**Combat** Scanner». El caso simétrico del de
+     *  arriba, y hace falta recordarla porque cuando el nombre se cierra ya ha pasado hace rato. */
+    let prefijoJerga: string | null = null;
+    /** La palabra de jerga de la vuelta anterior del bucle, o `null` si no lo era. */
+    let jergaAntes: string | null = null;
     const flush = () => {
       if (buf.length) {
         // El filtro va también AQUÍ, sobre el nombre ya montado, no solo palabra a palabra: los
         // falsos de varias palabras («Navy issue», «Drifter WH») solo existen una vez unidos.
         const candidato = buf.join(" ");
+        // La lectura larga se propone ANTES del filtro, por lo mismo que en el caso de detrás: si
+        // el corto está en `noExisten`, hoy no sale nadie y es cuando más falta hace proponerla.
+        if (prefijoJerga) {
+          pilotAlts.push({ corto: candidato, largo: `${prefijoJerga} ${candidato}`, sysId: null });
+        }
         if (!esNadie(candidato) && !demasiadoCorto(candidato)) pilots.push(candidato);
         buf = [];
       }
+      prefijoJerga = null;
     };
     for (let wi = 0; wi < words.length; wi++) {
       const w = words[wi];
@@ -718,7 +780,21 @@ export function classifyIntel(
         if (buf.length > 0) {
           const siguiente = words[wi + 1];
           const sigueNombre = siguiente ? pareceNombre(clean(siguiente)) : false;
-          if (!sigueNombre) {
+          // ★★ UN CÓDIGO DE NULL NO ES UN APELLIDO (2026-09-08).
+          //
+          //  La auditoría de los pares ya aplicados lo sacó: «Alpha» aparecía con OCHO códigos de
+          //  sistema distintos detrás, y cada uno se había convertido en un apellido suyo. Eso no
+          //  es un nombre partido, es el patrón «persona + dónde está», y ahí la lectura corta era
+          //  la BUENA — o sea que el arreglo estaba empeorando esas líneas.
+          //
+          //  Lo separa la FORMA, sin necesidad de mirar el corpus entero: un sistema con nombre de
+          //  lore («Chelien», «Rayl», «Yona») puede ser perfectamente un apellido y se sigue
+          //  proponiendo; uno con DÍGITOS es un código, y nadie se apellida así. Es la misma clase
+          //  de regla que `FORMA_SISTEMA` o el rótulo «Solar System»: formato, no lista.
+          //
+          //  ⚠️ Precio asumido: si existiera de verdad alguien con un dígito en el apellido, se
+          //  pierde. Falso negativo antes que falso positivo, como siempre.
+          if (!sigueNombre && !/\d/.test(k.name!)) {
             pilotAlts.push({
               corto: buf.join(" "),
               largo: `${buf.join(" ")} ${k.name!}`,
@@ -765,6 +841,19 @@ export function classifyIntel(
       ) {
         buf.push(clean(w));
       } else if (k.kind === "jargon" || k.kind === "empty" || k.kind === "ticker") {
+        // ★★ ¿ESTA PALABRA DE JERGA ES LA SEGUNDA MITAD DE UN NOMBRE? Ver `JERGA_PARTE_NOMBRE`.
+        //
+        //   Va ANTES del `flush()` y antes de la regla de «gate», porque las dos cierran el nombre
+        //   y aquí hace falta el buffer todavía lleno. Y se propone AUNQUE el corto no vaya a
+        //   sobrevivir al `flush` —«CCTV» está en `noExisten` y se tira— porque ese es justamente
+        //   el caso peor: hoy esa línea no ficha a nadie y la persona se pierde entera.
+        if (k.kind === "jargon" && buf.length > 0) {
+          const palabra = clean(w);
+          if (JERGA_PARTE_NOMBRE.has(palabra.toLowerCase())) {
+            const corto = buf.join(" ");
+            pilotAlts.push({ corto, largo: `${corto} ${palabra}`, sysId: null });
+          }
+        }
         // ★ «... G-Q gate ...»: lo pegado a «gate» es a DÓNDE lleva la puerta, no quién está en
         //   ella. Se quita ese token del nombre que se estaba montando antes de cerrarlo.
         if (k.kind === "jargon" && ESJERGA_GATE.has(clean(w).toLowerCase()) && buf.length > 0) {
@@ -789,8 +878,15 @@ export function classifyIntel(
         // No empieza por mayúscula → no es nombre: cierra lo que hubiera y se descarta.
         flush();
       } else {
+        // Si el nombre EMPIEZA aquí y justo antes había una palabra de jerga que puede ser su
+        // primera mitad, se guarda para proponer la lectura larga al cerrarlo.
+        if (buf.length === 0) prefijoJerga = jergaAntes;
         buf.push(k.text!);
       }
+      // Se anota al final de CADA vuelta, incluidas las que no son jerga: así `jergaAntes` significa
+      // siempre «la palabra inmediatamente anterior», y no se cuela una jerga de tres tokens atrás.
+      jergaAntes =
+        k.kind === "jargon" && JERGA_PARTE_NOMBRE.has(clean(w).toLowerCase()) ? clean(w) : null;
     }
     flush();
   }
@@ -798,6 +894,24 @@ export function classifyIntel(
   //   sin sistema no hay reporte, y sin reporte no hay a quién estar viendo. `know` tiene 432
   //   apariciones y CERO aquí, que es justo lo que queremos que pase.
   if (systems.length > 0) for (const d of debiles) pilots.push(d);
+  // ★★ LA LECTURA LARGA GANA SI EL CATÁLOGO YA LA CONFIRMA — y AQUÍ, no solo en la tarjeta.
+  //
+  //   Hasta hoy esto vivía únicamente en `useIntel`, o sea que al abrir un aviso ponía «Dee Yona» y
+  //   el avistamiento guardado seguía diciendo «Dee». **Dos verdades sobre lo mismo**, que es
+  //   exactamente el fallo que ya nos mordió al reconectar un personaje. Resuelto donde trocea, lo
+  //   ven los tres consumidores a la vez: la tarjeta, el feed y la reconstrucción del histórico.
+  //
+  //   No cuesta ninguna petición: solo mira lo que `name_cache` YA contestó. Lo que aún no se ha
+  //   preguntado sale por `pilotAlts` y lo recoge el botón «Aprender nombres».
+  for (const a of pilotAlts) {
+    if (!existeNombre(a.largo)) continue;
+    const i = pilots.indexOf(a.corto);
+    // Si la corta estaba, la larga la SUSTITUYE: no son dos hostiles, son dos lecturas del mismo.
+    if (i >= 0) pilots[i] = a.largo;
+    // Y si no estaba —«CCTV» está en `noExisten` y se tiró—, la larga ENTRA: ese es el caso peor,
+    // el de la persona que hoy se pierde entera y en silencio.
+    else if (!pilots.includes(a.largo)) pilots.push(a.largo);
+  }
   // Las dudas siguen el MISMO cerrojo: sin sistema no hay reporte, y sin reporte no hay a quién
   // preguntar. Así la factura de ESI no la paga una frase suelta de charla.
   return {
@@ -806,6 +920,56 @@ export function classifyIntel(
   };
 }
 
+
+/** ★★ LA MISMA LÍNEA, FECHADA DOS VECES POR DOS CLIENTES (2026-09-08).
+ *
+ *  Reporte suyo con capturas: un aviso salía DOS veces en el feed, a «hace 38s» y «hace 39s». Con
+ *  multibox hay un log por cliente y **cada uno fecha el mensaje cuando ÉL lo recibió**, así que
+ *  basta con que cruce un segundo para que el dedup —que comparaba el segundo entero— no lo vea.
+ *
+ *  ★ MEDIDO SOBRE SUS 827.395 LÍNEAS (`scripts/diag_intel_duplicados.py`): **13.777 copias de más,
+ *  el 1,67 %**, y el reparto dice dónde cortar sin adivinar:
+ *
+ *      1 s → 13.468 (11.479 con mensajes de 12+ caracteres) · 2 s → 211 · 3 s → 98 · resto ~17/s
+ *
+ *  El pico de 1 s es **799 veces** la cola de fondo. La columna de mensajes largos es el grupo de
+ *  control: nadie reteclea «Fulano Mengano nv» idéntico en un segundo.
+ *
+ *  ⚠️ Y su intuición era otra —*«los nv lanza dos mensajes»*— pero el grupo de control la desmintió:
+ *  **1,70 % con `nv` frente a 1,81 % sin él**. Se duplica todo por igual. Sin esa cuenta habríamos
+ *  ido a buscar un mecanismo que no existe, que es exactamente lo que costó dos sesiones con los
+ *  dos canales del overlay.
+ *
+ *  ⚠️ EL PRECIO: su regla es **un aviso por reporte aunque se repita** (para eso existe el `nv`), y
+ *  esta ventana funde también las repeticiones humanas que caigan dentro del segundo. Por la cola de
+ *  fondo son ~17 en SEIS AÑOS frente a 13.468 falsas. Por eso NO se ensancha a 2 o 3 segundos.
+ *
+ *  ⚠️ Va aparte del troceador y NO borra nada de la base: `intel_line` guarda el hecho crudo
+ *  precisamente para que las conclusiones se puedan rehacer. Si mañana la regla resulta mala, se
+ *  cambia la regla y se reconstruye — no hay filas que recuperar.
+ *
+ *  Solo vale para líneas EN ORDEN CRONOLÓGICO (que es como las sirve `intel_lines_read`): guarda
+ *  dos segundos de claves, no el corpus entero. */
+export function creaDedupIntel(): (ts_ms: number, autor: string, mensaje: string) => boolean {
+  let secActual = Number.NEGATIVE_INFINITY;
+  let actual = new Set<string>();
+  let previo = new Set<string>();
+  return (ts_ms, autor, mensaje) => {
+    const sec = Math.floor(ts_ms / 1000);
+    if (sec !== secActual) {
+      // Un salto de un segundo conserva el anterior como ventana; uno mayor no puede solaparse.
+      previo = sec === secActual + 1 ? actual : new Set<string>();
+      actual = new Set<string>();
+      secActual = sec;
+    }
+    const k = `${autor}\u0000${mensaje}`;
+    const dup = actual.has(k) || previo.has(k);
+    // Se marca AUNQUE sea duplicada: tres clientes repartidos en t, t+1 y t+2 tienen que colapsar
+    // en uno, y si el segundo no dejara marca el tercero no vería a nadie.
+    actual.add(k);
+    return dup;
+  };
+}
 
 // --- Reportes de intel por sistema + feed cronológico (a partir de las líneas de chat) ---
 export type IntelFeedRow = {

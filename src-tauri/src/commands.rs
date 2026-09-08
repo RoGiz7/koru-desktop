@@ -7796,8 +7796,40 @@ fn collect_intel_ext(
             if l.ts_ms < cutoff_ms {
                 continue;
             }
-            let key = (l.ts_ms / 1000, l.author.clone(), l.message.clone());
-            if !seen.insert(key) {
+            // ★★ EL DEDUP MIRA UN SEGUNDO A CADA LADO, NO SOLO EL SUYO (2026-09-08).
+            //
+            //  Reporte suyo con capturas: la misma línea salía DOS VECES en el feed, a «hace 38s» y
+            //  «hace 39s». La clave era `ts_ms / 1000`, o sea que solo fundía copias caídas en el
+            //  MISMO segundo — y con multibox cada cliente fecha el mensaje cuando ÉL lo recibió,
+            //  así que basta con que cruce un segundo para que salgan dos.
+            //
+            //  ★ MEDIDO ANTES DE TOCAR NADA, sobre sus 827.395 líneas
+            //    (`scripts/diag_intel_duplicados.py`): **13.777 copias de más, el 1,67 %**. Y el
+            //    reparto no deja lugar a dudas sobre dónde poner la ventana:
+            //
+            //        1 s → 13.468   (11.479 de ellas con mensajes de 12+ caracteres)
+            //        2 s →    211 · 3 s → 98 · 4-60 s → cola plana de ~17 por segundo
+            //
+            //    El pico de 1 s es **799 veces** la cola. Eso no lo hace una persona tecleando: la
+            //    columna de mensajes largos es el control —nadie reteclea «Fulano Mengano nv»
+            //    idéntico en un segundo— y ahí está el 85 % del pico.
+            //
+            //  ⚠️ EL PRECIO, dicho en claro: su regla es **un aviso por reporte aunque se repita**
+            //    —para eso existe el `nv`, que significa «han vuelto»— y esta ventana funde también
+            //    las repeticiones humanas que caigan dentro del segundo. Por la cola de fondo son
+            //    ~17 en SEIS AÑOS, frente a 13.468 falsas. Se acepta el cambio a 792 contra 1.
+            //
+            //  ⚠️ Y por eso NO se ensancha a 2 o 3 segundos: ahí la proporción empeora rápido y se
+            //    empezarían a comer re-reportes de verdad, que es la información que más urge.
+            //
+            //  Se marca el segundo AUNQUE la línea se descarte: sin eso, tres clientes repartidos en
+            //  t, t+1 y t+2 dejarían pasar la tercera (t+2 no vería a t, que es el único marcado).
+            let sec = l.ts_ms / 1000;
+            let dup = (-1..=1).any(|d| {
+                seen.contains(&(sec + d, l.author.clone(), l.message.clone()))
+            });
+            seen.insert((sec, l.author.clone(), l.message.clone()));
+            if dup {
                 continue; // duplicado entre personajes/clientes
             }
             out.push(l);

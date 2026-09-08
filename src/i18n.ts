@@ -111,6 +111,11 @@ const EN: Record<string, string> = {
   Sync: "Sync",
   "próxima": "next",
   "Sin sincronizar": "Not synced",
+  // Los dos trabajos largos del intel, vistos desde la barra de estado (ver `ReconBadge`).
+  "Aprendiendo nombres": "Learning names",
+  "Rehaciendo avistamientos": "Rebuilding sightings",
+  "Un trabajo del intel en marcha. Puedes seguir usando Koru.":
+    "An intel job is running. You can keep using Koru.",
   "Apoyar el proyecto en Ko-fi (totalmente voluntario)":
     "Support the project on Ko-fi (entirely voluntary)",
   Apoyar: "Support",
@@ -2540,8 +2545,14 @@ const EN: Record<string, string> = {
   "Aprender nombres en minúscula": "Learn lowercase names",
   "Leyendo…": "Reading…",
   "Preguntando…": "Asking…",
-  "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre. Hazlo antes de rehacer.":
-    "Plenty of people type names in lowercase and Koru used to drop them. This walks through what's stored and asks ONCE about each; the answer is kept forever. Do this before rebuilding.",
+  // ⚠️ Se quitó el «Hazlo antes de rehacer» del final: el orden ya no hay que recordarlo, lo lleva
+  //    la pantalla (ver `veredictosNuevos` en overlaySettings.tsx).
+  "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre.":
+    "Plenty of people type names in lowercase and Koru used to drop them. This walks through what's stored and asks ONCE about each; the answer is kept forever.",
+  "veredictos nuevos. Para que entren en tus avistamientos hay que releer lo guardado; tarda un rato.":
+    "new verdicts. To bring them into your sightings, what's stored has to be read again; it takes a while.",
+  "Nada nuevo que aprender: no hace falta rehacer los avistamientos.":
+    "Nothing new to learn: no need to rebuild the sightings.",
   "Nombres preguntados": "Names asked",
   "son personas": "are people",
   "No se pudo aprender": "Could not learn",

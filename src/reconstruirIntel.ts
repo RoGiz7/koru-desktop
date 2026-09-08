@@ -21,7 +21,7 @@
 //    congelaría la ventana casi un minuto. Así se puede enseñar el progreso y la app respira.
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { classifyIntel, zonasDe } from "./intel";
+import { classifyIntel, creaDedupIntel, zonasDe } from "./intel";
 import { loadJson } from "./staticJson";
 import type { IntelLine, NeSystem } from "./types";
 
@@ -110,9 +110,21 @@ export type ProgresoAprender = {
 export async function aprenderNombresMinuscula(
   onProgreso?: (p: ProgresoAprender) => void,
 ): Promise<{ lineas: number; candidatos: number; preguntados: number; personas: number }> {
+  // ★★ ESTE TRABAJO TAMBIÉN VIVE EN EL MÓDULO (2026-09-08). El estado compartido se creó para la
+  //    reconstrucción, porque salirse de Ajustes la dejaba sin testigo — y aprender nombres tiene
+  //    EXACTAMENTE el mismo agujero y tarda lo mismo. Media trampa arreglada es una trampa.
+  if (estado.activo) throw new Error("Ya hay un trabajo del intel en marcha.");
+  estado.activo = true;
+  estado.que = "aprender";
+  estado.progreso = 0;
+  estado.resultado = null;
+  avisar();
+  try {
   const { nameIdx, shipNames, noExisten, zonaIdx, existen } = await indices();
   const [total] = await invoke<[number, number | null, number | null]>("intel_lines_stats");
   const veces = new Map<string, number>();
+  /** nombre corto → los apellidos DISTINTOS que el corpus le propone. Ver la regla de abajo. */
+  const apellidos = new Map<string, Set<string>>();
   let cursor = 0;
   let lineas = 0;
   for (;;) {
@@ -128,9 +140,32 @@ export async function aprenderNombresMinuscula(
         const k = d.toLowerCase();
         veces.set(k, (veces.get(k) ?? 0) + 1);
       }
+      // ★★ Y LAS LECTURAS LARGAS DE UN NOMBRE PARTIDO (2026-09-08). Misma pescadilla, misma cola.
+      //
+      //   «Iam Neutral» y «CCTV Eyes» no se pueden aceptar sin que alguien confirme que existen, y
+      //   nadie lo ha preguntado nunca porque el troceador no lo proponía. Ahora lo propone
+      //   (`pilotAlts`) y la pregunta viaja por el MISMO botón, la misma tanda y el mismo umbral:
+      //   no hay un mecanismo nuevo que mantener ni una petición extra que pagar.
+      //
+      //   Medido sobre sus 827.356 líneas: con la puerta de concentración son **293 nombres, 2
+      //   peticiones** en toda la vida. Sin ella serían 85.898 y 344 — por eso hay puerta.
+      for (const a of p.pilotAlts) {
+        const k = a.largo.toLowerCase();
+        veces.set(k, (veces.get(k) ?? 0) + 1);
+        // ★★ Y cuántos apellidos DISTINTOS se le proponen a cada nombre corto. Es lo único que
+        //    hace falta de la vista global; ver `NADIE TIENE DOS APELLIDOS` más abajo.
+        const c = a.corto.toLowerCase();
+        let s = apellidos.get(c);
+        if (!s) apellidos.set(c, (s = new Set<string>()));
+        s.add(k);
+      }
     }
     lineas += pagina.length;
     onProgreso?.({ fase: "leyendo", lineas, total, hechos: 0, candidatos: veces.size });
+    // La barra de fuera va a MEDIA escala en esta fase: leer es la mitad del trabajo y preguntar la
+    // otra. Un 100 % al acabar de leer sería el mismo cartel que miente que ya arreglamos dos veces.
+    estado.progreso = total > 0 ? Math.min(50, Math.round((lineas / total) * 50)) : 0;
+    avisar();
     // ⚠️ LAS DOS GUARDAS DEL BUCLE, Y ME LAS DEJÉ FUERA AL COPIARLO (2026-09-08).
     //
     // La consulta es `ts_ms >= ?`, así que la última página **se devuelve otra vez** en la
@@ -147,7 +182,28 @@ export async function aprenderNombresMinuscula(
     await respirar();
   }
 
-  const candidatos = [...veces].filter(([, n]) => n >= MIN_VECES).map(([k]) => k);
+  /** ★★ NADIE TIENE DOS APELLIDOS (2026-09-08). La última puerta, y salió de auditar el arreglo.
+   *
+   *  Cuando el corpus le propone a un mismo nombre corto DOS finales distintos, ese final no es un
+   *  apellido: es el sitio o la palabra que venía detrás. Medido en su intel: **«Alpha» aparecía con
+   *  ocho sistemas distintos** y «Darius» con dos («Mora» y «Odin»). Cada uno se había convertido en
+   *  un apellido, y en esos casos la lectura CORTA era la buena — o sea que el arreglo empeoraba
+   *  justo esas líneas.
+   *
+   *  ⚠️ Va AQUÍ y no en el troceador a propósito: `classifyIntel` ve una línea, y esta regla necesita
+   *  el corpus entero. Este bucle ya lo recorre, así que sale gratis y no hay nada que guardar.
+   *
+   *  ⚠️ Es PREVENCIÓN, no cura: lo que ya está confirmado en `name_cache` sigue estándolo. Se corta
+   *  la entrada de nuevos, que es lo que se puede hacer sin escribir una mentira en una tabla cuyo
+   *  significado es «esto lo dijo ESI».
+   *
+   *  ⚠️ Y NO decide quién es una persona: solo decide **a quién no se le pregunta**. Un nombre que
+   *  no se pregunta se queda exactamente como está hoy. */
+  const dudosos = new Set<string>();
+  for (const [, ls] of apellidos) if (ls.size >= 2) for (const l of ls) dudosos.add(l);
+  const candidatos = [...veces]
+    .filter(([k, n]) => n >= MIN_VECES && !dudosos.has(k))
+    .map(([k]) => k);
   let personas = 0;
   // ⚠️ EL AVISO VA ANTES DE PREGUNTAR, NO DESPUÉS. Lo emitía al volver cada tanda, así que entre
   // acabar de leer y recibir la primera respuesta el botón seguía diciendo «Leyendo… 100 %» — otra
@@ -174,9 +230,20 @@ export async function aprenderNombresMinuscula(
       hechos: Math.min(i + TANDA_ESI, candidatos.length),
       candidatos: candidatos.length,
     });
+    estado.progreso =
+      50 + Math.min(50, Math.round((Math.min(i + TANDA_ESI, candidatos.length) / (candidatos.length || 1)) * 50));
+    avisar();
     await respirar();
   }
   return { lineas, candidatos: veces.size, preguntados: candidatos.length, personas };
+  } finally {
+    // Pase lo que pase —error, red caída, ESI mudo—, el trabajo deja de estar «en marcha». Si no,
+    // el indicador se queda encendido para siempre y el botón bloqueado hasta reiniciar Koru.
+    estado.activo = false;
+    estado.que = null;
+    estado.progreso = 0;
+    avisar();
+  }
 }
 
 // ★★ EL ESTADO VIVE AQUÍ, NO EN EL COMPONENTE — y esto lo destapó él, en vivo y al 46 %.
@@ -191,8 +258,16 @@ export async function aprenderNombresMinuscula(
 //
 // Con el estado en el módulo: al volver a la pestaña el progreso sigue ahí, y `enMarcha` impide
 // arrancar una segunda aunque se pulse.
-type EstadoRecon = { activo: boolean; progreso: number; resultado: string | null };
-const estado: EstadoRecon = { activo: false, progreso: 0, resultado: null };
+// ★ `que` dice CUÁL de los dos trabajos largos está corriendo (2026-09-08, pedido suyo). Sin eso, un
+//   indicador fuera de Ajustes solo podría decir «algo va», y «algo va» durante veinte minutos no
+//   tranquiliza a nadie.
+type EstadoRecon = {
+  activo: boolean;
+  progreso: number;
+  resultado: string | null;
+  que: "rehacer" | "aprender" | null;
+};
+const estado: EstadoRecon = { activo: false, progreso: 0, resultado: null, que: null };
 const oyentes = new Set<(e: EstadoRecon) => void>();
 const avisar = () => oyentes.forEach((f) => f({ ...estado }));
 
@@ -264,6 +339,7 @@ export async function reconstruirAvistamientos(
   // ⚠️ UNA SOLA A LA VEZ. Dos en paralelo se purgarían la una a la otra.
   if (estado.activo) throw new Error("Ya hay una reconstrucción en marcha.");
   estado.activo = true;
+  estado.que = "rehacer";
   estado.progreso = 0;
   estado.resultado = null;
   avisar();
@@ -296,6 +372,9 @@ export async function reconstruirAvistamientos(
   // Se marca YA, antes de la primera página: si el corte llega en el minuto uno, lo que no puede
   // pasar es que al reanudar se vuelva a purgar lo que la purga acaba de dejar vacío.
   await guardarMarca(marca());
+  // La ventana de un segundo para las copias del multibox. Vive FUERA del bucle de páginas: si se
+  // creara dentro, dos copias partidas por un corte de página volverían a contar dos veces.
+  const dedup = creaDedupIntel();
   // Las líneas del mismo milisegundo pueden repetirse al cambiar de página (el corte es `>=`), y
   // eso es inofensivo: la clave de `intel_sightings` deduplica. Lo que NO sería inofensivo es
   // saltarse una.
@@ -314,6 +393,12 @@ export async function reconstruirAvistamientos(
       ship_type_id: number | null;
     }[] = [];
     for (const l of pagina) {
+      // ★★ LA MISMA LÍNEA FECHADA POR DOS CLIENTES cuenta UN avistamiento, no dos. Ver
+      //    `creaDedupIntel`. El vivo ya llega limpio desde Rust, pero **el histórico guardado NO**:
+      //    ahí siguen las 13.777 copias, y la clave de `intel_sightings` es (nombre, sistema,
+      //    ts_ms) — en MILISEGUNDOS —, así que dos copias a un segundo eran dos filas.
+      //    De paso cubre el solape de páginas (`>=` relee el último milisegundo).
+      if (dedup(l.ts_ms, l.author, l.message)) continue;
       const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
       const sys = p.systems[0];
       // Un avistamiento necesita SISTEMA y HORA: sin sistema no dice dónde estaba nadie, y eso es
@@ -352,6 +437,7 @@ export async function reconstruirAvistamientos(
     // Pase lo que pase —incluido un error a mitad— el candado se suelta. Si no, un fallo dejaría
     // el botón inutilizable hasta reiniciar Koru, y sin forma de saber por qué.
     estado.activo = false;
+    estado.que = null;
     avisar();
   }
 }
