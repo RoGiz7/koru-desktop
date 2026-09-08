@@ -93,7 +93,7 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
     try {
       const r = await reconstruirAvistamientos(undefined, true);
       anotarResultado(
-        `${tr("Avistamientos")}: ${r.borrados.toLocaleString()} → ${r.avistamientos.toLocaleString()} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
+        `${tr("Borrados")} ${r.borrados.toLocaleString()} · ${tr("ahora")} ${r.avistamientos.toLocaleString()} ${tr("avistamientos")} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
       );
       contar();
       mirarPendiente();
@@ -114,10 +114,16 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
     setResultado(null);
     try {
       const r = await reconstruirAvistamientos();
-      // Se enseñan las DOS cifras a propósito: cuántos había y cuántos hay. Que no coincidan es el
-      // resultado, no un error — es la basura que se va y los nombres que antes se partían.
+      // Se enseñan las DOS cifras a propósito: cuántos se van y cuántos quedan. Que no coincidan es
+      // el resultado, no un error — es la basura que se va y los nombres que antes se partían.
+      //
+      // ⚠️ Y se dice **«Borrados X · ahora Y»**, no «X → Y». La flecha se leía como «tenías X y
+      // ahora tienes Y», y eso solo es cierto tras una pasada completa: después de una interrumpida,
+      // X es lo que había escrito la pasada a medias. A él le salió «15.824 → 587.918» cuando su
+      // histórico real de antes eran 570.190. Un cartel que engaña justo en el caso raro es peor que
+      // uno feo, porque el caso raro es cuando se mira.
       anotarResultado(
-        `${tr("Avistamientos")}: ${r.borrados.toLocaleString()} → ${r.avistamientos.toLocaleString()} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
+        `${tr("Borrados")} ${r.borrados.toLocaleString()} · ${tr("ahora")} ${r.avistamientos.toLocaleString()} ${tr("avistamientos")} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
       );
       contar();
       mirarPendiente();

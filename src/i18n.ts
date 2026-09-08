@@ -2533,6 +2533,9 @@ const EN: Record<string, string> = {
   "Se van a borrar los avistamientos y a rehacer desde las líneas guardadas. No se pierde nada: las líneas se conservan. Tarda un rato y conviene no cerrar Koru mientras.":
     "Sightings will be deleted and rebuilt from the stored lines. Nothing is lost: the lines are kept. It takes a while, and it's best not to close Koru meanwhile.",
   "líneas releídas": "lines re-read",
+  "Borrados": "Deleted",
+  "ahora": "now",
+  // «avistamientos» ya estaba (linea ~2538): NO se repite. Es la misma trampa de siempre.
   "No se pudo rehacer": "Could not rebuild",
   "Aprender nombres en minúscula": "Learn lowercase names",
   "Leyendo…": "Reading…",
