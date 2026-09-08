@@ -25,7 +25,77 @@ const INTEL_JARGON = new Set([
   // se justifica porque son términos del JUEGO, no jerga de un idioma: no crecen con las personas.
   "ansi", "ansis", "ansiblex", "jb", "jbs", "bridge", "gatecamp",
   "bubble", "bubbles", "bubbled", "bubbling", "insta", "instas",
+  // ★★ SALIDA DE LA AUDITORÍA de 827.112 líneas suyas (2026-09-08), no de mi imaginación. Estas
+  // son las palabras que MÁS se descartaban, con sus cuentas reales. Es la diferencia entre una
+  // lista de jerga inventada y una medida: `ess` 7.187 · `fleet` 6.406 · `gang` 6.135 · `loc` 3.450
+  // · `shuttle` 3.149 · `spike` 2.370 · `dscan` 2.282 · `cloaked` 2.020 · `bombers` 1.669.
+  //
+  // ⚠️ `ess` es el caso que más daño hacía: es la estructura de vigilancia del null, PERO existe un
+  // personaje llamado ESS — así que ESI decía «sí existe» y Koru le colgó 4.218 avistamientos a una
+  // persona que no había estado en ninguno.
+  "ess", "fleet", "fleets", "gang", "gangs", "loc", "location", "dscan", "spike", "spiked",
+  "cloak", "cloaked", "cloaky", "bomber", "bombers", "probe", "probes", "pod", "pods",
+  "scan", "scanned", "tackle", "tackled", "eyes", "eye", "dropper", "droppers", "wormhole",
+  "shuttle", "shuttles", "ship", "ships", "combat", "dead", "blue", "blues", "possible",
+  // Cortesía y charla: no son intel, y ensucian tanto como la jerga táctica.
+  "gj", "ty", "thx", "thanks", "thank", "pls", "please", "lol", "sorry", "sry", "help",
+  // ★★ SEGUNDA TANDA DE LA AUDITORÍA (2026-09-08), con sus cuentas reales. Clases de nave que NO
+  // son un nombre del catálogo (no tienen typeID, así que `naveApodada` no las alcanza) y más
+  // charla: `fight` 780 · `drop` 734 · `blops` 666 · `atm` 666 · `plz` 656 · `heading` 654 ·
+  // `confirmed` 643 · `grid` 625 · `reported` 599 · `etc` 388 · `shooting` 375 · `bait` 328 ·
+  // `ceptors` 317 · `undock` 241 · `spiking` 216 · `nvm` 213 · `dps` 153 · `intel` 1.082.
+  //
+  // ⚠️ LA REGLA PARA AÑADIR AQUÍ, que la auditoría hizo comprobable: **mirar antes si el corpus
+  // trata esa palabra como PERSONA**. Por eso NO están `kill` (2.258 avistamientos, ESI confirma un
+  // personaje llamado Kill) ni `small` ni `navy`, por mucho que parezcan jerga: borrarlas sería
+  // repetir lo de `ess`, que le colgó 4.218 avistamientos falsos a alguien de carne y hueso.
+  "blops", "ceptors", "ceptor", "dictor", "dictors", "hic", "hics", "logi", "dps", "t3c",
+  "grid", "bait", "undock", "undocked", "drop", "dropped", "spiking", "fight", "fighting",
+  "attack", "attacking", "shooting", "stealing", "heading", "confirmed", "reported", "intel",
+  "meme", "atm", "etc", "nvm", "plz",
+  // ★★★ TERCERA TANDA — LA PRIMERA DECIDIDA CON PRUEBAS, NO CON INTUICIÓN (2026-09-08).
+  //
+  // Idea suya: *«small dudo que sea una persona, tiene más pinta de ser small bubble o small gang»*.
+  // Tenía razón, y de ahí salió el diagnóstico que faltaba: **mirar qué palabra va DETRÁS**. ESI no
+  // puede decidir esto —confirma que existe alguien llamado «Small», igual que existe «ESS»— pero
+  // el corpus sí. Cada una de estas entra con su prueba medida sobre 827.232 líneas:
+  //
+  //   small  → warp 483 · gang 190 · bubble 75 · stuff 76   (ni un apellido detrás; suya la pista)
+  //   kill   → «kill the/him» y «hecate/capsule/hound kill» — verbo. Fichaba 2.287 AVISTAMIENTOS.
+  //   good   → «good to» 748 · job 45 · games 31            (fichaba 785)
+  //   system → «in system» 1.059 · «left system» 134        (fichaba 157)
+  //   all    → «all clear/night/in/on», «they all»          (fichaba 69)
+  //   went   → «went to» 395 · «they/he went»               · again → «clr again» 119
+  //   maybe / probably → seguidos de «a», «in», «docked», «cloaked»
+  //
+  // ⚠️ Y lo que NO entra, aunque lo parezca: `navy` es un TROZO DE NAVE («Osprey Navy Issue» 1.498),
+  // `lord` es un nombre de pila («Lord Road» 5.525), `moon`, `jack`, `dark`, `max`, `alex` y `love`
+  // llevan apellido detrás. Meterlas rompería hostiles reales.
+  //
+  // ⚠️ Precio asumido: «Good Spirit» sale 78 veces y podría ser alguien. Se pierde para quitar 785
+  // falsos. Falso negativo antes que falso positivo, como siempre.
+  "small", "kill", "good", "system", "all", "went", "again", "maybe", "probably",
 ]);
+
+/** ★★ LOS DESPLEGABLES: «Mobile Small Warp Disruptor», «Mobile Depot», «Mobile Tractor Unit».
+ *
+ *  ⚠️ ESTO NACE DE UNA REGRESIÓN MÍA, medida en su propio intel el mismo día (2026-09-08). Metí
+ *  `mobile` en la lista de jerga y partí «Mobile Small Warp Disruptor» por la mitad: `Mobile` se
+ *  fue como jerga y quedó un **`Small` suelto**… que es un personaje REAL. Los avistamientos de
+ *  «Small» pasaron de 59 a 551: **492 falsos, a una persona de carne y hueso**. Exactamente el
+ *  fallo de `ess`, cometido por mí mientras arreglaba el de `ess`.
+ *
+ *  La lección: una palabra en la lista de jerga no solo se descarta a sí misma — **cambia dónde
+ *  empiezan y acaban los nombres que tiene al lado**. Añadir jerga nunca es una operación local.
+ *
+ *  El arreglo correcto no es quitar la palabra, es reconocer la COSA. En EVE nada se llama «Mobile
+ *  algo» salvo los desplegables (comprobado: ninguna nave del catálogo empieza por «mobile »), así
+ *  que un campo entero que empieza así es un objeto, no una persona. Es una regla de FORMATO, como
+ *  el rótulo «Solar System» — no una lista de nombres que haya que mantener.
+ *
+ *  Se aplica solo al CAMPO COMPLETO, no palabra a palabra: en «there is a mobile depot here» no
+ *  hay campos, y ahí `mobile` y `depot` se caen solos por ir en minúscula. */
+const DESPLEGABLE = /^mobile\s+\S/i;
 
 /** ★★ EL MARCADO DE ENLACES DE EVE, FUERA — pero quedándonos con lo que dice.
  *
@@ -50,10 +120,31 @@ const INTEL_JARGON = new Set([
  *  ⚠️ El marcado NO se limpia al guardar: la línea cruda se conserva en la base de datos porque
  *  dentro viene el **id del personaje dicho por el juego**, y eso vale más que el nombre. */
 const TAGS_EVE = /<\/?(?:url|font|color|b|i|u|br|localized|a)\b[^>]*>/gi;
+/** ★ «Solar System - AB1-CD» es cómo EVE escribe un sistema al pegarlo, y el guion lo separa del
+ *  nombre. Sin quitarlo, el troceador saca un piloto llamado **«Solar System»** — sale con
+ *  mayúsculas, no es jerga, y no está en el índice porque el índice tiene los nombres a secas.
+ *
+ *  Se ve poco porque ESI ya contestó que ese nombre no es de nadie y el filtro lo tapa, o sea que
+ *  el sistema se afinó solo. Pero eso cuesta una petición por cada persona que instale Koru, y esto
+ *  no hay que aprenderlo: es un formato del juego, como el marcado de los enlaces. Se quita el
+ *  rótulo y **se conserva el nombre**, que así sí casa como sistema.
+ *
+ *  ⚠️ AMPLIADO TRAS MEDIRLO (2026-09-08). La regla original exigía el guion, y la auditoría de
+ *  827.172 líneas enseñó que **de las 2.977 líneas con el rótulo, 2.810 NO lo llevan** — porque en
+ *  el intel real el rótulo va DETRÁS del nombre, no delante:
+ *
+ *      Sakht Solar System  https://…          Jena Turay  AB1-CD Solar System loky
+ *
+ *  Consecuencia medida: `System` se fichaba como piloto **152 veces**. Ahora se quita la frase esté
+ *  donde esté, con guion o sin él, y **se deja DOBLE espacio en su sitio**: el rótulo separa dos
+ *  campos, y sustituirlo por un espacio simple los habría fundido en uno — rompiendo justo la
+ *  convención que usa el troceador. `solar` a solas no se toca: solo la frase de dos palabras. */
+const ROTULO_SISTEMA = /\s*\bsolar\s+system\b\s*[-–]?\s*/gi;
 export function limpiarMarcadoEve(s: string): string {
   return s
     .replace(/<url=[^>]*>([\s\S]*?)<\/url>/gi, "  $1  ")
     .replace(TAGS_EVE, " ")
+    .replace(ROTULO_SISTEMA, "  ")
     .replace(/[ \t]+$/gm, "");
 }
 
@@ -89,6 +180,119 @@ function prefijosDe(shipNames: Map<string, number>): Map<string, number | null> 
   }
   prefijosCache.set(shipNames, idx);
   return idx;
+}
+
+/** ★★ APODOS Y ERRATAS DE NAVE — «stilleto», «staber», «manti» (2026-09-08).
+ *
+ *  La auditoría los sacó de su propio intel, con sus cuentas: `stilleto` 1.021 (¡y encima Koru lo
+ *  fichaba como PILOTO 111 veces!), `stileto` 353, `manti` 451, `corms` 300, `staber` 217,
+ *  `trasher` 187. Nadie escribe «Manticore» cuando le están saltando encima.
+ *
+ *  ⚠️ INTENTÉ HACERLO POR PREFIJOS Y ESTABA MAL. Un código de null tiene FORMA —`FORMA_SISTEMA`
+ *  exige dígito o guion— y por eso `sistemaAbreviado` es seguro. Un apodo de nave son letras a
+ *  secas, igual que una palabra corriente, así que la regla por prefijos convertía **`side` en
+ *  Sidewinder** («on the other side») y **`more` en un autobús de evento**. No hay forma de
+ *  distinguir una truncación de una palabra inglesa mirando el catálogo. Lo mismo con las siglas:
+ *  `vni` funciona, pero **no aparece ni una vez en sus 827.172 líneas**, así que meter ese
+ *  mecanismo habría sido añadir riesgo por suposición.
+ *
+ *  Queda una lista, y una lista se justifica cuando **cada entrada sale de una medición**. Estas
+ *  salen. Si mañana la auditoría saca otra, se añade una línea.
+ *
+ *  ★ DOS COSAS LA HACEN INCAPAZ DE HACER DAÑO:
+ *  1. Solo se mira lo que NO parece un nombre, o sea lo que ya iba a la basura. Medido sobre 51
+ *     pilotos reales suyos: la versión por prefijos se tragaba **«BuZZ», de «BuZZ Oelk»**
+ *     («Buzzard»). Con la puerta puesta, `BuZZ` empieza por mayúscula y ni entra.
+ *  2. El destino se resuelve CONTRA EL CATÁLOGO. Si CCP renombra una nave, el apodo deja de
+ *     funcionar en vez de apuntar a un typeID inventado.
+ *
+ *  ❓ `retri` (943 veces) NO está, y es el más frecuente de todos: es Retribution **y** Retriever,
+ *  una fragata de asalto y un barco minero. Eso no lo decide el catálogo, lo decide quien vuela
+ *  allí. Sin respuesta, mejor no nombrar la nave que nombrar la que no es. */
+const APODOS_NAVE: Record<string, string> = {
+  stilleto: "stiletto",
+  stileto: "stiletto",
+  staber: "stabber",
+  trasher: "thrasher",
+  manti: "manticore",
+  corm: "cormorant",
+  loky: "loki",
+  proc: "procurer",
+  maledicrion: "malediction",
+};
+const apodosCache = new WeakMap<Map<string, number>, Map<string, number>>();
+function apodosDeNave(shipNames: Map<string, number>): Map<string, number> {
+  const ya = apodosCache.get(shipNames);
+  if (ya) return ya;
+  const idx = new Map<string, number>();
+  for (const [apodo, canonica] of Object.entries(APODOS_NAVE)) {
+    const tid = shipNames.get(canonica);
+    // Si la nave no está en el catálogo cargado, el apodo simplemente no existe. Callar aquí es
+    // correcto: es un idioma sin ese nombre o un SDE viejo, no un error que haya que gritar.
+    if (tid != null) idx.set(apodo, tid);
+  }
+  apodosCache.set(shipNames, idx);
+  return idx;
+}
+/** Solo letras: si trae dígito o guion es un sistema abreviado, no el apodo de una nave. */
+const FORMA_APODO = /^[a-z]{3,}$/;
+function naveApodada(
+  tok: string,
+  shipNames: Map<string, number>
+): { typeId: number; name: string } | null {
+  const lc = tok.toLowerCase();
+  // ★ LA PUERTA: si parece un nombre, ni se mira. Ver el comentario de arriba.
+  if (pareceNombre(tok) || !FORMA_APODO.test(lc)) return null;
+  const idx = apodosDeNave(shipNames);
+  const t = idx.get(lc) ?? (lc.endsWith("s") ? idx.get(lc.slice(0, -1)) : undefined);
+  return t != null ? { typeId: t, name: tok } : null;
+}
+
+/** ★★ LAS ABREVIATURAS DE SISTEMA: «ab1» es AB1C-D. Salió de auditar 827.112 líneas suyas.
+ *
+ *  En su intel se escriben cortos y constantemente: seis abreviaturas distintas suman más de 13.000
+ *  apariciones, y la más usada sale 6.232 veces. Hasta ahora se tiraban enteras, y con ellas la línea:
+ *  **«ab1 gate camped in cd2» no producía absolutamente nada** — un aviso perfecto de una puerta
+ *  campeada, perdido.
+ *
+ *  Se acepta solo si **UN único sistema empieza por ese texto**. Es la misma regla que ya usan las
+ *  naves con «Brutix Navy»: con dos candidatos no se nombra ninguno, porque mandar a alguien al
+ *  sistema equivocado es peor que no decirle nada.
+ *
+ *  ⚠️ Y ADEMÁS tiene que TENER FORMA de sistema de null: llevar un dígito o un guion. Sin esa
+ *  condición, palabras como `fleet` o `spike` podrían casar con el prefijo de algún sistema del
+ *  mapa y convertir una frase en una coordenada. La forma es lo que separa una abreviatura de una
+ *  palabra que resulta que empieza igual.
+ *
+ *  ⚠️ Mínimo TRES caracteres. Con dos, la mitad del mapa empieza igual y la unicidad dejaría de
+ *  proteger: pasaría a decidir el azar de qué sistemas existen.
+ *
+ *  ⚠️⚠️ Y TIENE QUE LLEVAR UNA LETRA. Sin esta condición la regla se comía la cola de los nombres:
+ *  en `MSZ 006  crow`, el `006` casaba con el prefijo de un sistema real y **partía al piloto en
+ *  dos** — exactamente el fallo que él reportó por la mañana y que arreglamos hoy. Un token de solo
+ *  dígitos es demasiadas cosas a la vez (una cantidad, el apellido de alguien, una hora) para
+ *  dejarle además que sea un sistema. Lo cazó la prueba de regresión, no el razonamiento. */
+const FORMA_SISTEMA = /^(?=.*[a-z])(?=.*[\d-])[a-z0-9][a-z0-9-]{2,}$/i;
+/** `2x`, `x4`: son cantidades, no sistemas, aunque lleven dígito. */
+const ES_CANTIDAD = /^(?:\d+x|x\d+)$/i;
+const prefijosSisCache = new WeakMap<Map<string, NeSystem>, Map<string, NeSystem | null>>();
+function prefijosSistema(nameIdx: Map<string, NeSystem>): Map<string, NeSystem | null> {
+  const ya = prefijosSisCache.get(nameIdx);
+  if (ya) return ya;
+  const idx = new Map<string, NeSystem | null>();
+  for (const [nombre, s] of nameIdx) {
+    for (let k = 3; k < nombre.length; k++) {
+      const pre = nombre.slice(0, k);
+      idx.set(pre, idx.has(pre) ? null : s);
+    }
+  }
+  prefijosSisCache.set(nameIdx, idx);
+  return idx;
+}
+/** El sistema que se esconde detrás de una abreviatura, o `null` si no lo hay o es ambigua. */
+function sistemaAbreviado(tok: string, nameIdx: Map<string, NeSystem>): NeSystem | null {
+  if (!FORMA_SISTEMA.test(tok) || ES_CANTIDAD.test(tok)) return null;
+  return prefijosSistema(nameIdx).get(tok.toLowerCase()) ?? null;
 }
 
 /** ¿Va esta palabra seguida de «gate»? Entonces es un DESTINO, no una persona.
@@ -127,6 +331,38 @@ const PARTICULAS_NOMBRE = new Set([
   "the", "of", "de", "del", "la", "el", "von", "van", "der", "den", "da", "di", "du", "le", "bin",
 ]);
 
+/** ★★ REGIONES Y CONSTELACIONES — el catálogo que faltaba (2026-09-08).
+ *
+ *  Salió de la auditoría, no de una idea: entre lo que el troceador tiraba estaban `delve` 662,
+ *  `thera` 480, `catch` 357, `querious` 186 y `fountain` 168. Son sitios, y Koru ya los tiene
+ *  descargados — `neweden.json` trae 70 regiones y 799 constelaciones y solo usábamos los sistemas.
+ *
+ *  Es la regla de siempre, dicha por él: **catálogo primero, ESI solo para lo que el catálogo no
+ *  sabe, y lo aprendido se guarda.** Aquí no hay nada que aprender ni a quién preguntar: el dato
+ *  está en disco desde el primer arranque.
+ *
+ *  ⚠️ LA NAVE GANA A LA ZONA, SIEMPRE. Nueve nombres son las dos cosas —`Curse`, `Providence`,
+ *  `Wyvern`, `Manticore`, `Chimera`, `Phoenix`, `Griffin`, `Hydra`, `Basilisk`— y en un canal de
+ *  intel `Basilisk` es el logi que hay que reventar, no la constelación. Por eso la búsqueda de
+ *  zona va DESPUÉS de la de nave en `classifyWord`. Con los sistemas no hay ni un choque (medido).
+ *
+ *  ⚠️ Se reconocen para NO fichar a nadie llamado «Delve», y se devuelven en `zones` porque una
+ *  región dicha en un reporte es un dato («van hacia Delve»), no ruido. Todavía no se pinta. */
+export type Zona = { id: number; n: string; tipo: "region" | "constelacion" };
+export function zonasDe(ne: {
+  regions?: { id: number; n: string }[];
+  constellations?: { id: number; n: string }[];
+}): Map<string, Zona> {
+  const m = new Map<string, Zona>();
+  // Las constelaciones primero y las regiones después: si alguna vez compartieran nombre, que mande
+  // la región, que es lo que la gente nombra en el intel.
+  for (const c of ne.constellations ?? [])
+    m.set(c.n.toLowerCase(), { id: c.id, n: c.n, tipo: "constelacion" });
+  for (const r of ne.regions ?? [])
+    m.set(r.n.toLowerCase(), { id: r.id, n: r.n, tipo: "region" });
+  return m;
+}
+
 /** ¿Puede esta palabra formar parte de un nombre de piloto?
  *
  *  **Todo nombre de personaje de EVE empieza por mayúscula.** Ese único criterio quita las frases
@@ -162,6 +398,9 @@ export type IntelParsed = {
    *  Si la larga se confirma, gana y `sysId` deja de contar como sistema en esa línea: no puede
    *  ser las dos cosas. Si no se confirma, no cambia absolutamente nada. */
   pilotAlts: { corto: string; largo: string; sysId: number }[];
+  /** Regiones y constelaciones nombradas en la línea. Se recogen para no fichar a un piloto
+   *  llamado «Delve» y porque «van hacia Delve» es un dato; todavía no se pinta en ningún sitio. */
+  zones: Zona[];
 };
 export function classifyIntel(
   message: string,
@@ -178,7 +417,9 @@ export function classifyIntel(
    *  el «no existe», y desde entonces el troceador deja de proponerlo. Se aprende solo.
    *
    *  Opcional a propósito: si no se pasa, el comportamiento es exactamente el de antes. */
-  noExisten?: Set<string>
+  noExisten?: Set<string>,
+  /** Regiones y constelaciones (`zonasDe`). Opcional: sin él, el comportamiento es el de antes. */
+  zonaIdx?: Map<string, Zona>
 ): IntelParsed {
   const esNadie = (s: string) => !!noExisten && noExisten.has(s.trim().toLowerCase());
   /** ¿Este candidato es demasiado corto para ser un personaje?
@@ -199,12 +440,23 @@ export function classifyIntel(
   const ships: { id: number; name: string }[] = [];
   const pilots: string[] = [];
   const pilotAlts: { corto: string; largo: string; sysId: number }[] = [];
+  const zones: Zona[] = [];
+  const seenZona = new Set<number>();
+  const addZona = (w: Word) => {
+    if (!seenZona.has(w.id!)) {
+      seenZona.add(w.id!);
+      zones.push({ id: w.id!, n: w.name!, tipo: w.tipo! });
+    }
+  };
   let count: number | null = null;
   let isClear = false;
   const seenSys = new Set<number>();
   const clean = (s: string) =>
     s.replace(/[*.,;:!?()]+$/g, "").replace(/^[*([]+/g, "").trim();
-  type Word = { kind: string; id?: number; name?: string; typeId?: number; n?: number; text?: string };
+  type Word = {
+    kind: string; id?: number; name?: string; typeId?: number; n?: number; text?: string;
+    tipo?: "region" | "constelacion";
+  };
   const classifyWord = (w: string): Word => {
     const raw = w.trim();
     if (!raw) return { kind: "empty" };
@@ -214,6 +466,9 @@ export function classifyIntel(
     const c = clean(raw);
     if (!c) return { kind: "empty" };
     const lc = c.toLowerCase();
+    // Un desplegable ocupa el campo entero («Mobile Small Warp Disruptor»). Va lo primero para que
+    // ninguna de las reglas de abajo pueda partirlo y dejar suelto un trozo con forma de nombre.
+    if (DESPLEGABLE.test(c)) return { kind: "jargon" };
     if (INTEL_CLEAR.has(lc)) return { kind: "clear" };
     // Contador de hostiles: acepta "+N" y "N+" (p. ej. "+4" o "14+").
     const mc = lc.match(/^(?:\+(\d+)|(\d+)\+)$/);
@@ -223,6 +478,26 @@ export function classifyIntel(
     if (s) return { kind: "sys", id: s.id, name: s.n };
     const tid = shipNames.get(lc);
     if (tid != null) return { kind: "ship", typeId: tid, name: c };
+    // ★ PLURALES: «2x sabres on the other side» no daba nada. En el catálogo está «sabre», y una
+    //   Sabre es la nave que te pone la burbuja — perderla es perder el aviso que importa. Solo se
+    //   acepta si al quitar la «s» hay coincidencia EXACTA, así que «gnosis» no se rompe.
+    if (lc.endsWith("s")) {
+      const sing = shipNames.get(lc.slice(0, -1));
+      if (sing != null) return { kind: "ship", typeId: sing, name: c };
+    }
+    // ★ REGIÓN O CONSTELACIÓN. Después de la nave a propósito: `Basilisk` es el logi, no la
+    //   constelación (ver `zonasDe`). Y antes de la abreviatura, porque un nombre exacto siempre
+    //   manda sobre una coincidencia por prefijo.
+    const z = zonaIdx?.get(lc);
+    if (z) return { kind: "zona", id: z.id, name: z.n, tipo: z.tipo };
+    // ★ ABREVIATURAS DE SISTEMA («ab1» → AB1C-D). Va la ÚLTIMA de las coincidencias: un sistema o
+    //   una nave con ese nombre exacto siempre mandan sobre una abreviatura.
+    const abrev = sistemaAbreviado(c, nameIdx);
+    if (abrev) return { kind: "sys", id: abrev.id, name: abrev.n };
+    // ★ APODO DE NAVE («manti», «scimi», «cerbs», «vni»). El ÚLTIMO de todos, y solo sobre lo que
+    //   no parece un nombre: ver `naveApodada`. Nunca puede quitar un piloto que hoy salga.
+    const apodo = naveApodada(c, shipNames);
+    if (apodo) return { kind: "ship", typeId: apodo.typeId, name: apodo.name };
     return { kind: "other", text: c };
   };
   /** ★★ LA NAVE MÁS LARGA QUE EMPIECE AQUÍ. Devuelve cuántas palabras consume.
@@ -280,6 +555,10 @@ export function classifyIntel(
     }
     if (whole.kind === "ship") {
       ships.push({ id: whole.typeId!, name: whole.name! });
+      continue;
+    }
+    if (whole.kind === "zona") {
+      addZona(whole);
       continue;
     }
     if (whole.kind === "clear") {
@@ -340,6 +619,11 @@ export function classifyIntel(
       } else if (k.kind === "ship") {
         flush();
         ships.push({ id: k.typeId!, name: k.name! });
+      } else if (k.kind === "zona") {
+        // Una región cierra el nombre que se estuviera montando, igual que un sistema. La diferencia
+        // es que aquí NO se guardan las dos lecturas: «Fulano Delve» no es el nombre de nadie.
+        flush();
+        addZona(k);
       } else if (k.kind === "clear") {
         flush();
         isClear = true;
@@ -398,7 +682,7 @@ export function classifyIntel(
     }
     flush();
   }
-  return { systems, ships, pilots, count, isClear, pilotAlts };
+  return { systems, ships, pilots, count, isClear, pilotAlts, zones };
 }
 
 
@@ -431,11 +715,14 @@ export function buildIntelReports(
   shipNames: Map<string, number>,
   /** Los nombres que ESI dijo que no existen — ver `classifyIntel`. Se pasa tal cual. */
   noExisten?: Set<string>,
+  /** Regiones y constelaciones — ver `zonasDe`. Se pasa tal cual, igual que `noExisten`: si uno de
+   *  los sitios que trocean no lo recibiera, clasificaría distinto que los demás. */
+  zonaIdx?: Map<string, Zona>,
 ): { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } {
   const rep = new Map<number, IntelRep>();
   const feed: IntelFeedRow[] = [];
   for (const l of lines) {
-    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten);
+    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx);
     const primary = p.systems[0];
     feed.push({
       ts: l.ts_ms,

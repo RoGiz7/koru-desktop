@@ -8021,6 +8021,31 @@ const INTEL_JARGON: &[&str] = &[
     // bridge y `bubble` la burbuja. ⚠️ Espejo de INTEL_JARGON en src/intel.ts.
     "ansi", "ansis", "ansiblex", "jb", "jbs", "bridge", "gatecamp",
     "bubble", "bubbles", "bubbled", "bubbling", "insta", "instas",
+    // ★★ De la AUDITORIA de 827.112 lineas suyas (2026-09-08): las palabras que mas se descartaban,
+    // con sus cuentas. `ess` 7.187 · `fleet` 6.406 · `gang` 6.135 · `loc` 3.450 · `spike` 2.370.
+    // ⚠️ `ess` es la estructura del null, pero EXISTE un personaje llamado ESS: ESI decia «si» y
+    // Koru le habia colgado 4.218 avistamientos. Ver src/intel.ts, que es el espejo de esto.
+    "ess", "fleet", "fleets", "gang", "gangs", "loc", "location", "dscan", "spike", "spiked",
+    "cloak", "cloaked", "cloaky", "bomber", "bombers", "probe", "probes", "pod", "pods",
+    "scan", "scanned", "tackle", "tackled", "eyes", "eye", "dropper", "droppers", "wormhole",
+    "shuttle", "shuttles", "ship", "ships", "combat", "dead", "blue", "blues", "possible",
+    "gj", "ty", "thx", "thanks", "thank", "pls", "please", "lol", "sorry", "sry", "help",
+    // ★★ Segunda tanda de la auditoría (2026-09-08). Clases de nave que NO tienen typeID en el
+    // catálogo, y más charla. Espejo de INTEL_JARGON en `src/intel.ts` — donde está el porqué de
+    // cada una y, sobre todo, por qué NO están `kill`, `small` ni `navy`: el corpus dice que son
+    // personas y borrarlas repetiría lo de `ess`.
+    "blops", "ceptors", "ceptor", "dictor", "dictors", "hic", "hics", "logi", "dps", "t3c",
+    "grid", "bait", "undock", "undocked", "drop", "dropped", "spiking", "fight", "fighting",
+    "attack", "attacking", "shooting", "stealing", "heading", "confirmed", "reported", "intel",
+    // ⚠️ `mobile` estuvo aquí unas horas y hubo que quitarlo: partía «Mobile Small Warp Disruptor»
+    // y dejaba un `Small` suelto, que es un personaje REAL (+492 avistamientos falsos, medido).
+    // El arreglo vive en `src/intel.ts` como regla de formato (`DESPLEGABLE`) y todavía NO está
+    // aquí — pendiente en «los TRES troceadores».
+    "meme", "atm", "etc", "nvm", "plz",
+    // ★★★ Tercera tanda, decidida mirando QUÉ PALABRA VA DETRÁS (idea suya). El porqué de cada una,
+    // con sus cuentas, en `src/intel.ts`. Y por qué NO están `navy`, `lord`, `moon`, `jack`, `dark`,
+    // `max`, `alex` ni `love`: llevan apellido detrás, son personas de verdad.
+    "small", "kill", "good", "system", "all", "went", "again", "maybe", "probably",
     // Cómo habla la gente en un canal de intel:
     "jump", "jumps", "jumped", "jumping", "warp", "warped", "warping", "camp", "camped", "camping",
     "move", "moves", "moved", "moving", "coming", "came", "going", "gone", "left", "back", "out",
@@ -8864,6 +8889,20 @@ pub fn intel_lines_read(
             message: texto,
         })
         .collect())
+}
+
+/// El marcador de una reconstrucción a medias, o `None`. Ver `Db::intel_recon_estado`.
+#[tauri::command]
+pub fn intel_recon_estado(state: State<'_, AppState>) -> AppResult<Option<String>> {
+    Ok(state.db.intel_recon_estado())
+}
+
+/// Guarda o borra el marcador. Se llama una vez por página, así que la escritura tiene que ser
+/// barata — es una sola fila en `meta`.
+#[tauri::command]
+pub fn intel_recon_marcar(state: State<'_, AppState>, estado: Option<String>) -> AppResult<()> {
+    state.db.intel_recon_marcar(estado.as_deref());
+    Ok(())
 }
 
 /// ★★ VACÍA LOS AVISTAMIENTOS PARA REHACERLOS. Devuelve `(avistamientos, contadores)`.

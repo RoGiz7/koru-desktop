@@ -6,6 +6,7 @@ import { tr } from "./i18n";
 import { FW_FACTIONS } from "./constants";
 import type { MapOverlay } from "./constants";
 import type { NeSystem, NewEden, SovSystem, FwSystem, Incursion, WhConn } from "./types";
+import type { Zona } from "./intel";
 import type { SignatureSummary } from "./signatures";
 
 // ===== Leyenda de escala =====
@@ -178,6 +179,10 @@ export type Geo = {
   proj: (s: NeSystem) => { px: number; py: number };
   idx: Map<number, NeSystem>;
   nameIdx: Map<string, NeSystem>;
+  /** Regiones y constelaciones por nombre, para el troceador de intel (ver `zonasDe` en intel.ts).
+   *  Vive aquí, junto a `nameIdx`, porque los dos salen del mismo `neweden.json`: quien tiene uno
+   *  tiene el otro y no pueden quedarse desincronizados. */
+  zonaIdx: Map<string, Zona>;
   adj: Map<number, number[]>;
   jumpsPath: string;
   regionLabels: { name: string; px: number; py: number }[];

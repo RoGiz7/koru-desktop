@@ -2523,6 +2523,10 @@ const EN: Record<string, string> = {
   // --- Ajustes → Intel: el archivo de líneas y el selector de canales (2026-09-08) ---
   // ⚠️ Nueve de estas ya se usaban SIN traducir desde antes («Activado», «Probar», «vigilados»…):
   // en inglés salían en castellano. Se añaden aquí de paso, que es el mismo fallo.
+  "Continuar": "Continue",
+  "Empezar de cero": "Start over",
+  "Quedó una pasada a medias, pero la hizo otra versión de Koru: se empieza de cero para no mezclar dos lectores distintos.":
+    "A pass was left unfinished, but a different version of Koru made it: it starts over so two different readers don't get mixed.",
   "Rehacer los avistamientos": "Rebuild sightings",
   "Rehaciendo…": "Rebuilding…",
   "Vuelve a leer todo lo guardado con el lector de hoy.": "Re-reads everything stored with today's reader.",

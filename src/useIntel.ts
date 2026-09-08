@@ -80,7 +80,7 @@ export function useIntel({
   // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
   const intelDetailCount = useMemo(() => {
     if (!intelDetail || !geo) return null;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten);
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx);
     return p.count ?? (p.pilots.length || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intelDetail, shipNames, noExisten]);
@@ -99,7 +99,7 @@ export function useIntel({
   // solo sobre los candidatos limpios (sin naves ni jerga) → ya no salen Eris/ansi/near como pilotos.
   useEffect(() => {
     if (!intelDetail || !geo) return;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten);
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx);
     // naves locales, deduplicadas por type_id
     const shipMap = new Map<number, string>();
     for (const s of p.ships) shipMap.set(s.id, s.name);

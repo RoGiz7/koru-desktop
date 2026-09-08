@@ -9,7 +9,13 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
-import { reconstruirAvistamientos } from "./reconstruirIntel";
+import {
+  anotarResultado,
+  escucharReconstruccion,
+  estadoReconstruccion,
+  reconPendiente,
+  reconstruirAvistamientos,
+} from "./reconstruirIntel";
 import { tr } from "./i18n";
 import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
 import type { IntelConfig, LogDirCandidate } from "./types";
@@ -44,14 +50,58 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
   /** `[cuántas, primera_ms, última_ms]`. `null` = todavía no se ha preguntado. */
   const [archivo, setArchivo] = useState<[number, number | null, number | null] | null>(null);
   const [buscaCanal, setBuscaCanal] = useState("");
-  const [rehaciendo, setRehaciendo] = useState(false);
-  const [progreso, setProgreso] = useState(0);
+  // ★ El estado de la reconstrucción se LEE del módulo, no se guarda aquí: si no, salir de Ajustes
+  //   a mitad dejaba el panel como si no pasara nada mientras el proceso seguía corriendo a solas
+  //   — y el botón habilitado para lanzar una segunda que purgaría lo de la primera. Lo vio él en
+  //   vivo, al 46 %.
+  const [rehaciendo, setRehaciendo] = useState(() => estadoReconstruccion().activo);
+  const [progreso, setProgreso] = useState(() => estadoReconstruccion().progreso);
+  useEffect(() => {
+    const e = estadoReconstruccion();
+    setRehaciendo(e.activo);
+    setProgreso(e.progreso);
+    if (e.resultado) setResultado(e.resultado);
+    return escucharReconstruccion((n) => {
+      setRehaciendo(n.activo);
+      setProgreso(n.progreso);
+      if (n.resultado) setResultado(n.resultado);
+    });
+  }, []);
   /** Rehace `intel_sightings` desde las líneas guardadas. Ver `reconstruirIntel.ts` para el porqué
    *  y para las tres decisiones que lo hacen seguro (un solo troceador, sin ESI, por páginas).
    *
    *  Se avisa ANTES con `dialogConfirm` porque durante la pasada los avistamientos están vacíos: si
    *  cerrase Koru a medias, el rastro histórico de sus hostiles se quedaría incompleto hasta que lo
    *  volviera a lanzar. No se pierde nada —las líneas siguen ahí— pero hay que decirlo. */
+  /** Una pasada a medias, si la hay. `null` = todavía no se ha mirado. */
+  const [pendiente, setPendiente] = useState<
+    { pct: number; continuable: boolean } | null | false
+  >(null);
+  const mirarPendiente = () =>
+    reconPendiente()
+      .then((r) => setPendiente(r.hay ? { pct: r.pct, continuable: r.continuable } : false))
+      .catch(() => setPendiente(false));
+  useEffect(() => {
+    mirarPendiente();
+  }, []);
+
+  /** Continúa por donde se cortó. Sin preguntar nada: la purga ya se hizo y no se repite, así que
+   *  aquí no hay ninguna decisión destructiva que confirmar. */
+  const continuar = async () => {
+    setResultado(null);
+    try {
+      const r = await reconstruirAvistamientos(undefined, true);
+      anotarResultado(
+        `${tr("Avistamientos")}: ${r.borrados.toLocaleString()} → ${r.avistamientos.toLocaleString()} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
+      );
+      contar();
+      mirarPendiente();
+    } catch (e) {
+      anotarResultado(`${tr("No se pudo rehacer")}: ${String(e)}`);
+      mirarPendiente();
+    }
+  };
+
   const rehacer = async () => {
     const ok = await dialogConfirm(
       tr(
@@ -60,22 +110,19 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
       { title: tr("Rehacer los avistamientos"), kind: "warning" },
     );
     if (!ok) return;
-    setRehaciendo(true);
-    setProgreso(0);
     setResultado(null);
     try {
-      const r = await reconstruirAvistamientos((p) =>
-        setProgreso(p.total > 0 ? Math.min(100, Math.round((p.lineas / p.total) * 100)) : 0),
-      );
+      const r = await reconstruirAvistamientos();
       // Se enseñan las DOS cifras a propósito: cuántos había y cuántos hay. Que no coincidan es el
       // resultado, no un error — es la basura que se va y los nombres que antes se partían.
-      setResultado(
+      anotarResultado(
         `${tr("Avistamientos")}: ${r.borrados.toLocaleString()} → ${r.avistamientos.toLocaleString()} · ${r.lineas.toLocaleString()} ${tr("líneas releídas")}`,
       );
+      contar();
+      mirarPendiente();
     } catch (e) {
-      setResultado(`${tr("No se pudo rehacer")}: ${String(e)}`);
-    } finally {
-      setRehaciendo(false);
+      anotarResultado(`${tr("No se pudo rehacer")}: ${String(e)}`);
+      mirarPendiente();
     }
   };
   const [importando, setImportando] = useState(false);
@@ -280,13 +327,27 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
               orden real — primero se tiene el material, después se reprocesa. */}
           {archivo != null && archivo[0] > 0 && (
             <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
+              {/* ★ CON UNA PASADA A MEDIAS, «Continuar» va PRIMERO y «Empezar de cero» al lado.
+                  Reanudar en silencio sería tan malo como perder el trabajo: quien vuelve tiene
+                  que ver que quedó algo a medias y decidir. */}
+              {pendiente && pendiente.continuable && !rehaciendo && (
+                <button onClick={continuar} disabled={importando}>
+                  ▶️ {tr("Continuar")} ({pendiente.pct} %)
+                </button>
+              )}
               <button onClick={rehacer} disabled={rehaciendo || importando}>
                 {rehaciendo
                   ? `${tr("Rehaciendo…")} ${progreso}%`
-                  : `♻️ ${tr("Rehacer los avistamientos")}`}
+                  : pendiente && pendiente.continuable
+                    ? `♻️ ${tr("Empezar de cero")}`
+                    : `♻️ ${tr("Rehacer los avistamientos")}`}
               </button>
               <span className="small muted">
-                {tr("Vuelve a leer todo lo guardado con el lector de hoy.")}
+                {pendiente && !pendiente.continuable
+                  ? tr(
+                      "Quedó una pasada a medias, pero la hizo otra versión de Koru: se empieza de cero para no mezclar dos lectores distintos.",
+                    )
+                  : tr("Vuelve a leer todo lo guardado con el lector de hoy.")}
               </span>
             </div>
           )}

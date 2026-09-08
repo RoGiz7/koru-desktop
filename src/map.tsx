@@ -12,7 +12,7 @@ import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
-import { buildIntelReports, limpiarMarcadoEve, pilotTrack } from "./intel";
+import { buildIntelReports, limpiarMarcadoEve, pilotTrack, zonasDe } from "./intel";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import { PilotoNombre } from "./fichaPiloto";
@@ -890,6 +890,9 @@ export function MapView(props: {
       proj,
       idx,
       nameIdx,
+      // Regiones y constelaciones para el troceador de intel (ver `zonasDe`). Va en `geo` porque es
+      // el sitio donde ya vive `nameIdx`: quien tiene uno tiene el otro y no pueden desincronizarse.
+      zonaIdx: zonasDe(ne),
       adj,
       jumpsPath,
       regionLabels,
@@ -1349,7 +1352,10 @@ export function MapView(props: {
   }, []);
 
   const intelReports = useMemo(
-    () => (geo && intel ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten) : null),
+    () =>
+      geo && intel
+        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx)
+        : null,
     [geo, intel?.lines, shipNames, noExisten],
   );
 

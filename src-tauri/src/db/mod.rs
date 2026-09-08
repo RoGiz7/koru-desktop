@@ -6495,6 +6495,46 @@ impl Db {
         .unwrap_or(0)
     }
 
+    /// ★★ EL MARCADOR DE LA RECONSTRUCCIÓN, para poder REANUDARLA. Idea de RoGiz7.
+    ///
+    /// Rehacer los avistamientos son veinte minutos, y hasta ahora un cierre de Koru o un cuelgue
+    /// los tiraba enteros. Su pregunta: *«¿podríamos idear marcajes para seguir donde se cortó?»*.
+    /// Y no es cosa de una vez: esto va a correr cada vez que mejoremos el troceador.
+    ///
+    /// Se guarda un JSON en `meta` con la fase, el cursor y **la versión de Koru que empezó**. Esto
+    /// último es lo que impide el desastre silencioso: si entre el corte y la reanudación cambió el
+    /// troceador, media tabla estaría hecha con un lector y media con otro, y nada lo diría — que
+    /// es exactamente el problema contra el que él inventó el sello de la base de datos. Quien
+    /// reanuda compara la versión; si no coincide, se empieza limpio.
+    ///
+    /// `None` = no hay ninguna pasada a medias.
+    pub fn intel_recon_estado(&self) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT value FROM meta WHERE key = 'intel_recon'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+    }
+
+    /// Guarda el marcador. `None` lo borra — que es lo que hace la pasada al terminar bien.
+    pub fn intel_recon_marcar(&self, estado: Option<&str>) {
+        let conn = self.conn.lock().unwrap();
+        match estado {
+            Some(v) => {
+                let _ = conn.execute(
+                    "INSERT INTO meta (key, value) VALUES ('intel_recon', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    [v],
+                );
+            }
+            None => {
+                let _ = conn.execute("DELETE FROM meta WHERE key = 'intel_recon'", []);
+            }
+        }
+    }
+
     /// ★★ VACÍA LOS AVISTAMIENTOS PARA REHACERLOS. Devuelve `(avistamientos, nombres)`.
     ///
     /// `intel_sightings` es DERIVADO: sale de trocear las líneas. Pero solo se escribía con
