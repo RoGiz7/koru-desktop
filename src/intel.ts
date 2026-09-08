@@ -971,6 +971,65 @@ export function creaDedupIntel(): (ts_ms: number, autor: string, mensaje: string
   };
 }
 
+/** ★★ ¿ESTE NOMBRE TIENE DOS LECTURAS? — para DECIRLO, no para preguntarlo (2026-09-08).
+ *
+ *  Idea suya: *«¿podríamos hacer que en la ficha del hostil el propio piloto determine una duda de
+ *  ese tipo? … al menos seguimos siendo sinceros y transparentes»*. Evaluamos el mecanismo completo
+ *  —guardar su veredicto— y lo aparcamos con motivo: la alarma no puede esperar a un humano, y una
+ *  interfaz que pregunta mal recoge respuestas equivocadas con toda fiabilidad (**él mismo no
+ *  reconoció ninguno de los doce casos dudosos que le puse delante**). Esto es la mitad barata: la
+ *  transparencia sin la pregunta. Cero tablas, cero decisiones, y ya cumple lo que le importaba.
+ *
+ *  Un nombre tiene dos lecturas cuando su primera o su última palabra **es también otra cosa**:
+ *
+ *      «ACG Jita»    → el piloto ACG, en el sistema Jita          (o alguien llamado «ACG Jita»)
+ *      «Iam Neutral» → el piloto Iam, y «neutral» como reporte    (o alguien llamado «Iam Neutral»)
+ *
+ *  Koru YA ha elegido —lo decide `name_cache`, ver `pilotAlts`— y casi siempre acierta. Esto solo
+ *  hace visible que hubo una elección, que es lo que separa «acertar» de «fingir que no había duda».
+ *
+ *  ⚠️ Es una POSIBILIDAD, no una sospecha. Muchos apellidos de EVE son también nombres de sistema
+ *  —salen del mismo saco de lore— así que esto va a aparecer en nombres perfectamente sólidos.
+ *  Por eso el texto dice «también podría ser» y no «puede estar mal».
+ *
+ *  ⚠️ NO decide nada ni toca el troceador: es una función pura sobre un nombre ya elegido.
+ *  `esSistema` se inyecta para no arrastrar el catálogo hasta aquí y para poder probarla sola. */
+export type DudaLectura = {
+  /** La lectura corta: el nombre sin la palabra que además es otra cosa. */
+  corto: string;
+  /** La palabra que tiene doble vida. */
+  cola: string;
+  /** Qué otra cosa es: un sistema de New Eden o una palabra del intel. */
+  tipo: "sistema" | "jerga";
+  /** Dónde estaba: al final («ACG Jita») o al principio («Good Spirit»). */
+  donde: "detras" | "delante";
+};
+export function dudaDeLectura(
+  nombre: string,
+  esSistema: (s: string) => boolean,
+): DudaLectura | null {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  if (partes.length < 2) return null;
+  const clasifica = (p: string): "sistema" | "jerga" | null => {
+    const lc = p.toLowerCase();
+    if (esSistema(lc)) return "sistema";
+    if (JERGA_PARTE_NOMBRE.has(lc)) return "jerga";
+    return null;
+  };
+  for (const donde of ["detras", "delante"] as const) {
+    const i = donde === "detras" ? partes.length - 1 : 0;
+    const tipo = clasifica(partes[i]);
+    if (!tipo) continue;
+    const resto = partes.filter((_, k) => k !== i);
+    const corto = resto.join(" ");
+    // EVE no admite nombres de una o dos letras: si lo que queda no puede ser nadie, no hay dos
+    // lecturas — hay una sola, la larga. Misma regla que `demasiadoCorto` en el troceador.
+    if ([...corto].length < 3) continue;
+    return { corto, cola: partes[i], tipo, donde };
+  }
+  return null;
+}
+
 // --- Reportes de intel por sistema + feed cronológico (a partir de las líneas de chat) ---
 export type IntelFeedRow = {
   ts: number;

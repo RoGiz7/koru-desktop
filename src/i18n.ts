@@ -2543,6 +2543,12 @@ const EN: Record<string, string> = {
   // «avistamientos» ya estaba (linea ~2538): NO se repite. Es la misma trampa de siempre.
   "No se pudo rehacer": "Could not rebuild",
   "Aprender nombres en minúscula": "Learn lowercase names",
+  // La duda de lectura en la ficha del piloto (ver `dudaDeLectura` en intel.ts). Plantilla con
+  // marcadores, no fragmentos sueltos: en inglés el orden y los artículos cambian.
+  "Koru ha leído este nombre entero. También podría ser «CORTO» y COSA «COLA».":
+    "Koru read this as one whole name. It could also be «CORTO» plus COSA «COLA».",
+  "el sistema": "the system",
+  "la palabra": "the word",
   "Leyendo…": "Reading…",
   "Preguntando…": "Asking…",
   // Respaldo del botón cuando se vuelve a Ajustes con la pasada ya en marcha: la FASE vivía en el

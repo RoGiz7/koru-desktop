@@ -4,9 +4,10 @@
 // tiene); el Rust hace el JOIN y aquí SOLO se pintan los bloques que traen datos — la ficha
 // jamás rellena con ceros lo que no vio. Enlaces externos ARRIBA junto al nombre, como en
 // las tarjetas del mapa (el lenguaje que ya se acordó); las acciones de Koru, abajo.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
+import { dudaDeLectura } from "./intel";
 import { typeIcon } from "./format";
 import { loadShipNames } from "./flotas";
 import { loadNewEden } from "./neweden";
@@ -118,9 +119,21 @@ export function FichaPiloto({
       .catch((e) => setErr(String(e)));
     loadShipNames().then(setShips).catch(() => {});
     loadNewEden()
-      .then((ne) => setSysNames(new Map(ne.systems.map((s) => [s.id, s.n]))))
+      .then((ne) => {
+        setSysNames(new Map(ne.systems.map((s) => [s.id, s.n])));
+        // El catálogo ya está cargado aquí para poner nombre al sistema favorito; aprovecharlo para
+        // saber si el nombre de este piloto tiene dos lecturas no cuesta una segunda carga.
+        setSisSet(new Set(ne.systems.map((s) => s.n.toLowerCase())));
+      })
       .catch(() => {});
   }, [name, characterId]);
+  const [sisSet, setSisSet] = useState<Set<string> | null>(null);
+  /** ★ La duda del nombre, si la hay. Se calcula del NOMBRE que Koru eligió y del catálogo — no
+   *  cuesta consulta ni petición. Ver `dudaDeLectura`. Sin catálogo, sencillamente no se dice nada. */
+  const duda = useMemo(
+    () => (sisSet ? dudaDeLectura(data?.name ?? name, (s) => sisSet.has(s)) : null),
+    [sisSet, data?.name, name],
+  );
 
   // Cerrar con Escape: una ficha es una consulta, no un estado — debe irse sin ceremonia.
   useEffect(() => {
@@ -263,6 +276,18 @@ export function FichaPiloto({
         {data && data.avistamientos > 0 && (
           <div className="fp-bloque">
             <div className="fp-titulo">🚨 {tr("Cantado en el intel")}</div>
+            {/* ★★ LA DUDA, DICHA (idea suya). Ver `dudaDeLectura` en intel.ts para el porqué y para
+                por qué NO se pregunta. Va aquí y no en el aviso: cuando cazas no se hace limpieza de
+                datos. Y va en gris y al lado del dato, no como una alarma: es una posibilidad. */}
+            {duda && (
+              <div className="fp-alcance">
+                ⚖️{" "}
+                {tr("Koru ha leído este nombre entero. También podría ser «CORTO» y COSA «COLA».")
+                  .replace("CORTO", duda.corto)
+                  .replace("COSA", duda.tipo === "sistema" ? tr("el sistema") : tr("la palabra"))
+                  .replace("COLA", duda.cola)}
+              </div>
+            )}
             <div className="fp-dato">
               <strong>{data.avistamientos}</strong> {tr("avistamientos")}
               {data.ultimo_avist_ms && (
