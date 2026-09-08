@@ -1345,18 +1345,25 @@ export function MapView(props: {
   // Se pide UNA vez al montar: es una lectura local (cero ESI) de una tabla que solo crece.
   // Si falla, se queda vacío y el troceador se comporta exactamente como antes.
   const [noExisten, setNoExisten] = useState<Set<string>>(new Set());
+  // ★ Y el espejo: los que ESI SÍ confirmó, para aceptar un piloto escrito en minúscula cuando
+  //   además va en posición de reporte. Ver `classifyIntel`. Misma lectura local, mismo criterio de
+  //   fallo: si no llega, el troceador se comporta como antes.
+  const [existen, setExisten] = useState<Set<string>>(new Set());
   useEffect(() => {
     invoke<string[]>("intel_inexistentes")
       .then((v) => setNoExisten(new Set(v)))
+      .catch(() => {});
+    invoke<string[]>("intel_existentes")
+      .then((v) => setExisten(new Set(v)))
       .catch(() => {});
   }, []);
 
   const intelReports = useMemo(
     () =>
       geo && intel
-        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx)
+        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen)
         : null,
-    [geo, intel?.lines, shipNames, noExisten],
+    [geo, intel?.lines, shipNames, noExisten, existen],
   );
 
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
@@ -1825,7 +1832,7 @@ export function MapView(props: {
     intelDetailCount,
     intelAlert,
     setIntelAlert,
-  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, noExisten, intelReports, intelOrigins, charLocations: intelPilots });
+  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, noExisten, existen, intelReports, intelOrigins, charLocations: intelPilots });
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---

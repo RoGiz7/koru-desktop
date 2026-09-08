@@ -345,6 +345,22 @@ def main() -> int:
         for k, (n, ap) in pres.items():
             print(f"  {k:<40} {n:>9,} {ap:>13,}")
 
+    # ★★ «23 redeemers»: el tamaño de la banda que hoy se tira. Salio de una captura suya.
+    if d.get("numNaveLineas"):
+        print("\n" + "=" * 72)
+        print("UN NUMERO SUELTO DELANTE DE UNA NAVE  («23 redeemers»)")
+        print("Koru entiende '+4' y 'x4', pero un numero a secas lo tira. Eso es el TAMAÑO DE LA")
+        print("BANDA, que es lo que decide si sales o te escondes.")
+        print("=" * 72)
+        print(f"  lineas con el patron:                  {d['numNaveLineas']:>9,}  "
+              f"{100*d['numNaveLineas']/L:5.1f} %")
+        print(f"  ...y que HOY no traen contador ninguno: {d['numNaveSinContador']:>8,}  "
+              f"{100*d['numNaveSinContador']/L:5.1f} %   <-- lo que se ganaria")
+        print()
+        for i, (par, c) in enumerate(d.get("numAntesNave") or []):
+            print(f"  {c:>6,}  {enmascarar(par):<22}", end="\n" if i % 3 == 2 else "")
+        print()
+
     if d.get("rotuloSistema"):
         print("\n" + "=" * 72)
         print("EL ROTULO «Solar System»  (hoy se quita SOLO si trae guion detras)")

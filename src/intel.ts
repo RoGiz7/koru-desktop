@@ -231,12 +231,52 @@ const APODOS_NAVE: Record<string, string> = {
   maledicrion: "malediction",
   retri: "retribution",
   kiki: "kikimora",
+  // `saber` sale 513 veces y NO existe en el catálogo: es «sabre» mal escrito, y una Sabre es la
+  // nave que te pone la burbuja — perderla es perder el aviso que más importa.
+  saber: "sabre",
 };
+
+/** ★★ LAS SIGLAS DE NAVE: `eni` es una Exequror Navy Issue (2026-09-08).
+ *
+ *  ⚠️ ESTO LO DESCARTÉ HACE UNAS HORAS Y ME EQUIVOQUÉ. Dije que las siglas no valían la pena porque
+ *  `vni` **no aparece ni una vez** en sus 827.296 líneas. Era cierto… y generalicé desde un solo
+ *  caso sin mirar los demás. Estaban delante, en el mismo informe:
+ *
+ *      eni  →  997 líneas · Koru la fichaba como PILOTO 487 veces
+ *      oni  →  789 líneas · 379 avistamientos falsos
+ *
+ *  Los vecinos no dejaban lugar a dudas: delante `2`, `2x`, `3`, `+`; detrás `fleet` 57, `gang` 49.
+ *  Eso es una nave contada, no una persona.
+ *
+ *  A diferencia de los apodos, esto NO es una lista a mano: la sigla se calcula del propio catálogo
+ *  (iniciales de los nombres de tres palabras o más) y **se rechaza en cuanto dos naves distintas la
+ *  reclaman**. Por eso `oni` se queda fuera —Osprey **y** Omen Navy Issue, y él confirmó que en sus
+ *  canales «pueden ser ambas»—, igual que `cni` (seis candidatas), `ani` (cuatro) y `tfi` (cuatro).
+ *  Adivinar la nave del hostil es peor que no nombrarla.
+ *
+ *  Comprobado contra las palabras que su intel escribe de verdad: de las 137 siglas sin ambigüedad,
+ *  **la única que coincide con una palabra suya es `eni`** — y es la nave. */
+const SIGLA_MIN_PARTES = 3;
 const apodosCache = new WeakMap<Map<string, number>, Map<string, number>>();
 function apodosDeNave(shipNames: Map<string, number>): Map<string, number> {
   const ya = apodosCache.get(shipNames);
   if (ya) return ya;
+  // Primero las siglas, calculadas del catálogo; los apodos a mano se ponen DESPUÉS y mandan, que
+  // son los que están revisados uno a uno.
+  const siglas = new Map<string, number | null>();
+  for (const [nombre, tid] of shipNames) {
+    const partes = nombre.split(" ");
+    if (partes.length < SIGLA_MIN_PARTES) continue;
+    const s = partes.map((p) => p[0]).join("").toLowerCase();
+    if (s.length < 3) continue;
+    const v = siglas.get(s);
+    // `null` = dos naves DISTINTAS la reclaman → no vale para nadie. El mismo typeID con dos
+    // nombres (dos idiomas) no es ambigüedad: es la misma nave.
+    if (v === undefined) siglas.set(s, tid);
+    else if (v !== null && v !== tid) siglas.set(s, null);
+  }
   const idx = new Map<string, number>();
+  for (const [s, tid] of siglas) if (tid != null) idx.set(s, tid);
   for (const [apodo, canonica] of Object.entries(APODOS_NAVE)) {
     const tid = shipNames.get(canonica);
     // Si la nave no está en el catálogo cargado, el apodo simplemente no existe. Callar aquí es
@@ -432,7 +472,18 @@ export function classifyIntel(
    *  Opcional a propósito: si no se pasa, el comportamiento es exactamente el de antes. */
   noExisten?: Set<string>,
   /** Regiones y constelaciones (`zonasDe`). Opcional: sin él, el comportamiento es el de antes. */
-  zonaIdx?: Map<string, Zona>
+  zonaIdx?: Map<string, Zona>,
+  /** ★★ NOMBRES QUE ESI **SÍ** CONFIRMÓ (en minúsculas). El espejo de `noExisten`.
+   *
+   *  `pareceNombre` exige mayúscula inicial y su comentario afirmaba que todo nombre de EVE la
+   *  lleva. **Es falso, y lo escribí yo**: ESI devolvió `dokin-chan`, `monv`, `foxesbreak`,
+   *  `dontcry` con su forma canónica en minúscula. En 827.232 líneas suyas, 299 de 400 palabras
+   *  descartadas eran personajes reales — `stefanita` sola sale 5.358 veces.
+   *
+   *  ⚠️ ESTA LISTA NO DECIDE SOLA, y ese es todo el diseño. Existe un personaje llamado `Know`,
+   *  otro `AltS`, otro `Geek` y otro `ESS`. Aceptar cualquier minúscula que ESI confirme devolvería
+   *  los 4.218 avistamientos falsos de `ess`. Hace falta además la POSICIÓN — ver `debiles`. */
+  existen?: Set<string>
 ): IntelParsed {
   const esNadie = (s: string) => !!noExisten && noExisten.has(s.trim().toLowerCase());
   /** ¿Este candidato es demasiado corto para ser un personaje?
@@ -449,6 +500,28 @@ export function classifyIntel(
    *  Se cuentan puntos de código, no unidades UTF-16, para no juzgar mal un nombre con caracteres
    *  fuera del plano básico. */
   const demasiadoCorto = (s: string) => [...s.trim()].length < 3;
+  const existeNombre = (s: string) => !!existen && existen.has(s.trim().toLowerCase());
+  /** ★★ CANDIDATOS DÉBILES: un token que NO parece nombre (minúscula) pero que ESI confirma como
+   *  personaje, y que además ocupaba **su propio campo** — el formato de reporte, no una frase.
+   *
+   *  Se guardan aparte y solo suben a `pilots` si al terminar la línea **hay un sistema resuelto**.
+   *  Esas dos condiciones juntas son lo que separa a una persona de una palabra, medido sobre
+   *  827.232 líneas (la columna `+SIS` de la auditoría):
+   *
+   *      stefanita  5.358 tiradas · 3.572 en campo propio con sistema   → persona
+   *      dokin-chan   923 ·   585                                        → persona
+   *      know         432 ·     0   (¡y ESI dice que existe!)            → palabra
+   *      alts / geek  158 / 171 ·  0  (los dos existen como personaje)   → palabra
+   *      are / solar / meme / this  ·  0-1                               → palabra
+   *
+   *  La idea del sistema resuelto es suya: *«¿y si creamos una condición que diga que si ya se
+   *  resuelve el sistema, lo demás se considera como nombres?»*. Tal cual no se sostenía —solo el
+   *  79,8 % de las líneas nombran un sistema, y esas van llenas de jerga—, pero **por campo, y con
+   *  el catálogo confirmando el nombre, sí**. Es su idea con dos cerrojos.
+   *
+   *  Precio medido: `puli`, `sonson`, `dontcry`, `mcswaggins` son personas reales que solo aparecen
+   *  en frases corridas. **Se pierden.** Falso negativo antes que falso positivo, como siempre. */
+  const debiles: string[] = [];
   const systems: { id: number; name: string }[] = [];
   const ships: { id: number; name: string }[] = [];
   const pilots: string[] = [];
@@ -588,6 +661,8 @@ export function classifyIntel(
     if (words.length === 1) {
       if (pareceNombre(whole.text!) && !esNadie(whole.text!) && !demasiadoCorto(whole.text!))
         pilots.push(whole.text!);
+      // ★★ UN NOMBRE EN MINÚSCULA, PERO SOLO EN POSICIÓN DE REPORTE. Ver `debiles`.
+      else if (existeNombre(whole.text!) && !demasiadoCorto(whole.text!)) debiles.push(whole.text!);
       continue;
     }
     let buf: string[] = [];
@@ -695,6 +770,10 @@ export function classifyIntel(
     }
     flush();
   }
+  // ★ EL SEGUNDO CERROJO. Un candidato débil solo sube a piloto si la línea resolvió un sistema:
+  //   sin sistema no hay reporte, y sin reporte no hay a quién estar viendo. `know` tiene 432
+  //   apariciones y CERO aquí, que es justo lo que queremos que pase.
+  if (systems.length > 0) for (const d of debiles) pilots.push(d);
   return { systems, ships, pilots, count, isClear, pilotAlts, zones };
 }
 
@@ -731,11 +810,13 @@ export function buildIntelReports(
   /** Regiones y constelaciones — ver `zonasDe`. Se pasa tal cual, igual que `noExisten`: si uno de
    *  los sitios que trocean no lo recibiera, clasificaría distinto que los demás. */
   zonaIdx?: Map<string, Zona>,
+  /** Nombres que ESI sí confirmó — ver `classifyIntel`. Se pasa tal cual. */
+  existen?: Set<string>,
 ): { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } {
   const rep = new Map<number, IntelRep>();
   const feed: IntelFeedRow[] = [];
   for (const l of lines) {
-    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx);
+    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
     const primary = p.systems[0];
     feed.push({
       ts: l.ts_ms,

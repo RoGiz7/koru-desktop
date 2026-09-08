@@ -8747,6 +8747,14 @@ pub fn intel_inexistentes(state: State<'_, AppState>) -> AppResult<Vec<String>> 
     Ok(state.db.name_cache_inexistentes())
 }
 
+/// Los nombres que ESI **sí** confirmó, para poder aceptar un piloto escrito en minúscula.
+/// Ver `Db::name_cache_existentes`: por qué la mayúscula era un sustituto, y por qué esta lista
+/// NUNCA decide sola (existe un personaje llamado `ESS`).
+#[tauri::command]
+pub fn intel_existentes(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    Ok(state.db.name_cache_existentes())
+}
+
 /// Una línea de intel tal como la recibió el frontend, para devolverla a guardar.
 #[derive(Debug, serde::Deserialize)]
 pub struct IntelLineIn {

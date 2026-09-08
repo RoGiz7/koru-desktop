@@ -5757,6 +5757,34 @@ impl Db {
         out
     }
 
+    /// ★★ EL ESPEJO DEL ANTERIOR: los nombres que ESI **sí** confirmó como personajes.
+    ///
+    /// # Por qué existe (2026-09-08)
+    ///
+    /// El troceador exige mayúscula inicial para aceptar un nombre (`pareceNombre`), y el comentario
+    /// que lo justificaba afirmaba que **todo** nombre de EVE empieza por mayúscula. Es falso: ESI
+    /// devolvió `dokin-chan`, `monv`, `foxesbreak`, `dontcry`, `wangxiaodan` con su forma canónica
+    /// en minúscula. En 827.232 líneas suyas, **299 de 400 palabras descartadas eran personajes
+    /// reales**: 27.698 apariciones tiradas, `stefanita` sola 5.358 veces.
+    ///
+    /// La mayúscula era un SUSTITUTO de «esto parece una persona», elegido cuando no había a quien
+    /// preguntar. Ahora sí lo hay, y está aquí guardado: 13.306 nombres con veredicto.
+    ///
+    /// ⚠️ Esto **no basta por sí solo** y por eso el troceador lo combina con la posición en la
+    /// línea. Existe un personaje llamado `Know`, otro llamado `AltS` y otro llamado `ESS` — con
+    /// este listado a secas volverían los 4.218 avistamientos falsos de `ess`. Ver `classifyIntel`.
+    pub fn name_cache_existentes(&self) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare("SELECT name_lower FROM name_cache WHERE character_id > 0")
+        {
+            if let Ok(rows) = st.query_map([], |r| r.get::<_, String>(0)) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
     /// ¿ESI ya dijo que este nombre no es de nadie? Consulta de una fila por la clave primaria,
     /// para el camino caliente de registrar avistamientos.
     pub fn name_cache_es_inexistente(&self, name_lower: &str) -> bool {

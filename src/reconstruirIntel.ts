@@ -41,7 +41,7 @@ export type ProgresoReconstruccion = {
 /** Los índices con los que el troceador contrasta cada palabra. Se cargan UNA vez por
  *  reconstrucción; son los mismos ficheros que usa el mapa. */
 async function indices() {
-  const [ne, i18n, en, inexistentes] = await Promise.all([
+  const [ne, i18n, en, inexistentes, existentes] = await Promise.all([
     loadJson<{
       systems: NeSystem[];
       regions?: { id: number; n: string }[];
@@ -50,6 +50,7 @@ async function indices() {
     loadJson<Record<string, number>>("/ship_names_i18n.json", {}),
     loadJson<Record<string, number>>("/ship_names.json", {}),
     invoke<string[]>("intel_inexistentes").catch(() => [] as string[]),
+    invoke<string[]>("intel_existentes").catch(() => [] as string[]),
   ]);
   return {
     nameIdx: new Map<string, NeSystem>(ne.systems.map((s) => [s.n.toLowerCase(), s])),
@@ -60,6 +61,7 @@ async function indices() {
     // en la base de datos avistamientos que el mapa en vivo ya no produce. Ese desacuerdo es
     // exactamente lo que esta tabla existe para no tener.
     zonaIdx: zonasDe(ne),
+    existen: new Set(existentes),
   };
 }
 
@@ -156,7 +158,7 @@ export async function reconstruirAvistamientos(
   estado.resultado = null;
   avisar();
   try {
-  const { nameIdx, shipNames, noExisten, zonaIdx } = await indices();
+  const { nameIdx, shipNames, noExisten, zonaIdx, existen } = await indices();
   const [total] = await invoke<[number, number | null, number | null]>("intel_lines_stats");
   const version = await getVersion().catch(() => "");
 
@@ -202,7 +204,7 @@ export async function reconstruirAvistamientos(
       ship_type_id: number | null;
     }[] = [];
     for (const l of pagina) {
-      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx);
+      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
       const sys = p.systems[0];
       // Un avistamiento necesita SISTEMA y HORA: sin sistema no dice dónde estaba nadie, y eso es
       // lo único que aporta la tabla. Es el mismo criterio que usa la captura en vivo.

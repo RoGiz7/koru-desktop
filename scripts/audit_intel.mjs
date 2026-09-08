@@ -110,6 +110,10 @@ const R = {
   rotuloSistema: 0,
   rotuloSinGuion: 0,
   ejemplosRotulo: [],
+  /** «23 redeemers»: número suelto pegado a una nave. Ver el porqué en el bucle. */
+  numAntesNave: new Map(),
+  numNaveLineas: 0,
+  numNaveSinContador: 0,
 };
 
 const rl = createInterface({ input: createReadStream(JSONL, "utf8"), crlfDelay: Infinity });
@@ -176,6 +180,38 @@ for await (const linea of rl) {
         // línea entera, que es lo que la convertía en un invento de hostiles.
         if (p.systems.length) inc(R.soloYSistema, c);
       }
+    }
+  }
+  // ★★ ¿CUÁNTAS VECES UN NÚMERO SUELTO VA JUSTO DELANTE DE UNA NAVE? (2026-09-08)
+  //
+  // Salió de una captura suya: `XKH-6O  23 redeemers stiletto`. Koru entiende `+4` y `x4`, pero un
+  // número a secas lo tira — y en su lista de descartados están `2` 4.544 veces, `1` 4.057, `3`
+  // 2.478, `10` 1.024. Si buena parte de eso es «N naves», estamos perdiendo **el tamaño de la
+  // banda**, que es justo lo que decide si sales o te escondes.
+  //
+  // Se usa `p.ships`, o sea el veredicto del propio troceador sobre qué es una nave: así esto mide
+  // a Koru y no a una idea mía de lo que es una nave.
+  const nombresNave = new Set(p.ships.map((s) => s.name.toLowerCase()));
+  if (nombresNave.size) {
+    const ws = limpio.split(/\s+/).map((w) => w.replace(/^[*([]+|[*.,;:!?()]+$/g, "").toLowerCase());
+    // ⚠️ EL DÍGITO PUEDE SER YA PARTE DE UN NOMBRE. Lo pilló la prueba, no el razonamiento:
+    //    «Lucy Lee 1  Rifter» contaba como «1 rifter» y habría inflado la cifra con casos que ya
+    //    funcionan bien. Si el número está dentro de un piloto extraído, no cuenta.
+    const enPiloto = new Set(
+      p.pilots.flatMap((x) => x.split(" ")).map((w) => w.toLowerCase()),
+    );
+    let hay = false;
+    for (let i = 0; i < ws.length - 1; i++) {
+      // 1 a 4 dígitos y nada más: `+4` y `4x` ya tienen su rama y no llegan aquí.
+      if (!enPiloto.has(ws[i]) && /^\d{1,4}$/.test(ws[i]) && nombresNave.has(ws[i + 1])) {
+        inc(R.numAntesNave, `${ws[i]} ${ws[i + 1]}`);
+        hay = true;
+      }
+    }
+    if (hay) {
+      R.numNaveLineas++;
+      // Las que MÁS valen: las que hoy no traen contador de ninguna otra forma.
+      if (p.count == null) R.numNaveSinContador++;
     }
   }
   // Diagnóstico suelto: «Solar System» sale 2.749 veces en lo tirado y `System` se está fichando
@@ -424,6 +460,9 @@ writeFileSync(
       ejemplosRotulo: R.ejemplosRotulo,
       dispersion,
       sospechosos,
+      numNaveLineas: R.numNaveLineas,
+      numNaveSinContador: R.numNaveSinContador,
+      numAntesNave: top(R.numAntesNave, 40),
     },
     null,
     1,
