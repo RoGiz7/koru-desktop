@@ -454,7 +454,13 @@ export type IntelParsed = {
   /** Regiones y constelaciones nombradas en la línea. Se recogen para no fichar a un piloto
    *  llamado «Delve» y porque «van hacia Delve» es un dato; todavía no se pinta en ningún sitio. */
   zones: Zona[];
+  /** Tokens en minúscula, en posición de reporte, de los que NADIE ha dicho nada todavía. No son
+   *  pilotos: son PREGUNTAS para ESI. Ver `dudas` dentro de `classifyIntel`. */
+  pilotDudas: string[];
 };
+/** Forma de una duda: letras (con guion o apóstrofo dentro) y al menos tres. Un token con dígitos
+ *  es un sistema abreviado o un contador, y preguntarle a ESI por él es gastar una petición. */
+const FORMA_DUDA = /^[\p{L}][\p{L}'-]{2,}$/u;
 export function classifyIntel(
   message: string,
   nameIdx: Map<string, NeSystem>,
@@ -522,6 +528,20 @@ export function classifyIntel(
    *  Precio medido: `puli`, `sonson`, `dontcry`, `mcswaggins` son personas reales que solo aparecen
    *  en frases corridas. **Se pierden.** Falso negativo antes que falso positivo, como siempre. */
   const debiles: string[] = [];
+  /** ★★ LA PESCADILLA QUE SE MUERDE LA COLA, Y CÓMO SE CORTA (2026-09-08).
+   *
+   *  `existen` sale de `name_cache`, y ahí solo hay lo que Koru **ya preguntó**. Koru nunca ha
+   *  preguntado por un token en minúscula, porque nunca lo propuso… porque no estaba en la lista.
+   *  Resultado: `stefanita` se recupera (se coló capitalizada 18 veces y por eso está en la caché)
+   *  pero `dokin-chan` 923, `foxesbreak` 363 o `kjeezy` 282 seguirían perdidos para siempre.
+   *
+   *  Aquí se apunta la DUDA: un token en posición de reporte, con forma de nombre, del que **nadie
+   *  ha dicho nada todavía** — ni que existe ni que no. No se ficha a nadie; solo se propone la
+   *  pregunta, igual que `pilotAlts` propone las dos lecturas de «Dee Yona» y deja decidir a ESI.
+   *
+   *  El coste está medido y es finito: 3.490 tokens en seis años de intel, **una pregunta cada uno
+   *  en toda la vida**, y la respuesta —sí o no— se guarda para siempre. */
+  const dudas: string[] = [];
   const systems: { id: number; name: string }[] = [];
   const ships: { id: number; name: string }[] = [];
   const pilots: string[] = [];
@@ -662,7 +682,11 @@ export function classifyIntel(
       if (pareceNombre(whole.text!) && !esNadie(whole.text!) && !demasiadoCorto(whole.text!))
         pilots.push(whole.text!);
       // ★★ UN NOMBRE EN MINÚSCULA, PERO SOLO EN POSICIÓN DE REPORTE. Ver `debiles`.
-      else if (existeNombre(whole.text!) && !demasiadoCorto(whole.text!)) debiles.push(whole.text!);
+      else if (!demasiadoCorto(whole.text!) && !esNadie(whole.text!)) {
+        if (existeNombre(whole.text!)) debiles.push(whole.text!);
+        // ★ Y SI NADIE HA PREGUNTADO NUNCA, se apunta la duda. Ver `pilotDudas`.
+        else if (FORMA_DUDA.test(whole.text!)) dudas.push(whole.text!);
+      }
       continue;
     }
     let buf: string[] = [];
@@ -774,7 +798,12 @@ export function classifyIntel(
   //   sin sistema no hay reporte, y sin reporte no hay a quién estar viendo. `know` tiene 432
   //   apariciones y CERO aquí, que es justo lo que queremos que pase.
   if (systems.length > 0) for (const d of debiles) pilots.push(d);
-  return { systems, ships, pilots, count, isClear, pilotAlts, zones };
+  // Las dudas siguen el MISMO cerrojo: sin sistema no hay reporte, y sin reporte no hay a quién
+  // preguntar. Así la factura de ESI no la paga una frase suelta de charla.
+  return {
+    systems, ships, pilots, count, isClear, pilotAlts, zones,
+    pilotDudas: systems.length > 0 ? dudas : [],
+  };
 }
 
 

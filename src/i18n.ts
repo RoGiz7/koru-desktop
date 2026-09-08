@@ -2534,6 +2534,13 @@ const EN: Record<string, string> = {
     "Sightings will be deleted and rebuilt from the stored lines. Nothing is lost: the lines are kept. It takes a while, and it's best not to close Koru meanwhile.",
   "líneas releídas": "lines re-read",
   "No se pudo rehacer": "Could not rebuild",
+  "Aprender nombres en minúscula": "Learn lowercase names",
+  "Aprendiendo…": "Learning…",
+  "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre. Hazlo antes de rehacer.":
+    "Plenty of people type names in lowercase and Koru used to drop them. This walks through what's stored and asks ONCE about each; the answer is kept forever. Do this before rebuilding.",
+  "Nombres preguntados": "Names asked",
+  "son personas": "are people",
+  "No se pudo aprender": "Could not learn",
   "Archivo del intel": "Intel archive",
   "Koru guarda cada línea tal como se escribió. Sirve para rehacer los avistamientos cuando se mejora el lector, y para que tu histórico sobreviva a una limpieza de la carpeta de EVE.":
     "Koru keeps every line exactly as it was written. It's what lets sightings be rebuilt when the reader improves, and what makes your history survive a cleanup of EVE's folder.",

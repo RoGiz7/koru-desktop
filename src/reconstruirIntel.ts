@@ -69,6 +69,82 @@ async function indices() {
  *  existe justo para que se vea que avanza, no se vería nunca. */
 const respirar = () => new Promise((r) => setTimeout(r, 0));
 
+/** ★★ APRENDER LOS NOMBRES QUE SE ESCRIBEN EN MINÚSCULA (2026-09-08).
+ *
+ *  # El problema, en una frase
+ *
+ *  El troceador ya sabe aceptar un piloto en minúscula, pero solo si `name_cache` lo confirma… y
+ *  `name_cache` solo tiene lo que Koru preguntó alguna vez, y Koru nunca preguntó por una minúscula
+ *  porque nunca la propuso. Una pescadilla que se muerde la cola: `stefanita` se recupera de pura
+ *  suerte (se coló capitalizada 18 veces), pero `dokin-chan` 923, `foxesbreak` 363 o `kjeezy` 282 no
+ *  existirían para Koru jamás.
+ *
+ *  # Cómo se corta
+ *
+ *  Se recorre el histórico UNA vez, se recogen las dudas que propone el propio troceador
+ *  (`pilotDudas`: token en minúscula, en su campo, en línea con sistema, sin veredicto) y se
+ *  preguntan en lote. La respuesta —sí **o no**— se guarda para siempre en `name_cache`.
+ *
+ *  ⚠️ El umbral de 3 apariciones no es un número redondo: sale de la auditoría. Sin él son 5.640
+ *  tokens; con él, 1.462 que cubren 32.451 apariciones. Lo que se cae son palabras vistas una o dos
+ *  veces en seis años, que no valen una petición.
+ *
+ *  ⚠️ Se pregunta por TANDAS de 200 con `resolve_intel_entities`, que ya mira primero la caché local
+ *  y solo va a ESI con lo que de verdad no sabe. No se repregunta nada. */
+const TANDA_ESI = 200;
+const MIN_VECES = 3;
+
+export type ProgresoAprender = { lineas: number; total: number; candidatos: number };
+
+export async function aprenderNombresMinuscula(
+  onProgreso?: (p: ProgresoAprender) => void,
+): Promise<{ lineas: number; candidatos: number; preguntados: number; personas: number }> {
+  const { nameIdx, shipNames, noExisten, zonaIdx, existen } = await indices();
+  const [total] = await invoke<[number, number | null, number | null]>("intel_lines_stats");
+  const veces = new Map<string, number>();
+  let cursor = 0;
+  let lineas = 0;
+  for (;;) {
+    const pagina = await invoke<IntelLine[]>("intel_lines_read", {
+      canal: null,
+      desdeMs: cursor,
+      limite: PAGINA,
+    });
+    if (pagina.length === 0) break;
+    for (const l of pagina) {
+      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
+      for (const d of p.pilotDudas) {
+        const k = d.toLowerCase();
+        veces.set(k, (veces.get(k) ?? 0) + 1);
+      }
+    }
+    lineas += pagina.length;
+    cursor = pagina[pagina.length - 1].ts_ms;
+    onProgreso?.({ lineas, total, candidatos: veces.size });
+    await respirar();
+  }
+
+  const candidatos = [...veces].filter(([, n]) => n >= MIN_VECES).map(([k]) => k);
+  let personas = 0;
+  for (let i = 0; i < candidatos.length; i += TANDA_ESI) {
+    const tanda = candidatos.slice(i, i + TANDA_ESI);
+    // Si una tanda falla (red, ESI caído), se sigue con las demás: lo aprendido se queda guardado y
+    // volver a lanzarlo mañana solo preguntará lo que falte. Ninguna respuesta se pierde a medias.
+    try {
+      const e = await invoke<{ characters: { id: number; name: string }[] }>(
+        "resolve_intel_entities",
+        { names: tanda },
+      );
+      personas += e.characters.length;
+    } catch {
+      /* se reintenta en la próxima pasada */
+    }
+    onProgreso?.({ lineas, total, candidatos: candidatos.length });
+    await respirar();
+  }
+  return { lineas, candidatos: veces.size, preguntados: candidatos.length, personas };
+}
+
 // ★★ EL ESTADO VIVE AQUÍ, NO EN EL COMPONENTE — y esto lo destapó él, en vivo y al 46 %.
 //
 // Salió de Ajustes sin querer y el panel volvió como si no pasara nada: React desmonta el

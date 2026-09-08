@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirm as dialogConfirm } from "@tauri-apps/plugin-dialog";
 import {
   anotarResultado,
+  aprenderNombresMinuscula,
   escucharReconstruccion,
   estadoReconstruccion,
   reconPendiente,
@@ -123,6 +124,31 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
     } catch (e) {
       anotarResultado(`${tr("No se pudo rehacer")}: ${String(e)}`);
       mirarPendiente();
+    }
+  };
+  /** ★★ APRENDER LOS NOMBRES EN MINÚSCULA. Ver `aprenderNombresMinuscula` para el porqué: sin esto,
+   *  la puerta de minúsculas del troceador no puede abrirse nunca, porque `name_cache` solo tiene lo
+   *  que Koru ya preguntó y Koru nunca preguntó por una minúscula.
+   *
+   *  No borra nada, así que **no se confirma**: lo peor que puede pasar es gastar unas peticiones.
+   *  Y se puede repetir: lo ya sabido no se vuelve a preguntar. */
+  const [aprendiendo, setAprendiendo] = useState(false);
+  const [progAprender, setProgAprender] = useState(0);
+  const aprender = async () => {
+    setAprendiendo(true);
+    setResultado(null);
+    try {
+      const r = await aprenderNombresMinuscula((p) =>
+        setProgAprender(p.total > 0 ? Math.min(100, Math.round((p.lineas / p.total) * 100)) : 0),
+      );
+      anotarResultado(
+        `${tr("Nombres preguntados")}: ${r.preguntados.toLocaleString()} · ${tr("son personas")}: ${r.personas.toLocaleString()}`,
+      );
+    } catch (e) {
+      anotarResultado(`${tr("No se pudo aprender")}: ${String(e)}`);
+    } finally {
+      setAprendiendo(false);
+      setProgAprender(0);
     }
   };
   const [importando, setImportando] = useState(false);
@@ -348,6 +374,22 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
                       "Quedó una pasada a medias, pero la hizo otra versión de Koru: se empieza de cero para no mezclar dos lectores distintos.",
                     )
                   : tr("Vuelve a leer todo lo guardado con el lector de hoy.")}
+              </span>
+            </div>
+          )}
+          {/* ★★ APRENDER NOMBRES. Va ANTES de rehacer en el orden lógico —primero se aprende, luego
+              se reprocesa— pero se pinta debajo porque rehacer es lo que la gente busca. */}
+          {archivo != null && archivo[0] > 0 && (
+            <div className="ovs-row" style={{ marginTop: "0.5rem" }}>
+              <button onClick={aprender} disabled={aprendiendo || rehaciendo || importando}>
+                {aprendiendo
+                  ? `${tr("Aprendiendo…")} ${progAprender}%`
+                  : `🔤 ${tr("Aprender nombres en minúscula")}`}
+              </button>
+              <span className="small muted">
+                {tr(
+                  "Mucha gente escribe los nombres en minúscula y Koru los tiraba. Esto recorre lo guardado y pregunta UNA vez por cada uno; la respuesta se queda para siempre. Hazlo antes de rehacer.",
+                )}
               </span>
             </div>
           )}
