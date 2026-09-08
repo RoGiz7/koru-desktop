@@ -211,6 +211,7 @@ def main() -> int:
         ("conNave", "sacan al menos una nave"),
         ("conContador", "traen un contador (+N)"),
         ("clears", "son un «clear»"),
+        ("conEnlace", "traen el ENLACE del juego dentro"),
         ("mudas", "NO PRODUCEN NADA  <-- lo que se pierde"),
     ]:
         print(f"  {etq:<38} {d[k]:>9,}  {pc(d[k])}")

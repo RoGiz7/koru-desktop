@@ -62,6 +62,10 @@ const conjunto = (nombre) => {
 const CONOCIDAS = new Set([...conjunto("INTEL_JARGON"), ...conjunto("INTEL_CLEAR")]);
 console.log(`  jerga conocida: ${CONOCIDAS.size} palabras`);
 const noExisten = new Set(Object.entries(cache).filter(([, v]) => v === -1).map(([k]) => k));
+// ⚠️ Y LOS QUE ESI SÍ CONFIRMÓ. Se me olvidó al añadir el parámetro y el informe habría medido un
+//    Koru que ya no existe: el de antes de aceptar nombres en minúscula. Un auditor desactualizado
+//    es peor que no tenerlo, porque sus cifras parecen buenas.
+const existen = new Set(Object.entries(cache).filter(([, v]) => v === 1).map(([k]) => k));
 
 const inc = (m, k, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
 const top = (m, n) => [...m].sort((a, b) => b[1] - a[1]).slice(0, n);
@@ -76,6 +80,8 @@ const R = {
   clears: 0,
   mudas: 0,
   dobleEspacio: 0,
+  /** Líneas que traen el marcado de enlace del juego. Ver el porqué en el bucle. */
+  conEnlace: 0,
   // Lo que se TIRA: ni sistema, ni nave, ni jerga, ni nombre. Aquí está la jerga que no conocemos.
   descartados: new Map(),
   // Candidatos a piloto, con el veredicto de ESI cuando lo hay.
@@ -123,8 +129,15 @@ for await (const linea of rl) {
   R.lineas++;
   inc(R.porCanal, canal);
   if (/ {2,}/.test(texto)) R.dobleEspacio++;
+  // ★ ¿LLEGA ALGUNA LÍNEA CON EL ENLACE DEL JUEGO DENTRO? Pregunta suya (2026-09-08): *«nunca
+  //   entendí por qué no se reporta el sistema y el piloto tal como son, si ingame puedes
+  //   arrastrarlos al chat y se vinculan»*. Se vinculan EN EL CLIENTE; el fichero de log guarda solo
+  //   el texto. Lo medí sobre 375.607 líneas y salió 0, pero eso era una muestra: aquí queda contado
+  //   sobre el corpus entero, porque de esta respuesta depende que todo el troceador tenga sentido.
+  //   Si algún día sale > 0, ese identificador vale más que cualquier heurística nuestra.
+  if (/<url=/i.test(texto)) R.conEnlace++;
 
-  const p = M.classifyIntel(texto, nameIdx, shipNames, noExisten, zonaIdx);
+  const p = M.classifyIntel(texto, nameIdx, shipNames, noExisten, zonaIdx, existen);
   if (p.systems.length) R.conSistema++;
   if (p.pilots.length) R.conPiloto++;
   if (p.ships.length) R.conNave++;
@@ -349,7 +362,7 @@ const rl2 = createInterface({ input: createReadStream(JSONL, "utf8"), crlfDelay:
 for await (const linea of rl2) {
   if (!linea.trim()) continue;
   const { autor, ts, texto } = JSON.parse(linea);
-  const p = M.classifyIntel(texto, nameIdx, shipNames, noExisten, zonaIdx);
+  const p = M.classifyIntel(texto, nameIdx, shipNames, noExisten, zonaIdx, existen);
   const sys = p.systems.map((s) => s.id);
   const vistos = new Set();
   const limpiar = (w) => (w ?? "").replace(/^[*([]+|[*.,;:!?()]+$/g, "").toLowerCase();
@@ -437,6 +450,7 @@ writeFileSync(
     {
       lineas: R.lineas,
       dobleEspacio: R.dobleEspacio,
+      conEnlace: R.conEnlace,
       conSistema: R.conSistema,
       conPiloto: R.conPiloto,
       conNave: R.conNave,
