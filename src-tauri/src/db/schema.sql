@@ -168,6 +168,34 @@ CREATE TABLE IF NOT EXISTS location_system (
     updated_at    TEXT
 );
 
+-- ★★ LO QUE EL PILOTO DECLARA que significa un trozo de intel (2026-09-09). Idea suya.
+--
+-- POR QUÉ EXISTE. El troceador acierta casi siempre, pero **la gente se pone nombres para
+-- engañar**: alguien llamado «Stykes Stormbringer» hace que Koru lea un piloto «Stykes» —que no
+-- existe— y una nave «Stormbringer» que nadie está volando. Medido en su canal: 194 apariciones,
+-- reportadas por 66 personas distintas.
+--
+-- ★ Y LA DECISIÓN DE DISEÑO ES SUYA, con el argumento bueno: *«es preferible que el intel tenga
+-- algún hueco humano real, que crear un sistema extremadamente costoso para que el resto quede
+-- comprometido»*. Automatizarlo saldría barato de escribir —`pilotAlts` ya propone las dos
+-- lecturas— pero traería el riesgo asimétrico: si mañana existe alguien llamado «Road Loki»,
+-- «Lord Road (Loki)» pasaría a ser un piloto y **se perdería la nave**. Ya nos costó 4.218
+-- avistamientos inventados confundir «ESI dice que existe» con «ESI dice que es esto».
+--
+-- 🚨 LA REGLA QUE LO ORDENA TODO: **un nombre que FALTA cuesta poco; un nombre EQUIVOCADO cuesta
+-- mucho.** Sin el nombre miras el mapa y decides igual; con el nombre equivocado abres el
+-- killboard del alt ratero y crees que vas contra un solitario cuando detrás hay una flota.
+--
+-- `texto` es lo que aparece escrito en el intel, en minúsculas. `character_id` sale de ESI: una
+-- declaración NO se guarda si ESI no confirma que esa persona existe — si no, esto sería una
+-- puerta para meter a mano el error que veníamos a arreglar.
+CREATE TABLE IF NOT EXISTS intel_alias (
+    texto        TEXT PRIMARY KEY,        -- «stykes stormbringer», en minúsculas
+    character_id INTEGER NOT NULL,        -- confirmado por ESI, nunca declarado a ciegas
+    display_name TEXT NOT NULL,           -- la forma canónica que devolvió ESI
+    created_at   TEXT NOT NULL
+);
+
 -- QUIÉN puede ver cada estructura de jugador. Nace de una medición suya (2026-09-09): el 10,9% de
 -- las fichas de ESI se iban en 403 repetidos de `/universe/structures/`.
 --

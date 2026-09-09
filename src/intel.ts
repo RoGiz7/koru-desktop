@@ -539,7 +539,19 @@ export function classifyIntel(
    *  ⚠️ ESTA LISTA NO DECIDE SOLA, y ese es todo el diseño. Existe un personaje llamado `Know`,
    *  otro `AltS`, otro `Geek` y otro `ESS`. Aceptar cualquier minúscula que ESI confirme devolvería
    *  los 4.218 avistamientos falsos de `ess`. Hace falta además la POSICIÓN — ver `debiles`. */
-  existen?: Set<string>
+  existen?: Set<string>,
+  /** ★★ LO QUE EL PILOTO HA DECLARADO A MANO (2026-09-09). Texto en minúsculas → la persona real.
+   *
+   *  Idea suya, y la decisión de que sea a mano también: *«es preferible que el intel tenga algún
+   *  hueco humano real, que crear un sistema extremadamente costoso para que el resto quede
+   *  comprometido»*. El caso que lo destapó: alguien llamado «Stykes Stormbringer» hacía que Koru
+   *  leyera un piloto «Stykes» —que no existe— y una nave «Stormbringer» que nadie volaba.
+   *
+   *  ⚠️ Manda sobre todo lo demás, y a propósito: es lo ÚNICO que ha dicho una persona mirando el
+   *  reporte. Todo lo que hay encima son reglas; esto es un testigo.
+   *
+   *  Opcional: sin él, el comportamiento es exactamente el de antes. */
+  alias?: Map<string, string>
 ): IntelParsed {
   const esNadie = (s: string) => !!noExisten && noExisten.has(s.trim().toLowerCase());
   /** ¿Este candidato es demasiado corto para ser un personaje?
@@ -912,6 +924,32 @@ export function classifyIntel(
     // el de la persona que hoy se pierde entera y en silencio.
     else if (!pilots.includes(a.largo)) pilots.push(a.largo);
   }
+  // ★★ Y LO ÚLTIMO, LO QUE DIJO UNA PERSONA. Va al final porque manda sobre todo lo anterior: las
+  //   reglas de arriba son buenas conjeturas, esto es un testigo que miró el reporte.
+  //
+  //   Lo que hace no es solo AÑADIR al piloto: **quita los trozos que salieron de ese mismo
+  //   texto**. Con «Stykes Stormbringer» hay que borrar el piloto fantasma «Stykes» Y la nave
+  //   «Stormbringer», o el aviso diría que hay un hostil más y una nave que nadie vuela. Añadir
+  //   sin quitar habría sido peor que no tocar nada: dos errores en vez de uno.
+  if (alias && alias.size > 0) {
+    const lc = message.toLowerCase();
+    for (const [texto, persona] of alias) {
+      if (!lc.includes(texto)) continue;
+      // ⚠️ LAS PARTES SON LAS DEL NOMBRE DECLARADO, **no las del texto declarado**. Lo escribí al
+      //    revés y la prueba lo cazó: como lo que se declara es el mensaje ENTERO (para no
+      //    obligar al usuario a señalar qué trozo estaba mal), usar sus palabras se llevaba por
+      //    delante la nave de verdad — «Stykes Stormbringer stabber» se quedaba SIN stabber.
+      //    Quien se tragó los trozos es el NOMBRE, así que solo él dice qué hay que devolver.
+      const partes = new Set(persona.toLowerCase().split(/\s+/).filter(Boolean));
+      for (let i = pilots.length - 1; i >= 0; i--) {
+        if (partes.has(pilots[i].toLowerCase())) pilots.splice(i, 1);
+      }
+      for (let i = ships.length - 1; i >= 0; i--) {
+        if (partes.has(ships[i].name.toLowerCase())) ships.splice(i, 1);
+      }
+      if (!pilots.some((p) => p.toLowerCase() === persona.toLowerCase())) pilots.push(persona);
+    }
+  }
   // Las dudas siguen el MISMO cerrojo: sin sistema no hay reporte, y sin reporte no hay a quién
   // preguntar. Así la factura de ESI no la paga una frase suelta de charla.
   return {
@@ -1064,11 +1102,15 @@ export function buildIntelReports(
   zonaIdx?: Map<string, Zona>,
   /** Nombres que ESI sí confirmó — ver `classifyIntel`. Se pasa tal cual. */
   existen?: Set<string>,
+  /** Lo que el piloto declaró a mano — ver `classifyIntel`. Se pasa tal cual, y por el MISMO
+   *  motivo que los otros tres: si uno de los sitios que trocean no lo recibiera, el feed diría
+   *  una cosa y la tarjeta otra. Ya nos pasó con «Dee Yona». */
+  alias?: Map<string, string>,
 ): { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } {
   const rep = new Map<number, IntelRep>();
   const feed: IntelFeedRow[] = [];
   for (const l of lines) {
-    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
+    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen, alias);
     const primary = p.systems[0];
     feed.push({
       ts: l.ts_ms,

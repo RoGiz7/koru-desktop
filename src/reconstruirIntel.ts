@@ -41,7 +41,7 @@ export type ProgresoReconstruccion = {
 /** Los índices con los que el troceador contrasta cada palabra. Se cargan UNA vez por
  *  reconstrucción; son los mismos ficheros que usa el mapa. */
 async function indices() {
-  const [ne, i18n, en, inexistentes, existentes] = await Promise.all([
+  const [ne, i18n, en, inexistentes, existentes, alias] = await Promise.all([
     loadJson<{
       systems: NeSystem[];
       regions?: { id: number; n: string }[];
@@ -51,6 +51,10 @@ async function indices() {
     loadJson<Record<string, number>>("/ship_names.json", {}),
     invoke<string[]>("intel_inexistentes").catch(() => [] as string[]),
     invoke<string[]>("intel_existentes").catch(() => [] as string[]),
+    // Las correcciones a mano. Van con los demás catálogos y no aparte: la reconstrucción
+    // tiene que trocear EXACTAMENTE igual que el mapa, o el histórico y la pantalla dirían
+    // cosas distintas de la misma línea.
+    invoke<{ texto: string; display_name: string }[]>("intel_alias_list").catch(() => []),
   ]);
   return {
     nameIdx: new Map<string, NeSystem>(ne.systems.map((s) => [s.n.toLowerCase(), s])),
@@ -62,6 +66,7 @@ async function indices() {
     // exactamente lo que esta tabla existe para no tener.
     zonaIdx: zonasDe(ne),
     existen: new Set(existentes),
+    alias: new Map<string, string>(alias.map((a) => [a.texto, a.display_name])),
   };
 }
 
@@ -120,7 +125,7 @@ export async function aprenderNombresMinuscula(
   estado.resultado = null;
   avisar();
   try {
-  const { nameIdx, shipNames, noExisten, zonaIdx, existen } = await indices();
+  const { nameIdx, shipNames, noExisten, zonaIdx, existen, alias } = await indices();
   const [total] = await invoke<[number, number | null, number | null]>("intel_lines_stats");
   const veces = new Map<string, number>();
   /** nombre corto → los apellidos DISTINTOS que el corpus le propone. Ver la regla de abajo. */
@@ -135,7 +140,7 @@ export async function aprenderNombresMinuscula(
     });
     if (pagina.length === 0) break;
     for (const l of pagina) {
-      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
+      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen, alias);
       for (const d of p.pilotDudas) {
         const k = d.toLowerCase();
         veces.set(k, (veces.get(k) ?? 0) + 1);
@@ -344,7 +349,7 @@ export async function reconstruirAvistamientos(
   estado.resultado = null;
   avisar();
   try {
-  const { nameIdx, shipNames, noExisten, zonaIdx, existen } = await indices();
+  const { nameIdx, shipNames, noExisten, zonaIdx, existen, alias } = await indices();
   const [total] = await invoke<[number, number | null, number | null]>("intel_lines_stats");
   const version = await getVersion().catch(() => "");
 
@@ -399,7 +404,7 @@ export async function reconstruirAvistamientos(
       //    ts_ms) — en MILISEGUNDOS —, así que dos copias a un segundo eran dos filas.
       //    De paso cubre el solape de páginas (`>=` relee el último milisegundo).
       if (dedup(l.ts_ms, l.author, l.message)) continue;
-      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen);
+      const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen, alias);
       const sys = p.systems[0];
       // Un avistamiento necesita SISTEMA y HORA: sin sistema no dice dónde estaba nadie, y eso es
       // lo único que aporta la tabla. Es el mismo criterio que usa la captura en vivo.

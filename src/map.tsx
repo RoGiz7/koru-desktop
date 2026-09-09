@@ -1379,6 +1379,15 @@ export function MapView(props: {
   //   además va en posición de reporte. Ver `classifyIntel`. Misma lectura local, mismo criterio de
   //   fallo: si no llega, el troceador se comporta como antes.
   const [existen, setExisten] = useState<Set<string>>(new Set());
+  /** ★ LAS CORRECCIONES A MANO del piloto: texto del intel (en minúsculas) → la persona real.
+   *  Ver `classifyIntel`. Se recargan al declarar una nueva para que el cambio se vea AL MOMENTO
+   *  en el feed y en la tarjeta, no al siguiente arranque: una corrección que no se ve hecha se
+   *  vuelve a intentar. */
+  const [alias, setAlias] = useState<Map<string, string>>(new Map());
+  const recargarAlias = () =>
+    invoke<{ texto: string; display_name: string }[]>("intel_alias_list")
+      .then((v) => setAlias(new Map(v.map((a) => [a.texto, a.display_name]))))
+      .catch(() => {});
   useEffect(() => {
     invoke<string[]>("intel_inexistentes")
       .then((v) => setNoExisten(new Set(v)))
@@ -1386,14 +1395,18 @@ export function MapView(props: {
     invoke<string[]>("intel_existentes")
       .then((v) => setExisten(new Set(v)))
       .catch(() => {});
+    void recargarAlias();
   }, []);
 
   const intelReports = useMemo(
     () =>
       geo && intel
-        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen)
+        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias)
         : null,
-    [geo, intel?.lines, shipNames, noExisten, existen],
+    // `alias` va en las dependencias a propósito: sin él, declarar una corrección no repintaría el
+    // feed hasta el siguiente cambio de intel, y una corrección que no se ve hecha se vuelve a
+    // intentar. Es la misma razón por la que se recarga la lista al declararla.
+    [geo, intel?.lines, shipNames, noExisten, existen, alias],
   );
 
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
@@ -1848,6 +1861,45 @@ export function MapView(props: {
     author: string;
     message: string;
   } | null>(null);
+  const [corrigiendo, setCorrigiendo] = useState(false);
+  const [correccion, setCorreccion] = useState("");
+  const [correccionErr, setCorreccionErr] = useState<string | null>(null);
+  const [corrigiendoBusy, setCorrigiendoBusy] = useState(false);
+  /** ¿Este reporte ya lo corrigió él? Se mira contra el MISMO texto con el que se guarda, o el
+   *  cartel de «corregido» podría no coincidir con lo que de verdad hay apuntado. */
+  const yaCorregido =
+    !!intelDetail && alias.has(limpiarMarcadoEve(intelDetail.message).trim().toLowerCase());
+  /** Al cambiar de aviso se cierra el panel. Sin esto se quedaría abierto de un reporte al
+   *  siguiente y la corrección se guardaría contra el mensaje EQUIVOCADO — un error que el
+   *  usuario no tendría forma de ver, porque el panel se ve igual en los dos casos. */
+  useEffect(() => {
+    setCorrigiendo(false);
+    setCorreccion("");
+    setCorreccionErr(null);
+  }, [intelDetail?.ts, intelDetail?.message]);
+  /** Guarda «este reporte era en realidad esta persona». El TEXTO que se declara es el mensaje
+   *  entero en minúsculas: no le pedimos al usuario que señale qué trozo estaba mal —eso es
+   *  trabajo nuestro, no suyo— y con el mensaje completo la corrección se aplica sola la próxima
+   *  vez que alguien escriba exactamente lo mismo, que es justo lo que pasa con los nombres que
+   *  engañan: se repiten. Si ESI no conoce el nombre, NO se guarda nada y se dice por qué. */
+  async function guardarCorreccion() {
+    if (!intelDetail) return;
+    setCorrigiendoBusy(true);
+    setCorreccionErr(null);
+    try {
+      await invoke("intel_alias_set", {
+        texto: limpiarMarcadoEve(intelDetail.message).trim().toLowerCase(),
+        nombre: correccion.trim(),
+      });
+      await recargarAlias();
+      setCorrigiendo(false);
+      setCorreccion("");
+    } catch (e) {
+      setCorreccionErr(String(e).slice(0, 160));
+    } finally {
+      setCorrigiendoBusy(false);
+    }
+  }
   // Capa de Intel: ficha de detalle + panel de config (hook useIntel, Tanda A).
   const {
     intelEntities,
@@ -1862,7 +1914,7 @@ export function MapView(props: {
     intelDetailCount,
     intelAlert,
     setIntelAlert,
-  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, noExisten, existen, intelReports, intelOrigins, charLocations: intelPilots });
+  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, noExisten, existen, alias, intelReports, intelOrigins, charLocations: intelPilots });
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -5124,6 +5176,65 @@ export function MapView(props: {
               {intelEntLoading && <div className="muted small">{tr("Resolviendo…")}</div>}
               {!intelEntLoading && intelEntities && intelEntities.characters.length === 0 && (
                 <div className="muted small">{tr("Ningún piloto reconocido en el reporte.")}</div>
+              )}
+              {/* ★★ CORREGIRLO A MANO — idea suya (2026-09-09), y la decisión de que sea a mano
+                  también: *«es preferible que el intel tenga algún hueco humano real, que crear un
+                  sistema extremadamente costoso para que el resto quede comprometido»*.
+
+                  ⚠️ VA AQUÍ ABAJO Y CALLADO, no como un botón grande, porque el momento del aviso
+                  es el PEOR para pedirle datos a nadie: quien lo lee está decidiendo si se mueve.
+                  Si no le apetece, el hueco se queda y no pasa nada — la alarma ya sonó. */}
+              {!intelEntLoading && !corrigiendo && !yaCorregido && (
+                <button className="intel-head-link" onClick={() => setCorrigiendo(true)}>
+                  {intelEntities && intelEntities.characters.length === 0
+                    ? tr("¿quién era?")
+                    : tr("corregir")}
+                </button>
+              )}
+              {/* Si este reporte YA está corregido, se dice y se puede deshacer. Una corrección a
+                  mano es justo lo que alguien puede escribir mal, y sin esto la única salida sería
+                  editar la base de datos. */}
+              {yaCorregido && (
+                <div className="muted small">
+                  ✏️ {tr("Corregido por ti")}{" "}
+                  <button
+                    className="intel-head-link"
+                    onClick={() => {
+                      void invoke("intel_alias_remove", {
+                        texto: limpiarMarcadoEve(intelDetail.message).trim().toLowerCase(),
+                      }).then(recargarAlias);
+                    }}
+                  >
+                    {tr("deshacer")}
+                  </button>
+                </div>
+              )}
+              {corrigiendo && (
+                <div className="intel-corregir small">
+                  <span className="muted">
+                    {tr("Escribe el nombre EXACTO del personaje. Koru lo comprueba con EVE antes de apuntarlo.")}
+                  </span>
+                  <div className="intel-corregir-fila">
+                    <input
+                      className="small"
+                      value={correccion}
+                      autoFocus
+                      placeholder={tr("Nombre del personaje")}
+                      onChange={(e) => setCorreccion(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void guardarCorreccion();
+                        if (e.key === "Escape") setCorrigiendo(false);
+                      }}
+                    />
+                    <button className="pp-add" disabled={corrigiendoBusy || !correccion.trim()} onClick={() => void guardarCorreccion()}>
+                      {corrigiendoBusy ? tr("Comprobando…") : tr("Guardar")}
+                    </button>
+                    <button className="pp-add" onClick={() => { setCorrigiendo(false); setCorreccionErr(null); }}>
+                      {tr("Cancelar")}
+                    </button>
+                  </div>
+                  {correccionErr && <div className="kpi-neg small">{correccionErr}</div>}
+                </div>
               )}
               {intelEntities?.characters.map((c) => {
                 const track = pilotTrack(c.name, intelReports?.feed ?? []);

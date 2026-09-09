@@ -4875,6 +4875,54 @@ impl Db {
         );
     }
 
+    // ---- intel_alias: lo que el piloto declara que significa un trozo de intel ----
+    //
+    // Ver el comentario largo de la tabla en schema.sql. Aquí solo se mueven datos: quien decide
+    // si una declaración es válida es ESI, y eso pasa en `commands.rs` antes de llamar a `put`.
+
+    /// Todas las declaraciones, para dárselas al troceador. Son pocas por definición —una persona
+    /// no corrige cien reportes— así que se leen enteras y no hay paginación que mantener.
+    pub fn intel_alias_list(&self) -> Vec<(String, i64, String)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT texto, character_id, display_name FROM intel_alias ORDER BY texto",
+        ) {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+            }) {
+                for f in rows.flatten() {
+                    out.push(f);
+                }
+            }
+        }
+        out
+    }
+
+    pub fn intel_alias_put(&self, texto: &str, character_id: i64, display_name: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO intel_alias (texto, character_id, display_name, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(texto) DO UPDATE SET character_id = excluded.character_id,
+                 display_name = excluded.display_name, created_at = excluded.created_at",
+            rusqlite::params![texto.trim().to_lowercase(), character_id, display_name, now],
+        );
+    }
+
+    /// Deshacer una declaración. Existe desde el principio a propósito: una corrección a mano es
+    /// justo lo que alguien puede equivocarse al escribir, y un dato que se mete y no se puede
+    /// sacar es peor que no poder meterlo.
+    pub fn intel_alias_del(&self, texto: &str) -> usize {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM intel_alias WHERE texto = ?1",
+            rusqlite::params![texto.trim().to_lowercase()],
+        )
+        .unwrap_or(0)
+    }
+
     /// ★ QUIÉN ve cada estructura (2026-09-09). Ver el comentario largo de `structure_seen` en
     /// schema.sql: existe para que el bucle de tokens empiece por el personaje que acertó la última
     /// vez, en vez de pagar un 403 por cada alt que va por delante. No es una lista negra.

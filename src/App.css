@@ -6365,6 +6365,28 @@ h4 {
   border-top: 1px solid var(--border);
   font-size: 0.95rem;
 }
+/* Corregir a mano un reporte de intel mal troceado. Discreto a propósito: el momento del aviso
+   es el peor para pedir datos, así que esto no puede competir con los botones de decidir. */
+.intel-corregir {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.intel-corregir-fila {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.intel-corregir-fila input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
 /* Campo extra opcional del modal de botín (hoy: la nave perdida al morir en una escalación). */
 .loot-modal-extra {
   display: flex;

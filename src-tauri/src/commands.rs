@@ -8898,6 +8898,80 @@ pub async fn resolve_intel_entities(
     })
 }
 
+/// Una declaración del piloto: «este trozo de intel es en realidad esta persona».
+#[derive(Debug, serde::Serialize)]
+pub struct IntelAlias {
+    pub texto: String,
+    pub character_id: i64,
+    pub display_name: String,
+}
+
+/// ★★ CORREGIR A MANO UN REPORTE MAL TROCEADO — idea suya (2026-09-09).
+///
+/// *«siempre existirá quien escribe mal; ante eso quizá es mejor que salte la alarma y luego, si el
+/// piloto quiere, anote que ese reporte realmente significa tal personaje real»*. Y el porqué de
+/// que sea a mano y no automático, con sus palabras: *«es preferible que el intel tenga algún hueco
+/// humano real, que crear un sistema extremadamente costoso para que el resto quede comprometido»*.
+/// Ver el comentario largo de `intel_alias` en schema.sql.
+///
+/// 🚨 **ESI TIENE QUE CONFIRMARLO.** Una declaración que no se comprueba sería una puerta para
+/// meter a mano exactamente el error que esto viene a arreglar — y encima uno que nadie podría
+/// distinguir después de un dato bueno. Cuesta UNA petición, una sola vez, y se guarda también en
+/// `name_cache` para que el resto de la máquina se entere sin volver a preguntar.
+///
+/// ⚠️ Y NO se acepta declarar el nombre de un sistema ni el de una nave: eso no corrige un
+/// reporte, lo rompe de otra manera. Esa comprobación vive en el frontend, que es quien tiene los
+/// catálogos cargados; aquí se comprueba lo único que el frontend no puede: que la persona existe.
+#[tauri::command]
+pub async fn intel_alias_set(
+    state: State<'_, AppState>,
+    texto: String,
+    nombre: String,
+) -> AppResult<IntelAlias> {
+    let texto_lc = texto.trim().to_lowercase();
+    let nombre = nombre.trim().to_string();
+    if texto_lc.is_empty() || nombre.is_empty() {
+        return Err(AppError::Other("falta el texto o el nombre".into()));
+    }
+    // Primero el catálogo: si ya preguntamos por esa persona, no se vuelve a preguntar.
+    if let Some((Some(id), disp, _)) = state.db.name_cache_get(&nombre.to_lowercase()) {
+        if id > 0 {
+            let display = disp.unwrap_or_else(|| nombre.clone());
+            state.db.intel_alias_put(&texto_lc, id, &display);
+            return Ok(IntelAlias { texto: texto_lc, character_id: id, display_name: display });
+        }
+    }
+    let (chars, _ships) = state.esi.resolve_entities(&[nombre.clone()]).await?;
+    let Some((id, display)) = chars.into_iter().next() else {
+        // El «no» también se apunta: si vuelve a escribirlo, ya no cuesta otra petición.
+        state.db.name_cache_put_negative(&nombre.to_lowercase());
+        return Err(AppError::Other(format!(
+            "EVE no conoce a nadie que se llame «{nombre}»"
+        )));
+    };
+    state.db.name_cache_put(&display.to_lowercase(), id, &display);
+    state.db.intel_alias_put(&texto_lc, id, &display);
+    Ok(IntelAlias { texto: texto_lc, character_id: id, display_name: display })
+}
+
+/// Las declaraciones, para que el troceador las aplique. Ver `intel_alias_set`.
+#[tauri::command]
+pub fn intel_alias_list(state: State<'_, AppState>) -> AppResult<Vec<IntelAlias>> {
+    Ok(state
+        .db
+        .intel_alias_list()
+        .into_iter()
+        .map(|(texto, character_id, display_name)| IntelAlias { texto, character_id, display_name })
+        .collect())
+}
+
+/// Deshacer una declaración. Ver `Db::intel_alias_del`: un dato que se mete y no se puede sacar
+/// es peor que no poder meterlo.
+#[tauri::command]
+pub fn intel_alias_remove(state: State<'_, AppState>, texto: String) -> AppResult<usize> {
+    Ok(state.db.intel_alias_del(&texto))
+}
+
 /// Los nombres que ESI ya dijo que no son de nadie, para que el troceador deje de proponerlos.
 /// Ver `Db::name_cache_inexistentes` — incluida la razón por la que esto no silencia a nadie real.
 #[tauri::command]

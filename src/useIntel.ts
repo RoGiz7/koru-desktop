@@ -34,6 +34,7 @@ export function useIntel({
   shipNames,
   noExisten,
   existen,
+  alias,
   intelReports,
   intelOrigins,
   charLocations,
@@ -50,6 +51,10 @@ export function useIntel({
   /** Y los que ESI SÍ confirmó, para aceptar un piloto en minúscula que vaya en posición de
    *  reporte. Si no llega, el troceador se comporta igual que antes. Ver `classifyIntel`. */
   existen?: Set<string>;
+  /** Las correcciones a mano del piloto — ver `classifyIntel`. Viaja con los otros tres
+   *  catálogos: si llegara a unos sitios y a otros no, la tarjeta y el feed dirían cosas
+   *  distintas de la misma línea, que es el fallo de las DOS VERDADES ya documentado. */
+  alias?: Map<string, string>;
   intelReports: IntelReports;
   intelOrigins: number[];
   /** Dónde está y en qué vuela cada personaje tuyo. Se manda a Rust para que el aviso pueda decir
@@ -84,15 +89,15 @@ export function useIntel({
    *  de «intel-alert» se registra UNA vez y su clausura se queda con los valores del primer render
    *  —cuando `geo` todavía es `null`—. Sin este espejo, el troceo de abajo se haría siempre con un
    *  catálogo vacío y el overlay nunca mejoraría. Compilando en verde, además. */
-  const catalogosRef = useRef({ geo, shipNames, noExisten, existen });
+  const catalogosRef = useRef({ geo, shipNames, noExisten, existen, alias });
   useEffect(() => {
-    catalogosRef.current = { geo, shipNames, noExisten, existen };
-  }, [geo, shipNames, noExisten, existen]);
+    catalogosRef.current = { geo, shipNames, noExisten, existen, alias };
+  }, [geo, shipNames, noExisten, existen, alias]);
 
   // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
   const intelDetailCount = useMemo(() => {
     if (!intelDetail || !geo) return null;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen);
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias);
     return p.count ?? (p.pilots.length || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intelDetail, shipNames, noExisten, existen]);
@@ -111,7 +116,7 @@ export function useIntel({
   // solo sobre los candidatos limpios (sin naves ni jerga) → ya no salen Eris/ansi/near como pilotos.
   useEffect(() => {
     if (!intelDetail || !geo) return;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen);
+    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias);
     // naves locales, deduplicadas por type_id
     const shipMap = new Map<number, string>();
     for (const s of p.ships) shipMap.set(s.id, s.name);
@@ -331,7 +336,7 @@ export function useIntel({
       if (cat.geo) {
         try {
           const p = classifyIntel(
-            a.message, cat.geo.nameIdx, cat.shipNames, cat.noExisten, cat.geo.zonaIdx, cat.existen,
+            a.message, cat.geo.nameIdx, cat.shipNames, cat.noExisten, cat.geo.zonaIdx, cat.existen, cat.alias,
           );
           void emit("intel-parse", {
             key: `${a.sys_id}-${a.ts_ms}`,
