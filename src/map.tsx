@@ -325,6 +325,8 @@ export function MapView(props: {
   /** Petición de CENTRAR un sistema, desde otra sección (inventario, naves, assets…). El `nonce`
    *  fuerza el re-disparo si pides dos veces el mismo sistema — mismo patrón que openTrack. */
   focusReq?: { sysId: number; nonce: number } | null;
+  /** «Traza la ruta hasta este sistema», desde otra sección. Ver el efecto que lo consume. */
+  rutaReq?: { sysId: number; nonce: number } | null;
   /** La op EN VIVO del grabador, entera. null = no hay op. Con ella el mapa pinta los anillos
    *  verdes de flota SOBRE cualquier capa (no es una capa: es una presencia, como la ruta) y
    *  llena la pestaña «Flota» de la tarjeta derecha — el roster junto al feed de intel. */
@@ -359,6 +361,7 @@ export function MapView(props: {
     onOpenIntelSettings,
     openTrack,
     focusReq,
+    rutaReq,
     fleetRoster,
     playback,
     onPlaybackClose,
@@ -976,6 +979,33 @@ export function MapView(props: {
     focusReqDone.current = focusReq.nonce;
     focusSystem(focusReq.sysId);
   }, [focusReq, geo, focusSystem]);
+
+  /** ★★ «TRÁZAME LA RUTA HASTA AQUÍ» DESDE OTRA SECCIÓN (pedido suyo, 2026-09-09).
+   *
+   *  Nació de Escalaciones —*«poder crear el plan de ruta para llegar al sistema de la escalación
+   *  teniendo en cuenta el intel, muertes en la ruta y saltos»*— pero el puente es genérico a
+   *  propósito: cualquier sección que sepa un `sysId` puede pedirlo.
+   *
+   *  ★ Y NO HAY QUE CONSTRUIR NADA DE LO QUE PEDÍA: el planificador ya calcula los saltos, ya cruza
+   *  la ruta con TU intel (`intelEnRuta`: en qué salto cae cada aviso, cuántos hostiles y quién lo
+   *  cantó), ya enseña la seguridad por salto, ya enlaza el zKill de cada sistema —«el dato que dice
+   *  si un salto es una ratonera»— y ya sabe mandar los waypoints a EVE. Esto solo abre esa puerta
+   *  desde fuera.
+   *
+   *  Mismo patrón que `focusReq` y por el mismo motivo: el `nonce` deja volver a pedir el MISMO
+   *  sistema (pulsar dos veces tiene que funcionar), y se recuerda el consumido para no re-trazar
+   *  cada vez que `geo` cambie por otra cosa. */
+  const rutaReqDone = useRef(0);
+  useEffect(() => {
+    if (!rutaReq || !geo) return;
+    if (rutaReq.nonce === rutaReqDone.current) return;
+    rutaReqDone.current = rutaReq.nonce;
+    // El origen es dónde estás. Si Koru aún no lo sabe se deja vacío en vez de inventarlo: una
+    // casilla que pide el origen es honesta; una ruta desde un sistema equivocado, no.
+    setRouteStops([hereSystemId ?? null, rutaReq.sysId]);
+    setRouteActive(true);
+    focusSystem(rutaReq.sysId);
+  }, [rutaReq, geo, hereSystemId, setRouteStops, setRouteActive, focusSystem]);
 
   // El NARRADOR (pedido de RoGiz7 al estrenar el reproductor): lo sucedido hasta T, lo último
   // arriba — el feed de la izquierda contando la op mientras el mapa la mueve.

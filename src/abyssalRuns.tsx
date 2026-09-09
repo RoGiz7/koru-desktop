@@ -13,7 +13,7 @@ import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
 import { loadShipRows, type ShipRow } from "./flotas";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
-import type { ActivityRun, RunChar } from "./types";
+import type { ActivityRun, RunChar, CharacterCard } from "./types";
 
 /** ---- CUÁNTOS FILAMENTOS CUESTA ENTRAR (2026-08-13) ----
  *
@@ -155,7 +155,7 @@ function fmtMMSS(ms: number): string {
 // exploración: la clave se corresponde con lo que de verdad cambia la consulta, ni más ni menos.
 const cacheActive = new Map<string, ActivityRun | null>();
 const cacheList = new Map<string, ActivityRun[]>();
-let cacheChars: { character_id: number; name: string }[] | null = null;
+let cacheChars: CharacterCard[] | null = null;
 const cachePrecio = new Map<number, number | null>();
 // (`loadShipRows` se mudó a flotas.tsx el 2026-09-09, junto a `loadShipNames`: lo necesitaba también
 //  Escalaciones y tenerlo aquí habría significado una tercera forma de leer el mismo fichero y dos
@@ -203,7 +203,7 @@ export function AbyssalRunsView({
   const [filUds, setFilUds] = useState<number | null>(null);
   const [filTab, setFilTab] = useState<string>("all"); // pestaña por filamento ("all" = todos)
   // MULTIBOX: tus personajes, y los que van a correr ESTA run. Vacío = run de un solo piloto.
-  const [chars, setChars] = useState<{ character_id: number; name: string }[]>([]);
+  const [chars, setChars] = useState<CharacterCard[]>([]);
   const [crew, setCrew] = useState<number[]>([]);
   /** Quién LANZA la run. No es un detalle estético: en CRAB es quien enlaza la baliza y el único
    *  que puede tocar la bodega del botín durante los dos primeros minutos. Se ancla a la run
@@ -225,13 +225,40 @@ export function AbyssalRunsView({
     buildLootIndex().then(setLootIndex); // ya es promesa cacheada en lootPaste.ts (son 2 MB)
     loadShipRows().then(setShips);
     if (cacheChars) setChars(cacheChars);
-    invoke<{ character_id: number; name: string }[]>("list_characters")
+    // ★★ FICHAS, NO SOLO NOMBRES (2026-09-09). Mismo coste y traen **la nave actual** y **si está
+    //    conectado**, que es lo que hace falta para no preguntar lo que Koru ya sabe. Salió al
+    //    hacerlo en Escalaciones y se trae aquí, que es de donde se copió todo lo demás.
+    invoke<CharacterCard[]>("get_character_cards")
       .then((d) => {
         cacheChars = d;
         setChars(d);
       })
       .catch(() => setChars([]));
   }, []);
+
+  /** ★★ QUIÉN ESTÁ DENTRO Y CON QUÉ VUELA — se propone, no se pregunta (2026-09-09).
+   *
+   *  Su pregunta al pedirlo: *«¿lo dejamos abierto para que el piloto elija la composición o lo
+   *  capturamos?»*. Las dos cosas: Koru lo rellena y tú lo corriges.
+   *
+   *  ⚠️ La nave es la de ESTE INSTANTE. Si abres la sección dockeado en una lanzadera, propone la
+   *  lanzadera — por eso es editable y por eso se dice en pantalla de dónde sale.
+   *
+   *  ⚠️ Solo se propone si NO has tocado nada: en cuanto eliges tú, manda lo tuyo. Una propuesta
+   *  que se repone sola sería un campo peleándose con el usuario.
+   *  eslint-disable-next-line react-hooks/exhaustive-deps */
+  const propuesto = useRef(false);
+  useEffect(() => {
+    if (propuesto.current || chars.length === 0 || active) return;
+    const dentro = chars.filter((c) => c.online === true);
+    if (dentro.length === 0) return;
+    propuesto.current = true;
+    setLauncher((prev) => prev ?? dentro[0].character_id);
+    setCrew((prev) => (prev.length ? prev : dentro.slice(1).map((c) => c.character_id)));
+    const nave = dentro[0].ship_type_name;
+    if (nave) setShipName((prev) => prev || nave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chars, active]);
 
   // El filtro por personaje vive AQUÍ, no en la consulta: cuenta también a los PARTICIPANTES.
   const filtrarRuns = (list: ActivityRun[]) =>
@@ -957,6 +984,10 @@ export function AbyssalRunsView({
           ) : (
             <span className="muted" style={{ lineHeight: "1.5rem" }}>
               · {tr("verde = lanza la run · azul = participa · pulsa uno azul para ascenderlo")}
+              {/* Se dice de dónde sale lo que ya viene marcado: una propuesta sin explicar por qué
+                  está ahí se lee como un dato que metió alguien, y nadie la revisa. */}
+              {" · "}
+              {tr("viene puesto con quién está dentro y qué nave lleva; corrígelo si no es eso")}
             </span>
           )}
           </span>

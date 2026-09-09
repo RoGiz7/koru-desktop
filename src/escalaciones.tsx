@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildLootIndex, type LootIndex } from "./lootPaste";
 import { loadShipRows, type ShipRow } from "./flotas";
+import type { CharacterCard } from "./types";
 import { tr } from "./i18n";
 import { fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
@@ -62,6 +63,10 @@ type RunEsc = {
   loot_isk: number | null;
   started_at: string | null;
   ended_at: string | null;
+  ship_type_id: number | null;
+  /** Los participantes, tal y como los devuelve `run_list`. Vacío cuando fue en solitario: ahí la
+   *  nave está en la run y no hace falta una fila hija que repita lo mismo. */
+  chars?: { character_id: number; ship_type_id: number | null }[];
 };
 
 // La facción NO se pide: sale del catálogo a partir del título. Tenía aquí una lista de las seis
@@ -150,7 +155,13 @@ function urgencia(min: number): string {
   return "";
 }
 
-export function EscalacionesView() {
+export function EscalacionesView({
+  /** «Trázame la ruta hasta ahí»: salta al mapa con el planificador abierto y el destino puesto.
+   *  Opcional — sin él el botón no se pinta y la sección funciona igual. */
+  onRuta,
+}: {
+  onRuta?: (sysId: number) => void;
+} = {}) {
   const [vivas, setVivas] = useState<Escalacion[] | null>(null);
   const [hist, setHist] = useState<Escalacion[]>([]);
   const [ranuras, setRanuras] = useState<Ranura[]>([]);
@@ -212,14 +223,34 @@ export function EscalacionesView() {
    *  gente deje de apuntarlas — y una escalación no apuntada no existe.
    *
    *  Sigue siendo OPCIONAL: apuntarla rápido y sin dueño es mejor que no apuntarla. */
-  const [chars, setChars] = useState<{ character_id: number; name: string }[]>([]);
+  /** ★★ NO SE PIDE `list_characters` SINO LAS FICHAS (2026-09-09).
+   *
+   *  Mismo coste —una llamada— y traen dos cosas que Koru YA sabe y que aquí ahorran teclear:
+   *  **la nave actual** (`esi-location.read_ship_type.v1`, concedido) y **si está conectado**
+   *  (`read_online`). Con eso, «¿quién va y con qué?» viene contestado de fábrica.
+   *
+   *  ⚠️ Los dos son `null` cuando falta el scope o falla la lectura, y entonces esto se comporta
+   *  exactamente como antes: chips vacíos y el campo a mano. Es una ayuda, nunca un requisito. */
+  const [chars, setChars] = useState<
+    { character_id: number; name: string; online: boolean | null; ship_type_id: number | null; ship_type_name: string | null }[]
+  >([]);
   const [charId, setCharId] = useState<number | null>(() => {
     const v = Number(localStorage.getItem("koru.esc.char") ?? "");
     return Number.isFinite(v) && v > 0 ? v : null;
   });
   useEffect(() => {
-    invoke<{ character_id: number; name: string }[]>("list_characters")
-      .then(setChars)
+    invoke<CharacterCard[]>("get_character_cards")
+      .then((cs) =>
+        setChars(
+          cs.map((c) => ({
+            character_id: c.character_id,
+            name: c.name,
+            online: c.online,
+            ship_type_id: c.ship_type_id,
+            ship_type_name: c.ship_type_name,
+          })),
+        ),
+      )
       .catch(() => setChars([]));
   }, []);
 
@@ -306,7 +337,13 @@ export function EscalacionesView() {
    *  muchísimo más probable que sea el que vas a volar— y `run_chars_set` para el multibox, que
    *  **solo se escribe si de verdad va más de uno**: con uno, la run se queda como siempre y no se
    *  crea una fila hija que no aporta nada. */
-  const [yendo, setYendo] = useState<{ id: number; nave: string; crew: number[] } | null>(null);
+  const [yendo, setYendo] = useState<{
+    id: number;
+    /** Nave por personaje: `{ [character_id]: "Nightmare" }`. Una por piloto, porque en multibox
+     *  cada alt lleva la suya y saber CON QUÉ fuiste es la mitad de la estadística. */
+    naves: Record<number, string>;
+    crew: number[];
+  } | null>(null);
   const [ships, setShips] = useState<ShipRow[]>([]);
   const [ownedShips, setOwnedShips] = useState<Set<number>>(new Set());
   useEffect(() => {
@@ -324,15 +361,52 @@ export function EscalacionesView() {
       .catch(() => setOwnedShips(new Set()));
   }, [ships]);
 
+  /** ★★ EL PANEL SE ABRE YA CONTESTADO (2026-09-09).
+   *
+   *  Su pregunta al pedirlo: *«¿lo dejamos abierto para que el piloto elija la composición o lo
+   *  capturamos?»*. Capturarlo, porque **Koru ya lo sabe**: `get_character_cards` trae la nave
+   *  actual de cada personaje y si está conectado. Es la misma regla con la que él me corrigió el
+   *  botín — no pedir lo que Koru puede contestar.
+   *
+   *  ★ Y se captura como PROPUESTA, no como verdad, porque la nave es la de ESTE INSTANTE: si
+   *  pulsas «Voy» dockeado en una lanzadera, la lanzadera es lo que hay. Por eso todo queda
+   *  editable — la ayuda no puede convertirse en un dato falso que nadie miró.
+   *
+   *  ★ Y quién va sale de **quién está CONECTADO**, no de la flota. Lo pensé con él: la flota
+   *  costaría una petición por personaje y **Koru solo conoce TUS personajes** —si corres con gente
+   *  de la corp no hay nada que preseleccionar—, mientras que «conectado» es gratis, ya está en la
+   *  ficha, y el patrón normal del multibox es loguear exactamente los alts que vas a usar. La
+   *  flota solo añadiría precisión en el hueco estrecho de «tengo cuatro dentro y solo van dos».
+   *
+   *  Con UN personaje esto no hace nada y no estorba: es general, no una función de multibox. */
+  const prellenar = (e: Escalacion) => {
+    const naves: Record<number, string> = {};
+    for (const c of chars) if (c.ship_type_name) naves[c.character_id] = c.ship_type_name;
+    return {
+      id: e.id,
+      naves,
+      // El dueño va siempre y no se lista aquí (se añade solo al guardar); los demás, si están dentro.
+      crew: chars
+        .filter((c) => c.online === true && c.character_id !== e.character_id)
+        .map((c) => c.character_id),
+    };
+  };
+
+  /** Nombre escrito → typeID, con la misma regla que abisales: coincidencia EXACTA o nada. Media
+   *  palabra no se adivina — apuntar la nave equivocada es peor que no apuntar ninguna. */
+  const naveDe = (txt: string | undefined) => {
+    const q = (txt ?? "").trim().toLowerCase();
+    return q ? (ships.find((s) => s.n.toLowerCase() === q)?.i ?? null) : null;
+  };
+
   async function voy(e: Escalacion) {
-    const q = (yendo?.nave ?? "").trim().toLowerCase();
-    const nave = q ? (ships.find((s) => s.n.toLowerCase() === q) ?? null) : null;
+    const naveDueno = naveDe(e.character_id != null ? yendo?.naves[e.character_id] : undefined);
     try {
       // El sistema y el título NO se pasan: los sabe la propia escalación. Pedírselos a la pantalla
       // sería abrir la puerta a que la run diga un sistema y la escalación otro.
       const runId = await invoke<number>("escalacion_run_start", {
         id: e.id,
-        shipTypeId: nave?.i ?? null,
+        shipTypeId: naveDueno,
         characterId: e.character_id,
         entryCost: null,
       });
@@ -343,9 +417,11 @@ export function EscalacionesView() {
           chars: todos.map((cid) => ({
             character_id: cid,
             outcome: "ok",
-            // La nave elegida es la de quien lleva la escalación; la de los demás se apunta luego
-            // si hace falta, igual que en abisales.
-            ship_type_id: cid === e.character_id ? (nave?.i ?? null) : null,
+            // ★ CADA UNO CON LA SUYA. En abisales y CRAB solo se guarda la de quien lanza y la de
+            //   los alts se queda a `null`; aquí se pregunta por todos porque él lo pidió así, y es
+            //   la mitad de la estadística que quiere: «con qué naves las haces» en plural.
+            //   ⏳ Cuando esto ruede, backportarlo a abisales es el mismo trozo de código.
+            ship_type_id: naveDe(yendo?.naves[cid]),
             lost_value: 0,
           })),
         });
@@ -514,7 +590,8 @@ export function EscalacionesView() {
       ) : (
         <div className="esc-lista">
           {vivas.map((e) => (
-            <div key={e.id} className={`esc-fila ${urgencia(e.quedan_min)}`}>
+            <div key={e.id} className="esc-grupo">
+            <div className={`esc-fila ${urgencia(e.quedan_min)}`}>
               <img
                 className="esc-ico"
                 src={e.faccion_id ? facLogo(e.faccion_id) : typeIcon(TID_ESCALACION, 32)}
@@ -548,6 +625,18 @@ export function EscalacionesView() {
                 <span className="esc-quedan">{restante(e.quedan_min)}</span>
                 <span className="muted small">{tr("caduca en")}</span>
               </div>
+              {/* ★ La ruta hasta allí. Va JUNTO AL RELOJ y no entre las acciones a propósito: no es
+                  una decisión sobre la escalación (hacerla, venderla, pasar), es «cómo llego» — y
+                  con 24 h corriendo, cuántos saltos hay es parte de si te da tiempo. */}
+              {onRuta && e.system_id != null && (
+                <button
+                  className="esc-ruta"
+                  title={tr("Trazar la ruta hasta ahí: saltos, seguridad y el intel que haya por el camino")}
+                  onClick={() => onRuta(e.system_id as number)}
+                >
+                  🧭
+                </button>
+              )}
               <div className="esc-acciones">
                 {e.modo === "propia" ? (
                   <>
@@ -555,25 +644,13 @@ export function EscalacionesView() {
                         use no pierde nada — al cerrar se crea la run igual, sin duración. */}
                     {e.run_id == null && yendo?.id === e.id ? (
                       <>
-                        <input
-                          className="esc-nave"
-                          list="esc-ships"
-                          placeholder={tr("nave (opcional)")}
-                          value={yendo.nave}
-                          autoFocus
-                          onChange={(ev) => setYendo({ ...yendo, nave: ev.target.value })}
-                          onKeyDown={(ev) => {
-                            if (ev.key === "Enter") void voy(e);
-                            if (ev.key === "Escape") setYendo(null);
-                          }}
-                        />
                         <button onClick={() => void voy(e)}>▶ {tr("Empezar")}</button>
                         <button onClick={() => setYendo(null)}>{tr("Cancelar")}</button>
                       </>
                     ) : e.run_id == null ? (
                       <button
                         title={tr("Arranca el cronómetro y registra la run")}
-                        onClick={() => setYendo({ id: e.id, nave: "", crew: [] })}
+                        onClick={() => setYendo(prellenar(e))}
                       >
                         ▶ {tr("Voy")}
                       </button>
@@ -605,6 +682,81 @@ export function EscalacionesView() {
                   </>
                 )}
               </div>
+            </div>
+            {/* ★★ LA COMPOSICIÓN, como en los CRAB (pedido suyo, 2026-09-09).
+                *«sería como los crabs que eliges la composición de tu propia flota y queda anotada,
+                así el piloto tiene más datos y estadísticas reales para luego decidir»*.
+                Va DEBAJO de la fila y no dentro: cabe una línea por piloto con su nave, y meterlo
+                en la fila habría empujado los botones fuera de la pantalla. */}
+            {yendo?.id === e.id && (
+              <div className="esc-voy">
+                <div className="esc-voy-tit small muted">
+                  {tr("¿Quién va, y con qué?")}{" "}
+                  {/* Se dice de dónde sale lo que ya viene puesto. Una propuesta sin explicar por
+                      qué está ahí se lee como un dato que alguien metió, y nadie la revisa. */}
+                  <span className="muted">
+                    · {tr("puesto con quién está dentro y qué nave lleva ahora; corrígelo si no es eso")}
+                  </span>
+                </div>
+                {chars.map((c) => {
+                  const dueno = c.character_id === e.character_id;
+                  const on = dueno || yendo.crew.includes(c.character_id);
+                  return (
+                    <div key={c.character_id} className={`esc-voy-fila${on ? " on" : ""}`}>
+                      <button
+                        className={`pp-tag${dueno ? " launcher" : on ? " on" : ""}`}
+                        title={
+                          dueno
+                            ? `${c.name} · ${tr("es quien la tiene")}`
+                            : c.online === true
+                              ? `${c.name} · ${tr("conectado ahora")}`
+                              : c.name
+                        }
+                        // El dueño no se puede quitar: la escalación es SUYA, está en su diario.
+                        // Quitarlo no es una opción que exista en el juego, así que tampoco aquí.
+                        onClick={() =>
+                          !dueno &&
+                          setYendo({
+                            ...yendo,
+                            crew: on
+                              ? yendo.crew.filter((x) => x !== c.character_id)
+                              : [...yendo.crew, c.character_id],
+                          })
+                        }
+                      >
+                        <img
+                          className="kind-glyph"
+                          src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=32`}
+                          alt=""
+                          style={{ borderRadius: "50%", width: 16, height: 16, verticalAlign: -3, opacity: on ? 1 : 0.35 }}
+                        />{" "}
+                        {c.name}
+                      </button>
+                      {/* La nave solo se pide a quien va: un campo por cada alt que se queda en
+                          casa sería preguntar por preguntar. */}
+                      {on && (
+                        <input
+                          className="esc-nave"
+                          list="esc-ships"
+                          placeholder={tr("nave (opcional)")}
+                          value={yendo.naves[c.character_id] ?? ""}
+                          onChange={(ev) =>
+                            setYendo({
+                              ...yendo,
+                              naves: { ...yendo.naves, [c.character_id]: ev.target.value },
+                            })
+                          }
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter") void voy(e);
+                            if (ev.key === "Escape") setYendo(null);
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             </div>
           ))}
         </div>
@@ -671,8 +823,51 @@ export function EscalacionesView() {
                   <td>{e.system_name}</td>
                   <td>{e.ded != null ? `${e.ded}/10` : "—"}</td>
                   <td className="muted">{e.titulo}</td>
+                  {/* ★★ LA COMPOSICIÓN, ANOTADA (pedido suyo). Quién fue y con qué — el dueño
+                      primero. Sale de `run_list('escalacion')`, que ya trae los participantes.
+                      Retrato + icono de nave y nada de texto: en una tabla de 40 filas, cuatro
+                      nombres por fila la volverían ilegible; el tooltip lo dice en palabras. */}
+                  <td className="esc-comp">
+                    {(() => {
+                      const r = e.run_id != null ? runs.get(e.run_id) : undefined;
+                      if (!r) return null;
+                      const parts = r.chars?.length
+                        ? r.chars
+                        : e.character_id != null
+                          ? [{ character_id: e.character_id, ship_type_id: r.ship_type_id ?? null }]
+                          : [];
+                      // El dueño delante: es quien la tenía, no un participante más.
+                      const orden = [...parts].sort(
+                        (a, b) =>
+                          Number(b.character_id === e.character_id) -
+                          Number(a.character_id === e.character_id),
+                      );
+                      return orden.map((p) => {
+                        const nom = chars.find((c) => c.character_id === p.character_id)?.name ?? `#${p.character_id}`;
+                        const nave = p.ship_type_id != null ? ships.find((s) => s.i === p.ship_type_id) : null;
+                        return (
+                          <span key={p.character_id} className="esc-comp-uno" title={`${nom}${nave ? ` · ${nave.n}` : ""}`}>
+                            <img
+                              src={`https://images.evetech.net/characters/${p.character_id}/portrait?size=32`}
+                              alt=""
+                              width={16}
+                              height={16}
+                              style={{ borderRadius: "50%" }}
+                            />
+                            {nave && <img src={typeIcon(nave.i, 32)} alt="" width={16} height={16} />}
+                          </span>
+                        );
+                      });
+                    })()}
+                  </td>
+                  {/* ★ «Vendida» en vez de «cerrada» (pedido suyo). El estado interno del ciclo de
+                      venta —en_venta → cobrada → entregada → cerrada— es correcto y no dice lo que
+                      el que mira quiere saber: si esa escalación la corriste o la vendiste. Se
+                      traduce a la palabra que se usa al hablar, sin tocar el dato. */}
                   <td className={e.estado === "caducada" || e.estado === "perdida" ? "kpi-neg" : ""}>
-                    {tr(e.estado)}
+                    {e.modo === "venta" && (e.estado === "cerrada" || e.estado === "entregada")
+                      ? `💰 ${tr("vendida")}`
+                      : tr(e.estado)}
                   </td>
                   {/* ★ Lo que sacaste y lo que tardaste. Sin esto la run se guardaba y NO se veía
                       en ninguna parte: el dato existía y la pantalla decía que no había pasado

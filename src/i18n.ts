@@ -1155,7 +1155,19 @@ const EN: Record<string, string> = {
   //    las tres secciones son comparables — con dos formas de contar no lo serían.
   "El pegado no traía precio: este lo pone Koru con sus precios locales. Sí cuenta en el total.":
     "The paste had no price: Koru filled this one in from its local prices. It does count towards the total.",
+  "Trazar la ruta hasta ahí: saltos, seguridad y el intel que haya por el camino":
+    "Plot the route there: jumps, security and any intel along the way",
   "De quién es": "Whose it is",
+  "¿Quién va, y con qué?": "Who's going, and in what?",
+  "es quien la tiene": "is the one who has it",
+  "conectado ahora": "online right now",
+  "viene puesto con quién está dentro y qué nave lleva; corrígelo si no es eso":
+    "filled in from who's logged in and what they're flying; fix it if that's not it",
+  "puesto con quién está dentro y qué nave lleva ahora; corrígelo si no es eso":
+    "filled in from who's logged in and what they're flying right now; fix it if that's not it",
+  // ⚠️ La palabra que se usa al HABLAR, no el estado interno («cerrada»): quien mira el histórico
+  //    quiere saber si esa escalación la corrió o la vendió. El dato no se toca, solo cómo se lee.
+  vendida: "sold",
   "nave (opcional)": "ship (optional)",
   "— sin asignar —": "— unassigned —",
   "Botín de la escalación": "Escalation loot",

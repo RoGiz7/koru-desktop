@@ -641,6 +641,8 @@ function App() {
   const [mapTrackReq, setMapTrackReq] = useState<{ name: string; nonce: number } | null>(null);
   // Petición de CENTRAR un sistema en el mapa desde otra sección (fase 2 del centrado).
   const [mapFocusReq, setMapFocusReq] = useState<{ sysId: number; nonce: number } | null>(null);
+  // Hermano del anterior, para pedir RUTA en vez de foco. Ver `irARuta`.
+  const [mapRutaReq, setMapRutaReq] = useState<{ sysId: number; nonce: number } | null>(null);
   // E4: el reproductor de una op sobre el mapa. El payload lo arma el visor con lo ya cargado.
   const [opPlayback, setOpPlayback] = useState<OpPlayback | null>(null);
   /** Aviso que hay que abrir en la ficha del mapa, pedido desde el overlay. El `nonce` es lo que
@@ -1832,6 +1834,18 @@ function App() {
   function verEnMapa(sysId: number) {
     changeTab("mapa");
     setMapFocusReq({ sysId, nonce: Date.now() });
+    window.setTimeout(
+      () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60,
+    );
+  }
+
+  /** «Trázame la ruta hasta ahí» desde cualquier sección. Hermano de `verEnMapa`: el mismo salto de
+   *  pestaña y el mismo scroll, pero además abre el planificador con el destino puesto — con sus
+   *  saltos, el intel que haya EN esa ruta y el zKill de cada sistema. Ver `rutaReq` en map.tsx. */
+  function irARuta(sysId: number) {
+    changeTab("mapa");
+    setMapRutaReq({ sysId, nonce: Date.now() });
     window.setTimeout(
       () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
       60,
@@ -3068,6 +3082,7 @@ function App() {
           incursions={incursions}
           theraConns={theraConns}
           focusReq={mapFocusReq}
+          rutaReq={mapRutaReq}
           fleetRoster={fleetRoster}
           playback={opPlayback}
           onPlaybackClose={() => setOpPlayback(null)}
@@ -3309,7 +3324,7 @@ function App() {
             />
           )}
           {tab === "batallas" && <BattlesView data={battlesData} busy={sectionBusy} />}
-          {tab === "escalaciones" && <EscalacionesView />}
+          {tab === "escalaciones" && <EscalacionesView onRuta={irARuta} />}
           {tab === "cazador" && (
             <CazadorView
               initialPilot={cazadorPilot}

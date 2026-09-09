@@ -11160,6 +11160,53 @@ h4 {
   gap: 0.3rem;
   flex: 0 0 auto;
 }
+/* La brújula: pegada al reloj, no a los botones de decisión. Discreta hasta que la señalas — es un
+   atajo, no una de las cuatro cosas que puedes hacer con la escalación. */
+.esc-ruta {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.45rem;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+.esc-ruta:hover {
+  opacity: 1;
+}
+/* La composición al salir: una línea por piloto, debajo de la fila. Dentro de la fila habría
+   empujado los botones fuera de la pantalla con nueve personajes. */
+.esc-grupo {
+  display: contents;
+}
+.esc-voy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0.6rem 0.55rem 2.6rem;
+  margin: -0.2rem 0 0.4rem;
+  border-left: 2px solid var(--accent-soft, #3a3f4b);
+}
+.esc-voy-tit {
+  margin-bottom: 0.1rem;
+}
+.esc-voy-fila {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  opacity: 0.55;
+}
+.esc-voy-fila.on {
+  opacity: 1;
+}
+/* La composición ya anotada, en el histórico: retrato + nave, muy juntos. */
+.esc-comp {
+  white-space: nowrap;
+}
+.esc-comp-uno {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 0.35rem;
+}
 /* La nave, al pulsar «Voy»: se escribe con ayuda del desplegable de `ships.json`. Ancho corto a
    propósito — la fila ya lleva sistema, reloj y cuatro botones, y esto es un campo de paso. */
 .esc-nave {
