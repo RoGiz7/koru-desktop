@@ -2472,10 +2472,15 @@ function App() {
                             "Se borra todo lo que Koru guarda de este personaje: assets, contratos, industria, PI, wallet, minería, killmails, gamelogs, posición y estudios.",
                           )}
                         </span>
-                        {/* Lo que NO se borra, dicho ANTES y no en la letra pequeña de después. */}
+                        {/* Lo que NO se borra, dicho ANTES y no en la letra pequeña de después.
+                            ⚠️ La primera redacción decía «no se borran las ops de flota que grabó»,
+                            y prometía de más: la GRABACIÓN se queda (va por `boss_id`), pero sus
+                            filas de dentro —`fleet_member_state` y `fleet_member_event`— sí llevan
+                            `character_id` y el barrido se las lleva. Se lee como «la op queda
+                            intacta» y no queda intacta. */}
                         <span className="small muted">
                           {tr(
-                            "NO se borran las ops de flota que grabó, tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo.",
+                            "NO se borran tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo. Las ops de flota que grabó tampoco se borran, pero él desaparece de dentro: su nave y sus movimientos se van con el resto.",
                           )}
                         </span>
                         <button onClick={handleBackup}>

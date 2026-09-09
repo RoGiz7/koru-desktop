@@ -3,7 +3,7 @@
 
 pub mod bitacora;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
 use rusqlite::OptionalExtension; // social_file_fresh: query_row().optional()
 use std::collections::HashMap;
@@ -1114,8 +1114,33 @@ impl Db {
     /// usuario ha pedido borrar. Lo que evita que eso sea peligroso es el INFORME que devuelve —
     /// tabla a tabla y con filas—, porque un borrado que no dice qué borró es exactamente el
     /// problema que estamos arreglando.
+    ///
+    /// ★★ Y LA MISMA IDEA ESTÁ ESCRITA CON DOS NOMBRES (2026-09-09, salió al preparar la primera
+    /// ejecución real de esto sobre su BD). El barrido preguntaba solo por `character_id`, pero
+    /// `achievements_unlocked` y `personal_projects` llaman a ese campo **`subject_id`** — así que
+    /// las medallas y los proyectos del personaje borrado se quedaban, en silencio. Es la MISMA
+    /// forma del problema que obliga a borrar `skill_watch`: si lo vuelves a añadir, aparece con
+    /// medallas ya desbloqueadas y fechadas de antes de existir.
+    /// En las dos, `subject_id = 0` significa **global** (la vista de todos), y un `character_id`
+    /// nunca es 0 — por eso barrer por ahí no puede llevarse lo global. Aun así hay una guarda
+    /// explícita abajo: en una operación destructiva, «no puede pasar» no es una defensa.
+    ///
+    /// ⚠️ `note` va a las EXCEPCIONES aunque tenga `subject_id`: una nota es del JUGADOR, y eso
+    /// está prometido en la interfaz antes de borrar. Y ojo con la forma de la lista, que es lo que
+    /// la hace distinta de la lista a mano que falló: esto enumera lo que se SALVA, no lo que se
+    /// borra. Una tabla nueva entra al barrido sola; el fallo silencioso de antes era al revés.
+    /// `fleet_op.boss_id` y `social_session.listener_id` NO se barren, también a propósito y
+    /// también dicho en pantalla.
     pub fn character_purge(&self, character_id: i64) -> AppResult<Vec<(String, usize)>> {
-        const EXCEPCIONES: [&str; 2] = ["name_cache", "intel_sightings"];
+        const EXCEPCIONES: [&str; 3] = ["name_cache", "intel_sightings", "note"];
+        const COLUMNAS: [&str; 2] = ["character_id", "subject_id"];
+        // Un 0 aquí barrería TODO lo global (`subject_id = 0`). No debería llegar nunca, y por eso
+        // mismo se planta: lo destructivo no se protege con una suposición.
+        if character_id <= 0 {
+            return Err(AppError::Other(
+                "character_purge: id inválido; no se borra nada".into(),
+            ));
+        }
         let conn = self.conn.lock().unwrap();
         let tablas: Vec<String> = {
             let mut stmt = conn.prepare(
@@ -1133,23 +1158,31 @@ impl Db {
             if EXCEPCIONES.contains(&t.as_str()) || t == "characters" {
                 continue; // `characters` va la última, ver abajo
             }
-            // ¿Tiene columna `character_id`? Se le pregunta a la BD, no al código.
-            let tiene: bool = {
+            // ¿Qué columnas tiene? Se le pregunta a la BD, no al código.
+            let cols: Vec<String> = {
                 let mut stmt = tx.prepare(&format!("PRAGMA table_info({t})"))?;
-                let cols = stmt
-                    .query_map([], |r| r.get::<_, String>(1))?
-                    .collect::<Result<Vec<_>, _>>()?;
-                cols.iter().any(|c| c == "character_id")
+                stmt.query_map([], |r| r.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()?
             };
-            if !tiene {
+            // Una tabla puede llamarlo de una forma o de otra, nunca de las dos: se para en la
+            // primera que exista para no borrar dos veces ni contar la misma fila dos veces.
+            let Some(col) = COLUMNAS.iter().find(|c| cols.iter().any(|x| x == *c)) else {
                 continue;
-            }
+            };
             let n = tx.execute(
-                &format!("DELETE FROM {t} WHERE character_id = ?1"),
+                &format!("DELETE FROM {t} WHERE {col} = ?1"),
                 rusqlite::params![character_id],
             )?;
             if n > 0 {
-                informe.push((t, n));
+                // El informe dice POR QUÉ COLUMNA se borró cuando no es la de siempre: si algún día
+                // esto se lleva algo que no debía, el informe tiene que permitir verlo sin leer
+                // el código.
+                let etiqueta = if *col == "character_id" {
+                    t
+                } else {
+                    format!("{t} ({col})")
+                };
+                informe.push((etiqueta, n));
             }
         }
         // La fila del personaje, al final: si algo fallara antes, la transacción lo deshace entero

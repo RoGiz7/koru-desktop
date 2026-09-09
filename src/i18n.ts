@@ -3241,8 +3241,8 @@ const EN: Record<string, string> = {
   "Esto no se puede deshacer.": "This cannot be undone.",
   "Se borra todo lo que Koru guarda de este personaje: assets, contratos, industria, PI, wallet, minería, killmails, gamelogs, posición y estudios.":
     "Everything Koru stores about this character is deleted: assets, contracts, industry, PI, wallet, mining, killmails, game logs, location and studies.",
-  "NO se borran las ops de flota que grabó, tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo.":
-    "What is NOT deleted: the fleet ops they recorded, your Social conversations, and any notes you wrote about them — those are yours, not theirs.",
+  "NO se borran tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo. Las ops de flota que grabó tampoco se borran, pero él desaparece de dentro: su nave y sus movimientos se van con el resto.":
+    "What is NOT deleted: your Social conversations and any notes you wrote about them — those are yours, not theirs. The fleet ops they recorded stay too, but they vanish from inside them: their ship and movements go with the rest.",
   "Hacer copia de seguridad antes": "Back up first",
   "Borrar definitivamente": "Delete permanently",
   "Datos borrados": "Data deleted",
