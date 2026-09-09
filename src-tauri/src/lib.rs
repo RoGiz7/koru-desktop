@@ -542,6 +542,7 @@ pub fn run() {
             commands::escalaciones_vivas,
             commands::escalaciones_historico,
             commands::escalacion_estado,
+            commands::escalacion_run_start,
             commands::escalacion_venta,
             commands::escalaciones_ranuras,
             commands::get_habitual_hostiles,

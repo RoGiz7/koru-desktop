@@ -11160,6 +11160,17 @@ h4 {
   gap: 0.3rem;
   flex: 0 0 auto;
 }
+/* La nave, al pulsar «Voy»: se escribe con ayuda del desplegable de `ships.json`. Ancho corto a
+   propósito — la fila ya lleva sistema, reloj y cuatro botones, y esto es un campo de paso. */
+.esc-nave {
+  width: 9rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border, #3a3f4b);
+  background: var(--input-bg, #1b1f27);
+  color: inherit;
+  font-size: 0.85rem;
+}
 /* ★ Los tres estados de urgencia. Ámbar es el mismo lenguaje que el aviso de región del overlay. */
 .esc-fila.esc-pronto {
   border-left-color: #b4711e;

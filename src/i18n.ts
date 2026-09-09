@@ -1141,6 +1141,26 @@ const EN: Record<string, string> = {
   hecha: "done",
   abandonada: "skipped",
   cerrada: "closed",
+  // ⚠️ CLAVE SIN COMILLAS, como sus hermanas: el histórico pinta `tr(e.estado)` con el valor tal
+  //    cual sale de la base. Sin esto se leería «perdida» en inglés también, y en silencio.
+  perdida: "lost",
+  // --- La costura con las runs (#23/#24) ---
+  Voy: "Going",
+  "Arranca el cronómetro y registra la run": "Starts the clock and records the run",
+  "Run en curso": "Run in progress",
+  "Te mataron dentro: la ventana se gastó igual":
+    "You were killed inside: the window was used up all the same",
+  // ⚠️ El campo de «botín (ISK)» se quitó: el botín se PEGA y lo valora Koru (corrección suya,
+  //    2026-09-09). Se reutiliza el mismo modal que exploración y abismo, así que los ISK/hora de
+  //    las tres secciones son comparables — con dos formas de contar no lo serían.
+  "El pegado no traía precio: este lo pone Koru con sus precios locales. Sí cuenta en el total.":
+    "The paste had no price: Koru filled this one in from its local prices. It does count towards the total.",
+  "De quién es": "Whose it is",
+  "nave (opcional)": "ship (optional)",
+  "— sin asignar —": "— unassigned —",
+  "Botín de la escalación": "Escalation loot",
+  "Botín antes de morir": "Loot before dying",
+  "Guardar (muerto)": "Save (killed)",
   "Horas activas (UTC)": "Active hours (UTC)",
   "Sistemas favoritos": "Favorite systems",
   "Naves que vuela": "Ships flown",

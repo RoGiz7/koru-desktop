@@ -6756,8 +6756,12 @@ impl Db {
     pub fn escalaciones_vivas(&self) -> AppResult<Vec<Escalacion>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "SELECT {} FROM escalaciones WHERE estado NOT IN ('hecha','caducada','abandonada',\
-             'cerrada') ORDER BY caduca_at",
+            // ⚠️ 'perdida' (2026-09-09): te mataron dentro, así que la ventana se gastó y sale de
+            //    circulación igual que 'hecha'. **Este valor vive en TRES sitios** —aquí, en el
+            //    histórico y en la lista que sella `cerrada_at`— y olvidarse de uno la dejaría
+            //    flotando entre las vivas para siempre, sin error y sin ruido.
+            "SELECT {} FROM escalaciones WHERE estado NOT IN ('hecha','perdida','caducada',\
+             'abandonada','cerrada') ORDER BY caduca_at",
             Self::ESC_COLS
         );
         let mut st = conn.prepare(&sql)?;
@@ -6771,8 +6775,8 @@ impl Db {
     pub fn escalaciones_historico(&self, limit: i64) -> AppResult<Vec<Escalacion>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "SELECT {} FROM escalaciones WHERE estado IN ('hecha','caducada','abandonada',\
-             'cerrada') ORDER BY COALESCE(cerrada_at, caduca_at) DESC LIMIT ?1",
+            "SELECT {} FROM escalaciones WHERE estado IN ('hecha','perdida','caducada',\
+             'abandonada','cerrada') ORDER BY COALESCE(cerrada_at, caduca_at) DESC LIMIT ?1",
             Self::ESC_COLS
         );
         let mut st = conn.prepare(&sql)?;
@@ -6883,13 +6887,80 @@ impl Db {
         }
         // Las que salen de circulación llevan además la fecha de cierre, que es la que ordena el
         // histórico. `AND cerrada_at IS NULL` para no repisar la de un cierre anterior.
-        if matches!(estado, "hecha" | "caducada" | "abandonada" | "cerrada") {
+        if matches!(estado, "hecha" | "perdida" | "caducada" | "abandonada" | "cerrada") {
             conn.execute(
                 "UPDATE escalaciones SET cerrada_at = ?2 WHERE id = ?1 AND cerrada_at IS NULL",
                 rusqlite::params![id, ahora],
             )?;
         }
         Ok(())
+    }
+
+    /// ★★ LA COSTURA ENTRE UNA ESCALACIÓN Y SU RUN (#23/#24, 2026-09-09).
+    ///
+    /// El esquema lo dejó escrito hace días: *«cuando se hace, se enlaza con su `activity_runs`
+    /// (`run_id`) y el botín, los participantes y el ISK/hora salen del aparato que ya existe para
+    /// CRAB y abismo»*. Faltaba exactamente esto: **nadie escribía `run_id`**.
+    ///
+    /// No hubo que tocar el esquema: `activity` no tiene `CHECK`, así que acepta `'escalacion'`
+    /// como aceptaba `'abyssal'` y `'crab'`. Y no hace falta que quien llama pase el sistema: lo
+    /// sabe la propia escalación, y pedírselo sería abrir la puerta a que no coincidan.
+    ///
+    /// ⚠️ VA EN UNA TRANSACCIÓN, y no es ceremonia: crear la run y no enlazarla dejaría una run
+    /// huérfana y una escalación que sigue pareciendo pendiente — el usuario vería el botón otra
+    /// vez y crearía una segunda. Lo uno sin lo otro no vale para nada.
+    ///
+    /// ⚠️ Si la escalación YA tiene run, se devuelve la que hay y no se crea otra. Pulsar dos veces
+    /// es lo normal cuando algo tarda, y duplicar el registro por eso sería culpa nuestra.
+    ///
+    /// `variant_name` guarda el TÍTULO de la escalación: es el equivalente al nombre del filamento
+    /// —lo que distingue una run de otra al mirar el histórico— y ya viene en el idioma del juego.
+    pub fn escalacion_run_start(
+        &self,
+        esc_id: i64,
+        ship_type_id: Option<i64>,
+        character_id: Option<i64>,
+        entry_cost: Option<f64>,
+    ) -> AppResult<i64> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        if let Some(id) = tx.query_row(
+            "SELECT run_id FROM escalaciones WHERE id = ?1",
+            [esc_id],
+            |r| r.get::<_, Option<i64>>(0),
+        )? {
+            return Ok(id);
+        }
+        let (titulo, ded, system_id, system_name): (String, Option<i64>, Option<i64>, String) = tx
+            .query_row(
+                "SELECT titulo, ded, system_id, system_name FROM escalaciones WHERE id = ?1",
+                [esc_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+        let now = chrono::Utc::now().to_rfc3339();
+        // `tier` guarda el rating DED como texto («7/10»), que es como se lee y como se dice. Es el
+        // mismo hueco que en el abismo ocupa Calm..Cataclysmic: el nivel de la cosa.
+        let tier = ded.map(|d| format!("{d}/10"));
+        tx.execute(
+            "INSERT INTO activity_runs
+                 (activity, variant_name, tier, system_id, system_name, ship_type_id,
+                  started_at, outcome, character_id, entry_cost, entry_units)
+             VALUES ('escalacion',?1,?2,?3,?4,?5,?6,'open',?7,?8,?9)",
+            rusqlite::params![
+                titulo, tier, system_id, system_name, ship_type_id, now, character_id,
+                entry_cost,
+                // Una escalación no se compra por unidades como un filamento: si hay coste
+                // declarado (la compraste), es UNA. Sin coste, ninguna.
+                entry_cost.map(|_| 1i64),
+            ],
+        )?;
+        let run_id = tx.last_insert_rowid();
+        tx.execute(
+            "UPDATE escalaciones SET run_id = ?2 WHERE id = ?1",
+            rusqlite::params![esc_id, run_id],
+        )?;
+        tx.commit()?;
+        Ok(run_id)
     }
 
     /// Los datos de la venta. Van aparte de `escalacion_estado` porque se rellenan en momentos

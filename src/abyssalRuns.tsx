@@ -11,9 +11,9 @@ import { fmtIsk, typeIcon } from "./format";
 import { fmtDuration } from "./signaturesControl";
 import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
+import { loadShipRows, type ShipRow } from "./flotas";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
 import type { ActivityRun, RunChar } from "./types";
-import { loadJson } from "./staticJson";
 
 /** ---- CUÁNTOS FILAMENTOS CUESTA ENTRAR (2026-08-13) ----
  *
@@ -103,7 +103,9 @@ const CRAB_BEACONS: { id: number; name: string }[] = [
 ];
 
 /** Catálogo de naves (public/ships.json) para la nave OPCIONAL de la run (P&L por nave). */
-type ShipEntry = { i: number; n: string; g: string };
+// El tipo vive ahora en flotas.tsx junto al cargador; el alias se queda para no tocar las ~15
+// referencias de este fichero por un renombrado que no aporta nada.
+type ShipEntry = ShipRow;
 
 // Filtro de tiempo del histórico (ventana rodante), igual que en Exploración.
 const PERIODS: { key: string; label: string; ms: number }[] = [
@@ -155,15 +157,9 @@ const cacheActive = new Map<string, ActivityRun | null>();
 const cacheList = new Map<string, ActivityRun[]>();
 let cacheChars: { character_id: number; name: string }[] | null = null;
 const cachePrecio = new Map<number, number | null>();
-// `ships.json` es estático (SDE) y se releía entero en cada visita. Ojo: aquí hacen falta las
-// FILAS con su grupo (`g`) para deducir la clase de nave, no el Map id→nombre de
-// `loadShipNames()` de flotas.tsx — mismo fichero, dos formas. Merecería un hogar común algún día.
-let shipRowsPromise: Promise<ShipEntry[]> | null = null;
-function loadShipRows(): Promise<ShipEntry[]> {
-  if (!shipRowsPromise)
-    shipRowsPromise = loadJson<ShipEntry[]>("/ships.json", []);
-  return shipRowsPromise;
-}
+// (`loadShipRows` se mudó a flotas.tsx el 2026-09-09, junto a `loadShipNames`: lo necesitaba también
+//  Escalaciones y tenerlo aquí habría significado una tercera forma de leer el mismo fichero y dos
+//  cachés del mismo 1 MB. Era el «hogar común» que pedía este mismo comentario.)
 
 export function AbyssalRunsView({
   charId,

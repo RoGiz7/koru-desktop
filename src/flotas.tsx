@@ -100,6 +100,23 @@ export function loadShipNames(): Promise<Map<number, string>> {
   return shipNamesPromise;
 }
 
+/** ★ EL MISMO `ships.json`, PERO EN FILAS — con su grupo (`g`), que es lo que hace falta para
+ *  elegir una nave a mano: se ofrece por nombre y se enseña de qué clase es.
+ *
+ *  Vivía dentro de `abyssalRuns.tsx` con un comentario que pedía justo esto: *«mismo fichero, dos
+ *  formas. Merecería un hogar común algún día»*. Ese día llegó al necesitarlo también Escalaciones
+ *  (2026-09-09): copiarlo habría sido una tercera forma de leer el mismo fichero, y dos cachés
+ *  distintas del mismo 1 MB.
+ *
+ *  ⚠️ Promesa cacheada a propósito: `ships.json` es estático (sale del SDE) y antes se releía entero
+ *  en cada visita a la sección. */
+export type ShipRow = { i: number; n: string; g: string };
+let shipRowsPromise: Promise<ShipRow[]> | null = null;
+export function loadShipRows(): Promise<ShipRow[]> {
+  if (!shipRowsPromise) shipRowsPromise = loadJson<ShipRow[]>("/ships.json", []);
+  return shipRowsPromise;
+}
+
 /** COMPOSICIÓN EN VIVO (idea de RoGiz7, 2026-08-22, nada más ver grabar la primera op): el FC ve
  *  aquí mismo quién va con quién y dónde está cada uno, sin abrir la ventana de flota del juego.
  *  Lee lo que el grabador YA guarda — cero llamadas extra a ESI por pintarla — y se refresca con

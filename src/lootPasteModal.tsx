@@ -32,6 +32,20 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
   const [override, setOverride] = useState(""); // ISK a mano (prevalece sobre el pegado)
   const [note, setNote] = useState("");
   const [fallbackIsk, setFallbackIsk] = useState(0); // valor de items sin precio en el pegado
+  /** ★★ LOS PRECIOS QUE PONE KORU, POR OBJETO — para poder ENSEÑARLOS (2026-09-09).
+   *
+   *  Lo cazó él en una captura de Escalaciones: pegó el loot sin la columna «Precio estimado» del
+   *  juego, **todas las filas decían `—`… y abajo ponía «Total: 381,05 M ISK»**. Las dos cosas eran
+   *  ciertas —el pegado no traía precios y Koru los buscó en local— y juntas se leían como un error:
+   *  lo primero que piensas es «¿de dónde sale esa cifra?».
+   *
+   *  Es la misma lección que ya está escrita doce líneas más abajo para los blueprints —*«un guion a
+   *  secas parecería que no supo leerlo»*— y que no se había aplicado a este caso.
+   *
+   *  Antes solo se guardaba la SUMA (`fallbackIsk`), así que la tabla no tenía con qué rellenar la
+   *  celda. Ahora se guarda el mapa entero y el valor se pinta **marcado**, para que se distinga de
+   *  un vistazo el precio que trae el pegado del que pone Koru. */
+  const [preciosLocales, setPreciosLocales] = useState<Record<number, number>>({});
 
   const parse = useMemo(() => (text.trim() ? parseLootPaste(text, index) : null), [text, index]);
 
@@ -95,8 +109,14 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
           if (p) f += p * it.qty;
         }
         setFallbackIsk(f);
+        // ★ Se guarda el MAPA, no solo la suma: sin él la tabla no puede enseñar de dónde sale el
+        //   total. Ver `preciosLocales`.
+        setPreciosLocales(prices);
       })
-      .catch(() => setFallbackIsk(0));
+      .catch(() => {
+        setFallbackIsk(0);
+        setPreciosLocales({});
+      });
     // `bpSet` entra en las dependencias: hasta que carga no se sabe qué es blueprint, y sin esto
     // el primer cálculo se haría con la lista vacía y los contaría.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,6 +195,16 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
                         </span>
                       ) : it.iskFromPaste != null ? (
                         fmtIsk(it.iskFromPaste)
+                      ) : it.typeId != null && preciosLocales[it.typeId] ? (
+                        /* ★ El precio lo pone Koru porque el pegado no lo traía. Se marca con «~»
+                           y se dice en el título de dónde sale: un guion habría hecho parecer que
+                           esta fila no cuenta, y sí cuenta — está dentro del total. */
+                        <span
+                          className="muted"
+                          title={tr("El pegado no traía precio: este lo pone Koru con sus precios locales. Sí cuenta en el total.")}
+                        >
+                          ~{fmtIsk(preciosLocales[it.typeId] * it.qty)}
+                        </span>
                       ) : (
                         <span className="muted">—</span>
                       )}

@@ -1055,6 +1055,22 @@ pub fn escalaciones_historico(
     state.db.escalaciones_historico(limit.unwrap_or(100))
 }
 
+/// Arranca la run de una escalación y la enlaza, en una sola operación. Ver `escalacion_run_start`.
+///
+/// Devuelve el `run_id` — el mismo si ya la tenía, porque pulsar dos veces no debe duplicar nada.
+/// A partir de ahí la run se cierra con `run_end`, que es el de siempre: el botín, la muerte y el
+/// ISK/hora salen del aparato que ya existía, sin una segunda forma de hacer lo mismo.
+#[tauri::command]
+pub fn escalacion_run_start(
+    state: State<'_, AppState>,
+    id: i64,
+    ship_type_id: Option<i64>,
+    character_id: Option<i64>,
+    entry_cost: Option<f64>,
+) -> AppResult<i64> {
+    state.db.escalacion_run_start(id, ship_type_id, character_id, entry_cost)
+}
+
 #[tauri::command]
 pub fn escalacion_estado(state: State<'_, AppState>, id: i64, estado: String) -> AppResult<()> {
     state.db.escalacion_estado(id, &estado)
