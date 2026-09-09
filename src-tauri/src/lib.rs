@@ -163,6 +163,19 @@ pub fn run() {
             // ★ La carpeta de datos la decide `datadir`, NO `app_data_dir()`. Ver el porqué y la
             // trampa en `datadir.rs`: el identifier sigue diciendo «rekium» a propósito, así que
             // `app_data_dir()` apunta a la carpeta heredada y usarlo a pelo escribiría fuera.
+            // ★★ FASE 2 — LA MUDANZA, y va ANTES de resolver a propósito: si mueve algo, el
+            // resolutor de la línea siguiente tiene que encontrar ya la BD en la carpeta nueva.
+            // Solo hace algo si la vieja tiene BD y la nueva no; en cualquier otro estado devuelve
+            // `None` y no toca un byte. Ver `datadir::mudar_si_toca` para el porqué de cada paso.
+            if let Some(base) = app
+                .handle()
+                .path()
+                .app_data_dir()
+                .ok()
+                .and_then(|d| d.parent().map(|p| p.to_path_buf()))
+            {
+                let _ = datadir::mudar_si_toca(&base);
+            }
             let data_dir = datadir::resolver(app.handle());
             // Puede no existir todavía (instalación nueva): se crea aquí, antes de abrir la BD.
             if let Err(e) = std::fs::create_dir_all(&data_dir) {

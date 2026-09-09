@@ -3243,6 +3243,8 @@ const EN: Record<string, string> = {
     "Everything Koru stores about this character is deleted: assets, contracts, industry, PI, wallet, mining, killmails, game logs, location and studies.",
   "NO se borran tus conversaciones de Social ni las notas que le tengas puestas: eso es tuyo, no suyo. Las ops de flota que grabó tampoco se borran, pero él desaparece de dentro: su nave y sus movimientos se van con el resto.":
     "What is NOT deleted: your Social conversations and any notes you wrote about them — those are yours, not theirs. The fleet ops they recorded stay too, but they vanish from inside them: their ship and movements go with the rest.",
+  "Tus datos siguen en la carpeta antigua. No pasa nada: Koru los lee igual. Volverá a intentar moverlos al arrancar.":
+    "Your data is still in the old folder. Nothing is wrong: Koru reads it just the same. It will try to move it again on the next start.",
   "¿Con qué van?": "What are they flying?",
   "viene puesto con lo que llevan ahora mismo; corrígelo si no es eso":
     "pre-filled with what they are flying right now; correct it if that is not it",

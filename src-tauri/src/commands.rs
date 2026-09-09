@@ -51,6 +51,8 @@ pub fn restore_staging_path(db_path: &std::path::Path) -> std::path::PathBuf {
 pub struct DbInfo {
     pub path: String,
     pub size: u64,
+    /// `true` = los datos siguen en la carpeta heredada (`com.rekium.korudesktop`). Ver `db_info`.
+    pub heredada: bool,
 }
 
 /// Devuelve la ruta y el tamaño (bytes) del archivo SQLite. El tamaño incluye, si existe,
@@ -66,6 +68,13 @@ pub fn db_info(state: State<'_, AppState>) -> AppResult<DbInfo> {
     Ok(DbInfo {
         path: path.to_string_lossy().to_string(),
         size,
+        // ★ ¿Seguimos en la carpeta vieja? (2026-09-09, al escribir la fase 2 de la mudanza.)
+        //
+        // Antes de la fase 2 esto no decía nada útil: TODOS estaban ahí. Ahora significa **que la
+        // mudanza no se hizo**, y eso solo pasa cuando algo falló — hasta hoy únicamente se veía en
+        // la salida de errores, que el usuario no lee nunca. Un fallo que solo conoce el programa
+        // es el que acaba en «no sé por qué mi Koru va raro».
+        heredada: path.parent().is_some_and(crate::datadir::es_heredada),
     })
 }
 

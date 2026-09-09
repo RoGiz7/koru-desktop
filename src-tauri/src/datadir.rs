@@ -103,11 +103,160 @@ pub fn resolver(app: &tauri::AppHandle) -> PathBuf {
 // crearla antes de abrir nada, así que un segundo camino para calcular la misma ruta sería otra
 // verdad duplicada — exactamente lo que este módulo viene a eliminar.)
 
-/// ¿Estamos leyendo todavía de la carpeta heredada? Lo enseña Ajustes.
+/// Nombre del destino MIENTRAS se está copiando. Nunca se copia directamente a `CARPETA`: si el
+/// proceso muere a mitad, ahí quedaría media instalación con la BD a medio copiar, y el resolutor
+/// la daría por buena en el arranque siguiente. Con un nombre aparte, lo peor que puede quedar es
+/// una carpeta basura que nadie lee.
+const CARPETA_TEMPORAL: &str = "koru-desktop.migrando";
+
+/// El rastro que se deja en la carpeta vieja. No es documentación: es lo que contesta «¿por qué mi
+/// Koru está vacío?» cuando alguien instale a mano una versión anterior a la 0.49, que no tiene
+/// resolutor y vendrá a leer aquí.
+const NOTA_MUDANZA: &str = "MUDADO-A-koru-desktop.txt";
+
+/// ★★ FASE 2 — LA MUDANZA. Devuelve `Some(destino)` solo si de verdad movió algo.
 ///
-/// Existe para que el fallo que tememos deje de ser invisible: si algún día alguien abre un Koru
-/// vacío, lo primero que hay que poder contestar es **de qué carpeta está leyendo**, y hasta ahora
-/// eso no se podía saber desde dentro del programa.
+/// # La regla de oro: nada se borra, y el destino no existe hasta estar completo
+///
+/// Se copia a `koru-desktop.migrando` y **solo al terminar** se renombra a `koru-desktop`. En el
+/// mismo volumen un renombrado de carpeta es atómico, así que el destino **o aparece entero o no
+/// aparece**. La carpeta vieja no se toca (salvo para dejar la nota), o sea que **el peor caso
+/// posible es «hoy no migró»** y el usuario ni se entera. Ningún camino acaba en datos perdidos.
+///
+/// # Por qué el checkpoint del WAL va primero
+///
+/// SQLite reparte la verdad entre el `.sqlite3` y su `-wal`. Si la sesión anterior no cerró limpia,
+/// parte de los datos vive en el WAL — copiar los ficheros sin consolidar podría dar una BD válida
+/// pero VIEJA, que es peor que un error: no se nota. Con `wal_checkpoint(TRUNCATE)` todo queda en
+/// el fichero principal antes de tocar nada. Si el checkpoint falla (BD bloqueada por otra
+/// instancia, disco lleno, corrupción) **se aborta la mudanza y se sigue en la carpeta vieja**.
+///
+/// # Lo que NO hace
+///
+/// No borra la carpeta vieja. Eso es la fase 3, con un botón y un aviso, porque a partir de ahí una
+/// versión anterior a la 0.49 ya no encuentra los datos y la gente reinstala versiones viejas
+/// cuando algo falla.
+pub fn mudar_si_toca(base: &Path) -> Option<PathBuf> {
+    let nueva = base.join(CARPETA);
+    let heredada = base.join(CARPETA_HEREDADA);
+
+    // Solo hay algo que hacer si la vieja tiene BD y la nueva no. Cualquier otro estado ya está
+    // resuelto: usuario nuevo, usuario ya migrado, o instalación que no existe.
+    if nueva.join(FICHERO_BD).is_file() || !heredada.join(FICHERO_BD).is_file() {
+        return None;
+    }
+
+    // 1) Consolidar el WAL. Si esto no sale bien, no seguimos: ver arriba.
+    if let Err(e) = consolidar_wal(&heredada.join(FICHERO_BD)) {
+        eprintln!("[koru] mudanza abortada, no pude consolidar el WAL: {e}");
+        return None;
+    }
+
+    // 2) Destino provisional limpio. Si quedó uno de un intento anterior, se tira: es basura por
+    //    definición, porque un `.migrando` que sobrevive es un intento que NO llegó al renombrado.
+    let temporal = base.join(CARPETA_TEMPORAL);
+    if temporal.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&temporal) {
+            eprintln!("[koru] mudanza abortada, no pude limpiar {temporal:?}: {e}");
+            return None;
+        }
+    }
+    if let Err(e) = copiar_arbol(&heredada, &temporal) {
+        eprintln!("[koru] mudanza abortada al copiar: {e}");
+        let _ = std::fs::remove_dir_all(&temporal);
+        return None;
+    }
+
+    // 3) Antes del renombrado, quitar de en medio una `koru-desktop` SIN BD. Puede existir por un
+    //    intento anterior, y en Windows un `rename` sobre una carpeta que ya existe falla. Solo se
+    //    borra si NO tiene base de datos — si la tuviera no habríamos llegado hasta aquí.
+    if nueva.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&nueva) {
+            eprintln!("[koru] mudanza abortada, {nueva:?} está y no se deja quitar: {e}");
+            let _ = std::fs::remove_dir_all(&temporal);
+            return None;
+        }
+    }
+
+    // 4) El instante atómico.
+    if let Err(e) = std::fs::rename(&temporal, &nueva) {
+        eprintln!("[koru] mudanza abortada al renombrar: {e}");
+        let _ = std::fs::remove_dir_all(&temporal);
+        return None;
+    }
+
+    // 5) Comprobar que lo copiado se abre de verdad. Un fichero del tamaño correcto puede estar
+    //    truncado o corrupto, y darse cuenta AHORA cuesta deshacerlo; darse cuenta después es un
+    //    Koru vacío con los datos escondidos en una carpeta que ya nadie mira.
+    if let Err(e) = abre_bien(&nueva.join(FICHERO_BD)) {
+        eprintln!("[koru] la BD copiada no abre ({e}); vuelvo a la carpeta heredada");
+        let _ = std::fs::remove_dir_all(&nueva);
+        return None;
+    }
+
+    // 6) El rastro en la vieja. Se escribe LO ÚLTIMO y su fallo no revierte nada: sin él la
+    //    mudanza es igual de correcta, solo peor de explicar.
+    let _ = std::fs::write(
+        heredada.join(NOTA_MUDANZA),
+        format!(
+            "Koru movio sus datos a:\r\n\r\n    {}\r\n\r\n\
+             Esta carpeta se queda como copia de seguridad y ya no se usa. Puedes borrarla cuando\r\n\
+             quieras, pero ten en cuenta que una version de Koru anterior a la 0.49 no sabe buscar\r\n\
+             en la carpeta nueva y volveria a leer aqui.\r\n",
+            nueva.display()
+        ),
+    );
+
+    eprintln!("[koru] datos mudados a {nueva:?} (la carpeta vieja se queda intacta)");
+    Some(nueva)
+}
+
+/// `wal_checkpoint(TRUNCATE)` y cerrar. Abre en modo lectura-escritura porque un checkpoint
+/// escribe; si la BD está en uso por otra instancia, esto falla y la mudanza se aborta sola.
+fn consolidar_wal(bd: &Path) -> Result<(), String> {
+    let conn = rusqlite::Connection::open(bd).map_err(|e| e.to_string())?;
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+        .map_err(|e| e.to_string())?;
+    conn.close().map_err(|(_, e)| e.to_string())
+}
+
+/// ¿La BD del destino abre y contesta? `PRAGMA quick_check` en vez de `integrity_check`: recorre lo
+/// suficiente para cazar una copia truncada sin tardar un minuto en una base de 241 MB.
+fn abre_bien(bd: &Path) -> Result<(), String> {
+    let conn = rusqlite::Connection::open(bd).map_err(|e| e.to_string())?;
+    let r: String = conn
+        .query_row("PRAGMA quick_check(1)", [], |f| f.get(0))
+        .map_err(|e| e.to_string())?;
+    if r != "ok" {
+        return Err(format!("quick_check dijo «{r}»"));
+    }
+    Ok(())
+}
+
+/// Copia recursiva. **Todo el contenido, no solo la BD**: dentro viven también las medallas
+/// extraídas (`medals/`) y las banderas de arranque de Linux, y perder cualquiera de las dos se
+/// nota. Un error en cualquier fichero aborta la copia entera — media mudanza no es una mudanza.
+fn copiar_arbol(de: &Path, a: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(a)?;
+    for entrada in std::fs::read_dir(de)? {
+        let entrada = entrada?;
+        let origen = entrada.path();
+        let destino = a.join(entrada.file_name());
+        if entrada.file_type()?.is_dir() {
+            copiar_arbol(&origen, &destino)?;
+        } else {
+            std::fs::copy(&origen, &destino)?;
+        }
+    }
+    Ok(())
+}
+
+/// ¿Estamos leyendo todavía de la carpeta heredada? Lo sirve `db_info` y lo pinta Ajustes.
+///
+/// ⚠️ Este comentario decía «Lo enseña Ajustes» desde la fase 1 y **no lo enseñaba nadie**: la
+/// función no se llamaba desde ningún sitio. Se arregló al escribir la fase 2, que es cuando el
+/// dato empezó a significar algo: antes todo el mundo estaba en la heredada y decirlo no informaba
+/// de nada; **ahora significa que la mudanza NO se hizo**, o sea que algo falló.
 pub fn es_heredada(dir: &Path) -> bool {
     dir.file_name()
         .is_some_and(|n| n.to_string_lossy() == CARPETA_HEREDADA)
@@ -151,5 +300,102 @@ mod tests {
         assert!(es_heredada(&vieja));
         assert!(!es_heredada(&tmp.join(CARPETA)));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Siembra una carpeta heredada con una BD de verdad, medallas y la bandera de Linux.
+    fn sembrar(base: &Path, filas: i64) -> PathBuf {
+        let h = base.join(CARPETA_HEREDADA);
+        std::fs::create_dir_all(h.join("medals")).unwrap();
+        std::fs::write(h.join("medals").join("x.png"), b"PNG").unwrap();
+        std::fs::write(h.join("modo-grafico-compatible"), b"1").unwrap();
+        let c = rusqlite::Connection::open(h.join(FICHERO_BD)).unwrap();
+        c.execute_batch("CREATE TABLE t(x);").unwrap();
+        for i in 0..filas {
+            c.execute("INSERT INTO t VALUES (?1)", [i]).unwrap();
+        }
+        c.close().unwrap();
+        h
+    }
+
+    fn cuenta(dir: &Path) -> i64 {
+        let c = rusqlite::Connection::open(dir.join(FICHERO_BD)).unwrap();
+        let n = c.query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0)).unwrap();
+        c.close().unwrap();
+        n
+    }
+
+    fn nuevo_tmp(sufijo: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("koru-mud-{}-{sufijo}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    /// El camino feliz: se copia TODO, la vieja queda intacta y el resolutor ya apunta a la nueva.
+    #[test]
+    fn la_mudanza_mueve_todo_y_no_borra_nada() {
+        let base = nuevo_tmp("ok");
+        let vieja = sembrar(&base, 7);
+        let destino = mudar_si_toca(&base).expect("debería haber migrado");
+        assert_eq!(destino, base.join(CARPETA));
+        assert_eq!(cuenta(&destino), 7, "los datos tienen que llegar enteros");
+        assert!(destino.join("medals").join("x.png").is_file(), "las medallas también se mudan");
+        assert!(destino.join("modo-grafico-compatible").is_file());
+        // La vieja NO se toca: es la copia de seguridad gratis.
+        assert!(vieja.join(FICHERO_BD).is_file());
+        assert!(vieja.join(NOTA_MUDANZA).is_file(), "y queda dicho adónde se fue");
+        // Sin restos del provisional, y el resolutor ya elige la nueva.
+        assert!(!base.join(CARPETA_TEMPORAL).exists());
+        assert_eq!(resolver_desde_base(&base), destino);
+        // Y es idempotente: al arranque siguiente no hay nada que hacer.
+        assert!(mudar_si_toca(&base).is_none());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Los estados en los que NO debe tocar un byte, y los restos de intentos anteriores.
+    #[test]
+    fn la_mudanza_sabe_cuando_no_tocar_nada() {
+        // Usuario nuevo: no hay heredada.
+        let a = nuevo_tmp("nuevo");
+        assert!(mudar_si_toca(&a).is_none());
+
+        // Ya migrado: la nueva tiene BD → no se vuelve a copiar encima.
+        let b = nuevo_tmp("hecho");
+        sembrar(&b, 3);
+        mudar_si_toca(&b).unwrap();
+        std::fs::write(b.join(CARPETA).join("marca-de-hoy"), b"x").unwrap();
+        assert!(mudar_si_toca(&b).is_none());
+        assert!(b.join(CARPETA).join("marca-de-hoy").is_file(), "no se pisa lo que ya hay");
+
+        // Restos de un intento anterior: un `.migrando` a medias y una `koru-desktop` sin BD.
+        let c = nuevo_tmp("restos");
+        sembrar(&c, 5);
+        std::fs::create_dir_all(c.join(CARPETA_TEMPORAL)).unwrap();
+        std::fs::write(c.join(CARPETA_TEMPORAL).join("basura"), b"x").unwrap();
+        std::fs::create_dir_all(c.join(CARPETA)).unwrap();
+        std::fs::write(c.join(CARPETA).join("suelto"), b"x").unwrap();
+        let d = mudar_si_toca(&c).expect("los restos no deben bloquear la mudanza");
+        assert_eq!(cuenta(&d), 5);
+        assert!(!d.join("basura").exists(), "la basura del intento previo no viaja");
+
+        for p in [a, b, c] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+
+    /// Una BD que no abre NO se muda: más vale «hoy no migró» que un Koru vacío con los datos
+    /// escondidos en una carpeta que ya nadie mira.
+    #[test]
+    fn una_bd_rota_aborta_la_mudanza() {
+        let base = nuevo_tmp("rota");
+        let vieja = base.join(CARPETA_HEREDADA);
+        std::fs::create_dir_all(&vieja).unwrap();
+        std::fs::write(vieja.join(FICHERO_BD), b"esto no es una base de datos").unwrap();
+
+        assert!(mudar_si_toca(&base).is_none());
+        assert!(!base.join(CARPETA).exists(), "no puede quedar una carpeta nueva a medias");
+        assert!(!base.join(CARPETA_TEMPORAL).exists());
+        assert!(vieja.join(FICHERO_BD).is_file(), "y la vieja sigue donde estaba");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -258,7 +258,7 @@ function App() {
   // Posición calculada del popup (fixed) para que nunca se salga del viewport, caiga donde
   // caiga el botón ⚙️ (la topbar se reordena en ventanas estrechas).
   const [settingsPos, setSettingsPos] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [dbInfo, setDbInfo] = useState<{ path: string; size: number } | null>(null);
+  const [dbInfo, setDbInfo] = useState<{ path: string; size: number; heredada: boolean } | null>(null);
   const [lastBackup, setLastBackup] = useState<number | null>(() => {
     const v = localStorage.getItem("koru-last-backup");
     return v ? Number(v) : null;
@@ -373,7 +373,7 @@ function App() {
     computeSettingsPos();
     setSettingsOpen(true);
     // Cargar ruta/tamaño de la BD para mostrarlos en el menú.
-    invoke<{ path: string; size: number }>("db_info")
+    invoke<{ path: string; size: number; heredada: boolean }>("db_info")
       .then(setDbInfo)
       .catch(() => setDbInfo(null));
   }
@@ -2900,6 +2900,17 @@ function App() {
                 {dbInfo && (
                   <div className="small muted tb-settings-db" title={dbInfo.path}>
                     {dbInfo.path} · {fmtBytes(dbInfo.size)}
+                  </div>
+                )}
+                {/* ★ Solo si la mudanza NO se hizo. Hasta la fase 2 este cartel habría salido a
+                    TODO el mundo y no habría informado de nada; ahora significa que algo falló al
+                    mover los datos, y hasta hoy eso solo se veía en la salida de errores. No es una
+                    alarma: nada está roto, Koru sigue leyendo donde siempre. */}
+                {dbInfo?.heredada && (
+                  <div className="small muted">
+                    {tr(
+                      "Tus datos siguen en la carpeta antigua. No pasa nada: Koru los lee igual. Volverá a intentar moverlos al arrancar.",
+                    )}
                   </div>
                 )}
                 <button
