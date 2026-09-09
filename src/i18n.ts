@@ -3263,8 +3263,8 @@ const EN: Record<string, string> = {
   "viene puesto con lo que llevan ahora mismo; corrígelo si no es eso":
     "pre-filled with what they are flying right now; correct it if that is not it",
   "Nave y fit perdidos (ISK)": "Ship and fit lost (ISK)",
-  "opcional; si lo dejas vacío no se apunta ninguna pérdida":
-    "optional; leave it empty and no loss is recorded",
+  "déjalo vacío y Koru lo saca de tu killmail cuando llegue (tarda unos minutos)":
+    "leave it empty and Koru will take it from your killmail once it arrives (a few minutes)",
   "Hacer copia de seguridad antes": "Back up first",
   "Borrar definitivamente": "Delete permanently",
   "Datos borrados": "Data deleted",

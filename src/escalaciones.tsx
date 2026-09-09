@@ -825,7 +825,10 @@ export function EscalacionesView({
                 label: tr("Nave y fit perdidos (ISK)"),
                 value: perdidaIsk,
                 onChange: setPerdidaIsk,
-                hint: tr("opcional; si lo dejas vacío no se apunta ninguna pérdida"),
+                // ⚠️ La frase cambió al hacerlo automático: si dijera solo «no se apunta nada»
+                // estaría escondiendo que Koru va a buscarlo, y el número aparecería más tarde sin
+                // que nadie entienda de dónde salió. Ver `runs_completar_perdidas`.
+                hint: tr("déjalo vacío y Koru lo saca de tu killmail cuando llegue (tarda unos minutos)"),
               }
             : undefined
         }

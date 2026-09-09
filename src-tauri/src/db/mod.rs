@@ -5649,6 +5649,58 @@ impl Db {
         Ok(())
     }
 
+    /// ★★ LA NAVE PERDIDA LA SABE EL KILLMAIL — pregunta suya (2026-09-09).
+    ///
+    /// *«no entiendo lo del botín antes de morir, eso no debería cazarlo directamente la kill»*.
+    /// Tenía razón a medias, y la mitad buena es esta: **el botín que sacaste ANTES de morir no
+    /// está en el killmail** (la kill solo enseña lo que iba dentro cuando reventó), pero **la nave
+    /// y el fit SÍ**, y Koru ya los guarda en `killmails.isk_value` desde zKillboard. Le estaba
+    /// pidiendo un número que estaba en su propia base de datos — la misma regla que él me enseñó
+    /// con el botín («no pedir una cifra que Koru sabe sacar»), incumplida un día después.
+    ///
+    /// # Por qué no se puede rellenar al cerrar, y por eso esto es un BARRIDO
+    ///
+    /// En el instante en que pulsas ☠ **el killmail todavía no existe**: tarda minutos en llegar a
+    /// ESI y a zKill. Así que esto corre DESPUÉS de sincronizar killmails y completa lo que quedó
+    /// pendiente. También se llama al cerrar, por si ya estaba.
+    ///
+    /// # La ventana, y por qué es asimétrica
+    ///
+    /// `[inicio − 60 min, fin + 10 min]`. Hacia atrás mucho porque **quien cierra con «Hecha» sin
+    /// haber pulsado «Voy» crea la run en ese momento**: `started_at` es cuando lo apuntó, no
+    /// cuando murió. Hacia delante poco: después de cerrar ya no puede morir en esa run.
+    ///
+    /// 🚨 **SOLO SI HAY UNA ÚNICA PÉRDIDA EN LA VENTANA.** Con dos no se adivina — es la misma
+    /// regla que las abreviaturas de sistema y las naves por prefijo. Atribuir la pérdida
+    /// equivocada es peor que dejar el hueco, que ya lo puede rellenar él a mano.
+    ///
+    /// ⚠️ Y NUNCA pisa un valor ya puesto: si lo declaró él, manda lo suyo.
+    ///
+    /// ⚠️ LA TRAMPA DE LAS FECHAS, que cazó la prueba y no el razonamiento: `started_at` viene de
+    /// `to_rfc3339()` (`...T15:20:00.123+00:00`) y `killed_at` de ESI (`...T15:26:41Z`) — **dos
+    /// formatos distintos**. Y `datetime()` de SQLite devuelve la fecha con ESPACIO en vez de `T`,
+    /// así que comparar su salida contra un texto con `T` fallaba siempre en el límite superior.
+    /// Por eso pasan los DOS lados por `datetime()`: una sola forma, y no se pueden volver a
+    /// separar. SQL validado en SQLite con 9 casos + idempotencia antes de escribir esto.
+    pub fn runs_completar_perdidas(&self) -> AppResult<usize> {
+        const VENTANA: &str = "k.is_loss = 1 AND k.character_id = r.character_id \
+             AND k.isk_value IS NOT NULL \
+             AND datetime(substr(k.killed_at,1,19)) >= datetime(substr(r.started_at,1,19), '-60 minutes') \
+             AND datetime(substr(k.killed_at,1,19)) <= datetime(substr(r.ended_at,1,19), '+10 minutes')";
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            &format!(
+                "UPDATE activity_runs AS r
+                    SET ship_loss_isk = (SELECT k.isk_value FROM killmails k WHERE {VENTANA})
+                  WHERE r.outcome = 'died' AND r.ship_loss_isk IS NULL
+                    AND r.character_id IS NOT NULL AND r.ended_at IS NOT NULL
+                    AND (SELECT COUNT(*) FROM killmails k WHERE {VENTANA}) = 1"
+            ),
+            [],
+        )?;
+        Ok(n)
+    }
+
     /// La run ABIERTA (en curso) de un personaje PARA UNA ACTIVIDAD ('abyssal'/'crab'), si la hay —
     /// para restaurar el cronómetro al abrir Koru. Filtrada por actividad: una run CRAB abierta no
     /// debe aparecer como sesión en curso de abisales (ni al revés). SQL validado en Python (SQLite).

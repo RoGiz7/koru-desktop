@@ -1497,6 +1497,11 @@ pub fn run_start(
 }
 
 /// Termina una run (done/died/aborted) con su botín y, si muerte, el valor de la nave perdida.
+///
+/// ★ Si no se declaró el valor de la nave, se intenta sacar del killmail (`runs_completar_perdidas`).
+/// Casi siempre NO estará todavía —el killmail tarda minutos— y por eso el barrido se repite al
+/// sincronizar; aquí se hace por el caso de quien cierra la escalación un rato después de morir,
+/// que es más común de lo que parece: primero vuelves a la estación, luego apuntas.
 #[tauri::command]
 pub fn run_end(
     state: State<'_, AppState>,
@@ -1509,7 +1514,11 @@ pub fn run_end(
 ) -> AppResult<()> {
     state
         .db
-        .run_end(id, &outcome, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())
+        .run_end(id, &outcome, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())?;
+    if ship_loss_isk.is_none() && outcome == "died" {
+        let _ = state.db.runs_completar_perdidas();
+    }
+    Ok(())
 }
 
 /// La run abierta (en curso) de un personaje PARA UNA ACTIVIDAD (abyssal/crab), para restaurar el
@@ -2558,7 +2567,12 @@ pub async fn sync_killmails(character_id: i64, state: State<'_, AppState>) -> Ap
         );
     }
 
-    killmails::sync(&state.esi, &state.db, character_id, &valid.access_token).await
+    let n = killmails::sync(&state.esi, &state.db, character_id, &valid.access_token).await?;
+    // ★ Con killmails nuevos en casa, completar las runs que se cerraron como «morí» y todavía no
+    //   saben cuánto costó. Cuando pulsas ☠ el killmail aún no existe —tarda minutos en llegar—,
+    //   así que este es el momento en que el dato aparece. Ver `runs_completar_perdidas`.
+    let _ = state.db.runs_completar_perdidas();
+    Ok(n)
 }
 
 /// Sincroniza el HISTORIAL COMPLETO desde zKillboard (no requiere scope). Emite eventos
