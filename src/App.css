@@ -6376,6 +6376,14 @@ h4 {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+.intel-corregir-sug {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.intel-corregir-sug .pp-tag {
+  margin-left: 0;
+}
 .intel-corregir-fila {
   display: flex;
   flex-wrap: wrap;

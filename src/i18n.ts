@@ -3247,6 +3247,11 @@ const EN: Record<string, string> = {
     "Your data is still in the old folder. Nothing is wrong: Koru reads it just the same. It will try to move it again on the next start.",
   "¿quién era?": "who was it?",
   "Corregido por ti": "Corrected by you",
+  "Usar este nombre": "Use this name",
+  "De los que Koru ya conoce. Si no está, escríbelo entero igual.":
+    "From the ones Koru already knows. If it is not there, type it in full anyway.",
+  "Koru no conoce a nadie así todavía. Escríbelo entero y lo comprueba con EVE.":
+    "Koru does not know anyone by that name yet. Type it in full and it will check with EVE.",
   deshacer: "undo",
   corregir: "correct it",
   "Escribe el nombre EXACTO del personaje. Koru lo comprueba con EVE antes de apuntarlo.":

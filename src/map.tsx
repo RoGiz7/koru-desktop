@@ -12,7 +12,7 @@ import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
-import { buildIntelReports, limpiarMarcadoEve, pilotTrack, zonasDe } from "./intel";
+import { buildIntelReports, claveAlias, limpiarMarcadoEve, pilotTrack, zonasDe } from "./intel";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import { PilotoNombre } from "./fichaPiloto";
@@ -1865,10 +1865,33 @@ export function MapView(props: {
   const [correccion, setCorreccion] = useState("");
   const [correccionErr, setCorreccionErr] = useState<string | null>(null);
   const [corrigiendoBusy, setCorrigiendoBusy] = useState(false);
+  /** ★ SUGERENCIAS MIENTRAS ESCRIBES — idea suya (2026-09-09). Salen de `search_pilots`, que busca
+   *  **en local** sobre `name_cache`: cero peticiones, y permite buscar por TROZOS, cosa que ESI no
+   *  hace (solo resuelve nombres exactos). Es el mismo mecanismo que ya usan las notas.
+   *
+   *  ⚠️ AYUDA, NUNCA FILTRO — la misma regla que el desplegable de naves en escalaciones. `name_cache`
+   *  solo tiene a quien Koru YA preguntó, así que **un hostil nuevo no está**: «Christine» apareció
+   *  hoy por primera vez y no la conocía nadie. Si la lista pudiera impedir escribir, esta función
+   *  no serviría justo cuando más hace falta. Se puede teclear cualquier nombre y decide ESI. */
+  const [sugerencias, setSugerencias] = useState<[number, string][]>([]);
+  useEffect(() => {
+    const t = correccion.trim();
+    if (!corrigiendo || t.length < 2) {
+      setSugerencias([]);
+      return;
+    }
+    let vivo = true;
+    invoke<[number, string][]>("search_pilots", { q: t })
+      .then((r) => vivo && setSugerencias(r))
+      .catch(() => vivo && setSugerencias([]));
+    return () => {
+      vivo = false;
+    };
+  }, [correccion, corrigiendo]);
   /** ¿Este reporte ya lo corrigió él? Se mira contra el MISMO texto con el que se guarda, o el
    *  cartel de «corregido» podría no coincidir con lo que de verdad hay apuntado. */
   const yaCorregido =
-    !!intelDetail && alias.has(limpiarMarcadoEve(intelDetail.message).trim().toLowerCase());
+    !!intelDetail && alias.has(claveAlias(intelDetail.message));
   /** Al cambiar de aviso se cierra el panel. Sin esto se quedaría abierto de un reporte al
    *  siguiente y la corrección se guardaría contra el mensaje EQUIVOCADO — un error que el
    *  usuario no tendría forma de ver, porque el panel se ve igual en los dos casos. */
@@ -1888,7 +1911,7 @@ export function MapView(props: {
     setCorreccionErr(null);
     try {
       await invoke("intel_alias_set", {
-        texto: limpiarMarcadoEve(intelDetail.message).trim().toLowerCase(),
+        texto: claveAlias(intelDetail.message),
         nombre: correccion.trim(),
       });
       await recargarAlias();
@@ -5201,7 +5224,7 @@ export function MapView(props: {
                     className="intel-head-link"
                     onClick={() => {
                       void invoke("intel_alias_remove", {
-                        texto: limpiarMarcadoEve(intelDetail.message).trim().toLowerCase(),
+                        texto: claveAlias(intelDetail.message),
                       }).then(recargarAlias);
                     }}
                   >
@@ -5233,6 +5256,37 @@ export function MapView(props: {
                       {tr("Cancelar")}
                     </button>
                   </div>
+                  {/* Los que Koru ya conoce, con su retrato: elegir uno es más rápido y no se
+                      puede escribir mal. Pero es una lista de atajos, no la lista de los que
+                      valen — abajo se dice, porque una sugerencia que parece un menú cerrado
+                      haría creer que a un hostil nuevo no se le puede apuntar. */}
+                  {sugerencias.length > 0 && (
+                    <div className="intel-corregir-sug">
+                      {sugerencias.map(([id, nombre]) => (
+                        <button
+                          key={id}
+                          className="pp-tag"
+                          onClick={() => setCorreccion(nombre)}
+                          title={tr("Usar este nombre")}
+                        >
+                          <img
+                            className="kind-glyph"
+                            src={`https://images.evetech.net/characters/${id}/portrait?size=32`}
+                            alt=""
+                            style={{ borderRadius: "50%", width: 16, height: 16, verticalAlign: -3 }}
+                          />{" "}
+                          {nombre}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {correccion.trim().length >= 2 && (
+                    <span className="muted small">
+                      {sugerencias.length > 0
+                        ? tr("De los que Koru ya conoce. Si no está, escríbelo entero igual.")
+                        : tr("Koru no conoce a nadie así todavía. Escríbelo entero y lo comprueba con EVE.")}
+                    </span>
+                  )}
                   {correccionErr && <div className="kpi-neg small">{correccionErr}</div>}
                 </div>
               )}

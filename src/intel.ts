@@ -148,6 +148,21 @@ export function limpiarMarcadoEve(s: string): string {
     .replace(/[ \t]+$/gm, "");
 }
 
+/** ★★ LA CLAVE con la que se guarda y se busca una corrección a mano (`intel_alias`).
+ *
+ *  🚨 EXISTE PORQUE ME EQUIVOQUÉ (2026-09-09, mismo día): guardaba el mensaje LIMPIO y lo
+ *  comparaba contra el CRUDO. Dos normalizaciones del mismo dato — el fallo de las dos verdades,
+ *  otra vez, y esta vez dentro de una función de tres líneas. Con una sola puerta no se puede
+ *  volver a separar.
+ *
+ *  Se colapsan los espacios porque el intel viene con tabulaciones y espacios dobles («EFM-C4
+ *  Christine  Stormbringer») que cambian según quién copie y pegue: **la misma frase escrita por
+ *  dos personas tiene que dar la misma clave**, o la corrección solo valdría para el reporte que
+ *  se corrigió y no para el siguiente, que es justo lo que se buscaba. */
+export function claveAlias(mensaje: string): string {
+  return limpiarMarcadoEve(mensaje).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 /** ★ ÍNDICE DE PREFIJOS DE NAVE, construido UNA vez por catálogo.
  *
  *  «Brutix Navy» tiene que reconocerse aunque el catálogo diga «Brutix Navy Issue», y solo si ese
@@ -932,7 +947,7 @@ export function classifyIntel(
   //   «Stormbringer», o el aviso diría que hay un hostil más y una nave que nadie vuela. Añadir
   //   sin quitar habría sido peor que no tocar nada: dos errores en vez de uno.
   if (alias && alias.size > 0) {
-    const lc = message.toLowerCase();
+    const lc = claveAlias(message);
     for (const [texto, persona] of alias) {
       if (!lc.includes(texto)) continue;
       // ⚠️ LAS PARTES SON LAS DEL NOMBRE DECLARADO, **no las del texto declarado**. Lo escribí al

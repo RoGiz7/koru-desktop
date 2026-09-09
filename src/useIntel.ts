@@ -100,7 +100,10 @@ export function useIntel({
     const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias);
     return p.count ?? (p.pilots.length || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail, shipNames, noExisten, existen]);
+    // `alias` va en las dependencias: sin él, guardar una corrección NO vuelve a trocear y la
+    // tarjeta se queda diciendo lo de antes — con el cartel de «Corregido por ti» encima, que es
+    // la peor combinación posible. Lo arreglé en `intelReports` y no en su hermano de aquí.
+  }, [intelDetail, shipNames, noExisten, existen, alias]);
 
   // Abrir la config automáticamente si la capa intel está activa y aún no hay canales elegidos.
   // Y pedir permiso de notificación al entrar (para que el SO pregunte en buen momento).
@@ -156,7 +159,10 @@ export function useIntel({
       .catch(() => setIntelEntities({ characters: [], ships }))
       .finally(() => setIntelEntLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelDetail, shipNames, noExisten, existen]);
+    // `alias` va en las dependencias: sin él, guardar una corrección NO vuelve a trocear y la
+    // tarjeta se queda diciendo lo de antes — con el cartel de «Corregido por ti» encima, que es
+    // la peor combinación posible. Lo arreglé en `intelReports` y no en su hermano de aquí.
+  }, [intelDetail, shipNames, noExisten, existen, alias]);
 
   // --- Intel: aprender "hostiles habituales" ---
   // Cada línea NUEVA aporta sus pilotos al índice (seen_count++ en backend). Dedup por clave de
