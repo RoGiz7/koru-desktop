@@ -30,6 +30,7 @@ EXCEPCIONES = {
     "name_cache": "su `character_id` es la persona NOMBRADA, no tu",
     "intel_sightings": "su `character_id` es el piloto AVISTADO: borrar ahi quita TU intel",
     "note": "una nota es del JUGADOR; esta prometido en pantalla",
+    "intel_alias": "su `character_id` es el HOSTIL que declaraste, no tu",
 }
 
 # Las columnas que el borrado SI barre, en el mismo orden que db/mod.rs::character_purge. Una tabla

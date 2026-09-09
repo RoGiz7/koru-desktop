@@ -1110,6 +1110,10 @@ impl Db {
     ///     de New Eden, no datos de tu piloto.
     ///   · `intel_sightings` — es el id del piloto AVISTADO. Borrar por ahí no quita datos suyos:
     ///     borra tu histórico de intel.
+    ///   · `intel_alias` — es el id del HOSTIL que tú declaraste. Es la misma familia que las dos de
+    ///     arriba y **se me pasó el día que creé la tabla**: la trampa está escrita cuatro líneas más
+    ///     arriba y aun así hubo que cazarla en el repaso previo a la release. ➡️ **Cada tabla nueva
+    ///     con `character_id` se lee preguntando de QUIÉN es ese id, no si la columna existe.**
     /// Cualquier tabla nueva entra al barrido por defecto: es preferible a dejarse datos que el
     /// usuario ha pedido borrar. Lo que evita que eso sea peligroso es el INFORME que devuelve —
     /// tabla a tabla y con filas—, porque un borrado que no dice qué borró es exactamente el
@@ -1132,7 +1136,7 @@ impl Db {
     /// `fleet_op.boss_id` y `social_session.listener_id` NO se barren, también a propósito y
     /// también dicho en pantalla.
     pub fn character_purge(&self, character_id: i64) -> AppResult<Vec<(String, usize)>> {
-        const EXCEPCIONES: [&str; 3] = ["name_cache", "intel_sightings", "note"];
+        const EXCEPCIONES: [&str; 4] = ["name_cache", "intel_sightings", "note", "intel_alias"];
         const COLUMNAS: [&str; 2] = ["character_id", "subject_id"];
         // Un 0 aquí barrería TODO lo global (`subject_id = 0`). No debería llegar nunca, y por eso
         // mismo se planta: lo destructivo no se protege con una suposición.
