@@ -9,7 +9,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
     // tres ficheros de versión. Ver el checklist de release.
     version: "0.50.0",
-    date: "2026-09-08",
+    date: "2026-09-09",
     es: [
       "🗺️ Escalaciones: la sección que faltaba, y lo que de verdad hace no es apuntarlas. Cuando una anomalía escala, el juego te da un sistema y VEINTICUATRO HORAS: si se te pasa, se pierde entera. Koru te avisa antes. Apuntarla son dos campos —el título y el sistema— porque el resto lo sabe él: escribe «astillero» y reconoce que es una 10/10 del Cártel de los Ángeles, con su escudo, sin que toques el rating ni la facción. Y el reloj acepta lo que pone el juego tal cual, «17 h 20 m», sin que tengas que traducirlo a horas de cabeza.",
       "🧭 Y desde una escalación puedes trazar la ruta hasta ella de un clic. La brújula al lado del reloj te lleva al mapa con el planificador abierto y el destino puesto: cuántos saltos hay, la seguridad de cada uno, el zKill de cada sistema por si alguno es una ratonera, y —lo que no te da ningún mapa de fuera— **los avisos de TU intel que caigan en esa ruta**, diciéndote en qué salto están. Con 24 horas corriendo, cuántos saltos hay no es una curiosidad: es parte de si te da tiempo.",
