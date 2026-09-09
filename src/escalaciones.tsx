@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LootPasteModal } from "./lootPasteModal";
-import { buildLootIndex, type LootIndex } from "./lootPaste";
+import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
 import { loadShipRows, type ShipRow } from "./flotas";
 import type { CharacterCard } from "./types";
 import { tr } from "./i18n";
@@ -61,6 +61,9 @@ type Ranura = { lista: string; comprador: string; system_name: string };
 type RunEsc = {
   id: number;
   loot_isk: number | null;
+  /** Lo que valía la nave que perdiste, si te mataron. `null` = no lo dijiste — que NO es lo mismo
+   *  que cero, y por eso el histórico no pinta un «0» cuando falta. */
+  ship_loss_isk: number | null;
   started_at: string | null;
   ended_at: string | null;
   ship_type_id: number | null;
@@ -312,6 +315,14 @@ export function EscalacionesView({
    *  ⚠️ Y si te matan, la escalación queda **`perdida`**, no `hecha`: la ventana se gastó igual, pero
    *  el histórico tiene que poder distinguirlo de un vistazo sin abrir la run. Decisión suya. */
   const [cerrando, setCerrando] = useState<{ id: number; muerto: boolean } | null>(null);
+  /** ★ LO QUE COSTÓ MORIR (2026-09-09). El P&L de una escalación perdida contaba lo que sacaste y
+   *  NO lo que perdiste, así que una noche de muertes salía plana en vez de en rojo. La columna
+   *  (`activity_runs.ship_loss_isk`) existía desde el principio y se escribía `null` a pelo.
+   *
+   *  ⚠️ Se PREGUNTA, no se adivina: Koru no sabe qué llevabas puesto ni cuánto valía el fit. Y es
+   *  opcional — dejarlo vacío guarda la run igual, con `null`, que significa «no lo dijo» y no
+   *  «no perdí nada». Las dos cosas no son lo mismo en una gráfica. */
+  const [perdidaIsk, setPerdidaIsk] = useState("");
   /** ★ EL BOTÍN SE PEGA, NO SE TECLEA — corrección suya (2026-09-09).
    *
    *  Había puesto un campo para escribir el ISK a mano. Su respuesta: *«lo de botín isk no tenemos
@@ -446,7 +457,9 @@ export function EscalacionesView({
         outcome: muerto ? "died" : "done",
         lootIsk: isk != null && Number.isFinite(isk) ? isk : null,
         lootNote: nota || null,
-        shipLossIsk: null,
+        // Solo si te mataron: en una escalación hecha no hay nave perdida que contar, y arrastrar
+        // un valor tecleado en un intento anterior sería meter una pérdida que no ocurrió.
+        shipLossIsk: muerto ? parseIskShorthand(perdidaIsk) : null,
         note: null,
       });
       // El estado de la escalación va DESPUÉS y aparte: si esto fallara, la run queda cerrada y la
@@ -454,6 +467,7 @@ export function EscalacionesView({
       // run abierta para siempre, que no se ve.
       await invoke("escalacion_estado", { id: e.id, estado: muerto ? "perdida" : "hecha" });
       setCerrando(null);
+      setPerdidaIsk("");
       await recargar();
     } catch (err) {
       setError(String(err));
@@ -804,7 +818,21 @@ export function EscalacionesView({
         index={lootIndex}
         title={cerrando?.muerto ? tr("Botín antes de morir") : tr("Botín de la escalación")}
         confirmLabel={cerrando?.muerto ? tr("Guardar (muerto)") : tr("Guardar")}
-        onCancel={() => setCerrando(null)}
+        // Solo al morir. En una escalación hecha este campo no tiene nada que preguntar.
+        extra={
+          cerrando?.muerto
+            ? {
+                label: tr("Nave y fit perdidos (ISK)"),
+                value: perdidaIsk,
+                onChange: setPerdidaIsk,
+                hint: tr("opcional; si lo dejas vacío no se apunta ninguna pérdida"),
+              }
+            : undefined
+        }
+        onCancel={() => {
+          setCerrando(null);
+          setPerdidaIsk("");
+        }}
         onConfirm={(total, nota) => {
           const e = vivas?.find((x) => x.id === cerrando?.id);
           if (e) void cerrar(e, total, nota);
@@ -873,10 +901,26 @@ export function EscalacionesView({
                       en ninguna parte: el dato existía y la pantalla decía que no había pasado
                       nada. Sale de `run_list('escalacion')`, el mismo sitio del que come el
                       abismo — no hay una segunda fuente para lo mismo. */}
-                  <td style={{ textAlign: "right" }} className={runs.get(e.run_id ?? -1)?.loot_isk ? "kpi-pos" : "muted"}>
+                  {/* ★ Y lo que costó, si te mataron. Se pintan los DOS números, no el neto: un
+                      saldo que esconde sus partes no deja ver si la noche fue de botín pobre o de
+                      naves caras. Misma razón por la que la media no sustituye a la mediana en la
+                      ficha del hostil. */}
+                  <td style={{ textAlign: "right" }}>
                     {(() => {
                       const r = e.run_id != null ? runs.get(e.run_id) : undefined;
-                      return r?.loot_isk ? `${fmtSp(Math.round(r.loot_isk / 1e6))} M` : "";
+                      const loot = r?.loot_isk ?? null;
+                      const perd = r?.ship_loss_isk ?? null;
+                      if (!loot && !perd) return "";
+                      return (
+                        <>
+                          {loot ? <span className="kpi-pos">{fmtSp(Math.round(loot / 1e6))} M</span> : null}
+                          {perd ? (
+                            <span className="kpi-neg" title={tr("Nave y fit perdidos (ISK)")}>
+                              {loot ? " " : ""}−{fmtSp(Math.round(perd / 1e6))} M
+                            </span>
+                          ) : null}
+                        </>
+                      );
                     })()}
                   </td>
                   <td className="muted" style={{ textAlign: "right" }}>

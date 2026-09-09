@@ -210,6 +210,15 @@ export function AbyssalRunsView({
    *  (`character_id`) y los demás van como participantes. */
   const [launcher, setLauncher] = useState<number | null>(null);
   const launcherId = launcher ?? charId ?? null;
+  /** ★ LA NAVE DE CADA ACOMPAÑANTE (2026-09-09) — backport desde Escalaciones, que es donde salió.
+   *
+   *  Hasta hoy solo se guardaba la nave de QUIEN LANZA y la de los alts se escribía a `null`. Con
+   *  multibox eso deja media estadística: la run sabe que fuisteis tres y no con qué. La tabla ya
+   *  tenía la columna (`activity_run_chars.ship_type_id`) — lo que faltaba era preguntarlo.
+   *
+   *  ⚠️ El lanzador NO está aquí a propósito: su nave ya vive en `shipName`, y tenerla en dos
+   *  sitios sería otra vez dos verdades sobre el mismo dato. Aquí solo van los acompañantes. */
+  const [crewShips, setCrewShips] = useState<Record<number, string>>({});
   /** Precio de mercado del filamento/baliza elegido, para estimar el coste de entrada. */
   const [variantPrice, setVariantPrice] = useState<number | null>(null);
   // Desenlace por participante al cerrar: character_id → { outcome, lost }.
@@ -257,6 +266,15 @@ export function AbyssalRunsView({
     setCrew((prev) => (prev.length ? prev : dentro.slice(1).map((c) => c.character_id)));
     const nave = dentro[0].ship_type_name;
     if (nave) setShipName((prev) => prev || nave);
+    // Y la nave de cada acompañante, de la misma foto: `get_character_cards` ya la trae. Cero
+    // peticiones nuevas. Se propone para TODOS los personajes, no solo los de dentro: si luego
+    // añades a uno a mano, su nave ya está puesta y no hay que teclearla.
+    setCrewShips((prev) => {
+      if (Object.keys(prev).length) return prev;
+      const m: Record<number, string> = {};
+      for (const c of chars) if (c.ship_type_name) m[c.character_id] = c.ship_type_name;
+      return m;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chars, active]);
 
@@ -307,6 +325,12 @@ export function AbyssalRunsView({
     const q = shipName.trim().toLowerCase();
     return q ? (ships.find((s) => s.n.toLowerCase() === q) ?? null) : null;
   }, [ships, shipName]);
+  /** Nombre escrito → typeID, con la MISMA regla de arriba: coincidencia exacta o nada. Media
+   *  palabra no se adivina, porque apuntar la nave equivocada es peor que no apuntar ninguna. */
+  const naveDe = (txt: string | undefined) => {
+    const q = (txt ?? "").trim().toLowerCase();
+    return q ? (ships.find((s) => s.n.toLowerCase() === q)?.i ?? null) : null;
+  };
 
   /** Precio del filamento/baliza elegido: la MEJOR ORDEN DE VENTA EN JITA, no la media global.
    *
@@ -383,7 +407,9 @@ export function AbyssalRunsView({
           chars: todos.map((cid) => ({
             character_id: cid,
             outcome: "ok",
-            ship_type_id: cid === launcherId ? (shipMatch?.i ?? null) : null,
+            // El lanzador aporta la nave de la run; cada acompañante, la suya. Antes los alts
+            // iban a `null` y la composición se perdía.
+            ship_type_id: cid === launcherId ? (shipMatch?.i ?? null) : naveDe(crewShips[cid]),
             lost_value: 0,
           })),
         });
@@ -993,6 +1019,46 @@ export function AbyssalRunsView({
           </span>
         </div>
       )}
+
+      {/* ★ CON QUÉ VA CADA ACOMPAÑANTE — solo si de verdad va más de uno.
+          Va DEBAJO del selector y no dentro, por lo mismo que en Escalaciones: con nueve
+          personajes, meter un campo por piloto en la misma fila echaría los botones fuera de la
+          pantalla. El lanzador no sale aquí: su nave es la de la run, arriba. */}
+      {!active && crew.length > 0 && (
+        <div className="run-pickrow small">
+          <span className="muted run-pickrow-label">{tr("¿Con qué van?")}</span>
+          <span className="run-pickrow-items">
+            {crew.map((cid) => {
+              const tid = naveDe(crewShips[cid]);
+              return (
+                <span key={cid} className="run-crewship">
+                  {tid ? (
+                    <img className="kind-glyph" src={typeIcon(tid, 32)} alt="" style={{ width: 18, height: 18, verticalAlign: -4 }} />
+                  ) : null}{" "}
+                  <span className="muted">{charName(cid)}</span>{" "}
+                  <input
+                    className="small"
+                    list="run-ships"
+                    value={crewShips[cid] ?? ""}
+                    onChange={(ev) => setCrewShips((p) => ({ ...p, [cid]: ev.target.value }))}
+                    placeholder={tr("nave (opcional)")}
+                    style={{ width: 150 }}
+                  />
+                </span>
+              );
+            })}
+            <span className="muted" style={{ lineHeight: "1.5rem" }}>
+              · {tr("viene puesto con lo que llevan ahora mismo; corrígelo si no es eso")}
+            </span>
+          </span>
+        </div>
+      )}
+      {/* Las naves, UNA vez para toda la sección: un `datalist` por fila serían 512 opciones × N. */}
+      <datalist id="run-ships">
+        {ships.map((s) => (
+          <option key={s.i} value={s.n} />
+        ))}
+      </datalist>
 
       {/* ---- Estadísticas + histórico de runs ---- */}
       {runs.length > 0 && (

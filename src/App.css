@@ -2119,6 +2119,14 @@ button.pp-tag.launcher {
 .run-pickrow-items .pp-tag {
   margin-left: 0;
 }
+/* La nave de cada acompañante. Cada piloto es un bloque que NO se parte por la mitad: el nombre y
+   su campo tienen que quedar juntos aunque la fila salte de línea, o no se sabe cuál es de quién. */
+.run-crewship {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
 /* Control de escaneo de gamelogs (logi) */
 .gl-scan {
   display: flex;
@@ -6356,6 +6364,14 @@ h4 {
   padding: 0.3rem 0;
   border-top: 1px solid var(--border);
   font-size: 0.95rem;
+}
+/* Campo extra opcional del modal de botín (hoy: la nave perdida al morir en una escalación). */
+.loot-modal-extra {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
 }
 .loot-modal-actions {
   display: flex;
