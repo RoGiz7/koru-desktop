@@ -812,26 +812,71 @@ export function EscalacionesView({
           escalación se cierra sola: no hay reparto que hacer. Y el botín sigue siendo OPCIONAL —
           confirmar sin pegar nada guarda la run con su resultado y su duración, que es lo que no se
           puede reconstruir después. */}
+      {/* ★★ MORIR NO SE PREGUNTA IGUAL QUE ACABAR — decisión suya (2026-09-09).
+       *
+       *  El ☠ abría el MISMO formulario de botín que «Hecha», solo que con otro título. Él lo vio
+       *  y preguntó por qué: *«la casilla de botín antes de morir creo que no tiene mucho
+       *  sentido»*, y tiene razón por una regla del juego — **si mueres dentro, el botín muere
+       *  contigo**: sale en el killmail como destruido o dropeado, no como tuyo. Estábamos
+       *  preguntando por algo que en el caso normal no existe, y su motivo para quitarlo fue el
+       *  bueno: *«no vaya a ser que alguien lo use mal»*. Un campo que casi nunca aplica pero se
+       *  puede rellenar es una invitación a meter un número que luego nadie sabrá de dónde salió.
+       *
+       *  Queda una confirmación, y hace falta: hoy **no hay forma de reabrir una escalación
+       *  cerrada por error**, así que el clic tiene que poder deshacerse ANTES, no después.
+       *
+       *  El valor de la nave sigue aquí y opcional, como plan B: lo normal es que lo ponga el
+       *  killmail solo, pero si hubo dos pérdidas tuyas en la franja Koru no adivina, y entonces
+       *  este es el único sitio donde decirlo. */}
+      {cerrando?.muerto && (
+        <div className="modal-backdrop" onClick={() => { setCerrando(null); setPerdidaIsk(""); }}>
+          <div className="nave-modal" onClick={(ev) => ev.stopPropagation()}>
+            <div className="loot-modal-head">
+              <b>☠ {tr("Te mataron dentro")}</b>
+              <button className="loot-modal-x" onClick={() => { setCerrando(null); setPerdidaIsk(""); }}>
+                ✕
+              </button>
+            </div>
+            <p className="small muted">
+              {tr("La escalación queda como perdida: la ventana se gastó igual. El valor de la nave lo pone tu killmail cuando llegue.")}
+            </p>
+            <div className="loot-modal-extra">
+              <label className="small muted">{tr("Nave y fit perdidos (ISK)")}</label>
+              <input
+                className="small"
+                value={perdidaIsk}
+                onChange={(ev) => setPerdidaIsk(ev.target.value)}
+                placeholder={tr("p.ej. 250m")}
+                style={{ width: 120 }}
+              />
+              <span className="muted small">{tr("solo si Koru no lo encuentra")}</span>
+            </div>
+            <div className="loot-modal-actions">
+              <button
+                className="pp-add"
+                onClick={() => {
+                  const e = vivas?.find((x) => x.id === cerrando?.id);
+                  // Sin botín: no se pregunta y no se inventa. `null` es «no hubo», no «cero».
+                  if (e) void cerrar(e, null, "");
+                  else setCerrando(null);
+                }}
+              >
+                ✓ {tr("Guardar (muerto)")}
+              </button>
+              <button className="pp-add" onClick={() => { setCerrando(null); setPerdidaIsk(""); }}>
+                {tr("Cancelar")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <LootPasteModal
-        open={cerrando != null}
+        open={cerrando != null && !cerrando.muerto}
         siteCount={1}
         index={lootIndex}
-        title={cerrando?.muerto ? tr("Botín antes de morir") : tr("Botín de la escalación")}
-        confirmLabel={cerrando?.muerto ? tr("Guardar (muerto)") : tr("Guardar")}
-        // Solo al morir. En una escalación hecha este campo no tiene nada que preguntar.
-        extra={
-          cerrando?.muerto
-            ? {
-                label: tr("Nave y fit perdidos (ISK)"),
-                value: perdidaIsk,
-                onChange: setPerdidaIsk,
-                // ⚠️ La frase cambió al hacerlo automático: si dijera solo «no se apunta nada»
-                // estaría escondiendo que Koru va a buscarlo, y el número aparecería más tarde sin
-                // que nadie entienda de dónde salió. Ver `runs_completar_perdidas`.
-                hint: tr("déjalo vacío y Koru lo saca de tu killmail cuando llegue (tarda unos minutos)"),
-              }
-            : undefined
-        }
+        title={tr("Botín de la escalación")}
+        confirmLabel={tr("Guardar")}
         onCancel={() => {
           setCerrando(null);
           setPerdidaIsk("");

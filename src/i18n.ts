@@ -1171,7 +1171,6 @@ const EN: Record<string, string> = {
   "nave (opcional)": "ship (optional)",
   "— sin asignar —": "— unassigned —",
   "Botín de la escalación": "Escalation loot",
-  "Botín antes de morir": "Loot before dying",
   "Guardar (muerto)": "Save (killed)",
   "Horas activas (UTC)": "Active hours (UTC)",
   "Sistemas favoritos": "Favorite systems",
@@ -3263,8 +3262,10 @@ const EN: Record<string, string> = {
   "viene puesto con lo que llevan ahora mismo; corrígelo si no es eso":
     "pre-filled with what they are flying right now; correct it if that is not it",
   "Nave y fit perdidos (ISK)": "Ship and fit lost (ISK)",
-  "déjalo vacío y Koru lo saca de tu killmail cuando llegue (tarda unos minutos)":
-    "leave it empty and Koru will take it from your killmail once it arrives (a few minutes)",
+  "Te mataron dentro": "You were killed inside",
+  "La escalación queda como perdida: la ventana se gastó igual. El valor de la nave lo pone tu killmail cuando llegue.":
+    "The escalation is marked as lost: the window was spent all the same. The ship value comes from your killmail once it arrives.",
+  "solo si Koru no lo encuentra": "only if Koru cannot find it",
   "Hacer copia de seguridad antes": "Back up first",
   "Borrar definitivamente": "Delete permanently",
   "Datos borrados": "Data deleted",

@@ -25,18 +25,9 @@ type Props = {
   title?: string;
   /** Texto del botón de confirmar. Si se omite, «Marcar hechas (N)» (contexto exploración). */
   confirmLabel?: string;
-  /** ★ UN campo extra opcional, para lo que el botín NO contesta (2026-09-09).
-   *
-   *  Nació de que el P&L de una escalación PERDIDA contaba lo que sacaste y no lo que te costó
-   *  morir. La alternativa era un segundo modal para una sola casilla, y dos modales parecidos
-   *  para el mismo momento son la clase de duplicado que acaba divergiendo.
-   *
-   *  ⚠️ El valor lo guarda QUIEN LLAMA, no el modal: así `onConfirm` no cambia de forma y los
-   *  otros dos sitios que usan esto (exploración y abismo/CRAB) no se enteran de que existe. */
-  extra?: { label: string; value: string; onChange: (v: string) => void; hint?: string };
 };
 
-export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, busy, title, confirmLabel, extra }: Props) {
+export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, busy, title, confirmLabel }: Props) {
   const [text, setText] = useState("");
   const [override, setOverride] = useState(""); // ISK a mano (prevalece sobre el pegado)
   const [note, setNote] = useState("");
@@ -267,23 +258,6 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
             </span>
           )}
         </div>
-
-        {extra && (
-          <div className="loot-modal-extra">
-            <label className="small muted">{extra.label}</label>
-            <input
-              className="small"
-              value={extra.value}
-              onChange={(e) => extra.onChange(e.target.value)}
-              // ⚠️ NUNCA «0» de placeholder: vacío significa «no lo dije», y un cero insinuado
-              // en el hueco dice justo lo contrario que la línea de ayuda de debajo. Dos mensajes
-              // sobre el mismo campo, que es el fallo que llevamos toda la sesión quitando.
-              placeholder={tr("p.ej. 250m")}
-              style={{ width: 120 }}
-            />
-            {extra.hint && <span className="muted small">{extra.hint}</span>}
-          </div>
-        )}
 
         <div className="loot-modal-actions">
           <button className="pp-add" onClick={() => onConfirm(total, note.trim())} disabled={busy}>
