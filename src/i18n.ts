@@ -2173,6 +2173,7 @@ const EN: Record<string, string> = {
   "sin reconocer": "unrecognized",
   "No reconocido; no cuenta al total": "Not recognized; not counted in the total",
   "p.ej. 45m": "e.g. 45m",
+  "p.ej. 250m": "e.g. 250m",
   "nota del botín (opcional)": "loot note (optional)",
   "Pega aquí el loot…": "Paste the loot here…",
   "Pega el loot del carguero o de la estación (Ctrl+A, Ctrl+C en el inventario). Si tienes la columna «Precio estimado» activa, se suma sola. También puedes teclear el ISK a mano abajo.":

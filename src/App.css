@@ -6320,6 +6320,9 @@ h4 {
   width: min(560px, 92vw);
   max-height: 88vh;
   overflow-y: auto;
+  /* Un hijo de flex no baja de su contenido salvo que se le diga: sin esto, una etiqueta larga
+     empujaba el modal y aparecía barra horizontal. */
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -6398,6 +6401,7 @@ h4 {
 /* Campo extra opcional del modal de botín (hoy: la nave perdida al morir en una escalación). */
 .loot-modal-extra {
   display: flex;
+  min-width: 0;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.4rem;

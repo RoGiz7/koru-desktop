@@ -275,7 +275,10 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
               className="small"
               value={extra.value}
               onChange={(e) => extra.onChange(e.target.value)}
-              placeholder="0"
+              // ⚠️ NUNCA «0» de placeholder: vacío significa «no lo dije», y un cero insinuado
+              // en el hueco dice justo lo contrario que la línea de ayuda de debajo. Dos mensajes
+              // sobre el mismo campo, que es el fallo que llevamos toda la sesión quitando.
+              placeholder={tr("p.ej. 250m")}
               style={{ width: 120 }}
             />
             {extra.hint && <span className="muted small">{extra.hint}</span>}
