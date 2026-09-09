@@ -1159,10 +1159,15 @@ impl Db {
                 continue; // `characters` va la última, ver abajo
             }
             // ¿Qué columnas tiene? Se le pregunta a la BD, no al código.
+            // ⚠️ El `let v = …; v` NO es de adorno: si el `collect` es la última expresión del
+            // bloque, el temporal que aún tiene prestado a `stmt` vive hasta el final del bloque y
+            // `stmt` muere antes (E0597). Es el mismo patrón que la consulta de tablas de arriba.
             let cols: Vec<String> = {
                 let mut stmt = tx.prepare(&format!("PRAGMA table_info({t})"))?;
-                stmt.query_map([], |r| r.get::<_, String>(1))?
-                    .collect::<Result<Vec<_>, _>>()?
+                let v = stmt
+                    .query_map([], |r| r.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                v
             };
             // Una tabla puede llamarlo de una forma o de otra, nunca de las dos: se para en la
             // primera que exista para no borrar dos veces ni contar la misma fila dos veces.
