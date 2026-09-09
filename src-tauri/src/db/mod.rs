@@ -4837,6 +4837,47 @@ impl Db {
         );
     }
 
+    /// ★ QUIÉN ve cada estructura (2026-09-09). Ver el comentario largo de `structure_seen` en
+    /// schema.sql: existe para que el bucle de tokens empiece por el personaje que acertó la última
+    /// vez, en vez de pagar un 403 por cada alt que va por delante. No es una lista negra.
+    pub fn structure_seen_map(&self) -> std::collections::HashMap<i64, i64> {
+        let mut m = std::collections::HashMap::new();
+        let conn = self.conn.lock().unwrap();
+        if let Ok(mut stmt) = conn.prepare("SELECT structure_id, character_id FROM structure_seen") {
+            if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))) {
+                for row in rows.flatten() {
+                    m.insert(row.0, row.1);
+                }
+            }
+        }
+        m
+    }
+
+    /// Una sola estructura. `resolve_location_named` se llama una vez por ubicación raíz (pueden
+    /// ser cientos en una pasada de assets), así que ahí NO se lee el mapa entero.
+    pub fn structure_seen_get(&self, structure_id: i64) -> Option<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT character_id FROM structure_seen WHERE structure_id = ?1",
+            rusqlite::params![structure_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .ok()
+    }
+
+    pub fn structure_seen_put(&self, structure_id: i64, character_id: i64) {
+        if character_id <= 0 {
+            return;
+        }
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO structure_seen (structure_id, character_id, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(structure_id) DO UPDATE SET character_id = excluded.character_id, updated_at = excluded.updated_at",
+            rusqlite::params![structure_id, character_id, now],
+        );
+    }
+
     /// ★ EL NOMBRE de una ubicación, guardado (2026-09-02).
     ///
     /// Antes solo se cacheaba el `system_id` y el nombre se volvía a pedir cada vez. Con las

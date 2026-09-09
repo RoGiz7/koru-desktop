@@ -526,15 +526,37 @@ pub async fn resolve_category(esi: &EsiClient, db: &Db, type_id: i64) -> String 
     cat
 }
 
+/// Pone delante el token del personaje `preferido` (el que resolvió esa estructura la última vez).
+/// Devuelve referencias en el orden a probar; si no hay preferido, o ya no está en la lista, el
+/// orden es el de siempre. Nunca DESCARTA a nadie: si el preferido perdió el acceso, los demás se
+/// prueban igual y `structure_seen` se corrige sola en el siguiente acierto.
+fn ordenar_tokens<'a>(
+    tokens: &'a [(i64, String)],
+    preferido: Option<i64>,
+) -> Vec<&'a (i64, String)> {
+    let mut v: Vec<&(i64, String)> = tokens.iter().collect();
+    if let Some(p) = preferido {
+        if let Some(i) = v.iter().position(|(cid, _)| *cid == p) {
+            v.swap(0, i);
+        }
+    }
+    v
+}
+
 /// Resuelve una ubicación raíz a (system_id, nombre de estación/estructura).
 /// Para estructuras de jugador prueba TODOS los tokens disponibles (resolución entre personajes):
 /// si el dueño de los assets no tiene acceso pero un alt sí, se resuelve igual. Cachea el
 /// resultado (positivo o negativo) en `location_system`; el negativo se limpia al arrancar.
+///
+/// ★ ORDEN DE LOS TOKENS (2026-09-09, de una medición suya): se empieza por el personaje que
+/// resolvió ESTA estructura la última vez (`structure_seen`). Sin eso, los alts que van por
+/// delante del que tiene acceso comen un 403 cada vez que caduca la caché del endpoint —el 10,9%
+/// del gasto de fichas medido— porque un 403 no se cachea nunca. Ver schema.sql.
 pub async fn resolve_location_named(
     esi: &EsiClient,
     db: &Db,
     loc_id: i64,
-    tokens: &[String],
+    tokens: &[(i64, String)],
 ) -> (i64, Option<String>) {
     // Asset directamente en el espacio (location_id = sistema).
     if (30_000_000..=30_999_999).contains(&loc_id) {
@@ -561,15 +583,17 @@ pub async fn resolve_location_named(
             return (0, Some("⚠ Estructura sin acceso".to_string()));
         }
         let path = format!("/universe/structures/{loc_id}/");
-        // Probar todos los tokens (dueño + alts) hasta obtener sistema Y nombre. El endpoint está
-        // cacheado por Expires, así que repetir es barato; así no se pierde el nombre entre pasadas.
-        for tok in tokens {
+        // Probar los tokens (dueño + alts) hasta obtener sistema Y nombre, EMPEZANDO por el que
+        // acertó la última vez: así lo normal es una sola petición (y encima servida por la caché),
+        // en vez de una tanda de 403 hasta dar con el bueno.
+        for (cid, tok) in ordenar_tokens(tokens, db.structure_seen_get(loc_id)) {
             if let Ok(g) = esi
                 .get_cached::<StructureGeo>(db, 0, &path, Some(tok.as_str()))
                 .await
             {
                 if g.solar_system_id != 0 {
                     db.location_system_put(loc_id, g.solar_system_id);
+                    db.structure_seen_put(loc_id, *cid);
                     if let Some(n) = &g.name {
                         db.location_name_put(loc_id, n);
                     }
@@ -590,7 +614,7 @@ pub async fn detail(
     db: &Db,
     character_id: i64,
     token: &str,
-    all_tokens: &[String],
+    all_tokens: &[(i64, String)],
 ) -> AppResult<Vec<AssetDetailRow>> {
     use std::collections::{HashMap as Map, HashSet};
     let items = fetch_all_assets(esi, db, character_id, token).await;
@@ -873,7 +897,7 @@ pub async fn ships(
     db: &Db,
     character_id: i64,
     token: &str,
-    all_tokens: &[String],
+    all_tokens: &[(i64, String)],
     ship_type_ids: &std::collections::HashSet<i64>,
 ) -> AppResult<Vec<MyShipRow>> {
     use std::collections::HashMap as Map;

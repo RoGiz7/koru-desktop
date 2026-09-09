@@ -168,6 +168,24 @@ CREATE TABLE IF NOT EXISTS location_system (
     updated_at    TEXT
 );
 
+-- QUIÉN puede ver cada estructura de jugador. Nace de una medición suya (2026-09-09): el 10,9% de
+-- las fichas de ESI se iban en 403 repetidos de `/universe/structures/`.
+--
+-- POR QUÉ: para resolver una citadel se prueban los tokens de TODOS los personajes con el scope y
+-- se corta al primer acierto. Los que van DELANTE del que sí tiene acceso comen un 403 cada vez —
+-- y un 403 no se cachea (`put_cache` solo se toca en 2xx/304), así que se repite en cada pasada.
+-- Con 22 estructuras y ~3,3 tokens fallando por delante: 72 peticiones × 5 fichas = 360, sin dato.
+--
+-- ESTO NO ES UNA LISTA NEGRA: solo recuerda quién SÍ acertó, para probarlo primero. Si ese
+-- personaje deja de tener acceso (se sale de la corp, le quitan el derecho de atraque) el bucle
+-- sigue igual que hoy y prueba a los demás; se corrige solo. Un veredicto negativo, en cambio,
+-- habría que caducarlo a mano y podría esconder un acceso recién ganado.
+CREATE TABLE IF NOT EXISTS structure_seen (
+    structure_id INTEGER PRIMARY KEY,
+    character_id INTEGER NOT NULL,  -- el que la resolvió la última vez
+    updated_at   TEXT
+);
+
 -- Caché persistente tipo → categoría (Naves, Ore, Módulos…), resuelta vía ESI una vez por tipo.
 CREATE TABLE IF NOT EXISTS type_category (
     type_id    INTEGER PRIMARY KEY,

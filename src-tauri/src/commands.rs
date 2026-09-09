@@ -1155,8 +1155,14 @@ struct StructureInfo {
 }
 
 /// F1c — Tus estructuras conocidas (las que la resolución de Assets ya cacheó en `location_system`).
-/// El nombre y el TIPO se piden a `/universe/structures/{id}/` con cualquier token que tenga acceso;
-/// va cacheado por Expires, así que repetir es barato. Las que nadie puede ver quedan fuera.
+/// El nombre y el TIPO se piden a `/universe/structures/{id}/` con cualquier token que tenga acceso.
+/// Las que nadie puede ver quedan fuera (`structures_known` filtra `system_id > 0`).
+///
+/// ⚠️ AQUÍ VIVÍA UNA FRASE FALSA: decía «va cacheado por Expires, así que repetir es barato». Lo
+/// barato es repetir un ACIERTO; los intentos FALLIDOS no se cachean nunca (`put_cache` solo se
+/// toca en 2xx/304), así que cada alt que iba por delante del que tiene acceso pagaba un 403 —5
+/// fichas— cada vez que caducaba el Expires. Medición suya del 2026-09-09: 72 de esas peticiones,
+/// 360 fichas, el 10,9% del gasto total, sin traer un solo dato. Por eso está `structure_seen`.
 #[tauri::command]
 pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<StructureView>> {
     let known = state.db.structures_known()?;
@@ -1164,6 +1170,10 @@ pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<Structu
         return Ok(Vec::new());
     }
     let tokens = structure_tokens(&state).await;
+    // Quién resolvió cada estructura la última vez: se prueba ESE primero. Sin esto, cada alt por
+    // delante del que tiene acceso se come un 403 —5 fichas, y nunca se cachea— cada vez que
+    // caduca el Expires del endpoint. Medido por él: el 10,9% del gasto de ESI, sin traer un dato.
+    let visto = state.db.structure_seen_map();
     let mut out = Vec::new();
     for (id, system_id) in known {
         let path = format!("/universe/structures/{id}/");
@@ -1173,7 +1183,13 @@ pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<Structu
             system_id,
             type_id: None,
         };
-        for tok in &tokens {
+        let mut orden: Vec<&(i64, String)> = tokens.iter().collect();
+        if let Some(p) = visto.get(&id) {
+            if let Some(i) = orden.iter().position(|(cid, _)| cid == p) {
+                orden.swap(0, i);
+            }
+        }
+        for (cid, tok) in orden {
             if let Ok(info) = state
                 .esi
                 .get_cached::<StructureInfo>(&state.db, 0, &path, Some(tok.as_str()))
@@ -1184,6 +1200,7 @@ pub async fn get_structures(state: State<'_, AppState>) -> AppResult<Vec<Structu
                 if info.solar_system_id != 0 {
                     view.system_id = info.solar_system_id;
                 }
+                state.db.structure_seen_put(id, *cid);
                 break;
             }
         }
@@ -6717,7 +6734,11 @@ pub async fn get_assets_detail(
 
 /// Access tokens de todos los pjs con scope de estructuras. Para resolver estructuras de jugador
 /// "entre personajes": si el dueño de unos assets no tiene acceso a la citadel, otro alt puede.
-async fn structure_tokens(state: &AppState) -> Vec<String> {
+///
+/// ★ VA CON EL `character_id` AL LADO (2026-09-09): sin él no se puede recordar QUIÉN acertó, y sin
+/// eso el bucle empieza siempre por el primero de la lista y paga un 403 por cada alt que va por
+/// delante del que sí tiene acceso. Ver `structure_seen` en schema.sql.
+async fn structure_tokens(state: &AppState) -> Vec<(i64, String)> {
     let mut out = Vec::new();
     if let Ok(chars) = state.db.list_characters() {
         for c in chars {
@@ -6731,7 +6752,7 @@ async fn structure_tokens(state: &AppState) -> Vec<String> {
                     .access_token(state.esi.http(), c.character_id)
                     .await
                 {
-                    out.push(v.access_token);
+                    out.push((c.character_id, v.access_token));
                 }
             }
         }
