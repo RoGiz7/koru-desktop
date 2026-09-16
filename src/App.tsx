@@ -3035,10 +3035,37 @@ function App() {
             )}
                 </div>
 
-                {/* Aviso legal fijo (fuera de las pestañas): Koru usa material del juego (texturas de
-                    medallas de la instalación del usuario). La marca va literal; la coletilla, tr(). */}
+                {/* ★★ AVISO DE PROPIEDAD — lo exige la Developer License Agreement, §7.1.
+                    Fijo, fuera de las pestañas, porque no depende de ninguna sección.
+
+                    ⚠️ ESTO NO ES UNA COLETILLA DE CORTESÍA: la §7.1 obliga a mantener el aviso de
+                    propiedad «sustancialmente» con la frase de marcas registradas. La versión
+                    anterior decía «EVE Online © Fenris Creations (FC) — FC no respalda esta app»,
+                    que es una buena práctica pero **le faltaba lo que pide la licencia**: «todos los
+                    derechos reservados» y la frase que nombra las marcas. Es lo único del acuerdo
+                    que se ve desde fuera sin leer el código, así que es lo primero que mirarían.
+
+                    ★ LOS NOMBRES DE MARCA VAN LITERALES y fuera de `tr()`: «EVE», «EVE Online» y
+                      «CCP» son marcas registradas y traducirlas sería alterarlas. Solo se traduce
+                      la prosa que las rodea.
+
+                    ★ DOS ENTIDADES A PROPÓSITO: el acuerdo está firmado con **CCP hf.** y ahí se
+                      nombran las marcas; sus propias webs firman el copyright como **Fenris
+                      Creations**. Se ponen las dos como aparecen en sus documentos, sin afirmar
+                      nada sobre la relación entre ambas — que no me consta.
+
+                    La última frase (que no nos respaldan) NO la pide la licencia: se mantiene
+                    porque la §2.7 prohíbe presentarse como agente de ellos, y decirlo explícito es
+                    la forma más corta de no dar lugar a dudas. */}
                 <div className="tb-settings-legal small muted">
-                  EVE Online © Fenris Creations (FC) — {tr("FC no respalda esta app ni es responsable de ella.")}
+                  © Fenris Creations. {tr("Todos los derechos reservados.")} «EVE», «EVE Online»,
+                  «CCP»{" "}
+                  {tr(
+                    "y todos los logotipos e imágenes relacionados son marcas comerciales o marcas registradas de CCP hf.",
+                  )}{" "}
+                  {tr(
+                    "Koru Desktop es una aplicación de terceros: Fenris Creations no la respalda ni es responsable de ella.",
+                  )}
                 </div>
               </div>
             </div>

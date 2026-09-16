@@ -230,8 +230,13 @@ const EN: Record<string, string> = {
     "Textures extracted: the Logbook draws your real decorations.",
   "Extrae las texturas de tu instalación de EVE para ver tus condecoraciones dibujadas.":
     "Extract the textures from your EVE install to see your decorations drawn.",
-  "FC no respalda esta app ni es responsable de ella.":
-    "FC has not endorsed and is not responsible for this app.",
+  // --- Aviso de propiedad (Developer License Agreement §7.1). Ver el comentario en App.tsx: los
+  //     nombres de marca van literales fuera de `tr()`; aquí solo la prosa que los rodea.
+  "Todos los derechos reservados.": "All rights reserved.",
+  "y todos los logotipos e imágenes relacionados son marcas comerciales o marcas registradas de CCP hf.":
+    "and all related logos and images are trademarks or registered trademarks of CCP hf.",
+  "Koru Desktop es una aplicación de terceros: Fenris Creations no la respalda ni es responsable de ella.":
+    "Koru Desktop is a third-party application: Fenris Creations has not endorsed it and is not responsible for it.",
   // --- PvP del gamelog (#45, v0.25.0) ---
   "Cara a cara (gamelog)": "Face to face (gamelog)",
   "Naves y drones": "Ships & drones",

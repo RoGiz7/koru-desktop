@@ -5868,11 +5868,17 @@ h4 {
   flex-direction: column;
   gap: 0.35rem;
 }
+/* Aviso de propiedad (DLA §7.1). Pasó de una línea a tres frases al añadirle lo que la licencia
+   pide, así que necesita interlineado legible y permiso para partir: un aviso legal cortado por un
+   `nowrap` heredado no cumple nada, y es de las cosas que solo se ven en la ventana estrecha. */
 .tb-settings-legal {
   flex: 0 0 auto;
   text-align: center;
-  padding: 0.4rem 0.6rem;
+  padding: 0.5rem 0.7rem;
   border-top: 1px solid var(--border);
+  line-height: 1.4;
+  white-space: normal;
+  text-wrap: pretty;
 }
 
 /* ===== Sección Exploración: firmas agrupadas por cubo ===== */
