@@ -19,8 +19,10 @@ import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
 import { loadShipRows, type ShipRow } from "./flotas";
 import type { CharacterCard } from "./types";
 import { tr } from "./i18n";
-import { fmtSp, typeIcon } from "./format";
-import { Kpi } from "./charts";
+import { fmtSp, fmtIsk, typeIcon } from "./format";
+import { Kpi, MultiLineProgress, RangePresets } from "./charts";
+import { agregarIsk } from "./escalacionesIsk";
+import { EscalacionDetalle } from "./escalacionDetalle";
 import { SystemSearch } from "./map";
 import { loadNewEden } from "./neweden";
 import { loadJson } from "./staticJson";
@@ -56,20 +58,35 @@ type Escalacion = {
 type Ranura = { lista: string; comprador: string; system_name: string };
 /** La run enlazada, tal y como la devuelve `run_list` — SOLO los campos que se pintan aquí.
  *
- *  A propósito no se copia el tipo entero de `ActivityRun`: esta pantalla no usa el clima, ni el
- *  tier, ni los participantes, y declararlos sería prometer que los enseña. */
+ *  A propósito no se copia el tipo entero de `ActivityRun`: esta pantalla no usa el clima ni el
+ *  tier, y declararlos sería prometer que los enseña.
+ *
+ *  ★ Ampliado el 2026-09-16 con `outcome`, `loot_note`, `entry_cost` y el resultado de cada
+ *    participante: son los datos que la ventana de detalle saca a la luz. `run_list` ya los
+ *    devolvía todos —no hubo que tocar Rust—, simplemente nadie los miraba. */
 type RunEsc = {
   id: number;
+  outcome?: string;
   loot_isk: number | null;
+  /** La «nota del botín» que escribes en el modal al cerrar. Se guardaba y NO se enseñaba en
+   *  ninguna parte: es lo único que queda de aquel pegado, porque los objetos no se guardan. */
+  loot_note?: string | null;
   /** Lo que valía la nave que perdiste, si te mataron. `null` = no lo dijiste — que NO es lo mismo
    *  que cero, y por eso el histórico no pinta un «0» cuando falta. */
   ship_loss_isk: number | null;
+  /** Lo que costó entrar, congelado al iniciar. `null` = no declarado. */
+  entry_cost?: number | null;
   started_at: string | null;
   ended_at: string | null;
   ship_type_id: number | null;
   /** Los participantes, tal y como los devuelve `run_list`. Vacío cuando fue en solitario: ahí la
    *  nave está en la run y no hace falta una fila hija que repita lo mismo. */
-  chars?: { character_id: number; ship_type_id: number | null }[];
+  chars?: {
+    character_id: number;
+    ship_type_id: number | null;
+    outcome?: string;
+    lost_value?: number;
+  }[];
 };
 
 // La facción NO se pide: sale del catálogo a partir del título. Tenía aquí una lista de las seis
@@ -185,7 +202,11 @@ export function EscalacionesView({
     try {
       const [v, h, r, rn] = await Promise.all([
         invoke<Escalacion[]>("escalaciones_vivas"),
-        invoke<Escalacion[]>("escalaciones_historico", { limit: 100 }),
+        // 🚨 El límite NO es decorativo: la gráfica de ISK por días come de aquí. Con los 100 de
+        // antes, «Todo» o «Este año» dibujaban un año INCOMPLETO **sin dar ningún error** — el
+        // fallo que calla, que es el que nos ha costado más caro. El Rust ya acepta el parámetro
+        // (`limit.unwrap_or(100)`), así que subirlo no toca nada más. La tabla sigue enseñando 40.
+        invoke<Escalacion[]>("escalaciones_historico", { limit: 2000 }),
         invoke<Ranura[]>("escalaciones_ranuras"),
         // Las runs de escalación, del MISMO comando del que comen el abismo y los CRAB. Si esto
         // falla, el histórico se queda sin botín ni duración pero no se cae: `catch` → mapa vacío.
@@ -484,6 +505,21 @@ export function EscalacionesView({
   }
 
   const urgentes = (vivas ?? []).filter((e) => e.modo === "propia" && e.quedan_min > 0 && e.quedan_min <= 180);
+
+  // Cuál está abierta en la ventana de detalle. Se guarda el ID y no la fila: tras un `recargar()`
+  // una copia de la fila estaría vieja, y la ventana enseñaría el pasado con toda la seguridad.
+  const [detalle, setDetalle] = useState<number | null>(null);
+
+  // Por defecto por SEMANAS, no por días: una escalación es cosa de varias por semana, y una
+  // gráfica diaria de una actividad semanal es una fila de picos entre huecos.
+  const [gFrom, setGFrom] = useState("");
+  const [gTo, setGTo] = useState("");
+  const [gGran, setGGran] = useState<"day" | "week" | "month">("week");
+
+  const serie = useMemo(
+    () => agregarIsk([...(vivas ?? []), ...hist], runs, gGran, gFrom, gTo),
+    [vivas, hist, runs, gGran, gFrom, gTo],
+  );
 
   return (
     <div className="esc-view">
@@ -888,6 +924,81 @@ export function EscalacionesView({
         }}
       />
 
+      {/* ---- detalle de una archivada ---- */}
+      {detalle != null &&
+        (() => {
+          // Se busca la fila AHORA, no cuando se pulsó: así un `recargar()` con la ventana abierta
+          // la actualiza en vez de dejarla contando algo que ya no es cierto. Si la escalación
+          // desapareció (borrado del personaje, por ejemplo), la ventana se cierra sola.
+          const e = hist.find((x) => x.id === detalle) ?? vivas?.find((x) => x.id === detalle);
+          if (!e) return null;
+          return (
+            <EscalacionDetalle
+              esc={e}
+              run={e.run_id != null ? runs.get(e.run_id) : undefined}
+              charName={(id) => chars.find((c) => c.character_id === id)?.name ?? `#${id}`}
+              shipName={(id) => ships.find((s) => s.i === id)?.n ?? `#${id}`}
+              onClose={() => setDetalle(null)}
+            />
+          );
+        })()}
+
+      {/* ---- ISK generado ---- */}
+      {serie.labels.length > 0 && (
+        <div className="esc-sec">
+          <h4>📈 {tr("ISK generado")}</h4>
+          <div className="kpis">
+            {/* Mismo criterio que las series: un KPI en cero de algo que nunca has hecho ocupa
+                sitio y no dice nada. El «Neto» sale siempre porque es el resumen. */}
+            {serie.tBotin > 0 && (
+              <Kpi label={tr("Botín (las que corriste)")} value={fmtIsk(serie.tBotin)} tone="pos" />
+            )}
+            {serie.tVenta > 0 && (
+              <Kpi label={tr("Ventas (las que vendiste)")} value={fmtIsk(serie.tVenta)} tone="pos" />
+            )}
+            {serie.tPerdido > 0 && (
+              <Kpi label={tr("Naves perdidas")} value={fmtIsk(serie.tPerdido)} tone="neg" />
+            )}
+            <Kpi
+              label={tr("Neto")}
+              value={fmtIsk(serie.tBotin + serie.tVenta - serie.tPerdido)}
+              tone={serie.tBotin + serie.tVenta - serie.tPerdido < 0 ? "neg" : "pos"}
+            />
+          </div>
+          <div className="rateo-controls">
+            <div className="seg">
+              {(["day", "week", "month"] as const).map((g) => (
+                <button key={g} className={gGran === g ? "active" : ""} onClick={() => setGGran(g)}>
+                  {g === "day" ? tr("Día") : g === "week" ? tr("Semana") : tr("Mes")}
+                </button>
+              ))}
+            </div>
+            <RangePresets from={gFrom} to={gTo} setFrom={setGFrom} setTo={setGTo} years={serie.anios} />
+          </div>
+          {/* `straight`: sin suavizar. La spline SOBREPASA los puntos, y con huecos entre
+              escalaciones eso dibuja botín NEGATIVO en un día en que no hubo ninguna — un valor
+              que no ha ocurrido nunca. Misma razón por la que las gráficas de cuentas van rectas. */}
+          <MultiLineProgress
+            labels={serie.labels}
+            straight
+            // Una serie que es toda ceros NO se pasa: dibujaría una línea plana y pediría un chip
+            // en la leyenda para algo que no ha ocurrido. Si nunca has vendido una escalación, esta
+            // gráfica no tiene por qué hablarte de ventas.
+            series={[
+              { name: tr("Botín"), color: "#3fb950", values: serie.botin },
+              { name: tr("Ventas"), color: "#d29922", values: serie.venta },
+              { name: tr("Naves perdidas"), color: "#e5534b", values: serie.perdido },
+            ].filter((s) => s.values.some((v) => v !== 0))}
+            fmt={fmtIsk}
+          />
+          <p className="muted small">
+            {tr(
+              "Cada día cuenta cuando entró el ISK: el botín el día que cerraste la run, la venta el día que cobraste. Las naves perdidas van aparte y no se restan del botín, para que se vea de qué fue la diferencia.",
+            )}
+          </p>
+        </div>
+      )}
+
       {/* ---- histórico ---- */}
       {hist.length > 0 && (
         <div className="esc-sec">
@@ -895,7 +1006,15 @@ export function EscalacionesView({
           <table className="km-table cat-table">
             <tbody>
               {hist.slice(0, 40).map((e) => (
-                <tr key={e.id}>
+                // Toda la fila abre el detalle. `title` en la fila y no un botón aparte: una
+                // columna más de «⋯» en una tabla de nueve columnas es ruido, y aquí no hay nada
+                // dentro de la fila que ya sea pulsable con el que pueda chocar.
+                <tr
+                  key={e.id}
+                  className="esc-hist-fila"
+                  onClick={() => setDetalle(e.id)}
+                  title={tr("Ver cómo fue")}
+                >
                   <td>{e.system_name}</td>
                   <td>{e.ded != null ? `${e.ded}/10` : "—"}</td>
                   <td className="muted">{e.titulo}</td>

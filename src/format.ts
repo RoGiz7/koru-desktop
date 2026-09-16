@@ -157,19 +157,10 @@ export function standingColor(s: number): string {
 }
 
 // Clave de semana ISO (año-Sxx) para bucketizar series temporales por semana.
-export function weekKey(date: string): string {
-  const dt = new Date(date + "T00:00:00Z");
-  const dayNr = (dt.getUTCDay() + 6) % 7;
-  dt.setUTCDate(dt.getUTCDate() - dayNr + 3); // jueves de esa semana
-  const firstThursday = new Date(Date.UTC(dt.getUTCFullYear(), 0, 4));
-  const week =
-    1 +
-    Math.round(
-      (dt.getTime() - firstThursday.getTime()) / 86400000 / 7 -
-        ((firstThursday.getUTCDay() + 6) % 7) / 7,
-    );
-  return `${dt.getUTCFullYear()}-S${String(week).padStart(2, "0")}`;
-}
+// `weekKey` se mudó a `fechas.ts` — un módulo HOJA, sin dependencias, para que los scripts de
+// pruebas puedan agrupar por semana sin arrastrar `./i18n` detrás. Se re-exporta aquí para que los
+// siete sitios que la importaban de `format` sigan funcionando sin tocarlos. Una sola definición.
+export { weekKey } from "./fechas";
 
 // Fecha ISO (YYYY-MM-DD) de hace n días. Para los presets de rango de las gráficas.
 export function daysAgo(n: number): string {
