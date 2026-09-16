@@ -2062,6 +2062,17 @@ function App() {
     //
     // Doce segundos de espera no le quitan nada al sync —su intervalo normal es de media hora— y
     // se los devuelven enteros a lo primero que abre el usuario, sea la sección que sea.
+    // 🚨 Y NO ALINEAR ESTO AL RELOJ. La fase del intervalo la pone CADA USUARIO al abrir Koru
+    //    (arranque + 12 s), así que los sync de la gente caen repartidos por el reloj sin que
+    //    nadie lo haya coordinado. Parece un detalle y es lo que nos mantiene fuera del problema
+    //    que CCP nombró en su dev blog de agosto-2025: el rate limiting que están preparando
+    //    apunta a los PICOS en la hora y la media hora, con `/assets/` recibiendo cinco veces su
+    //    tráfico normal. Una app que sincronizara «en punto» sumaría a ese pico con todos sus
+    //    usuarios a la vez.
+    //    ⚠️ Así que si algún día a alguien le parece más limpio cuadrarlo a :00 y :30, ESO es
+    //    exactamente lo que no hay que hacer. Sale bien hoy por un efecto lateral —el retraso de
+    //    12 s se puso por rendimiento de la primera pantalla, no por repartir carga—, y lo que
+    //    está bien por accidente se rompe por accidente.
     const primerSync = window.setTimeout(() => autoSyncRef.current(), 12_000);
     const sync = window.setInterval(() => autoSyncRef.current(), AUTO_SYNC_MS);
     return () => {
