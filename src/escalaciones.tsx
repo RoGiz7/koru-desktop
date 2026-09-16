@@ -973,11 +973,18 @@ export function EscalacionesView({
             {serie.tPerdido > 0 && (
               <Kpi label={tr("Naves perdidas")} value={fmtIsk(serie.tPerdido)} tone="neg" />
             )}
-            <Kpi
-              label={tr("Neto")}
-              value={fmtIsk(serie.tBotin + serie.tVenta - serie.tPerdido)}
-              tone={serie.tBotin + serie.tVenta - serie.tPerdido < 0 ? "neg" : "pos"}
-            />
+            {/* ★ El neto SOLO cuando hay más de una fuente que sumar o restar. Con un único
+                origen —solo botín, o solo ventas, y sin naves perdidas— el neto es una COPIA del
+                KPI de al lado: dos cajas con el mismo número. Lo vio RoGiz7 en su primera captura
+                de esto, con «Botín 381,05 M» y «Neto 381,05 M» pegados. Un resumen que resume una
+                sola cosa no resume nada. */}
+            {[serie.tBotin, serie.tVenta, serie.tPerdido].filter((v) => v > 0).length > 1 && (
+              <Kpi
+                label={tr("Neto")}
+                value={fmtIsk(serie.tBotin + serie.tVenta - serie.tPerdido)}
+                tone={serie.tBotin + serie.tVenta - serie.tPerdido < 0 ? "neg" : "pos"}
+              />
+            )}
           </div>
           <div className="rateo-controls">
             <div className="seg">
@@ -989,6 +996,19 @@ export function EscalacionesView({
             </div>
             <RangePresets from={gFrom} to={gTo} setFrom={setGFrom} setTo={setGTo} years={serie.anios} />
           </div>
+          {/* ★★ CON UN SOLO CUBO NO SE DIBUJA LA GRÁFICA, y no es pereza: `linePath` con un punto
+              devuelve `M x y` —un path con solo un *moveto*—, que **no pinta nada**. El resultado
+              eran 250 px de rejilla vacía con una etiqueta debajo. Lo vio RoGiz7 en la primera
+              captura con datos reales: una semana suelta.
+              Una gráfica de tendencia con un punto no tiene tendencia que enseñar, y la cifra ya
+              está en los KPIs de arriba. Así que se dice, en vez de dejar un hueco que se lee como
+              que algo falló. En cuanto haya dos cubos aparece sola. */}
+          {serie.labels.length < 2 ? (
+            <p className="muted small">
+              {tr("Con un solo periodo todavía no hay tendencia que dibujar: la gráfica aparece en cuanto haya dos. Prueba «Día» si ya tienes escalaciones de varias fechas.")}
+            </p>
+          ) : (
+          <>
           {/* `straight`: sin suavizar. La spline SOBREPASA los puntos, y con huecos entre
               escalaciones eso dibuja botín NEGATIVO en un día en que no hubo ninguna — un valor
               que no ha ocurrido nunca. Misma razón por la que las gráficas de cuentas van rectas. */}
@@ -1005,6 +1025,10 @@ export function EscalacionesView({
             ].filter((s) => s.values.some((v) => v !== 0))}
             fmt={fmtIsk}
           />
+          </>
+          )}
+          {/* Esta explicación se queda FUERA del condicional: explica de qué fecha cuelga cada
+              cifra, y eso vale igual para los KPIs cuando todavía no hay gráfica. */}
           <p className="muted small">
             {tr(
               "Cada día cuenta cuando entró el ISK: el botín el día que cerraste la run, la venta el día que cobraste. Las naves perdidas van aparte y no se restan del botín, para que se vea de qué fue la diferencia.",

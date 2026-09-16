@@ -2198,6 +2198,8 @@ const EN: Record<string, string> = {
   Botín: "Loot",
   Guardar: "Save",
   Deshacer: "Undo",
+  "Con un solo periodo todavía no hay tendencia que dibujar: la gráfica aparece en cuanto haya dos. Prueba «Día» si ya tienes escalaciones de varias fechas.":
+    "With a single period there's no trend to draw yet: the chart appears as soon as there are two. Try «Day» if you already have escalations on different dates.",
   // --- El botín objeto a objeto de una run (ver `run_loot` en schema.sql y `runLoot.ts`) ---
   "copia de plano": "blueprint copy",
   "De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.":
