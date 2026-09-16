@@ -1598,6 +1598,29 @@ pub fn run_loot_list(state: State<'_, AppState>, run_id: i64) -> AppResult<Vec<c
     state.db.run_loot_list(run_id)
 }
 
+/// Guarda el botín de un SITIO DE EXPLORACIÓN objeto a objeto. REEMPLAZA el anterior.
+///
+/// Espejo de `run_loot_set`, y por el mismo motivo va aparte del cierre: el botín también se edita
+/// después desde el histórico, y colgarlo del cierre obligaría a marcar la firma otra vez para
+/// corregir una línea.
+#[tauri::command]
+pub fn exploration_loot_set(
+    state: State<'_, AppState>,
+    log_id: i64,
+    items: Vec<crate::db::RunLootRow>,
+) -> AppResult<usize> {
+    state.db.exploration_loot_set(log_id, &items)
+}
+
+/// El botín guardado de un sitio de exploración. Se pide SOLO al abrir su ficha.
+#[tauri::command]
+pub fn exploration_loot_list(
+    state: State<'_, AppState>,
+    log_id: i64,
+) -> AppResult<Vec<crate::db::RunLootRow>> {
+    state.db.exploration_loot_list(log_id)
+}
+
 /// La run abierta (en curso) de un personaje PARA UNA ACTIVIDAD (abyssal/crab), para restaurar el
 /// cronómetro. El filtro por actividad evita que una run CRAB abierta aparezca en abisales (y viceversa).
 #[tauri::command]

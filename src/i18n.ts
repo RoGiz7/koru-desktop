@@ -2247,6 +2247,13 @@ const EN: Record<string, string> = {
   "Se borra la run con el botín que tuviera anotado.":
     "This deletes the run, along with any loot recorded.",
   "Se guardará también el botín pegado": "The pasted loot will be saved too",
+  // --- La ficha de un sitio del histórico de exploración (`explorationLog.tsx`, 2026-09-16) ---
+  "Ver qué cayó en este sitio": "See what dropped at this site",
+  "El botín": "The loot",
+  "Firma": "Signature",
+  "Ver en la wiki": "See on the wiki",
+  "De este sitio solo se guardó el total: el botín objeto a objeto empezó a guardarse después. Y el botín repartido en lote tampoco lo tiene, a propósito.":
+    "Only the total was saved for this site: item-by-item loot started being saved later. And loot split across a batch doesn't have it either, on purpose.",
   // --- El botín objeto a objeto de una run (ver `run_loot` en schema.sql y `runLoot.ts`) ---
   "copia de plano": "blueprint copy",
   "La run se cerró, pero no se pudo guardar el detalle del botín":

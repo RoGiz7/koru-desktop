@@ -1207,6 +1207,16 @@ impl Db {
         if n > 0 {
             informe.push(("run_loot (huérfanos)".to_string(), n));
         }
+        // Y su gemela de exploración, por lo mismo y con la misma medida detrás: con el pragma en
+        // ON este DELETE borra 0; con el pragma apagado, medido en SQLite, dejaría una huérfana por
+        // cada sitio del personaje borrado.
+        let n = tx.execute(
+            "DELETE FROM exploration_loot WHERE log_id NOT IN (SELECT id FROM exploration_log)",
+            [],
+        )?;
+        if n > 0 {
+            informe.push(("exploration_loot (huérfanos)".to_string(), n));
+        }
         // La fila del personaje, al final: si algo fallara antes, la transacción lo deshace entero
         // y el personaje sigue ahí. Al revés —borrarlo primero— dejaría huérfano todo lo demás.
         let n = tx.execute(
@@ -5665,8 +5675,6 @@ impl Db {
         Ok(conn.last_insert_rowid())
     }
 
-    /// Termina una run: sella `ended_at`=ahora, el `outcome` (done/died/aborted) y el botín. Si muerte,
-    /// `ship_loss_isk` = valor de la nave perdida (para el P&L honesto).
     /// El botín de una run, objeto a objeto. REEMPLAZA el que hubiera: volver a pegar corrige, no
     /// acumula — si no, un segundo pegado duplicaría el botín entero sin avisar.
     ///
@@ -5710,6 +5718,64 @@ impl Db {
         )?;
         let v = stmt
             .query_map(rusqlite::params![run_id], |r| {
+                Ok(RunLootRow {
+                    type_id: r.get(0)?,
+                    name: r.get(1)?,
+                    qty: r.get(2)?,
+                    isk: r.get(3)?,
+                    isk_src: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(v)
+    }
+
+    /// El botín de un SITIO DE EXPLORACIÓN, objeto a objeto. Espejo de `run_loot_set`: mismo
+    /// reemplazo dentro de una transacción y mismo `pos` puesto por el servidor.
+    ///
+    /// Va a su propia tabla y no a `run_loot` porque el padre es otro — el porqué entero está en el
+    /// comentario de `exploration_loot` en `schema.sql`, y se resume en que una clave foránea no
+    /// puede apuntar a dos tablas y el cascade es lo que aquí protege el dato.
+    ///
+    /// Reutiliza `RunLootRow` a propósito: es exactamente la misma línea de botín, sale del mismo
+    /// `lineasDeBotin()` del frontend y darle un tipo gemelo solo crearía dos verdades que mantener.
+    pub fn exploration_loot_set(&self, log_id: i64, items: &[RunLootRow]) -> AppResult<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM exploration_loot WHERE log_id = ?1",
+            rusqlite::params![log_id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO exploration_loot (log_id, pos, type_id, name, qty, isk, isk_src)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            )?;
+            for (pos, it) in items.iter().enumerate() {
+                stmt.execute(rusqlite::params![
+                    log_id,
+                    pos as i64,
+                    it.type_id,
+                    it.name.trim(),
+                    it.qty,
+                    it.isk,
+                    it.isk_src,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(items.len())
+    }
+
+    /// El botín de un sitio de exploración, en el orden en que se pegó. Se lee SOLO cuando se pide.
+    pub fn exploration_loot_list(&self, log_id: i64) -> AppResult<Vec<RunLootRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT type_id, name, qty, isk, isk_src FROM exploration_loot
+              WHERE log_id = ?1 ORDER BY pos",
+        )?;
+        let v = stmt
+            .query_map(rusqlite::params![log_id], |r| {
                 Ok(RunLootRow {
                     type_id: r.get(0)?,
                     name: r.get(1)?,

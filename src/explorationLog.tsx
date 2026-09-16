@@ -11,9 +11,12 @@ import { KIND_META, KindGlyph, fmtDuration, BUCKETS } from "./signaturesControl"
 import { parseIskShorthand, buildLootIndex, type LootIndex } from "./lootPaste";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
+import { BotinDesglose, Dato, fechaCorta } from "./fichaRun";
+import type { RunLootLine } from "./runLoot";
 import type { SigKind } from "./signatures";
 import type { ExplorationLogRow } from "./types";
 import { openExternal } from "./openExternal";
+import { createPortal } from "react-dom";
 
 type Props = {
   /** Personaje activo, o null en Global. En Global se ve TODO el histórico (todos los personajes). */
@@ -36,6 +39,79 @@ function kindMeta(kind: string): { icon: string; label: string; tid?: number } {
   return KIND_META[kind as SigKind] ?? { icon: "❔", label: kind };
 }
 
+/** ★★ LA FICHA DE UN SITIO HECHO — para ver QUÉ cayó, no solo cuánto valía.
+ *
+ *  Era el pendiente más viejo de esta pantalla (julio de 2026: *«loot itemizado guardado para ver
+ *  QUÉ cayó en el Histórico»*). Reutiliza el desglose de la ficha de run (`fichaRun.tsx`), que es
+ *  el mismo componente: la tabla hija es otra, la LÍNEA es la misma.
+ *
+ *  ⚠️ ABRE CON BOTÓN Y NO CON LA FILA ENTERA, al revés que abismos y escalaciones — y es a
+ *     propósito: allí la fila no tenía nada pulsable dentro, y aquí tiene casilla de selección,
+ *     «Editar» y «Deshacer». Una fila pulsable con tres controles dentro obliga a `stopPropagation`
+ *     en cada uno y pone el clic accidental justo encima de «Deshacer». */
+function SitioDetalle({
+  r,
+  wikiUrl,
+  onClose,
+}: {
+  r: ExplorationLogRow;
+  wikiUrl: string | null;
+  onClose: () => void;
+}) {
+  const meta = kindMeta(r.kind);
+  const dur = fmtDuration(r.entered_at, r.done_at);
+  return createPortal(
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal esc-det" onClick={(e) => e.stopPropagation()}>
+        <div className="loot-modal-head">
+          <strong>
+            {meta.icon} {r.name || meta.label}
+          </strong>
+          <button className="loot-modal-x" onClick={onClose} title={tr("Cerrar")}>
+            ✕
+          </button>
+        </div>
+
+        <div className="esc-det-sec">
+          <Dato k={tr("Sistema")} v={r.system_name} />
+          <Dato k={tr("Tipo")} v={meta.label} />
+          <Dato k={tr("Firma")} v={r.sig_id} />
+          <Dato k={tr("Hecha")} v={fechaCorta(r.done_at)} />
+          <Dato k={tr("Duración")} v={dur} />
+        </div>
+
+        <div className="esc-det-sec">
+          <h5>{tr("El botín")}</h5>
+          <Dato k={tr("Botín")} v={r.loot_isk != null ? fmtIsk(r.loot_isk) : null} tone="pos" />
+          {r.loot_note ? (
+            <div className="esc-det-nota">
+              <span className="esc-det-k">{tr("Nota del botín")}</span>
+              <div>{r.loot_note}</div>
+            </div>
+          ) : null}
+          <BotinDesglose runId={r.id} hayTotal={r.loot_isk != null} fuente="exploracion" />
+        </div>
+
+        {r.note ? (
+          <div className="esc-det-nota">
+            <span className="esc-det-k">{tr("Nota")}</span>
+            <div>{r.note}</div>
+          </div>
+        ) : null}
+
+        {wikiUrl && (
+          <div className="esc-det-sec">
+            <button className="sig-done-btn" onClick={() => openExternal(wikiUrl)}>
+              ↗ {tr("Ver en la wiki")}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ---- Caché de MÓDULO (vive lo que la app, muere al cerrarla) ----
 // Lo CRUDO de `exploration_log_list` (sin filtrar por personaje: la consulta no lleva argumentos).
 let cacheExploracion: ExplorationLogRow[] | null = null;
@@ -44,6 +120,9 @@ export function ExplorationLogView({ charId }: Props) {
   const [rows, setRows] = useState<ExplorationLogRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  /** El sitio cuya ficha está abierta. Se guarda el ID y no la fila: al editar el botín, la ficha
+   *  se repinta con lo recargado en vez de con la copia vieja. */
+  const [detalleId, setDetalleId] = useState<number | null>(null);
   // Edición en línea de una entrada (botín + nota).
   const [editId, setEditId] = useState<number | null>(null);
   const [editIsk, setEditIsk] = useState("");
@@ -178,7 +257,18 @@ export function ExplorationLogView({ charId }: Props) {
 
   // Reparte el total del modal a partes iguales entre las entradas seleccionadas (sustituye su botín;
   // conserva la nota propia de cada entrada). Espejo de markSelectedDone de Pendientes.
-  async function splitLootSelected(totalIsk: number | null, lootNote: string) {
+  /** ★ EL DESGLOSE SOLO TIENE SENTIDO CON UN SITIO (2026-09-16).
+   *
+   *  Con N seleccionados el total se reparte a partes iguales —una aproximación asumida desde que
+   *  existe el lote—, pero los OBJETOS no se pueden repartir: copiarlos en cada sitio contaría
+   *  cinco veces el mismo botín y envenenaría justo la pregunta que motiva la tabla («¿qué cae de
+   *  verdad en un relic?»).
+   *
+   *  🚨 Y NO BASTA CON NO GUARDARLO: hay que BORRAR el que hubiera. Si un sitio tenía su desglose y
+   *     ahora se le mete una parte de un lote, la tabla seguiría sumando lo de antes y la ficha
+   *     enseñaría dos cifras distintas del mismo botín. Dos verdades, que es lo que este proyecto
+   *     lleva meses evitando a mano. */
+  async function splitLootSelected(totalIsk: number | null, lootNote: string, lineas: RunLootLine[]) {
     if (selected.size === 0) return;
     const targets = rows.filter((r) => selected.has(r.id));
     const n = targets.length;
@@ -194,6 +284,15 @@ export function ExplorationLogView({ charId }: Props) {
           lootNote: noteBase,
           note: r.note ?? null,
         });
+        // Con un solo sitio, el pegado es SUYO y se guarda entero. Con lote, se limpia.
+        const items = n === 1 ? lineas : [];
+        if (items.length > 0 || n > 1) {
+          try {
+            await invoke("exploration_loot_set", { logId: r.id, items });
+          } catch (e) {
+            setMsg(`${tr("Se guardó el total, pero no el detalle del botín")}: ${String(e).slice(0, 120)}`);
+          }
+        }
       }
       setRows((prev) =>
         prev.map((r) => (selected.has(r.id) ? { ...r, loot_isk: share, loot_note: noteBase } : r)),
@@ -418,6 +517,15 @@ export function ExplorationLogView({ charId }: Props) {
                       </td>
                       <td>{r.note || <span className="muted">—</span>}</td>
                       <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                        {/* Abre la ficha del sitio. Botón y no fila pulsable: ver `SitioDetalle`. */}
+                        <button
+                          className="sig-done-btn"
+                          title={tr("Ver qué cayó en este sitio")}
+                          onClick={() => setDetalleId(r.id)}
+                          disabled={busy}
+                        >
+                          🔍
+                        </button>
                         <button className="sig-done-btn" onClick={() => startEdit(r)} disabled={busy}>
                           {tr("Editar")}
                         </button>
@@ -466,8 +574,21 @@ export function ExplorationLogView({ charId }: Props) {
         index={lootIndex}
         busy={busy}
         onCancel={() => setLootOpen(false)}
-        onConfirm={(isk, note) => splitLootSelected(isk, note)}
+        onConfirm={(isk, note, lineas) => splitLootSelected(isk, note, lineas)}
       />
+
+      {detalleId != null &&
+        (() => {
+          const r = rows.find((x) => x.id === detalleId);
+          if (!r) return null;
+          return (
+            <SitioDetalle
+              r={r}
+              wikiUrl={r.name ? siteWikiUrl(r.name, dungeonIdx) : null}
+              onClose={() => setDetalleId(null)}
+            />
+          );
+        })()}
 
       {msg && <div className="small muted">{msg}</div>}
     </div>

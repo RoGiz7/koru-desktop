@@ -14,6 +14,7 @@ import { parseSignaturePaste, type ParsedSignature, type SignatureRow, type SigK
 import type { NeSystem } from "./types";
 import { buildLootIndex, type LootIndex } from "./lootPaste";
 import { LootPasteModal } from "./lootPasteModal";
+import type { RunLootLine } from "./runLoot";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import { openExternal } from "./openExternal";
 import { loadJson } from "./staticJson";
@@ -349,7 +350,16 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
   // parte del botín y desaparece de Pendientes (el backend lo oculta; se deshace desde el Histórico).
   // El botín total del modal se REPARTE a partes iguales entre los N (aproximado a propósito cuando
   // acumulas loot de varias anomalías). La nota del sitio (destino WH, etc.) se conserva por sitio.
-  async function markSelectedDone(totalIsk: number | null, lootNote: string) {
+  /** ★ EL DESGLOSE DEL BOTÍN SOLO SE GUARDA CON UN SITIO (2026-09-16).
+   *
+   *  Con N firmas el total se reparte a partes iguales, pero los objetos no se pueden repartir:
+   *  copiarlos en cada sitio contaría N veces el mismo botín y se cargaría la pregunta que motiva
+   *  la tabla («¿qué cae de verdad en un relic?»). El mismo razonamiento que en el reparto del
+   *  histórico; el porqué largo está en `exploration_loot` (schema.sql).
+   *
+   *  Aquí no hace falta LIMPIAR lo que hubiera —al revés que en el histórico— porque estas
+   *  entradas acaban de nacer: `signature_mark_done` devuelve el id de una fila nueva. */
+  async function markSelectedDone(totalIsk: number | null, lootNote: string, lineas: RunLootLine[]) {
     if (sysId == null || selected.size === 0) return;
     const rows = saved.filter((r) => selected.has(r.sig_id));
     const n = rows.length;
@@ -359,7 +369,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
     setMsg("");
     try {
       for (const row of rows) {
-        await invoke<number>("signature_mark_done", {
+        const logId = await invoke<number>("signature_mark_done", {
           systemId: sysId,
           systemName: sysName,
           sigId: row.sig_id,
@@ -368,6 +378,16 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
           note: row.note?.trim() || null,
           characterId: charId ?? null,
         });
+        if (n === 1 && lineas.length > 0) {
+          // Con su propio `catch`: el detalle es un EXTRA sobre el total, que ya quedó guardado.
+          // Perder el cierre de la firma por no poder guardar el desglose sería cambiar un dato
+          // importante por uno accesorio.
+          try {
+            await invoke("exploration_loot_set", { logId, items: lineas });
+          } catch (e) {
+            setMsg(`${tr("Se guardó el total, pero no el detalle del botín")}: ${String(e).slice(0, 120)}`);
+          }
+        }
       }
       setSaved((prev) => prev.filter((r) => !selected.has(r.sig_id)));
       reloadSystems();
@@ -816,7 +836,7 @@ export function SignaturesControl({ initialSystemId, initialSystemName, charId }
         index={lootIndex}
         busy={busy}
         onCancel={() => setLootOpen(false)}
-        onConfirm={(isk, note) => markSelectedDone(isk, note)}
+        onConfirm={(isk, note, lineas) => markSelectedDone(isk, note, lineas)}
       />
 
       {msg && <div className="small muted">{msg}</div>}

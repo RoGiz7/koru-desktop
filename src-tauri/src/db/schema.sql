@@ -702,6 +702,36 @@ CREATE INDEX IF NOT EXISTS idx_explog_system ON exploration_log(system_id);
 CREATE INDEX IF NOT EXISTS idx_explog_done   ON exploration_log(done_at);
 CREATE INDEX IF NOT EXISTS idx_explog_char   ON exploration_log(character_id);
 
+-- El botín de un sitio de exploración, objeto a objeto. ESPEJO EXACTO de `run_loot` (ver su
+-- comentario largo más abajo: `pos` en la clave y no `type_id`, `name` aunque haya `type_id`,
+-- `isk_src` porque el valor tiene dos procedencias, y el valor CONGELADO).
+--
+-- ★ POR QUÉ UNA TABLA PROPIA Y NO GENERALIZAR `run_loot` (decidido el 2026-09-16): el padre es
+--   otro. `run_loot.run_id` apunta a `activity_runs` con `ON DELETE CASCADE`, y una clave foránea
+--   no puede apuntar a dos tablas. Una tabla única con `(owner_kind, owner_id)` **perdería el
+--   cascade de las dos**, que es justamente lo que aquí protege el dato: el barrido de personaje
+--   borra de `exploration_log` por `character_id`, esta hija NO tiene `character_id` —así que el
+--   barrido genérico no la ve— y se va en cascada con su sitio. Medido en SQLite: 0 huérfanos por
+--   ese camino, y **1 huérfano con el pragma apagado**, que es por lo que `character_purge` limpia
+--   además explícitamente. En una operación destructiva, «no puede pasar» no es una defensa.
+--
+-- ⚠️ Y NO SE GUARDA DESGLOSE EN UN CIERRE EN LOTE. Al marcar N firmas hechas de una vez, el total
+--    se reparte a partes iguales entre ellas —una aproximación asumida y dicha—, pero los OBJETOS
+--    no se pueden repartir: copiarlos en cada sitio contaría cinco veces el mismo botín y
+--    envenenaría justo la pregunta que motiva la tabla («¿qué cae de verdad en un relic?»).
+--    Con lote se guarda el total y ya, como hasta hoy.
+CREATE TABLE IF NOT EXISTS exploration_loot (
+    log_id   INTEGER NOT NULL REFERENCES exploration_log(id) ON DELETE CASCADE,
+    pos      INTEGER NOT NULL,          -- orden en que se pegó; parte de la clave
+    type_id  INTEGER,                   -- NULL = Koru no reconoció el nombre
+    name     TEXT NOT NULL,             -- el texto pegado, tal cual
+    qty      INTEGER NOT NULL DEFAULT 1,
+    isk      REAL,                      -- valor de la LÍNEA, congelado. NULL = sin valorar
+    isk_src  TEXT NOT NULL DEFAULT '',  -- 'pegado' | 'koru' | '' (sin valor)
+    PRIMARY KEY (log_id, pos)
+);
+CREATE INDEX IF NOT EXISTS idx_explog_loot_type ON exploration_loot(type_id);
+
 -- Runs de actividad CRONOMETRADAS con botín: abisales (por filamento) y CRAB. MISMO patrón que
 -- exploration_log (sesión + cronómetro + loot pegado/valorado), pero para actividades con TIEMPO. Da lo
 -- que el asset-diff de abyssals NO puede: ISK/hora por tier/clima, tasa de muerte y P&L honesto (loot −

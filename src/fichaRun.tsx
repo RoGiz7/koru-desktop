@@ -82,13 +82,27 @@ export function duracionDeRun(run: RunDet | undefined): string | null {
  *  `null` = todavía no se ha preguntado · `[]` = se preguntó y esa run no tiene detalle guardado,
  *  que es el caso de **todas las runs anteriores al 2026-09-16**. Los dos estados se distinguen a
  *  propósito, porque «cargando» y «no hay» no son lo mismo. */
-export function BotinDesglose({ runId, hayTotal }: { runId: number | null; hayTotal: boolean }) {
+export function BotinDesglose({
+  runId,
+  hayTotal,
+  fuente = "run",
+}: {
+  runId: number | null;
+  hayTotal: boolean;
+  /** De qué tabla se lee. Son dos tablas hijas distintas porque los padres son distintos —
+   *  `activity_runs` y `exploration_log`—, pero la LÍNEA es la misma y se pinta igual, así que el
+   *  componente es uno. Ver el comentario de `exploration_loot` en `schema.sql`. */
+  fuente?: "run" | "exploracion";
+}) {
   const [botin, setBotin] = useState<RunLootLine[] | null>(null);
   useEffect(() => {
     if (runId == null) return;
     let vivo = true;
     setBotin(null);
-    invoke<RunLootLine[]>("run_loot_list", { runId })
+    const cmd = fuente === "run" ? "run_loot_list" : "exploration_loot_list";
+    // El nombre del parámetro también cambia: Tauri convierte `run_id`/`log_id` a camelCase.
+    const args = fuente === "run" ? { runId } : { logId: runId };
+    invoke<RunLootLine[]>(cmd, args)
       .then((r) => {
         if (vivo) setBotin(r);
       })
@@ -99,15 +113,17 @@ export function BotinDesglose({ runId, hayTotal }: { runId: number | null; hayTo
     return () => {
       vivo = false;
     };
-  }, [runId]);
+  }, [runId, fuente]);
 
   if (botin == null) return null;
   if (botin.length === 0) {
-    // Las runs de antes del 2026-09-16 no tienen desglose porque no se guardaba. Decirlo es mejor
-    // que no poner nada: si no, parece que la ficha se dejó algo.
+    // Lo de antes del 2026-09-16 (o del 2026-09-17 en exploración) no tiene desglose porque no se
+    // guardaba. Decirlo es mejor que no poner nada: si no, parece que la ficha se dejó algo.
     return hayTotal ? (
       <p className="muted small">
-        {tr("De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.")}
+        {fuente === "run"
+          ? tr("De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.")
+          : tr("De este sitio solo se guardó el total: el botín objeto a objeto empezó a guardarse después. Y el botín repartido en lote tampoco lo tiene, a propósito.")}
       </p>
     ) : null;
   }
