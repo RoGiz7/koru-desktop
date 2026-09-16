@@ -333,6 +333,8 @@ function App() {
   // Auto-actualización
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+  /** La actualización la arrancó Koru solo al abrirse, no un clic. Solo cambia lo que se enseña. */
+  const [autoActualizando, setAutoActualizando] = useState(false);
   const pendingUpdate = useRef<Update | null>(null);
   useEffect(() => {
     // Comprueba si hay una versión más nueva publicada en Releases.
@@ -363,7 +365,7 @@ function App() {
     const CLAVE_DIA = "koru-update-check-dia";
     const diaUTC = () => new Date().toISOString().slice(0, 10);
     let cancelled = false;
-    const run = async (siempre = false) => {
+    const run = async (siempre = false, enArranque = false) => {
       if (pendingUpdate.current) return; // ya hay una actualización pendiente
       if (!siempre) {
         try {
@@ -385,12 +387,26 @@ function App() {
         if (!cancelled && update) {
           pendingUpdate.current = update;
           setUpdateVersion(update.version);
+          // ★★ SOLO EN EL ARRANQUE SE INSTALA SOLA. Decisión suya (2026-09-16): solo se puede dar
+          //    soporte de verdad a la última versión, y quien ignora el botón se queda sin los
+          //    arreglos. Con gente llegando de otras corps, «¿qué versión tienes?» como primera
+          //    pregunta de cada soporte es un peaje que no hace falta pagar.
+          //
+          //    🚨 PERO NUNCA A MITAD DE SESIÓN, y el motivo es propio de Koru: el aviso de intel
+          //    es una función EN TIEMPO REAL de la que la gente depende para no morir. Reiniciar
+          //    la app mientras alguien vigila el local es el peor momento de toda la aplicación.
+          //    El arranque es el único momento seguro; los chequeos de las 6 h y del foco siguen
+          //    siendo el botón de siempre, y los pulsa el usuario cuando puede.
+          //
+          //    Si falla, `handleUpdate` deja el error a la vista y suelta `updating`, así que se
+          //    cae al botón en vez de bloquear la app. La red de seguridad ya existía.
+          if (enArranque) void handleUpdate({ auto: true });
         }
       } catch {
         // sin conexión / sin endpoint: ignorar silenciosamente
       }
     };
-    run(true); // al arrancar: SIEMPRE, sin tope (ver arriba)
+    run(true, true); // al arrancar: SIEMPRE, sin tope, y con instalación automática
     const id = setInterval(() => run(true), 6 * 60 * 60 * 1000); // cada 6 horas, acotado de por sí
     const onFocus = () => run(); // al volver el foco: como mucho una vez al día
     window.addEventListener("focus", onFocus);
@@ -400,16 +416,26 @@ function App() {
       window.removeEventListener("focus", onFocus);
     };
   }, []);
-  async function handleUpdate() {
+  /** Descarga, instala y reinicia. `auto` = la disparó el arranque, no un clic.
+   *
+   *  La diferencia no es de comportamiento: es lo que se le DICE al usuario. Una actualización que
+   *  él ha pedido no necesita explicarse; una que empieza sola sí, porque va a cerrar la app en
+   *  unos segundos y en Linux son 85 MB de AppImage. Un congelado silencioso mientras eso baja se
+   *  lee como que Koru se ha colgado — y quien lo abrió para vigilar el intel se merece saber que
+   *  no puede contar con él durante medio minuto. */
+  async function handleUpdate(opts?: { auto?: boolean }) {
     const update = pendingUpdate.current;
     if (!update) return;
     setUpdating(true);
+    if (opts?.auto) setAutoActualizando(true);
     try {
       await update.downloadAndInstall();
       await relaunch();
     } catch (e) {
       setError(String(e));
       setUpdating(false);
+      // Se suelta la marca del automático: a partir de aquí manda el botón, como siempre.
+      setAutoActualizando(false);
     }
   }
 
@@ -2616,7 +2642,7 @@ function App() {
         {updateVersion && (
           <button
             className="tb-update"
-            onClick={handleUpdate}
+            onClick={() => void handleUpdate()}
             disabled={updating}
             title={tr("Descargar e instalar la actualización y reiniciar")}
           >
@@ -3164,6 +3190,29 @@ function App() {
 
         {error && <p className="error tb-error">{error}</p>}
       </header>
+
+      {/* ★★ ACTUALIZACIÓN AUTOMÁTICA AL ABRIR: un cartel que tapa, y es a propósito.
+          Koru va a cerrarse en unos segundos y en Linux son 85 MB de AppImage. Sin esto, lo que ve
+          el usuario es una app congelada que de repente desaparece — y quien la abrió para vigilar
+          el intel tiene que saber que durante medio minuto no puede contar con ella.
+          No lleva botón de cerrar a propósito: no hay nada que decidir, ya está pasando. */}
+      {autoActualizando && (
+        <div className="koru-autoupdate">
+          <div className="koru-autoupdate-caja">
+            <div className="koru-autoupdate-tit">
+              ⬇️ {tr("Actualizando Koru a")} v{updateVersion}
+            </div>
+            <p className="small">
+              {tr(
+                "Se está descargando e instalando. Koru se reiniciará solo al terminar — no cierres la ventana.",
+              )}
+            </p>
+            <p className="small muted">
+              {tr("Solo se actualiza al abrir: nunca mientras estás vigilando el intel.")}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Aviso flotante global: visible en cualquier sección. Intel → mapa/intel (rojo);
           alarma de PI → Planetología (ámbar). El destino del clic depende del tipo. */}

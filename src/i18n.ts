@@ -230,6 +230,12 @@ const EN: Record<string, string> = {
     "Textures extracted: the Logbook draws your real decorations.",
   "Extrae las texturas de tu instalación de EVE para ver tus condecoraciones dibujadas.":
     "Extract the textures from your EVE install to see your decorations drawn.",
+  // --- Actualización automática al abrir (ver el comentario en App.tsx) ---
+  "Actualizando Koru a": "Updating Koru to",
+  "Se está descargando e instalando. Koru se reiniciará solo al terminar — no cierres la ventana.":
+    "It's downloading and installing. Koru will restart by itself when it's done — don't close the window.",
+  "Solo se actualiza al abrir: nunca mientras estás vigilando el intel.":
+    "It only updates on launch: never while you're watching intel.",
   // --- Aviso de propiedad (Developer License Agreement §7.1). Ver el comentario en App.tsx: los
   //     nombres de marca van literales fuera de `tr()`; aquí solo la prosa que los rodea.
   "Todos los derechos reservados.": "All rights reserved.",
