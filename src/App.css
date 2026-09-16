@@ -11295,3 +11295,69 @@ h4 {
 .esc-sec h4 {
   margin: 0 0 0.4rem;
 }
+
+/* ---- Detalle de una escalación archivada (escalacionDetalle.tsx) ----
+   Caja propia y no `.loot-modal`: ese nombre mentiría en una ficha que no pega botín, y una ficha
+   de datos pide más ancho que un cuadro de pegado. Comparte `.modal-backdrop`, que sí es genérico
+   (escala de z-index documentada allí). */
+.esc-det {
+  width: min(640px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  /* Un hijo de flex no baja de su contenido salvo que se le diga: sin esto, un título largo o un
+     nombre de comprador empujan la caja y sale barra horizontal. Ya pasó en `.loot-modal`. */
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, #12171f);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.esc-det-sec {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.esc-det-sec:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.esc-det-sec h5 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #8b949e);
+  font-weight: 600;
+}
+.esc-det-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.12rem 0;
+  /* El valor manda sobre la etiqueta cuando no cabe: es lo que se ha venido a leer. */
+  min-width: 0;
+}
+.esc-det-k {
+  color: var(--text-muted, #8b949e);
+  font-size: 0.85rem;
+  flex: 0 0 auto;
+}
+/* La nota del botín va en bloque y no en una fila `k: v`: es texto libre que el jugador escribió y
+   puede tener varias palabras. Destacada a propósito — es lo ÚNICO que queda del pegado del
+   inventario, porque los objetos no se guardan. */
+.esc-det-nota {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Las filas del histórico abren el detalle. El cursor es lo que lo dice: sin esto, que la fila
+   responda al clic no se adivina. */
+.esc-hist-fila {
+  cursor: pointer;
+}
+.esc-hist-fila:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
