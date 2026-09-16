@@ -13,6 +13,7 @@ import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
 import { loadShipRows, type ShipRow } from "./flotas";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
+import type { RunLootLine } from "./runLoot";
 import type { ActivityRun, RunChar, CharacterCard } from "./types";
 
 /** ---- CUÁNTOS FILAMENTOS CUESTA ENTRAR (2026-08-13) ----
@@ -186,6 +187,18 @@ export function AbyssalRunsView({
   const [lootOpen, setLootOpen] = useState(false);
   // A dónde va el botín pegado: "finish" (panel de terminar) o el id de una fila en edición.
   const [lootTarget, setLootTarget] = useState<"finish" | number>("finish");
+  /** ★★ EL BOTÍN OBJETO A OBJETO del último pegado, por destino (cerrar la run / editarla).
+   *
+   *  Hasta hoy el modal valoraba el pegado y **tiraba las líneas**: de una run quedaba el total y
+   *  nada más. Escalaciones empezó a guardarlas esta tarde y dejar abismos y CRAB fuera era el
+   *  «arreglado en un sitio y no en su hermano» de siempre — con el agravante de que **esto solo
+   *  sirve hacia delante**: el botín de las runs de esta noche no se puede reconstruir después.
+   *
+   *  ⚠️ Vacío significa «no se ha pegado nada en este gesto», y entonces NO se llama a
+   *  `run_loot_set`, que REEMPLAZA: editar el ISK a mano de una run que ya tenía desglose no debe
+   *  borrárselo. */
+  const [finBotin, setFinBotin] = useState<RunLootLine[]>([]);
+  const [editBotin, setEditBotin] = useState<RunLootLine[]>([]);
   const [lootIndex, setLootIndex] = useState<LootIndex>(new Map());
   // Edición en línea de una run ya cerrada (corregir botín / nave olvidados) vía run_set.
   const [editId, setEditId] = useState<number | null>(null);
@@ -451,9 +464,20 @@ export function AbyssalRunsView({
         shipLossIsk: finishing === "died" ? parseIskShorthand(finShipLoss) : null,
         note: null,
       });
+      // El desglose, si hubo pegado. Con su propio `catch`: es un EXTRA sobre el total, que ya
+      // quedó guardado arriba. Perder el cierre de la run por no poder guardar el detalle sería
+      // cambiar un dato importante por uno accesorio.
+      if (finBotin.length > 0) {
+        try {
+          await invoke("run_loot_set", { runId: active.id, items: finBotin });
+        } catch (e) {
+          setMsg(`${tr("La run se cerró, pero no se pudo guardar el detalle del botín")}: ${String(e).slice(0, 120)}`);
+        }
+      }
       setFinishing(null);
       setFinLoot("");
       setFinShipLoss("");
+      setFinBotin([]);
       setCrewEnd(new Map());
       await reload();
     } catch (e) {
@@ -481,6 +505,16 @@ export function AbyssalRunsView({
         note: null,
         entryCost: parseIskShorthand(editEntry),
       });
+      // Solo si en ESTA edición se pegó algo: `run_loot_set` reemplaza, y corregir el ISK a mano de
+      // una run que ya tenía desglose no debe borrárselo.
+      if (editBotin.length > 0) {
+        try {
+          await invoke("run_loot_set", { runId: r.id, items: editBotin });
+        } catch (e) {
+          setMsg(`${tr("Se guardó el total, pero no el detalle del botín")}: ${String(e).slice(0, 120)}`);
+        }
+      }
+      setEditBotin([]);
       setEditId(null);
       await reload();
     } catch (e) {
@@ -1369,11 +1403,17 @@ export function AbyssalRunsView({
         title={tr("Botín de la run")}
         confirmLabel={tr("Usar botín")}
         onCancel={() => setLootOpen(false)}
-        onConfirm={(isk) => {
+        onConfirm={(isk, _nota, lineas) => {
           if (isk != null) {
             if (lootTarget === "finish") setFinLoot(String(isk));
             else setEditLoot(String(isk));
           }
+          // Las líneas se guardan aparte del total y viajan con el guardado correspondiente.
+          // `_nota` se ignora a propósito: abismos no pide nota del botín, y recogerla sin tener
+          // dónde enseñarla sería justo el campo de solo escritura que acabamos de arreglar en
+          // escalaciones. Cuando exista la ficha de run compartida, entra sola.
+          if (lootTarget === "finish") setFinBotin(lineas);
+          else setEditBotin(lineas);
           setLootOpen(false);
         }}
       />

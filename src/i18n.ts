@@ -2232,6 +2232,10 @@ const EN: Record<string, string> = {
   "Se borra la escalación.": "This deletes the escalation.",
   // --- El botín objeto a objeto de una run (ver `run_loot` en schema.sql y `runLoot.ts`) ---
   "copia de plano": "blueprint copy",
+  "La run se cerró, pero no se pudo guardar el detalle del botín":
+    "The run was closed, but the loot breakdown could not be saved",
+  "Se guardó el total, pero no el detalle del botín":
+    "The total was saved, but not the loot breakdown",
   "De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.":
     "Only the total was saved for this run: item-by-item loot started being saved later.",
   "La escalación se cerró, pero no se pudo guardar el detalle del botín":
