@@ -66,7 +66,11 @@ function SitioDetalle({
       <div className="modal esc-det" onClick={(e) => e.stopPropagation()}>
         <div className="loot-modal-head">
           <strong>
-            {meta.icon} {r.name || meta.label}
+            {/* El icono REAL del analizador/veldspar/arma, no el emoji. `KindGlyph` ya existe y se
+                usa dos bloques más abajo en este mismo fichero — escribí `meta.icon` sin pensar,
+                que es exactamente el fallo que RoGiz7 me marcó el 2026-08-31: **los emoji salen
+                solos al escribir**, también dentro de una cabecera. */}
+            <KindGlyph icon={meta.icon} tid={meta.tid} size={18} /> {r.name || meta.label}
           </strong>
           <button className="loot-modal-x" onClick={onClose} title={tr("Cerrar")}>
             ✕

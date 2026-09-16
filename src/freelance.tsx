@@ -149,6 +149,17 @@ const METRIC_ICON_TID: Record<string, number> = {
   kills: 587, // Rifter (como Bitácora)
   patrimonio: 44992, // PLEX (como Bitácora)
   mineria: 22, // Arkonor (como Bitácora)
+  // ★ LOGI (2026-09-16): el módulo que HACE cada cosa, no un emoji de color. Verificados contra
+  //   `market_types.json`. Sirven para las dos direcciones —lo que curas y lo que te curan—
+  //   porque el módulo es el mismo objeto, lo que cambia es quién lo lleva.
+  heal_shield: 3606, // Large Remote Shield Booster I
+  recv_shield: 3606,
+  heal_armor: 11359, // Large Remote Armor Repairer I
+  recv_armor: 11359,
+  heal_hull: 27904, // Large Remote Hull Repairer I
+  recv_hull: 27904,
+  // Golpes finales, kills en solitario y sistemas con kill se quedan en emoji A PROPÓSITO: son
+  // conceptos abstractos sin objeto honesto, que es el límite ya fijado en la regla de la casa.
 };
 // Icono para un id según el tipo de filtro: icono de tipo (nave/mineral) o retrato/logo (víctima).
 function entityIcon(kind: string, id: number): string | null {
