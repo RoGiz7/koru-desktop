@@ -129,6 +129,16 @@
 "n": "Centre de rétention du cartel",
 "r": 8
 },
+"centus assembly t.p. co.": {
+"f": 500019,
+"n": "Centus Assembly T.P. Co.",
+"r": 10
+},
+"centus-fabrikationsanlage": {
+"f": 500019,
+"n": "Centus-Fabrikationsanlage",
+"r": 10
+},
 "chantier naval de la flotte serpentis": {
 "f": 500020,
 "n": "Chantier naval de la flotte serpentis",
@@ -144,10 +154,30 @@
 "n": "Complejo de ops. militares de los Ángeles",
 "r": 7
 },
+"complejo de suministros de guerra sansha": {
+"f": 500019,
+"n": "Complejo de suministros de guerra sansha",
+"r": 6
+},
+"complejo penitenciario pith": {
+"f": 500010,
+"n": "Complejo penitenciario pith",
+"r": 8
+},
+"complexe d'approvisionnement militaire sansha": {
+"f": 500019,
+"n": "Complexe d'approvisionnement militaire sansha",
+"r": 6
+},
 "complexe des opérations militaires angel": {
 "f": 500011,
 "n": "Complexe des opérations militaires angel",
 "r": 7
+},
+"complexe pénitentiaire pith": {
+"f": 500010,
+"n": "Complexe pénitentiaire pith",
+"r": 8
 },
 "corporation minière creocorp angel": {
 "f": 500011,
@@ -289,6 +319,11 @@
 "n": "Pith Merchant Depot",
 "r": 2
 },
+"pith's penal complex": {
+"f": 500010,
+"n": "Pith's Penal Complex",
+"r": 8
+},
 "pith-robux asteroid mining co.": {
 "f": 500010,
 "n": "Pith-Robux Asteroid Mining Co.",
@@ -344,6 +379,11 @@
 "n": "Sansha Military Outpost",
 "r": 1
 },
+"sansha war supply complex": {
+"f": 500019,
+"n": "Sansha War Supply Complex",
+"r": 6
+},
 "sansha's command relay outpost": {
 "f": 500019,
 "n": "Sansha's Command Relay Outpost",
@@ -353,6 +393,11 @@
 "f": 500019,
 "n": "Sansha-Kommandorelais-Außenposten",
 "r": 3
+},
+"sansha-kriegsversorgungskomplex": {
+"f": 500019,
+"n": "Sansha-Kriegsversorgungskomplex",
+"r": 6
 },
 "sansha-militäraußenposten": {
 "f": 500019,
@@ -388,6 +433,11 @@
 "f": 500020,
 "n": "Serpentis-Drogenvertriebsstelle",
 "r": 1
+},
+"strafvollzugskomplex des kerns": {
+"f": 500010,
+"n": "Strafvollzugskomplex des Kerns",
+"r": 8
 },
 "vieille carne - centre de culture": {
 "f": 500012,
@@ -439,6 +489,11 @@
 "n": "Военная застава Sansha (Sansha Military Outpost)",
 "r": 1
 },
+"военный комплекс снабжения sansha (sansha war supply complex)": {
+"f": 500019,
+"n": "Военный комплекс снабжения Sansha (Sansha War Supply Complex)",
+"r": 6
+},
 "зараженные восставшими дронами астероиды (rogue drone asteroid infestation)": {
 "f": 500021,
 "n": "Зараженные восставшими дронами астероиды (Rogue Drone Asteroid Infestation)",
@@ -488,6 +543,11 @@
 "f": 500010,
 "n": "Торговая база Pith (Pith Merchant Depot)",
 "r": 2
+},
+"тюремный комплекс pith (pith's penal complex)": {
+"f": 500010,
+"n": "Тюремный комплекс Pith (Pith's Penal Complex)",
+"r": 8
 },
 "тюремный комплекс картеля (cartel prisoner retention)": {
 "f": 500011,
@@ -549,6 +609,11 @@
 "n": "サンシャ軍事アウトポスト",
 "r": 1
 },
+"サンシャ軍用補給複合施設": {
+"f": 500019,
+"n": "サンシャ軍用補給複合施設",
+"r": 6
+},
 "サーペンティスドラッグアウトレット": {
 "f": 500020,
 "n": "サーペンティスドラッグアウトレット",
@@ -568,6 +633,16 @@
 "f": 500020,
 "n": "サーペンティス麻薬倉庫",
 "r": 3
+},
+"センタス組み立てt.p. co.": {
+"f": 500019,
+"n": "センタス組み立てT.P. Co.",
+"r": 10
+},
+"ピスの刑事複合施設": {
+"f": 500010,
+"n": "ピスの刑事複合施設",
+"r": 8
 },
 "ピスロブックスアステロイド採掘会社": {
 "f": 500010,
@@ -659,6 +734,11 @@
 "n": "天蛇迷幻药贮藏所",
 "r": 3
 },
+"森屠斯“实力派”装配工厂": {
+"f": 500019,
+"n": "森屠斯“实力派”装配工厂",
+"r": 10
+},
 "毛—扎塔修道院": {
 "f": 500012,
 "n": "毛—扎塔修道院",
@@ -673,6 +753,11 @@
 "f": 500010,
 "n": "皮特—洛波斯小行星矿冶公司",
 "r": 1
+},
+"皮特管教所": {
+"f": 500010,
+"n": "皮特管教所",
+"r": 8
 },
 "米玛塔尔承包模拟生态农场": {
 "f": 500011,
@@ -698,6 +783,11 @@
 "f": 500019,
 "n": "萨沙司令部",
 "r": 3
+},
+"萨沙补给复合体": {
+"f": 500019,
+"n": "萨沙补给复合体",
+"r": 6
 },
 "血腥傀儡补给站": {
 "f": 500012,
@@ -734,6 +824,11 @@
 "n": "산샤 군사기지",
 "r": 1
 },
+"산샤 전쟁보급소": {
+"f": 500019,
+"n": "산샤 전쟁보급소",
+"r": 6
+},
 "산샤 지휘통신소": {
 "f": 500019,
 "n": "산샤 지휘통신소",
@@ -758,6 +853,11 @@
 "f": 500020,
 "n": "서펜티스 파이-전초기지",
 "r": 4
+},
+"센투스 어셈블리 t.p. co.": {
+"f": 500019,
+"n": "센투스 어셈블리 T.P. Co.",
+"r": 10
 },
 "엔젤 군사시설": {
 "f": 500011,
@@ -803,6 +903,11 @@
 "f": 500010,
 "n": "피스 거래상 보급소",
 "r": 2
+},
+"피스 형벌 시설": {
+"f": 500010,
+"n": "피스 형벌 시설",
+"r": 8
 },
 "피스-로벅스 채굴 시설": {
 "f": 500010,

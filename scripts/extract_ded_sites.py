@@ -25,7 +25,7 @@ equivocarse.
 
 # Lo que NO cubre, y hay que decirlo en pantalla
 
-Solo **38** dungeons llevan valoracion DED. Las escalaciones de anomalia y las expediciones de
+Solo **44** dungeons llevan valoracion DED (medido 2026-09-16; eran 38 antes de arreglar el patron). Las escalaciones de anomalia y las expediciones de
 cuatro partes son **sin rating**, y eso no es un hueco del catalogo: es que no tienen. Un sitio que
 no este aqui se queda «sin rating», que es la verdad.
 
@@ -51,18 +51,28 @@ SALIDA = os.path.join(ROOT, "public", "ded_sites.json")
 # Idiomas cuyo nombre se indexa: el usuario copia el titulo TAL COMO lo ve en su cliente.
 IDIOMAS = ["en", "es", "de", "fr", "ja", "ko", "ru", "zh"]
 
-PATRONES = [
-    re.compile(r"DED Threat Assessment[^(]*\((\w+)\s+of\s+(\d+)\)", re.I),
-    re.compile(r"Evaluaci[óo]n de amenaza DED[^(]*\((\w+)\s+de\s+(\d+)\)", re.I),
-]
-PALABRA = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-    "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
-    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
-}
-
-
+# ★★ EL PATRÓN, REESCRITO (2026-09-16) — lo destapó el TESTER, no una prueba nuestra.
+#
+# La primera versión exigía el rating ENTRE PARÉNTESIS —«(10 of 10)»— porque los dos ejemplos que
+# miré lo llevaban. Y su tester apuntó que faltaban escalaciones, entre ellas «Centus Assembly
+# T.P. Co. - 10/10». Está en el SDE, 10/10, Sansha… y su texto dice:
+#
+#     DED Threat Assessment Level: 10 of 10        ← SIN paréntesis
+#
+# MEDIDO antes de tocar nada: 47 dungeons mencionan DED, el patrón viejo cazaba 38, y de las
+# **55 formas distintas** del texto en los 8 idiomas solo cubría DOS. Faltaban el inglés sin
+# paréntesis, el español sin paréntesis («DED: 5 de 10»), y el alemán, el francés y el ruso
+# enteros — que importan porque el extractor prueba idioma por idioma hasta que uno casa.
+#
+# ★ LA SIMPLIFICACIÓN QUE LO ARREGLA: **el denominador es SIEMPRE 10** (211 de 211 medido). Así
+#   que no hace falta una lista de frases por idioma —que es lo que estaba mal— sino una regla:
+#   «DED» y, dentro de los 70 caracteres siguientes, un número sobre 10.
+#
+# ⚠️ «DED» va en MAYÚSCULAS y con \b a los dos lados. Sin eso caza «...ded to go into business in
+#    the private sector», que es prosa. Y el «DED meistgesuchten Verbrecher» alemán tampoco entra,
+#    porque no lleva número: las dos defensas hacen falta, ninguna sobra.
+DED = re.compile(r"\bDED\b")
+SOBRE_10 = re.compile(r"(\d{1,2}|[A-Za-zÁÉÍÓÚáéíóúÄÖÜäöü]+)\s*(?:of|de|von|sur|di|\u0438\u0437|/)\s*10\b", re.I)
 def rating_de(desc: dict) -> int | None:
     """La valoracion sale de la descripcion, probando idioma por idioma hasta que una casa."""
     if not isinstance(desc, dict):
@@ -70,12 +80,12 @@ def rating_de(desc: dict) -> int | None:
     for texto in desc.values():
         if not texto:
             continue
-        for p in PATRONES:
-            m = p.search(texto)
-            if not m:
+        for m in DED.finditer(texto):
+            v = SOBRE_10.search(texto[m.start() : m.start() + 70])
+            if not v:
                 continue
-            v = m.group(1).lower()
-            r = int(v) if v.isdigit() else PALABRA.get(v)
+            g = v.group(1).lower()
+            r = int(g) if g.isdigit() else PALABRA.get(g)
             if r and 1 <= r <= 10:
                 return r
     return None
