@@ -338,11 +338,50 @@ function App() {
     // Comprueba si hay una versión más nueva publicada en Releases.
     // Defensa en capas: al arrancar + cada 6h + al recuperar el foco de la ventana.
     // En cuanto encuentra una, deja de comprobar (pendingUpdate ya seteado).
+    //
+    // ★★ Y EL CHEQUEO DEL FOCO VA LIMITADO A UNO POR DÍA (UTC). No es por ahorrar red: es porque
+    //    **cada comprobación es la métrica de adopción del proyecto**. El actualizador pide
+    //    `latest.json` de la release, y el contador de descargas de ese fichero en GitHub es de
+    //    donde sale la columna `pings_dia` del panel. No hay telemetría ninguna: el número lo
+    //    cuenta GitHub.
+    //
+    //    El problema era el evento `focus`. Un jugador multiboxeando hace alt-tab del juego a Koru
+    //    decenas de veces por sesión, y **cada vuelta era un ping**. Eso convertía la cifra en algo
+    //    sin techo: medía «cuántas veces te has pasado a mirar Koru», no cuánta gente lo usa. Con
+    //    el tope diario, los otros dos disparadores quedan acotados (1 por arranque + 4 como mucho
+    //    por el intervalo de 6 h) y la columna vuelve a poder interpretarse.
+    //
+    //    ⚠️ LO QUE **NO** SE TOCA, a propósito: el chequeo del ARRANQUE. Es el que hace que una
+    //    release recién publicada llegue a la gente en minutos —se vio en la v0.51.0— y eso vale
+    //    más que la pureza de la métrica. Si algún día hiciera falta un recuento limpio de clientes
+    //    únicos por día, el cambio es mover `run(true)` a `run()`: se gana la cifra exacta y se
+    //    pierde el aviso el mismo día. No se ha hecho porque hoy la agilidad importa más.
+    //
+    //    El día va en UTC, igual que `snapshot_date` del panel y que el contador de GitHub. Con la
+    //    fecha local, un cliente en UTC+13 cambiaría de día en otro momento que el contador y el
+    //    tope no cuadraría con lo que se mide.
+    const CLAVE_DIA = "koru-update-check-dia";
+    const diaUTC = () => new Date().toISOString().slice(0, 10);
     let cancelled = false;
-    const run = async () => {
+    const run = async (siempre = false) => {
       if (pendingUpdate.current) return; // ya hay una actualización pendiente
+      if (!siempre) {
+        try {
+          if (localStorage.getItem(CLAVE_DIA) === diaUTC()) return; // ya se comprobó hoy
+        } catch {
+          /* sin localStorage (modo privado, almacenamiento bloqueado): comprobar como antes.
+             Perder la métrica es preferible a perder el aviso de actualización. */
+        }
+      }
       try {
         const update = await check();
+        // Se apunta DESPUÉS de que la petición haya salido: si falló, no cuenta como comprobada y
+        // se reintentará. Marcarla antes dejaría a un cliente sin red un día entero sin mirar.
+        try {
+          localStorage.setItem(CLAVE_DIA, diaUTC());
+        } catch {
+          /* da igual: solo se pierde el tope de hoy */
+        }
         if (!cancelled && update) {
           pendingUpdate.current = update;
           setUpdateVersion(update.version);
@@ -351,9 +390,9 @@ function App() {
         // sin conexión / sin endpoint: ignorar silenciosamente
       }
     };
-    run(); // al arrancar
-    const id = setInterval(run, 6 * 60 * 60 * 1000); // cada 6 horas
-    const onFocus = () => run(); // al volver el foco a la ventana
+    run(true); // al arrancar: SIEMPRE, sin tope (ver arriba)
+    const id = setInterval(() => run(true), 6 * 60 * 60 * 1000); // cada 6 horas, acotado de por sí
+    const onFocus = () => run(); // al volver el foco: como mucho una vez al día
     window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
