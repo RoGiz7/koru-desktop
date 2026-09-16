@@ -256,9 +256,11 @@ export const FEATURES = [
   // ancho que la feature), pero la etiqueta dice «Campañas militares» para no chocar con la
   // sección Actividad, que es otra cosa (actividad diaria y horas calientes).
   { key: "actividad", label: "Campañas militares (tu contribución)" },
-  // Sonda de flotas: se concede suelto porque HOY no hay ninguna sección que lo use — solo el
-  // botón de Ajustes que pregunta a ESI si esta idea es siquiera posible.
-  { key: "flota", label: "Flotas (sonda, aún sin sección)" },
+  // Flotas. ⚠️ El comentario que había aquí decía «se concede suelto porque HOY no hay ninguna
+  // sección que lo use», y llevaba desfasado desde la v0.46.0, que sacó el pilar entero. El scope
+  // está en `core_v1()` desde el 2026-08-19: el grupo suelto se queda para quien quiera conceder
+  // solo esto, no porque sea la vía normal.
+  { key: "flota", label: "Flotas (con quién vuelas)" },
   { key: "location", label: "Ubicación (sistema actual)" },
   { key: "identity", label: "Solo identidad (0 scopes)" },
 ];

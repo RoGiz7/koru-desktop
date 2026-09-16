@@ -359,10 +359,13 @@ let cacheShips: MyShip[] | null = null;
 export function NavesView({
   subject,
   onVerEnMapa,
+  serverOffline,
 }: {
   subject: number | "global";
   /** «Ver en el mapa»: centra el sistema en la pestaña Mapa (fase 2 del centrado). */
   onVerEnMapa?: (sysId: number) => void;
+  /** TQ caído, según la misma comprobación que pinta la barra de estado. Ver el cartel de abajo. */
+  serverOffline?: boolean;
 }) {
   const [ships, setShips] = useState<MyShip[] | null>(null);
   const [cargo, setCargo] = useState<Record<string, CargoEntry>>({});
@@ -497,6 +500,18 @@ export function NavesView({
   }, [pestañas, grupo]);
 
   if (error) return <div className="error">{error}</div>;
+  // ★ «Cargando…» durante un DOWNTIME es un cartel que miente (lo vio RoGiz7 el 2026-08-26 con TQ
+  //   caída). Esto no está cargando: espera a un servidor que no va a contestar, **y Koru ya sabe
+  //   que está caído** — lo pinta en su propia barra de estado. Es el mismo pecado que el «no se
+  //   encontraron canales» del intel: afirmar algo que nadie ha comprobado teniendo el dato a mano.
+  //   La condición es `!ships` Y `serverOffline`: con datos ya cargados no se tapa la pantalla por
+  //   un downtime, que lo que ya está en pantalla sigue siendo cierto.
+  if (!ships && serverOffline)
+    return (
+      <div className="muted">
+        {tr("Tus naves salen de EVE en vivo, y ahora mismo Tranquility está caído. Volverá solo cuando el servidor vuelva.")}
+      </div>
+    );
   if (!ships) return <div className="muted">{tr("Cargando…")}</div>;
 
   const montadas = filtradas.filter((s) => s.assembled).length;

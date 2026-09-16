@@ -13,6 +13,7 @@ import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
 import { loadShipRows, type ShipRow } from "./flotas";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
+import { iskCorto } from "./isk";
 import { RunDetalle } from "./fichaRun";
 import type { RunLootLine } from "./runLoot";
 import type { ActivityRun, RunChar, CharacterCard } from "./types";
@@ -1355,7 +1356,10 @@ export function AbyssalRunsView({
         confirmLabel={tr("Usar botín")}
         onCancel={() => setLootOpen(false)}
         onConfirm={(isk, nota, lineas) => {
-          if (isk != null) setFinLoot(String(isk));
+          // `iskCorto` y no `String`: el valor del pegado trae cola de coma flotante
+          // (`6745298.8000000`) y el resto de Koru habla en «6,75 M». Es la inversa del parser, así
+          // que lo que se enseña vuelve por la misma puerta por la que salió (ver `isk.ts`).
+          if (isk != null) setFinLoot(iskCorto(isk));
           // ★ La nota YA NO SE TIRA. Este modal solo sirve al panel de TERMINAR una run: la edición
           //   de una run cerrada tiene el suyo dentro de la ficha, con su propio destino.
           if (nota.trim()) setFinNota(nota);

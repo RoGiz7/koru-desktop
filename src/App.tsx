@@ -1235,9 +1235,17 @@ function App() {
       return;
     }
     // Comprobar el scope ANTES de llamar. ESI contesta 401 y ahí acaba la historia, pero el 401 no
-    // dice CÓMO se arregla — y el camino es contraintuitivo: «Set completo» NO trae este scope (está
-    // fuera del set a propósito mientras sea un experimento), así que quien reintente por ahí va a
-    // dar vueltas para siempre. Decir el menú exacto vale más que repetir el error de ESI.
+    // dice CÓMO se arregla.
+    //
+    // 🚨 ESTE TEXTO DECÍA LO CONTRARIO DE LO QUE PASA, y no era un comentario rancio: era el
+    //    CONSEJO que se le daba al usuario. Afirmaba que «Set completo» NO trae el scope de flotas
+    //    y que había que concederlo suelto — pero `FLOTA` entró en `core_v1()` el 2026-08-19
+    //    (config.rs) y desde entonces el set completo SÍ lo trae. Seguir aquel paso a paso era
+    //    peor que no hacer nada: un login granular **reemplaza** los scopes, así que el personaje
+    //    se quedaba SOLO con el de flotas y perdía todo lo demás. Cazado el 2026-09-16 tirando del
+    //    hilo de la etiqueta del botón, que seguía diciendo «experimento».
+    //    ➡️ La lección, que es la de siempre en este proyecto: **un cartel que da instrucciones
+    //    envejece peor que uno que da información**, porque el usuario las ejecuta.
     const quien = characters.find((c) => c.character_id === cid);
     if (quien && !quien.scopes?.includes("esi-fleets.read_fleet.v1")) {
       setDiag({
@@ -1245,10 +1253,9 @@ function App() {
         nota: tr("Todavía no se ha preguntado nada a ESI: falta un paso previo."),
         texto:
           `${quien.name} ${tr("no tiene el scope esi-fleets.read_fleet.v1.")}\n\n` +
-          `${tr("«Set completo» NO lo incluye: está fuera del set mientras sea un experimento. Hay que concederlo suelto.")}\n\n` +
-          `1. ${tr("Márcalo en tu aplicación del portal de desarrollo de EVE y espera unos minutos a que el SSO lo propague.")}\n` +
-          `2. ${tr("Barra superior → «＋ Conceder acceso» → Acceso a: «Flotas (sonda, aún sin sección)» → Iniciar sesión.")}\n` +
-          `3. ${tr("⚠️ Ese login deja al personaje SOLO con ese scope. Hazlo en un ALT y devuélvele después el «Set completo».")}\n\n` +
+          `${tr("«Set completo» SÍ lo incluye desde agosto de 2026. Si este personaje no lo tiene, es que inició sesión antes de esa fecha o con un acceso suelto.")}\n\n` +
+          `1. ${tr("Barra superior → «＋ Conceder acceso» → Acceso a: «Set completo (recomendado)» → Iniciar sesión.")}\n` +
+          `2. ${tr("⚠️ No uses un acceso suelto para esto: un login granular REEMPLAZA los scopes del personaje y le quitaría los demás.")}\n\n` +
           `${tr("Scopes que tiene ahora")}: ${quien.scopes?.length ?? 0}`,
       });
       setDiagCopiado(false);
@@ -2922,16 +2929,30 @@ function App() {
                   </span>
                 </span>
               </button>
-              {/* SONDA DE FLOTAS. Está en Ajustes y no en una sección porque NO ES UNA FEATURE:
-                  es una pregunta a ESI cuya respuesta decide si «Flotas» se puede construir o no.
-                  Cuando la conteste, este botón se va con ella. */}
+              {/* SONDA DE FLOTAS. Está en Ajustes y no en una sección porque NO ES UNA FEATURE.
+                  ★ CAMBIÓ DE OFICIO, no de código (2026-09-16). Nació como EXPERIMENTO: una
+                  pregunta a ESI cuya respuesta decidía si «Flotas» se podía construir. Ese
+                  comentario decía «cuando la conteste, este botón se va con ella» — y la contestó
+                  el 2026-08-19 (solo el FC lee la lista de miembros; al miembro le dan 404) y el
+                  pilar entero salió en la v0.46.0. Pero el botón se quedó **con el cartel del
+                  experimento**, prometiendo que «todavía no hay ninguna sección que lo use» cuando
+                  hacía semanas que la había. Se queda por dos motivos nuevos y de verdad:
+                  1. **DIAGNÓSTICO DE SOPORTE.** ESI contesta 404 tanto si no tienes acceso como si
+                     la flota no existe, así que Koru NO puede distinguirlos y ninguna pantalla
+                     puede afirmar «no tienes permiso». La sonda sí lo distingue, porque la lanzas
+                     sabiendo que estás en flota.
+                  2. **CENTINELA.** Llama en crudo, sin caché y sin interpretar: si algún día ESI
+                     cambia lo que deja leer, esto lo canta.
+                  Y el texto dice ahora que no enseña nombres, que era una promesa REAL del código
+                  (solo cuenta miembros y lista campos, nunca los `character_id` ajenos) que no
+                  estaba dicha en ninguna parte. */}
               <button className="tb-settings-item" onClick={probarFlota}>
                 <span className="tb-si-ic">🛰</span>
                 <span className="tb-si-tx">
-                  <strong>{tr("Sonda de flotas (experimento)")}</strong>
+                  <strong>{tr("Sonda de flotas (diagnóstico)")}</strong>
                   <span className="small muted">
                     {tr(
-                      "Estando en flota, pregunta a ESI qué deja leer. Sirve para saber si Koru podrá contar con quién vuelas; todavía no hay ninguna sección que lo use.",
+                      "Estando en flota, pregunta a ESI qué te deja leer a ti. Solo el comandante puede leer la lista de miembros: si Flotas sale vacía, esto dice si es por eso o si algo falla. No enseña nombres.",
                     )}
                   </span>
                 </span>
@@ -3614,6 +3635,7 @@ function App() {
               charId={isGlobal ? null : subjectId}
               presetQuery={assetQuery}
               onVerEnMapa={verEnMapa}
+              serverOffline={serverOffline}
             />
           )}
           {tab === "industria" && (
@@ -3653,7 +3675,9 @@ function App() {
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}
           {tab === "logis" && <LogisView subject={subject} />}
-          {tab === "naves" && <NavesView subject={subject} onVerEnMapa={verEnMapa} />}
+          {tab === "naves" && (
+            <NavesView subject={subject} onVerEnMapa={verEnMapa} serverOffline={serverOffline} />
+          )}
           {tab === "inventario" && <InventarioView subject={subject} onVerEnMapa={verEnMapa} />}
           {tab === "exploracion" && (
             <ExplorationView

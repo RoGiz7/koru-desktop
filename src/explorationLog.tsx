@@ -9,6 +9,7 @@ import { tr } from "./i18n";
 import { fmtIsk, typeRender } from "./format";
 import { KIND_META, KindGlyph, fmtDuration, BUCKETS } from "./signaturesControl";
 import { parseIskShorthand, buildLootIndex, type LootIndex } from "./lootPaste";
+import { iskCorto } from "./isk";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildDungeonIndex, siteNameEn, siteWikiUrl, type DungeonIndex } from "./siteNames";
 import { BotinDesglose, Dato, fechaCorta } from "./fichaRun";
@@ -220,7 +221,7 @@ export function ExplorationLogView({ charId }: Props) {
 
   function startEdit(r: ExplorationLogRow) {
     setEditId(r.id);
-    setEditIsk(r.loot_isk != null ? String(r.loot_isk) : "");
+    setEditIsk(iskCorto(r.loot_isk));
     setEditLoot(r.loot_note ?? "");
     setEditNote(r.note ?? "");
   }

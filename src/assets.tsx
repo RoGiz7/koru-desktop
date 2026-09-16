@@ -47,8 +47,10 @@ export function AssetsView(props: {
   presetQuery?: string;
   /** «Ver en el mapa»: centra el sistema en la pestaña Mapa (fase 2 del centrado). */
   onVerEnMapa?: (sysId: number) => void;
+  /** TQ caído, según la misma comprobación que pinta la barra de estado. */
+  serverOffline?: boolean;
 }) {
-  const { data, detail, busy, charId, presetQuery, onVerEnMapa } = props;
+  const { data, detail, busy, charId, presetQuery, onVerEnMapa, serverOffline } = props;
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // "" = Todos
   // Datos para el skill-check del fit al abrir una nave.
@@ -139,7 +141,16 @@ export function AssetsView(props: {
   }, [detail]);
   return (
     <>
-      {!data && busy && <p className="muted">{tr("Cargando… (puede tardar con muchos assets)")}</p>}
+      {/* ★ Durante un downtime esto no está cargando: espera a un servidor caído que Koru YA sabe
+          que está caído. Ver el comentario largo en `naves.tsx`. */}
+      {!data && busy && serverOffline && (
+        <p className="muted">
+          {tr("El inventario sale de EVE en vivo, y ahora mismo Tranquility está caído. Volverá solo cuando el servidor vuelva.")}
+        </p>
+      )}
+      {!data && busy && !serverOffline && (
+        <p className="muted">{tr("Cargando… (puede tardar con muchos assets)")}</p>
+      )}
       {data && (
         <>
           <div className="kpis">

@@ -967,12 +967,20 @@ const EN: Record<string, string> = {
   "no tiene el scope esi-fleets.read_fleet.v1.": "does not have the esi-fleets.read_fleet.v1 scope.",
   "«Set completo» NO lo incluye: está fuera del set mientras sea un experimento. Hay que concederlo suelto.": "“Full set” does NOT include it: it stays out of the set while it's an experiment. It has to be granted on its own.",
   "Márcalo en tu aplicación del portal de desarrollo de EVE y espera unos minutos a que el SSO lo propague.": "Tick it in your EVE developer portal application and wait a few minutes for the SSO to propagate it.",
-  "Barra superior → «＋ Conceder acceso» → Acceso a: «Flotas (sonda, aún sin sección)» → Iniciar sesión.": "Top bar → “＋ Grant access” → Access to: “Fleets (probe, no section yet)” → Log in.",
   "⚠️ Ese login deja al personaje SOLO con ese scope. Hazlo en un ALT y devuélvele después el «Set completo».": "⚠️ That login leaves the character with ONLY that scope. Do it on an ALT and give it back the “Full set” afterwards.",
   "Scopes que tiene ahora": "Scopes it has right now",
-  "Flotas (sonda, aún sin sección)": "Fleets (probe, no section yet)",
-  "Sonda de flotas (experimento)": "Fleet probe (experiment)",
-  "Estando en flota, pregunta a ESI qué deja leer. Sirve para saber si Koru podrá contar con quién vuelas; todavía no hay ninguna sección que lo use.": "While you're in a fleet, asks ESI what it will let us read. It tells us whether Koru can ever show who you fly with; no section uses it yet.",
+  "Flotas (con quién vuelas)": "Fleets (who you fly with)",
+  "Sonda de flotas (diagnóstico)": "Fleet probe (diagnostic)",
+  // El consejo de este diagnóstico decía lo CONTRARIO de lo que hace el código hasta el
+  // 2026-09-16: ver el comentario largo en App.tsx.
+  "«Set completo» SÍ lo incluye desde agosto de 2026. Si este personaje no lo tiene, es que inició sesión antes de esa fecha o con un acceso suelto.":
+    "“Full set” HAS included it since August 2026. If this character doesn't have it, they signed in before that date or with a single-purpose access.",
+  "Barra superior → «＋ Conceder acceso» → Acceso a: «Set completo (recomendado)» → Iniciar sesión.":
+    "Top bar → “＋ Grant access” → Access to: “Full set (recommended)” → Sign in.",
+  "⚠️ No uses un acceso suelto para esto: un login granular REEMPLAZA los scopes del personaje y le quitaría los demás.":
+    "⚠️ Don't use a single-purpose access for this: a granular login REPLACES the character's scopes and would strip the rest.",
+  "Estando en flota, pregunta a ESI qué te deja leer a ti. Solo el comandante puede leer la lista de miembros: si Flotas sale vacía, esto dice si es por eso o si algo falla. No enseña nombres.":
+    "While you're in a fleet, asks ESI what it will let YOU read. Only the fleet commander can read the member list: if Fleets comes up empty, this tells you whether that's why or whether something is broken. It shows no names.",
   "No lleva la lista de miembros: solo cuántos son y qué campos trae cada uno, que es lo único que hace falta para decidir. Tampoco se envía a ningún sitio.": "It does not include the member list: only how many there are and what fields each one carries, which is all we need to decide. It isn't sent anywhere either.",
   "Elige primero un personaje (o concédele el scope de flotas desde «Añadir personaje»).": "Pick a character first (or grant it the fleet scope from “Add character”).",
   "Copiado": "Copied",
@@ -2249,6 +2257,11 @@ const EN: Record<string, string> = {
   "Se guardará también el botín pegado": "The pasted loot will be saved too",
   // --- La ficha de un sitio del histórico de exploración (`explorationLog.tsx`, 2026-09-16) ---
   "Ver qué cayó en este sitio": "See what dropped at this site",
+  // --- «Cargando…» durante un downtime es un cartel que miente (2026-09-16) ---
+  "Tus naves salen de EVE en vivo, y ahora mismo Tranquility está caído. Volverá solo cuando el servidor vuelva.":
+    "Your ships come from EVE live, and Tranquility is down right now. This will come back on its own when the server does.",
+  "El inventario sale de EVE en vivo, y ahora mismo Tranquility está caído. Volverá solo cuando el servidor vuelva.":
+    "Your inventory comes from EVE live, and Tranquility is down right now. This will come back on its own when the server does.",
   "El botín": "The loot",
   "Firma": "Signature",
   "Ver en la wiki": "See on the wiki",

@@ -25,6 +25,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, typeIcon } from "./format";
 import { parseIskShorthand, type LootIndex } from "./lootPaste";
+import { iskCorto } from "./isk";
 import { LootPasteModal } from "./lootPasteModal";
 import type { RunLootLine } from "./runLoot";
 import type { ActivityRun, RunChar } from "./types";
@@ -334,9 +335,9 @@ export function RunDetalle({
   const [msg, setMsg] = useState("");
 
   function empezar() {
-    setELoot(run.loot_isk != null ? String(run.loot_isk) : "");
-    setEEntry(run.entry_cost != null ? String(run.entry_cost) : "");
-    setEShip(run.ship_loss_isk != null ? String(run.ship_loss_isk) : "");
+    setELoot(iskCorto(run.loot_isk));
+    setEEntry(iskCorto(run.entry_cost));
+    setEShip(iskCorto(run.ship_loss_isk));
     setENota(run.loot_note ?? "");
     setEBotin([]);
     setEditando(true);
@@ -482,7 +483,7 @@ export function RunDetalle({
           confirmLabel={tr("Usar botín")}
           onCancel={() => setLootOpen(false)}
           onConfirm={(isk, nota, lineas) => {
-            if (isk != null) setELoot(String(isk));
+            if (isk != null) setELoot(iskCorto(isk));
             // La nota ya NO se tira: desde hoy hay dónde enseñarla. Solo pisa lo que hubiera si el
             // modal devolvió algo — confirmar sin escribir nota no debe borrar la que ya tenías.
             if (nota.trim()) setENota(nota);
