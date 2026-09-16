@@ -67,6 +67,17 @@ import {
   TAB_HEAD,
 } from "./constants";
 import type { Tab, MapOverlay } from "./constants";
+/** Lo que queda en la carpeta de datos antigua. Espejo de `datadir::CarpetaVieja` (Rust).
+ *  `en_uso` es la clave: si está puesto, la mudanza NO se hizo y esa carpeta tiene los datos
+ *  vivos — ahí no se ofrece borrar nada. */
+type CarpetaVieja = {
+  existe: boolean;
+  ruta: string;
+  bytes: number;
+  ficheros: number;
+  tiene_bd: boolean;
+  en_uso: boolean;
+};
 import { openExternal, setOpenExternalFallback } from "./openExternal";
 import { ThemePicker } from "./themePicker";
 import { estadoReconstruccion, escucharReconstruccion } from "./reconstruirIntel";
@@ -259,6 +270,11 @@ function App() {
   // caiga el botón ⚙️ (la topbar se reordena en ventanas estrechas).
   const [settingsPos, setSettingsPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const [dbInfo, setDbInfo] = useState<{ path: string; size: number; heredada: boolean } | null>(null);
+  /** Fase 3 de la mudanza de carpeta: lo que queda en la carpeta antigua (`carpeta_vieja_info`). */
+  const [vieja, setVieja] = useState<CarpetaVieja | null>(null);
+  const [viejaConfirma, setViejaConfirma] = useState(false);
+  /** Bytes liberados por el último borrado. `null` = no se ha borrado en esta sesión. */
+  const [viejaLiberados, setViejaLiberados] = useState<number | null>(null);
   const [lastBackup, setLastBackup] = useState<number | null>(() => {
     const v = localStorage.getItem("koru-last-backup");
     return v ? Number(v) : null;
@@ -376,6 +392,35 @@ function App() {
     invoke<{ path: string; size: number; heredada: boolean }>("db_info")
       .then(setDbInfo)
       .catch(() => setDbInfo(null));
+    // Fase 3 de la mudanza: qué queda en la carpeta antigua. Se pide AL ABRIR Ajustes y no al
+    // arrancar, porque pesar un árbol de ficheros no tiene por qué pasar en el arranque para un
+    // cartel que casi nadie va a mirar.
+    setViejaConfirma(false);
+    setViejaLiberados(null);
+    invoke<CarpetaVieja>("carpeta_vieja_info")
+      .then(setVieja)
+      .catch(() => setVieja(null));
+  }
+
+  /** Borra la carpeta antigua. Las guardas están en Rust (`datadir::borrar_vieja`); aquí solo se
+   *  refresca lo que se enseña y se dice el resultado. El mensaje de éxito da los MB liberados:
+   *  un borrado silencioso deja al usuario sin saber si pasó algo. */
+  async function borrarVieja() {
+    try {
+      const bytes = await invoke<number>("carpeta_vieja_borrar");
+      setViejaConfirma(false);
+      setVieja(await invoke<CarpetaVieja>("carpeta_vieja_info"));
+      // ★ La confirmación va AQUÍ, en el panel, y no al toast global. Su propio comentario dice que
+      //   el color del toast es la señal más fuerte de la app —hostiles en local— y gastarla en
+      //   «carpeta borrada» la devalúa para cuando de verdad importe. Además esto se lee donde el
+      //   usuario está mirando, que es el panel que acaba de cambiar.
+      setViejaLiberados(bytes);
+    } catch (e) {
+      // El error de Rust viene EN CLARO a propósito (ver `borrar_vieja`): quien pulsa un botón
+      // destructivo y no ve nada, lo vuelve a pulsar.
+      setError(String(e));
+      setViejaConfirma(false);
+    }
   }
   async function handleOpenDataFolder() {
     try {
@@ -2920,6 +2965,53 @@ function App() {
                 >
                   📂 {tr("Abrir carpeta de datos")}
                 </button>
+
+                {/* ★★ FASE 3 DE LA MUDANZA: borrar la carpeta antigua.
+                    La fase 2 la dejó intacta a propósito —es una copia de seguridad de antes de
+                    mover nada— y esto es lo único que la borra. **Nunca automático**, y por eso
+                    vive detrás de un botón en Ajustes y no en el arranque.
+                    Solo aparece si de verdad hay algo que borrar y NO estamos leyendo de ahí: con
+                    `en_uso`, la mudanza no se hizo y esa carpeta tiene los datos vivos. */}
+                {/* Ya borrada en esta sesión: se dice lo que se liberó. Sin esto, pulsar y ver que
+                    el panel desaparece no confirma nada — parece que se fue solo. */}
+                {viejaLiberados != null && !vieja?.existe && (
+                  <div className="small muted">
+                    ✓ {tr("Carpeta antigua borrada")} · {fmtBytes(viejaLiberados)}{" "}
+                    {tr("liberados")}
+                  </div>
+                )}
+                {vieja?.existe && !vieja.en_uso && (
+                  <div className="tb-vieja">
+                    <div className="small muted" title={vieja.ruta}>
+                      {tr("Carpeta antigua")}: {fmtBytes(vieja.bytes)} ·{" "}
+                      {vieja.ficheros} {vieja.ficheros === 1 ? tr("fichero") : tr("ficheros")}
+                      {vieja.tiene_bd && ` · ${tr("con una copia de tu base de datos")}`}
+                    </div>
+                    {!viejaConfirma ? (
+                      <button className="tb-vieja-btn" onClick={() => setViejaConfirma(true)}>
+                        🗑 {tr("Borrar la carpeta antigua")}
+                      </button>
+                    ) : (
+                      <>
+                        {/* ★ EL AVISO, decidido al diseñar la fase 2 y escrito aquí sin rebajarlo:
+                            a partir de esto, una versión anterior a la 0.49 ya no encuentra los
+                            datos. Y eso PASA — cuando algo falla, mucha gente reinstala la versión
+                            que le funcionaba. Es el único camino que deja Koru vacío. */}
+                        <div className="small tb-vieja-aviso">
+                          {tr(
+                            "Es tu copia de seguridad de antes de mover los datos. Si la borras y algún día instalas a mano una versión anterior a la 0.49, esa versión no encontrará tus datos.",
+                          )}
+                        </div>
+                        <div className="tb-vieja-acciones">
+                          <button className="tb-vieja-btn confirma" onClick={() => void borrarVieja()}>
+                            {tr("Borrar")}
+                          </button>
+                          <button onClick={() => setViejaConfirma(false)}>{tr("Cancelar")}</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               </>
             )}

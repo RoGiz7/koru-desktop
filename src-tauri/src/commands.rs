@@ -55,6 +55,52 @@ pub struct DbInfo {
     pub heredada: bool,
 }
 
+/// ★★ FASE 3 de la mudanza de carpeta — QUÉ HAY EN LA CARPETA ANTIGUA.
+///
+/// La fase 2 dejó la carpeta vieja intacta a propósito: es una copia de seguridad gratis de antes
+/// de mover nada. Esto solo la MIRA, para poder enseñar lo que ocupa antes de ofrecer borrarla.
+/// Ver `datadir::vieja_info` y, para el borrado, `datadir::borrar_vieja` con sus cuatro guardas.
+///
+/// ⚠️ La carpeta BASE la calcula el servidor a partir de `app_data_dir()`, igual que en el arranque
+/// (`lib.rs`). El frontend no manda una ruta ni aquí ni al borrar: un borrado recursivo que acepte
+/// rutas de fuera es una forma de borrar el disco por accidente.
+#[tauri::command]
+pub fn carpeta_vieja_info(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<crate::datadir::CarpetaVieja> {
+    let base = base_de_datos_app(&app)?;
+    Ok(crate::datadir::vieja_info(&base, &state.db_path))
+}
+
+/// ★★ FASE 3 — BORRA la carpeta antigua. **Nunca automático**: solo desde el botón de Ajustes.
+///
+/// Devuelve los bytes liberados. Las guardas (no borrar si se está leyendo de ahí, no tirar la
+/// copia si la BD viva no pasa `quick_check`, no borrar si no hay BD nueva) están en
+/// `datadir::borrar_vieja`, en el módulo que sabe de carpetas — no aquí, para que no haya dos
+/// sitios que opinen sobre lo mismo.
+#[tauri::command]
+pub fn carpeta_vieja_borrar(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<u64> {
+    let base = base_de_datos_app(&app)?;
+    crate::datadir::borrar_vieja(&base, &state.db_path).map_err(AppError::Other)
+}
+
+/// La carpeta que CONTIENE las carpetas de datos (el padre de `app_data_dir()`). Es el mismo
+/// cálculo que hace `lib.rs` al arrancar para decidir la mudanza; si algún día cambia, tiene que
+/// cambiar en los dos sitios — y por eso está aquí una sola vez y no copiado en cada comando.
+fn base_de_datos_app(app: &tauri::AppHandle) -> AppResult<std::path::PathBuf> {
+    // `Manager` ya está importado arriba del fichero: volver a traerlo aquí haría que cargo avisara
+    // de un import redundante.
+    app.path()
+        .app_data_dir()
+        .ok()
+        .and_then(|d| d.parent().map(|p| p.to_path_buf()))
+        .ok_or_else(|| AppError::Other("no se pudo localizar la carpeta de datos".into()))
+}
+
 /// Devuelve la ruta y el tamaño (bytes) del archivo SQLite. El tamaño incluye, si existe,
 /// el sidecar `-wal` (datos aún no consolidados) para reflejar el total real en disco.
 #[tauri::command]

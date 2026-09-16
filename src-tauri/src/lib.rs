@@ -522,6 +522,8 @@ pub fn run() {
             commands::backup_db,
             commands::restore_db,
             commands::db_info,
+            commands::carpeta_vieja_info,
+            commands::carpeta_vieja_borrar,
             commands::auto_backup,
             commands::get_jump_profile,
             commands::get_fatigue,

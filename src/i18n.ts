@@ -509,6 +509,15 @@ const EN: Record<string, string> = {
   // "Daño" ya existe más abajo (con comillas — el grep anti-duplicados debe ignorarlas).
   Escaneado: "Scanned",
   ficheros: "files",
+  fichero: "file",
+  // --- Fase 3 de la mudanza de carpeta: borrar la antigua (Ajustes → Datos) ---
+  "Carpeta antigua": "Old folder",
+  "con una copia de tu base de datos": "with a copy of your database",
+  "Borrar la carpeta antigua": "Delete the old folder",
+  "Carpeta antigua borrada": "Old folder deleted",
+  liberados: "freed",
+  "Es tu copia de seguridad de antes de mover los datos. Si la borras y algún día instalas a mano una versión anterior a la 0.49, esa versión no encontrará tus datos.":
+    "It's your backup from before the data was moved. If you delete it and one day manually install a version earlier than 0.49, that version won't find your data.",
   "Pendiente de escanear": "Not scanned yet",
   Logi: "Logi",
   "del histórico de combate": "from your combat history",

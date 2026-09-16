@@ -6470,6 +6470,48 @@ h4 {
   padding: 0.3rem 0.6rem;
 }
 
+/* ---- Fase 3 de la mudanza: la carpeta antigua ----
+   Separada del resto con una línea: es lo único destructivo de este panel y no debe leerse como
+   una opción más de la lista. Sin color de alarma mientras es solo una invitación. */
+.tb-vieja {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.tb-vieja-btn {
+  align-self: flex-start;
+  padding: 0.3rem 0.6rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted, #8b949e);
+}
+.tb-vieja-btn:hover {
+  border-color: var(--err, #e5534b);
+  color: var(--err, #e5534b);
+}
+/* Ya confirmando: el siguiente clic borra de verdad. */
+.tb-vieja-btn.confirma {
+  border-color: var(--err, #e5534b);
+  color: var(--err, #e5534b);
+}
+.tb-vieja-btn.confirma:hover {
+  background: var(--err, #e5534b);
+  color: #fff;
+}
+/* El aviso del retroceso de versión. Ámbar y no rojo: no es un error, es una consecuencia que hay
+   que saber antes de decidir. El rojo de esta app significa hostiles en local. */
+.tb-vieja-aviso {
+  color: var(--warn, #d29922);
+  line-height: 1.35;
+}
+.tb-vieja-acciones {
+  display: flex;
+  gap: 0.35rem;
+}
+
 /* ---- Copias automáticas ---- */
 .tb-settings-auto {
   display: flex;

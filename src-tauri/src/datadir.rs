@@ -251,6 +251,129 @@ fn copiar_arbol(de: &Path, a: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Lo que hay en la carpeta antigua, para poder decidir si borrarla. Ver `vieja_info`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CarpetaVieja {
+    /// `false` = ya no está (o nunca existió): no hay nada que ofrecer.
+    pub existe: bool,
+    pub ruta: String,
+    /// Bytes de todo lo que hay dentro, recursivo.
+    pub bytes: u64,
+    pub ficheros: usize,
+    /// ¿Tiene una base de datos dentro? Es lo que la convierte en una copia de seguridad de verdad
+    /// y no en una carpeta con restos.
+    pub tiene_bd: bool,
+    /// 🚨 `true` = **estamos leyendo de ella AHORA MISMO**: la mudanza no se hizo. Borrarla sería
+    /// borrar los datos vivos, así que con esto puesto no se ofrece el botón ni se ejecuta.
+    pub en_uso: bool,
+}
+
+/// ★★ FASE 3 — QUÉ HAY EN LA CARPETA ANTIGUA. Solo mira; no toca nada.
+///
+/// La fase 2 dejó la carpeta vieja intacta a propósito: es una copia de seguridad gratis. Esto es
+/// lo que permite ENSEÑAR lo que ocupa antes de ofrecer borrarla, porque «borrar la carpeta
+/// antigua» sin decir qué hay dentro es pedir un acto de fe.
+pub fn vieja_info(base: &Path, bd_en_uso: &Path) -> CarpetaVieja {
+    let vieja = base.join(CARPETA_HEREDADA);
+    // ¿Es de ahí de donde estamos leyendo? Se compara la CARPETA PADRE de la BD viva, no un nombre
+    // suelto: es el mismo criterio que usa `db_info`, y no puede haber dos formas de contestarlo.
+    let en_uso = bd_en_uso.parent().is_some_and(es_heredada);
+    if !vieja.is_dir() {
+        return CarpetaVieja {
+            existe: false,
+            ruta: vieja.to_string_lossy().to_string(),
+            bytes: 0,
+            ficheros: 0,
+            tiene_bd: false,
+            en_uso,
+        };
+    }
+    let (bytes, ficheros) = pesar(&vieja);
+    CarpetaVieja {
+        existe: true,
+        ruta: vieja.to_string_lossy().to_string(),
+        bytes,
+        ficheros,
+        tiene_bd: vieja.join(FICHERO_BD).is_file(),
+        en_uso,
+    }
+}
+
+/// Bytes y número de ficheros de un árbol. Los errores se ignoran a propósito: esto alimenta un
+/// cartel informativo, y un permiso denegado en un fichero no debe impedir enseñar el resto.
+fn pesar(dir: &Path) -> (u64, usize) {
+    let mut bytes = 0;
+    let mut n = 0;
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => {
+                    let (b, c) = pesar(&e.path());
+                    bytes += b;
+                    n += c;
+                }
+                Ok(_) => {
+                    if let Ok(m) = e.metadata() {
+                        bytes += m.len();
+                    }
+                    n += 1;
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    (bytes, n)
+}
+
+/// ★★ FASE 3 — BORRAR LA CARPETA ANTIGUA. **Lo único de este módulo que destruye algo.**
+///
+/// # Las cuatro guardas, y por qué cada una
+///
+/// 1. **La ruta NO viene del frontend.** Se calcula aquí a partir de `base` y se exige que el
+///    último tramo sea exactamente `CARPETA_HEREDADA`. Un borrado recursivo que acepte una ruta de
+///    fuera es una forma de borrar el disco por accidente.
+/// 2. **Si estamos leyendo de ella, se niega.** `en_uso` significa que la mudanza no se hizo: ahí
+///    los datos «antiguos» son los únicos que hay.
+/// 3. **La BD VIVA tiene que abrir bien antes.** La carpeta vieja es la copia de seguridad; no se
+///    tira una copia sin comprobar que el original funciona. Se usa `abre_bien`, el mismo
+///    `quick_check` que valida la mudanza — no una comprobación nueva que pueda opinar distinto.
+/// 4. **No se borra si la carpeta nueva no tiene BD.** Sería quedarse sin las dos.
+///
+/// Devuelve los bytes liberados. Si algo no cuadra, `Err` con el motivo EN CLARO: quien pulsa un
+/// botón destructivo y no pasa nada necesita saber por qué, o lo vuelve a pulsar.
+pub fn borrar_vieja(base: &Path, bd_en_uso: &Path) -> Result<u64, String> {
+    let vieja = base.join(CARPETA_HEREDADA);
+
+    // Guarda 1: el nombre, calculado aquí y verificado aquí.
+    if vieja.file_name().and_then(|n| n.to_str()) != Some(CARPETA_HEREDADA) {
+        return Err("la ruta a borrar no es la carpeta heredada".into());
+    }
+    if !vieja.is_dir() {
+        return Err("la carpeta antigua ya no está".into());
+    }
+    // Guarda 2: ¿es de donde leemos?
+    if bd_en_uso.parent().is_some_and(es_heredada) {
+        return Err(
+            "los datos en uso están en esa carpeta: la mudanza no se hizo, así que borrarla \
+             borraría tus datos"
+                .into(),
+        );
+    }
+    // Guarda 4 antes de la 3: sin BD nueva no hay original que comprobar.
+    let bd_nueva = base.join(CARPETA).join(FICHERO_BD);
+    if !bd_nueva.is_file() {
+        return Err("no encuentro la base de datos nueva; no se borra nada".into());
+    }
+    // Guarda 3: que el original abra. `abre_bien` hace `quick_check`, el mismo de la mudanza.
+    abre_bien(&bd_nueva).map_err(|e| {
+        format!("la base de datos en uso no pasa la comprobación ({e}); la copia antigua se queda")
+    })?;
+
+    let (bytes, _) = pesar(&vieja);
+    std::fs::remove_dir_all(&vieja).map_err(|e| format!("no se pudo borrar: {e}"))?;
+    Ok(bytes)
+}
+
 /// ¿Estamos leyendo todavía de la carpeta heredada? Lo sirve `db_info` y lo pinta Ajustes.
 ///
 /// ⚠️ Este comentario decía «Lo enseña Ajustes» desde la fase 1 y **no lo enseñaba nadie**: la
@@ -396,6 +519,90 @@ mod tests {
         assert!(!base.join(CARPETA).exists(), "no puede quedar una carpeta nueva a medias");
         assert!(!base.join(CARPETA_TEMPORAL).exists());
         assert!(vieja.join(FICHERO_BD).is_file(), "y la vieja sigue donde estaba");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Una BD de verdad en la carpeta NUEVA. Se reutiliza `sembrar` para la heredada —ya siembra
+    /// BD, `medals/` y la bandera— y esto solo cubre el otro lado. Escribir bytes cualquiera no
+    /// serviría: la guarda 3 comprueba que la BD ABRE, así que una falsa haría pasar el test por el
+    /// camino equivocado.
+    fn bd_nueva_real(base: &Path) -> PathBuf {
+        let p = base.join(CARPETA).join(FICHERO_BD);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let c = rusqlite::Connection::open(&p).unwrap();
+        c.execute_batch("CREATE TABLE t(x); INSERT INTO t VALUES (1);").unwrap();
+        c.close().unwrap();
+        p
+    }
+
+    /// ★★ FASE 3, EL CAMINO BUENO: se borra la vieja ENTERA y la nueva queda intacta.
+    #[test]
+    fn la_fase_3_borra_la_vieja_y_no_toca_la_nueva() {
+        let base = nuevo_tmp("f3-ok");
+        let vieja = sembrar(&base, 5); // BD + medals/x.png + la bandera de Linux
+        let bd_nueva = bd_nueva_real(&base);
+
+        let info = vieja_info(&base, &bd_nueva);
+        assert!(info.existe && info.tiene_bd && !info.en_uso);
+        // 3 ficheros: la BD, el png DENTRO de medals/ y la bandera. Si contara solo el primer
+        // nivel saldría 2, y el cartel mentiría sobre lo que se va a borrar.
+        assert_eq!(info.ficheros, 3, "cuenta recursivo, medals/ incluido");
+        assert!(info.bytes > 0);
+
+        let liberados = borrar_vieja(&base, &bd_nueva).expect("debía borrar");
+        assert_eq!(liberados, info.bytes, "dice exactamente lo que libera");
+        assert!(!vieja.exists(), "la vieja se va entera, subcarpetas incluidas");
+        assert!(bd_nueva.is_file(), "y la nueva no se toca");
+        assert_eq!(cuenta(&base.join(CARPETA)), 1, "la nueva sigue abriendo y con sus datos");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 🚨 LA GUARDA QUE MÁS IMPORTA: si los datos EN USO están en la carpeta vieja (la mudanza no
+    /// se hizo), borrarla sería borrar lo único que hay. Tiene que negarse.
+    #[test]
+    fn la_fase_3_se_niega_si_los_datos_vivos_estan_ahi() {
+        let base = nuevo_tmp("f3-en-uso");
+        let vieja = sembrar(&base, 3);
+
+        // La BD en uso es la de la carpeta vieja: exactamente el estado de quien no migró.
+        let en_uso = vieja.join(FICHERO_BD);
+        assert!(vieja_info(&base, &en_uso).en_uso);
+        assert!(borrar_vieja(&base, &en_uso).is_err());
+        assert!(en_uso.is_file(), "no se ha borrado nada");
+        assert_eq!(cuenta(&vieja), 3, "y sigue completa");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// No se tira la copia de seguridad si el original no abre. Es la razón de ser de la guarda 3.
+    #[test]
+    fn la_fase_3_no_borra_la_copia_si_la_bd_viva_esta_rota() {
+        let base = nuevo_tmp("f3-rota");
+        let vieja = sembrar(&base, 7);
+        // La "nueva" existe pero no es una BD.
+        let bd_nueva = base.join(CARPETA).join(FICHERO_BD);
+        std::fs::create_dir_all(bd_nueva.parent().unwrap()).unwrap();
+        std::fs::write(&bd_nueva, b"esto no es una base de datos").unwrap();
+
+        assert!(borrar_vieja(&base, &bd_nueva).is_err());
+        assert_eq!(cuenta(&vieja), 7, "la copia buena sigue entera");
+
+        // Y sin BD nueva ninguna, tampoco: sería quedarse sin las dos.
+        std::fs::remove_file(&bd_nueva).unwrap();
+        assert!(borrar_vieja(&base, &bd_nueva).is_err());
+        assert_eq!(cuenta(&vieja), 7);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Sin carpeta vieja no hay nada que ofrecer, y pulsar no puede reventar.
+    #[test]
+    fn la_fase_3_sin_carpeta_vieja_no_ofrece_nada() {
+        let base = nuevo_tmp("f3-nada");
+        let bd_nueva = bd_nueva_real(&base);
+
+        let info = vieja_info(&base, &bd_nueva);
+        assert!(!info.existe && !info.en_uso && info.bytes == 0 && info.ficheros == 0);
+        assert!(borrar_vieja(&base, &bd_nueva).is_err(), "y si alguien insiste, error claro");
+        assert!(bd_nueva.is_file(), "sin tocar la buena");
         let _ = std::fs::remove_dir_all(&base);
     }
 }
