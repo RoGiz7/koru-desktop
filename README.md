@@ -95,6 +95,16 @@ most distros ship.
   The **floating overlay sits on top of the game** and answers what the alarm alone doesn't: not just
   *"5 jumps"*, but **whose** 5 jumps they are. You can also **mute a system** when a channel gets noisy —
   it silences the alarm, never the data, and the map shows you it's muted.
+- 🗺️ **Escalations** — rat an anomaly, it escalates, and the game hands you a system and **twenty-four
+  hours**. Miss it and the whole thing is gone. Koru warns you before that happens, and noting one down
+  takes two fields because it works out the rest: type *"shipyard"* and it knows it's a 10/10 Angel
+  Cartel site. Run it and it's timed and recorded like any other session, with the loot pasted from the
+  game **item by item** and the ship you lost filled in from your own killmail. **Sell it instead and
+  Koru switches warnings**: it stops nagging about a clock that is no longer yours and starts reminding
+  you to pull the buyer out of your safe when their window expires — which is the one that actually
+  costs you.
+- 💼 **Freelance and corp projects** — the jobs on offer across New Eden and the projects your corp is
+  running, with what they pay and what has been contributed.
 - 🗺️ **New Eden map** with toggleable layers grouped by category: your location and route, POIs, security,
   sovereignty, faction warfare, incursions, kills and jumps in the last hour, **Thera/Turnur wormholes**
   (via eve-scout) and your personal layers (PvP, assets, mining).

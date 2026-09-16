@@ -97,6 +97,15 @@ más nueva que la de la mayoría de distros.
   El **aviso flotante se pone encima del juego** y contesta lo que la alarma sola no dice: no solo
   *«5 saltos»*, sino **de quién** son esos 5 saltos. También puedes **silenciar un sistema** cuando un
   canal se pone pesado — se calla la alarma, nunca el dato, y el mapa te enseña que está silenciado.
+- 🗺️ **Escalaciones** — rateas una anomalía, escala, y el juego te da un sistema y **veinticuatro
+  horas**. Si se te pasa, se pierde entera. Koru te avisa antes, y apuntarla cuesta dos campos porque el
+  resto lo deduce él: escribe *«astillero»* y sabe que es una 10/10 del Cártel de los Ángeles. Si la
+  corres, queda cronometrada y registrada como cualquier otra sesión, con el botín pegado del juego
+  **objeto a objeto** y la nave perdida sacada de tu propio killmail. **Y si la vendes, Koru cambia de
+  aviso**: deja de darte la lata con un reloj que ya no es tuyo y empieza a recordarte que saques al
+  comprador de tu safe cuando su ventana caduque — que es el que de verdad te cuesta dinero.
+- 💼 **Trabajos por libre y proyectos de corp** — los trabajos disponibles por Nuevo Edén y los
+  proyectos que lleva tu corp, con lo que pagan y lo que se ha aportado.
 - 🗺️ **Mapa de New Eden** con capas conmutables agrupadas por categorías: tu ubicación y tu recorrido,
   lugares/POI, seguridad, soberanía, guerra de facciones, incursiones, kills y jumps de la última hora,
   **wormholes Thera/Turnur** (vía eve-scout) y tus capas personales (PvP, assets, minería).
