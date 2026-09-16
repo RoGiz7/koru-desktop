@@ -18,10 +18,31 @@ SOLO LEE.
 
   Buscar solo la primera forma daba 19 falsos positivos la primera vez que lo hice a mano.
 
+★★ LOS CATALOGOS (anadido 2026-09-16) — la mitad de las «dinamicas» SI se pueden comprobar.
+
+  Hasta hoy esto contaba ~177 claves dinamicas y decia «miralas a ojo». Pero muchas NO son
+  dinamicas de verdad: salen de catalogos ESTATICOS escritos en el propio codigo —`ACH_UI`,
+  `CH_UI`, `TAB_HEAD`, `KIND_META`, `BUCKETS`…— que se pintan con `tr(ui.label)` o
+  `tr(TAB_HEAD[tab].subtitle)`. La clave se decide en ejecucion, pero **el conjunto de claves
+  posibles esta ahi escrito**, asi que se puede extraer y comprobar igual que el resto.
+
+  Por que se anadio: el 2026-09-16 se colaron DOS etiquetas de reto sin ingles y este auditor dio
+  verde, porque solo miraba cadenas literales. Al cerrar el agujero aparecieron **decenas** que ya
+  estaban publicadas: subtitulos de seccion, nombres y descripciones de medallas, metricas de
+  Freelance. Fallo silencioso de manual — el usuario ingles ve espanol y nadie da un error.
+
+  Van en BLOQUE APARTE y no sumadas al total de arriba, a proposito: el recuento literal es exacto
+  y no conviene ensuciarlo con uno que depende de una lista de campos.
+
+  ⚠️ `CAMPOS_CATALOGO` se saco MIRANDO el codigo, no de memoria. Para rehacerlo:
+      grep -o 'tr(\s*[A-Za-z_$][^)]*\.\w\+\s*)' src/*.ts*   → quedarse con los campos de catalogo
+  Los campos de DATO (`name`, `estado`, `category`, `group`, `planet_type`…) quedan fuera aposta:
+  su valor viene de la BD o de ESI, no del codigo, y recogerlos llenaria esto de ruido.
+
 LO QUE NO PUEDE VER, dicho para que nadie confie de mas:
-  · `tr(variable)` — p. ej. `tr(e.estado)`, donde la clave se decide en ejecucion. Se cuentan
-    aparte y se avisa: son los sitios donde hay que mirar a ojo de verdad.
-  · Si la traduccion es BUENA. Solo dice si existe.
+  · `tr(variable)` con clave de DATO — p. ej. `tr(e.estado)`. Se cuentan aparte y se avisa.
+  · Si la traduccion es BUENA. Solo dice si existe. **Y eso ya mordio**: al renombrar una clave se
+    dejo el valor ingles viejo y este auditor lo dio por bueno, porque existir, existia.
 """
 
 import os
@@ -56,7 +77,45 @@ IGUAL_EN_INGLES = {
     "BPC", "BPO", "Abyssal", "Omega", "Alpha", "Pochven", "Triglavian",
     # Interruptores
     "ON", "OFF",
+    # ---- Nombres propios de EVE (anadidos con los catalogos, 2026-09-16) ----
+    # Un nombre propio se escribe igual en los dos clientes: no es una promesa arriesgada, es un
+    # hecho del juego. Sin esto, el bloque de catalogos cantaria una veintena de falsos positivos
+    # permanentes y dejaria de leerse — la misma razon por la que existe esta lista.
+    "Amarr", "Caldari", "Gallente", "Minmatar", "EDENCOM",
+    "Angel Cartel", "Blood Raiders", "Guristas", "Sansha", "Sansha's Nation", "Serpentis",
+    "Thera", "Turnur", "Tranquility", "Koru",
+    # Los cinco hubs, con su region entre parentesis: la region ya va en ingles en el propio texto.
+    "Jita (The Forge)", "Amarr (Domain)", "Dodixie (Sinq Laison)", "Rens (Heimatar)",
+    "Hek (Metropolis)",
+    # Palabras que coinciden en los dos idiomas. Cada una comprobada, no supuesta.
+    "Social", "Hubs", "Prospector", "Radar", "Kills", "Logi", "PI",
+    # Las clases de seguridad de la leyenda del mapa: `high`, `low` y `null` son los terminos del
+    # propio juego en ingles, y el parentesis son cifras. No hay nada que traducir.
+    "high (≥0.5)", "low (0.1–0.4)", "null (≤0.0)",
 }
+
+
+# Campos de CATALOGO: los que se pintan con `tr(algo.campo)` y cuyo valor esta escrito en el
+# codigo, no en la base de datos. Ver el encabezado para como se rehace esta lista.
+CAMPOS_CATALOGO = ("label", "desc", "short", "subtitle", "title")
+# Arrays de cadenas indexados dentro de `tr()`: `tr(LEVEL_NAME[a.level])` y compania.
+ARRAYS_CATALOGO = ("LEVEL_NAME", "MONTH_NAMES", "TIER_NAME")
+
+
+def cadenas_de_catalogo(codigo: str) -> set:
+    """Las cadenas de los catalogos estaticos de UN fichero.
+
+    No intenta entender TypeScript: busca `campo: "..."` y el contenido de los arrays conocidos.
+    Es deliberadamente simple — si algun dia se le escapa algo, se vera al anadir un catalogo
+    nuevo y bastara con sumar su campo arriba."""
+    out = set()
+    for campo in CAMPOS_CATALOGO:
+        out.update(re.findall(rf'\b{campo}:\s*"((?:[^"\\]|\\.)*)"', codigo))
+    for arr in ARRAYS_CATALOGO:
+        m = re.search(rf"{arr}\s*(?::[^=]*)?=\s*\[(.*?)\]", codigo, re.S)
+        if m:
+            out.update(re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1)))
+    return {s for s in out if s.strip()}
 
 
 def claves_del_diccionario(texto: str) -> tuple[set, str]:
@@ -97,7 +156,10 @@ def main() -> int:
     total_usos = 0
     total_falta = 0
     total_dinamicas = 0
+    total_cat = 0
+    total_cat_falta = 0
     peores = []
+    peores_cat = []
     for f in ficheros:
         d = open(os.path.join(SRC, f), encoding="utf-8").read()
         usos = set(LITERAL.findall(d))
@@ -108,6 +170,13 @@ def main() -> int:
         total_dinamicas += dinamicas
         if faltan or (dinamicas and todas):
             peores.append((len(faltan), f, faltan, dinamicas))
+        # Catalogos: las que ya salieron como literales no se repiten aqui.
+        cat = cadenas_de_catalogo(d) - usos
+        cat_faltan = sorted(s for s in cat if not tiene(s, entrecomilladas, texto))
+        total_cat += len(cat)
+        total_cat_falta += len(cat_faltan)
+        if cat_faltan:
+            peores_cat.append((len(cat_faltan), f, cat_faltan))
 
     peores.sort(reverse=True)
     print(f"Cadenas literales con tr(): {total_usos}  ·  SIN ingles: {total_falta}")
@@ -124,9 +193,25 @@ def main() -> int:
         if not todas and len(faltan) > 4:
             print(f"        … y {len(faltan) - 4} mas (--todas)")
 
-    print("\nOJO: esto dice si la traduccion EXISTE, no si es buena. Y las claves dinamicas")
-    print("(`tr(e.estado)` y companía) hay que mirarlas a ojo: la clave se decide en ejecucion.")
-    return 1 if total_falta else 0
+    # ---- Catalogos estaticos, en bloque aparte (ver el encabezado) ----
+    print(f"\nCatalogos (tr(ui.label), tr(TAB_HEAD[t].subtitle)…): {total_cat}  ·  SIN ingles: {total_cat_falta}")
+    if not peores_cat:
+        print("✅ Los catalogos tambien estan traducidos.")
+    else:
+        print("   Estas NO las ve el bloque de arriba y el usuario ingles las lee EN ESPANOL:")
+        peores_cat.sort(reverse=True)
+        for n, f, faltan in peores_cat:
+            print(f"  {n:>3} sin ingles  {f}")
+            for s in faltan if todas else faltan[:4]:
+                corta = s if len(s) <= 90 else s[:87] + "..."
+                print(f"        · {corta}")
+            if not todas and len(faltan) > 4:
+                print(f"        … y {len(faltan) - 4} mas (--todas)")
+
+    print("\nOJO: esto dice si la traduccion EXISTE, no si es buena — al renombrar una clave se")
+    print("puede quedar el valor ingles viejo y esto lo da por bueno. Y las claves dinamicas de")
+    print("DATO (`tr(e.estado)` y companía) siguen sin poder comprobarse: se deciden en ejecucion.")
+    return 1 if (total_falta or total_cat_falta) else 0
 
 
 if __name__ == "__main__":

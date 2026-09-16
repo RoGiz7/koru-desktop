@@ -1948,6 +1948,58 @@ const EN: Record<string, string> = {
   // clave DINÁMICA: el auditor de i18n no las ve y da verde igual. Se comprueban a mano.
   "Sitios explorados del mes": "Sites explored this month",
   "Ver esta actividad en su sección": "See this activity in its own section",
+  // ★★ LAS QUE VIVEN EN CATALOGOS (anadidas 2026-09-16). Se pintan con `tr(ui.label)` o
+  // `tr(TAB_HEAD[t].subtitle)`, asi que el auditor no las veia y llevaban meses saliendo EN
+  // ESPANOL para quien tiene Koru en ingles. Las destapo el bloque nuevo de `audit_i18n.py`.
+  "Carpeta de Chatlogs": "Chat logs folder",
+  "Sonido de alerta": "Alert sound",
+  "Ala y escuadra": "Wings and squads",
+  "Alas y escuadras que llegó a tener una de tus flotas":
+    "The most wings and squads one of your fleets ever had",
+  "Cambios de nave de los DEMÁS en tus ops (el tuyo no cuenta)":
+    "Ship changes by OTHERS in your ops (your own don't count)",
+  "Doctrina viva": "Living doctrine",
+  "El que vuelve": "The one who comes back",
+  "La caravana": "The caravan",
+  "La op más larga que has mandado, en horas": "The longest op you've led, in hours",
+  "Maratón": "Marathon",
+  "Nadie atrás": "Nobody left behind",
+  "Ops donde los que seguían en flota al cerrar acabaron en tu mismo sistema":
+    "Ops where everyone still in fleet at the end wound up in your system",
+  "Pilotos de fuera que han repetido op contigo. Tus propios personajes no cuentan":
+    "Pilots from outside who have flown more than one op with you. Your own characters don't count",
+  "Semana tras semana": "Week after week",
+  "Semanas seguidas con al menos una op grabada":
+    "Consecutive weeks with at least one op recorded",
+  "Sistemas distintos recorridos por la flota en una sola op":
+    "Different systems the fleet crossed in a single op",
+  "Corps NPC": "NPC corps",
+  "Fichas de hostiles del intel: horas activas, sistemas, naves y rastro":
+    "Hostile profiles from your intel: active hours, systems, ships and trail",
+  "Freelance Jobs + Proyectos de corporación en los que participas — el sucesor de las Opportunities":
+    "Freelance Jobs + corporation projects you take part in — the successor to Opportunities",
+  "La historia jugada: tus hitos y tu trayectoria de corporaciones en el tiempo":
+    "The story you played: your milestones and your corporation history over time",
+  "Reparación remota (dada y recibida) reconstruida de tu histórico de combate local":
+    "Remote repair (given and received) rebuilt from your local combat history",
+  "Tu LP por corporación NPC y los agentes con los que progresas (standing)":
+    "Your LP by NPC corporation and the agents you're building standing with",
+  "Tus contactos y standings con NPC": "Your contacts and NPC standings",
+  "Tus contratos de los últimos 30 días · courier, intercambio, subasta y préstamo":
+    "Your contracts from the last 30 days · courier, exchange, auction and loan",
+  "Tus fits guardados (importados por EFT)": "Your saved fits (imported from EFT)",
+  "Blindaje remoto recibido": "Remote armor received",
+  "Casco remoto recibido": "Remote hull received",
+  "Curación de escudo (logi)": "Shield repaired (logi)",
+  "Daño infligido": "Damage dealt",
+  "Escudo remoto recibido": "Remote shield received",
+  "Patrimonio (pico)": "Wealth (peak)",
+  "Rateo (bounties+ESS)": "Ratting (bounties+ESS)",
+  "Reparación de blindaje (logi)": "Armor repaired (logi)",
+  "Reparación de casco (logi)": "Hull repaired (logi)",
+  "Sistemas con kill": "Systems with a kill",
+  "6 meses": "6 months",
+  "12 meses": "12 months",
   "Botín explorando este mes": "Exploration loot this month",
   "Minería del mes": "Mining this month",
   "Kills del mes": "Kills this month",
