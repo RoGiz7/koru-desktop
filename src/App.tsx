@@ -3670,7 +3670,13 @@ function App() {
             />
           )}
           {tab === "bitacora" && (
-            <BitacoraView data={bitacoraData} busy={sectionBusy} subject={subject} syncTick={syncTick} />
+            <BitacoraView
+              data={bitacoraData}
+              busy={sectionBusy}
+              subject={subject}
+              syncTick={syncTick}
+              onIrA={changeTab}
+            />
           )}
           {tab === "diario" && <DiarioView subject={subject} />}
           {tab === "freelance" && <FreelanceView subject={subject} />}

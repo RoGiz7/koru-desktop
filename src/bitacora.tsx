@@ -5,9 +5,10 @@
 // home de "progresando / completados recientemente" (desde las fechas retroactivas) y
 // medallero agrupado por dominio con color y emblema. Todo se deriva en el front de lo que
 // devuelve el motor Rust (id/level/value/thresholds/unlocked_at); no hace falta ESI ni Rust.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
+import type { Tab } from "./constants";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { MedalArt } from "./medalArt";
 import type { Bitacora, AchievementState, Medal, AchSeries, CharacterDetail } from "./types";
@@ -22,6 +23,33 @@ const CH_UI: Record<string, { icon: string; label: string; tid?: number }> = {
   mineria: { icon: "⛏️", label: "Minería del mes", tid: 22 }, // Arkonor
   kills: { icon: "⚔️", label: "Kills del mes", tid: 587 }, // Rifter
   isk_destruido: { icon: "💥", label: "ISK destruido del mes", tid: 2961 }, // 1400mm Howitzer II
+  // ★ Los retos van con lo que de VERDAD juegas: solo aparecen si el mes pasado hiciste esa
+  //   actividad (el motor no crea reto sin listón). Antes solo había cuatro y quien vivía en
+  //   abismos o explorando no recibía ninguno. typeIDs verificados, como el resto.
+  runs: { icon: "🌀", label: "Runs del mes", tid: 47902 }, // Calm Dark Filament
+  exploracion: { icon: "📡", label: "Sitios explorados del mes", tid: 30488 }, // Sisters Core Scanner Probe
+  botin_exploracion: { icon: "🏺", label: "Botín explorando este mes", tid: 22177 }, // Relic Analyzer I
+};
+
+/** ★★ LA MEDALLA HERMANA DE CADA RETO, y la sección de la que vive (idea de RoGiz7, 2026-09-16).
+ *
+ *  Sirve para dos cosas de su petición:
+ *  · **Un reto conseguido se tiñe con el metal REAL que tienes en su medalla**, no con uno
+ *    inventado. Decisión suya entre tres opciones, y la buena: bronce, plata y oro ya significan
+ *    algo muy concreto en Koru —los tres niveles del medallero— y estrenar un oro que no cuenta
+ *    en el medallero te haría buscar en él algo que no está. Si aún no tienes ni bronce en la
+ *    hermana, el reto sale conseguido y verde, SIN metal: es la verdad, no un hueco.
+ *  · **Pinchar el reto te lleva a su sección**, que es donde se ve el detalle de esa actividad.
+ *
+ *  Los ids están verificados contra `ACH_UI` y las pestañas contra el union `Tab`. */
+const CH_LINK: Record<string, { ach: string; tab: Tab }> = {
+  rateo: { ach: "rateo_total", tab: "rateo" },
+  mineria: { ach: "mineria_total", tab: "mineria" },
+  kills: { ach: "kills_totales", tab: "pvp" },
+  isk_destruido: { ach: "isk_destruido_total", tab: "pvp" },
+  runs: { ach: "runs_hechas", tab: "abyssals" },
+  exploracion: { ach: "sitios_totales", tab: "exploracion_log" },
+  botin_exploracion: { ach: "botin_explorado", tab: "exploracion_log" },
 };
 
 export const ACH_UI: Record<string, { icon: string; label: string; desc: string; tid?: number }> = {
@@ -336,10 +364,14 @@ export function BitacoraView({
   busy,
   subject,
   syncTick,
+  onIrA,
 }: {
   data: Bitacora | null;
   busy: boolean;
   subject?: number | "global";
+  /** Saltar a la sección de un reto. Mismo patrón que «Ver en el mapa» y «Ver en Social»: lo que
+   *  cruza el puente es A DÓNDE quieres ir, y quien sabe cambiar de pestaña es App. */
+  onIrA?: (t: Tab) => void;
   /// Latido de App: sube tras cada auto-sync → medallas, puntuación oficial y series se
   /// refrescan solas (un logro desbloqueado en el sync aparece sin cambiar de vista).
   syncTick?: number;
@@ -383,6 +415,37 @@ export function BitacoraView({
       ? officialTitle.es
       : officialTitle.en
     : "";
+
+  /** ★★ LOS RETOS, ORDENADOS POR LO QUE PUEDES HACER HOY (idea de RoGiz7, 2026-09-16).
+   *
+   *  Él llegó primero con «enseñar solo los 6 con más actividad» y lo descartó él mismo al ver la
+   *  pega: **los retos NO comparten unidad**. 3,31 B de rateo y 12 kills no se pueden comparar, así
+   *  que cualquier ranking por el valor pondría siempre los de ISK por encima de los de cuenta,
+   *  hicieras lo que hicieras. Y recortar a seis esconde retos que el jugador sí está avanzando.
+   *
+   *  La regla buena no necesita comparar unidades distintas, porque compara **porcentajes**:
+   *    1. Lo que NO está hecho va primero, y dentro, **lo más cerca de lograrse arriba**. Ahí es
+   *       donde está el pique: «te falta poquísimo» mueve a jugar; «te falta todo», no.
+   *    2. Lo CONSEGUIDO baja al final. No se esconde —es la celebración, y se ha ganado su sitio—
+   *       pero deja de ocupar el hueco de lo accionable.
+   *
+   *  Lo que esto NO hace, a propósito: hacer aparecer un reto nuevo al completar otro. Él lo
+   *  propuso y no lo hemos hecho porque **el premio por acabar sería más deberes**. Terminar
+   *  descansa; el hueco lo ocupa lo que ya estabas jugando. */
+  const retosOrdenados = useMemo(() => {
+    const filas = (data?.challenges ?? []).map((c) => {
+      const pct = c.target > 0 ? Math.min(100, (c.current / c.target) * 100) : 0;
+      return {
+        c,
+        pct,
+        basePct: c.target > 0 ? Math.min(100, (c.baseline / c.target) * 100) : 0,
+        done: c.current >= c.target,
+      };
+    });
+    // `sort` de JS es estable, así que dos retos empatados conservan el orden del motor y no
+    // bailan entre repintados. Importa más de lo que parece: son tarjetas que el ojo ya ubicó.
+    return filas.sort((a, b) => Number(a.done) - Number(b.done) || b.pct - a.pct);
+  }, [data?.challenges]);
 
   // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
   const [series, setSeries] = useState<Record<string, AchSeries>>({});
@@ -493,12 +556,23 @@ export function BitacoraView({
 
         {/* Un segmento por medalla. Es la lectura de un vistazo que antes no existía: cuánto del
             medallero está hecho y con qué reparto de metales. */}
-        <div className="bit-hero-bar" title={tr("Cada segmento es una medalla, teñida por su nivel")}>
+        {/* ★ LA BARRA COBRA VIDA AL PASAR POR ENCIMA (idea de RoGiz7, 2026-09-16), y de paso deja de
+            ser decorativa: cada segmento ABRE su medalla.
+            Dos cosas que hacen que funcione, y la primera es la que importa:
+            1. **La zona sensible va a todo el alto**, no a los 7 px de la barra. Es la misma lección
+               que ya está escrita en la ficha de medalla —«no hay que acertarle a una barra de 3
+               px»—: el botón ocupa la fila entera y el color se pinta en su `::after`.
+            2. Un segmento que se puede pulsar tiene que PARECERLO: crece, se ilumina con el color de
+               su metal y los vecinos se apagan un poco, que es lo que lo hace legible con 47 al lado. */}
+        <div className="bit-hero-bar" title={tr("Cada segmento es una medalla, teñida por su nivel. Pulsa uno para ver su evolución")}>
           {barra.map((a) => (
-            <i
+            <button
               key={a.id}
+              type="button"
               className={`bhb l${a.level}`}
+              onClick={() => toggle(a.id)}
               title={`${tr(ACH_UI[a.id]?.label ?? a.id)} — ${a.level > 0 ? tr(LEVEL_NAME[a.level]) : tr("sin empezar")}`}
+              aria-label={tr(ACH_UI[a.id]?.label ?? a.id)}
             />
           ))}
         </div>
@@ -584,13 +658,36 @@ export function BitacoraView({
         </p>
       ) : (
         <div className="bit-challenges">
-          {data.challenges.map((c) => {
+          {retosOrdenados.map(({ c, pct, basePct, done }) => {
             const ui = CH_UI[c.id] ?? { icon: "🎯", label: c.id };
-            const pct = c.target > 0 ? Math.min(100, (c.current / c.target) * 100) : 0;
-            const basePct = c.target > 0 ? Math.min(100, (c.baseline / c.target) * 100) : 0;
-            const done = c.current >= c.target;
+            const link = CH_LINK[c.id];
+            // El metal que tienes HOY en la medalla hermana. 0 = aún sin bronce → el reto sale
+            // conseguido y verde, sin metal. Un reto ganado nunca se apaga por esto.
+            const metal = link ? (byId.get(link.ach)?.level ?? 0) : 0;
+            const irA = link && onIrA ? () => onIrA(link.tab) : undefined;
             return (
-              <div key={c.id} className={`bit-card ${done ? "done" : ""}`}>
+              <div
+                key={c.id}
+                className={`bit-card ${done ? "done" : ""}${done && metal > 0 ? ` m${metal}` : ""}${irA ? " ch-link" : ""}`}
+                // Pinchable en CUALQUIER estado, no solo conseguido: el gesto es el mismo («llévame
+                // a esa actividad») y dos tarjetas iguales donde una clica y la otra no se lee como
+                // un fallo. Va con `role`/teclado porque es un div, no un botón: dentro ya hay
+                // texto y barras, y un <button> con eso dentro es un lío de accesibilidad.
+                {...(irA
+                  ? {
+                      onClick: irA,
+                      role: "link",
+                      tabIndex: 0,
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          irA();
+                        }
+                      },
+                      title: tr("Ver esta actividad en su sección"),
+                    }
+                  : {})}
+              >
                 <div className="bit-card-head">
                   {ui.tid ? (
                     <img className="bit-icon-img" src={typeIcon(ui.tid, 32)} alt="" loading="lazy" />
@@ -598,7 +695,14 @@ export function BitacoraView({
                     <span className="bit-icon">{ui.icon}</span>
                   )}
                   <strong>{tr(ui.label)}</strong>
-                  {done && <span className="bit-done">✔ {tr("¡Conseguido!")}</span>}
+                  {done && (
+                    <span className="bit-done">
+                      ✔ {tr("¡Conseguido!")}
+                      {/* El metal, dicho con palabras además de con color: quien no distingue el
+                          bronce del oro de un vistazo —o lo mira en claro— sigue enterándose. */}
+                      {metal > 0 && <span className="ch-metal"> · {tr(LEVEL_NAME[metal])}</span>}
+                    </span>
+                  )}
                 </div>
                 <div className="bit-bar">
                   <div className="bit-bar-fill" style={{ width: `${pct}%` }} />

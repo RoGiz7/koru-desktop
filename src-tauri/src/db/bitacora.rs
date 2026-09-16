@@ -538,6 +538,60 @@ impl Db {
         );
         push_challenge("isk_destruido", "isk", d_c, d_p);
 
+        // ★★ RETOS QUE VAN CON LO QUE DE VERDAD JUEGAS (idea de RoGiz7, 2026-09-16): *«¿podríamos
+        //    lanzar un reto acorde a la actividad, a modo de picar a jugar?»*.
+        //
+        //    El mecanismo para eso YA EXISTÍA y funciona solo: `push_challenge` no añade nada si el
+        //    mes pasado no hiciste esa actividad (`baseline > 0`). Lo que fallaba no era la lógica,
+        //    era el CATÁLOGO: solo había CUATRO retos —rateo, minería, kills e ISK destruido— así
+        //    que quien se pasaba el mes en abismos o explorando no recibía ninguno, o peor, recibía
+        //    uno de una actividad que no toca. Koru llevaba meses midiendo esas otras y no las
+        //    usaba para picar a nadie.
+        //
+        //    Por eso estos tres y no otros: **son los que tienen histórico de verdad detrás**
+        //    (`activity_runs` desde julio, `exploration_log` desde la v0.31.0), así que el listón
+        //    del mes pasado existe. Un reto sobre el botín objeto a objeto —que empezó a guardarse
+        //    hoy— saldría a cero para todo el mundo, y un reto en cero no pica: parece roto.
+
+        // Runs de abismo y CRAB terminadas. Las escalaciones NO entran, por el mismo criterio que
+        // en las medallas: cada sección se mide con el prisma de su propia actividad.
+        // ⚠️ Cuenta al que PARTICIPÓ, no solo al que registró: `COUNT(DISTINCT)` sobre el LEFT JOIN
+        // con los participantes. Es el mismo arreglo que hubo que hacerle al filtro del histórico,
+        // donde un alt que voló pero no registró no veía su propia run.
+        let runs_mes = |mes: &str| -> f64 {
+            let quien = character_id
+                .map(|c| format!("AND {c} IN (r.character_id, ac.character_id)"))
+                .unwrap_or_default();
+            fsum(&format!(
+                "SELECT COUNT(DISTINCT r.id) FROM activity_runs r
+                 LEFT JOIN activity_run_chars ac ON ac.run_id = r.id
+                 WHERE r.activity IN ('abyssal','crab') AND r.ended_at IS NOT NULL
+                   AND r.outcome <> 'aborted' AND substr(r.ended_at,1,7) = {mes} {quien}"
+            ))
+        };
+        push_challenge("runs", "count", runs_mes(cur_m), runs_mes(prev_m));
+
+        // Sitios de exploración completados, y el botín que salió de ellos. Dos retos y no uno
+        // porque son dos formas distintas de explorar: sondear mucho y cobrar poco es una noche
+        // igual de válida que una sola reliquia gorda, y un único número las confundiría.
+        let (ex_c, ex_p) = month_pair(
+            &format!("SELECT COUNT(*) FROM exploration_log WHERE substr(done_at,1,7) = {cur_m} {who}"),
+            &format!("SELECT COUNT(*) FROM exploration_log WHERE substr(done_at,1,7) = {prev_m} {who}"),
+        );
+        push_challenge("exploracion", "count", ex_c, ex_p);
+
+        let (exb_c, exb_p) = month_pair(
+            &format!(
+                "SELECT SUM(COALESCE(loot_isk,0)) FROM exploration_log
+                 WHERE substr(done_at,1,7) = {cur_m} {who}"
+            ),
+            &format!(
+                "SELECT SUM(COALESCE(loot_isk,0)) FROM exploration_log
+                 WHERE substr(done_at,1,7) = {prev_m} {who}"
+            ),
+        );
+        push_challenge("botin_exploracion", "isk", exb_c, exb_p);
+
         // ---------- LOGROS (con fecha retroactiva) ----------
         let mut ach: Vec<AchievementState> = Vec::new();
 
@@ -952,6 +1006,33 @@ impl Db {
                 .unwrap_or_default();
             // El P&L de cada piloto: su parte del botín (a partes iguales) menos SU nave perdida y,
             // si además lanzó, el coste de entrada. Igual que en la vista.
+            //
+            // 🚨🚨 DOS ARREGLOS DEL 2026-09-16, y el segundo salió de una pregunta suya sobre medallas.
+            //
+            // 1. **SOLO ABISMO Y CRAB.** Desde la 0.50.0 las escalaciones también escriben en
+            //    `activity_runs` —compartir tabla era lo correcto para otra cosa— y se colaron en un
+            //    dominio que se llama «abismo» sin que nadie lo decidiera. Criterio suyo, y es el
+            //    mismo que rige el resto de la app: *«igual que el rateo o la minería, cada sección
+            //    se mide aparte y con el prisma de la actividad en sí»*. Las escalaciones tendrán
+            //    las suyas; mezclarlas hacía que la etiqueta dijera una cosa y el número contara otra.
+            //
+            // 2. **SIN DURACIÓN REAL NO HAY ISK/HORA.** Esto era lo grave. Una run se puede cerrar
+            //    en el mismo gesto (una escalación marcada «Hecha» sin «Voy»), y entonces
+            //    `ended_at - started_at ≈ 0`. El `MAX(..., 0.0001)` de antes no protegía: DIVIDÍA
+            //    por una diezmilésima de hora. **Medido en SQLite: una escalación de 381 M cerrada
+            //    en 3 segundos daba 457.196.348.363 ISK/h — 571 veces el umbral de oro.** Y como
+            //    `iskh_record` es un récord que no baja, quedaba arruinado para siempre y el oro se
+            //    regalaba al instante.
+            //    La regla nueva es la que la sección YA aplicaba a la duración: por debajo de un
+            //    minuto no se cuenta, porque «0 min» no se lee como cero, se lee como un fallo.
+            //    `NULL` = esta run no tiene ISK/hora, que es distinto de tenerlo a cero.
+            //    ⚠️ Pilla también las runs ABISALES de duración cero: el problema nunca fueron las
+            //    escalaciones, era la división. Arreglarlo solo con el filtro habría dejado la
+            //    bomba puesta para el día que alguien cierre un abismo en el mismo gesto.
+            //
+            // ⚠️ LA CTE ESTÁ DUPLICADA en `bitacora_series` (la gráfica de la ficha de medalla) y
+            //    los dos cambios van en las DOS. Ya está avisado en su memoria: si divergen, la
+            //    gráfica y la medalla cuentan runs distintas sobre el mismo dato.
             let part_cte = "
               WITH part AS (
                 SELECT r.id run_id, r.character_id owner_id, r.started_at, r.ended_at, r.loot_isk,
@@ -964,6 +1045,7 @@ impl Db {
                 FROM activity_runs r
                 LEFT JOIN activity_run_chars ac ON ac.run_id = r.id
                 WHERE r.ended_at IS NOT NULL AND r.outcome <> 'aborted'
+                  AND r.activity IN ('abyssal','crab')
               ), n AS (SELECT run_id, COUNT(*) n FROM part GROUP BY run_id)";
 
             let mut hechas = Cross::new([25.0, 100.0, 500.0]);
@@ -973,10 +1055,12 @@ impl Db {
             let sql = format!(
                 "{part_cte}
                  SELECT substr(p.ended_at,1,10) d, p.outcome,
-                        (COALESCE(p.loot_isk,0)/n.n - p.lost_value
-                          - CASE WHEN p.character_id = p.owner_id THEN COALESCE(p.entry_cost,0)
-                                 ELSE 0 END)
-                        / MAX((julianday(p.ended_at)-julianday(p.started_at))*24, 0.0001) iskh
+                        CASE WHEN (julianday(p.ended_at)-julianday(p.started_at))*1440 >= 1 THEN
+                          (COALESCE(p.loot_isk,0)/n.n - p.lost_value
+                            - CASE WHEN p.character_id = p.owner_id THEN COALESCE(p.entry_cost,0)
+                                   ELSE 0 END)
+                          / ((julianday(p.ended_at)-julianday(p.started_at))*24)
+                        END iskh
                  FROM part p JOIN n ON n.run_id = p.run_id
                  WHERE 1=1 {who_p}
                  ORDER BY p.ended_at ASC"
@@ -1315,15 +1399,21 @@ impl Db {
                 FROM activity_runs r
                 LEFT JOIN activity_run_chars ac ON ac.run_id = r.id
                 WHERE r.ended_at IS NOT NULL AND r.outcome <> 'aborted'
+                  -- ESPEJO EXACTO de la CTE del motor de medallas: solo abismo y CRAB, y el ISK/h
+                  -- con su guarda de duración. El porqué de los dos, allí. Si esto diverge, la
+                  -- gráfica y la medalla cuentan runs distintas sobre el mismo dato.
+                  AND r.activity IN ('abyssal','crab')
               ), n AS (SELECT run_id, COUNT(*) n FROM part GROUP BY run_id)";
             m.insert("runs_hechas".into(), cumulative(q(&format!(
                 "{part_cte} SELECT substr(p.ended_at,1,7), COUNT(*) FROM part p WHERE 1=1 {who_p} GROUP BY 1 ORDER BY 1"))));
             m.insert("iskh_record".into(), running_max(q(&format!(
                 "{part_cte}
                  SELECT substr(p.ended_at,1,7), MAX(
-                   (COALESCE(p.loot_isk,0)/n.n - p.lost_value
-                     - CASE WHEN p.character_id = p.owner_id THEN COALESCE(p.entry_cost,0) ELSE 0 END)
-                   / MAX((julianday(p.ended_at)-julianday(p.started_at))*24, 0.0001))
+                   CASE WHEN (julianday(p.ended_at)-julianday(p.started_at))*1440 >= 1 THEN
+                     (COALESCE(p.loot_isk,0)/n.n - p.lost_value
+                       - CASE WHEN p.character_id = p.owner_id THEN COALESCE(p.entry_cost,0) ELSE 0 END)
+                     / ((julianday(p.ended_at)-julianday(p.started_at))*24)
+                   END)
                  FROM part p JOIN n ON n.run_id = p.run_id WHERE 1=1 {who_p} GROUP BY 1 ORDER BY 1"))));
             m.insert("abismo_dificultad".into(), running_max(q(&format!(
                 "{part_cte}

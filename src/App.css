@@ -580,32 +580,185 @@ select,
   font-size: 0.8rem;
 }
 
+/* ---- LA BARRA DEL RETO DEL MES ----
+   Pedido suyo (2026-09-16): «dar más vida a las barras del reto». La vida va toda en el HOVER de la
+   TARJETA, no en reposo: un reto que brilla solo todo el rato deja de llamar la atención a los diez
+   minutos, y son cuatro o siete a la vez en pantalla. */
 .bit-bar {
   position: relative;
   height: 10px;
   border-radius: 5px;
   background: var(--bg-control);
   overflow: hidden;
+  transition: height 0.14s ease;
+}
+/* Al pasar por la tarjeta la barra ENGORDA. Es lo que dice «esto de aquí es lo que importa». */
+.bit-card:hover .bit-bar {
+  height: 14px;
 }
 
 .bit-bar-fill {
+  position: relative;
   height: 100%;
   border-radius: 5px;
   background: linear-gradient(90deg, var(--accent), var(--accent-border));
   transition: width 0.4s ease;
+  overflow: hidden;
+}
+
+/* El brillo que recorre lo CONSEGUIDO, solo mientras miras la tarjeta. Va dentro del relleno, así
+   que recorre exactamente lo que llevas hecho y no la barra entera: el reflejo mide tu progreso. */
+.bit-bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.28) 50%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+}
+.bit-card:hover .bit-bar-fill::after {
+  animation: bit-sheen 1.1s ease-in-out;
+}
+@keyframes bit-sheen {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .bit-card.done .bit-bar-fill {
   background: linear-gradient(90deg, #2a6b43, var(--ok));
 }
 
-/* Marca del listón: dónde acabó tu mes anterior. */
+/* ---- EL METAL DE UN RETO CONSEGUIDO ----
+   Es el metal REAL de su medalla hermana, no uno inventado para los retos (decisión suya: bronce,
+   plata y oro ya significan algo concreto en Koru y estrenar un oro que no cuenta en el medallero
+   te haría buscarlo allí). Sin metal en la hermana no se pinta ninguno y la tarjeta se queda verde:
+   un reto ganado nunca se apaga por esto. Los tonos son los MISMOS de `.bhb`, que es lo que hace
+   que se lean como el mismo idioma. */
+.bit-card.done.m1 {
+  border-color: #cd7f32;
+}
+.bit-card.done.m1 .bit-bar-fill {
+  background: linear-gradient(90deg, #7a4a1d, #cd7f32);
+}
+.bit-card.done.m2 {
+  border-color: #c9d1d9;
+}
+.bit-card.done.m2 .bit-bar-fill {
+  background: linear-gradient(90deg, #7d858c, #c9d1d9);
+}
+.bit-card.done.m3 {
+  border-color: #e8be3f;
+}
+.bit-card.done.m3 .bit-bar-fill {
+  background: linear-gradient(90deg, #8a6f1c, #e8be3f);
+}
+/* El pulso del cumplido también cambia de metal (si no, latiría en verde dentro de un marco de
+   oro, que son dos idiomas a la vez). */
+.bit-card.done.m1 .bit-bar {
+  animation-name: bit-done-pulse-m1;
+}
+.bit-card.done.m2 .bit-bar {
+  animation-name: bit-done-pulse-m2;
+}
+.bit-card.done.m3 .bit-bar {
+  animation-name: bit-done-pulse-m3;
+}
+@keyframes bit-done-pulse-m1 {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 7px 0 #cd7f3288;
+  }
+}
+@keyframes bit-done-pulse-m2 {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 7px 0 #c9d1d988;
+  }
+}
+@keyframes bit-done-pulse-m3 {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 9px 0 #e8be3f99;
+  }
+}
+.ch-metal {
+  font-weight: 600;
+}
+.bit-card.done.m1 .ch-metal {
+  color: #cd7f32;
+}
+.bit-card.done.m2 .ch-metal {
+  color: #c9d1d9;
+}
+.bit-card.done.m3 .ch-metal {
+  color: #e8be3f;
+}
+
+/* La tarjeta lleva a su sección. El realce es el mismo de cualquier cosa pulsable de la app. */
+.bit-card.ch-link {
+  cursor: pointer;
+}
+.bit-card.ch-link:hover,
+.bit-card.ch-link:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+/* Un reto cumplido respira despacio. Solo el cumplido: si respiraran todos sería ruido. */
+.bit-card.done .bit-bar {
+  animation: bit-done-pulse 2.8s ease-in-out infinite;
+}
+@keyframes bit-done-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 7px 0 color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+}
+
+/* Marca del listón: dónde acabó tu mes anterior. Engorda con la barra para no quedarse corta. */
 .bit-bar-base {
   position: absolute;
   top: -2px;
   bottom: -2px;
   width: 2px;
   background: var(--fg-muted-2);
+  z-index: 1;
+  transition:
+    width 0.14s ease,
+    background 0.14s ease;
+}
+.bit-card:hover .bit-bar-base {
+  width: 3px;
+  background: var(--fg);
+}
+
+/* Quien tenga el sistema en «menos animaciones» no ve ninguna de estas: son adorno, y el adorno
+   es lo primero que sobra cuando alguien ha pedido que las cosas se estén quietas. */
+@media (prefers-reduced-motion: reduce) {
+  .bit-card:hover .bit-bar-fill::after,
+  .bit-card.done .bit-bar {
+    animation: none;
+  }
+  .bit-bar,
+  .bit-card:hover .bit-bar {
+    height: 10px;
+  }
 }
 
 .bit-card-nums {
@@ -741,36 +894,80 @@ select,
 }
 /* Barra del medallero: un segmento por medalla, ordenados de más a menos avanzada. Se lee sola
    como «cuánto llevas» y con qué reparto de metales. */
+/* La barra de un segmento por medalla. ★ EL ALTO DE LA FILA (18px) ES ZONA SENSIBLE, el color son
+   los 7px del `::after`: así se puede apuntar. Antes el elemento medía 7px y había que acertarle,
+   que es la misma pega que ya se arregló en el hover por mes de la ficha de medalla. */
 .bit-hero-bar {
   display: flex;
   gap: 2px;
-  height: 7px;
+  height: 18px;
+  align-items: center;
 }
 .bhb {
   flex: 1 1 0;
+  align-self: stretch; /* la zona sensible, a todo el alto */
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+/* Lo que se VE: la pastilla de 7px centrada en la fila. */
+.bhb::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 7px;
+  transform: translateY(-50%);
   border-radius: 1px;
   background: var(--border, #30363d);
   opacity: 0.5;
   transition:
     opacity 0.12s,
-    transform 0.12s;
+    height 0.12s,
+    box-shadow 0.12s;
 }
-.bhb.l1 {
+.bhb.l1::after {
   background: #cd7f32;
   opacity: 1;
 }
-.bhb.l2 {
+.bhb.l2::after {
   background: #c9d1d9;
   opacity: 1;
 }
-.bhb.l3 {
+.bhb.l3::after {
   background: #e8be3f;
   opacity: 1;
   box-shadow: 0 0 5px #e8be3f66;
 }
-.bhb:hover {
+/* ★ Al pasar el ratón, el segmento crece y se ilumina CON SU PROPIO METAL… */
+.bhb:hover::after,
+.bhb:focus-visible::after {
+  height: 100%;
   opacity: 1;
-  transform: scaleY(1.6);
+  box-shadow: 0 0 8px currentColor;
+}
+.bhb.l1 {
+  color: #cd7f32;
+}
+.bhb.l2 {
+  color: #c9d1d9;
+}
+.bhb.l3 {
+  color: #e8be3f;
+}
+/* …y los VECINOS se apagan, que es lo que lo hace legible con cuarenta y siete al lado. Sin esto,
+   crecer uno entre tantos no se distingue. */
+.bit-hero-bar:hover .bhb::after {
+  opacity: 0.32;
+}
+.bit-hero-bar:hover .bhb:hover::after {
+  opacity: 1;
+}
+.bhb:focus-visible {
+  outline: none;
 }
 @media (max-width: 780px) {
   /* En estrecho las celdas se apilan de dos en dos y el separador vertical estorba. */
