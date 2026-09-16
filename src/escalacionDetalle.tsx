@@ -4,31 +4,38 @@
 //   escalación y que **no se ven en ninguna parte**. Medido antes de escribir esto:
 //
 //   · `loot_note` — la «nota del botín» que TE PIDE el modal al cerrar. Se guarda y no se enseña.
-//     Exploración sí la pinta (`explorationLog.tsx`), los abismos ni la piden. **Escalaciones era
+//     Exploración sí la pinta (`explorationLog.tsx`), los abismos ni la pedían. **Escalaciones era
 //     la única pantalla que te la pedía y se la quedaba**: un campo de solo escritura.
 //   · La cronología de la venta (`cobrada_at`, `entregada_at`, `acceso_retirado_at`): nada.
 //   · La cadena (`cadena_id`): una expedición de cuatro partes no decía que lo fuera.
 //   · `entry_cost`, y el resultado de CADA piloto (`outcome`, `lost_value`): la tabla pone
 //     retratos, no quién murió ni lo que le costó.
 //
-// ⚠️ LO QUE ESTA VENTANA **NO** PUEDE ENSEÑAR, y hay que decirlo aquí para que nadie lo prometa
-//    más adelante: **el botín detallado no está guardado.** `activity_runs` tiene `loot_isk` (un
-//    número) y `loot_note` (texto). El pegado del inventario se valora y se tira. Así que aquí no
-//    hay lista de objetos ni la habrá para las escalaciones pasadas — por eso la nota del botín,
-//    que es lo único que queda de aquel pegado, sale destacada y no en letra pequeña.
+// ⚠️ ESTE ENCABEZADO DECÍA HASTA HOY QUE «EL BOTÍN DETALLADO NO ESTÁ GUARDADO» y que aquí no habría
+//    lista de objetos «ni la habrá». **Dejó de ser cierto el mismo día que se escribió**: unas horas
+//    después nació `run_loot` y esta ficha ya pide el desglose. Se deja dicho en vez de borrarlo
+//    porque es el ejemplo de manual del aviso del checklist de release —*«una viñeta escrita a
+//    mediodía puede ser falsa por la tarde»*—, aplicado a un comentario de código en vez de a una
+//    nota de release. Lo que sigue siendo verdad: **las runs anteriores al 2026-09-16 solo tienen el
+//    total**, y la ficha lo dice con esas palabras en vez de dejar un hueco que parezca un fallo.
+//
+// Las piezas que esta ficha comparte con la de abismos y CRAB viven en `fichaRun.tsx`: el desglose
+// del botín, quién fue y el bloque de borrar. Aquí queda SOLO lo que es propio de una escalación
+// —el sitio, la cadena, la venta y su cronología—, que es justamente lo que no tiene sentido
+// enseñar en un abismo.
 //
 // Se monta por PORTAL en <body> por el mismo motivo que los demás modales: las secciones van
 // dentro de `.panel-art-wrap`, que con `isolation: isolate` dejaría la ventana presa.
-import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
-import type { RunLootLine } from "./runLoot";
 import { tr } from "./i18n";
-import { fmtIsk, typeIcon } from "./format";
+import { fmtIsk } from "./format";
+import { BloqueBorrar, ComoFue, Dato, QuienFue, fechaCorta, type RunDet } from "./fichaRun";
 // Hoy, sin `onFicha`, esto pinta texto plano — igual que en las otras dos veces que se usa para un
 // comprador. Va puesto de todas formas: el día que se cablee la ficha del piloto, dejar aquí el
 // nombre a pelo sería el caso clásico de arreglarlo en un sitio y no en su hermano.
 import { PilotoNombre } from "./fichaPiloto";
+
+export type { RunDet };
 
 /** Solo lo que esta ventana pinta. Mismo criterio que el resto de la pantalla: declarar un campo
  *  es prometer que se enseña. */
@@ -54,42 +61,7 @@ export type EscDet = {
   nota: string | null;
 };
 
-export type RunDet = {
-  outcome?: string;
-  loot_isk: number | null;
-  loot_note?: string | null;
-  ship_loss_isk: number | null;
-  entry_cost?: number | null;
-  started_at: string | null;
-  ended_at: string | null;
-  ship_type_id: number | null;
-  chars?: {
-    character_id: number;
-    ship_type_id: number | null;
-    outcome?: string;
-    lost_value?: number;
-  }[];
-};
-
-/** `2026-09-16T21:40:03Z` → `2026-09-16 21:40`. Se CORTA la cadena en vez de pasarla por `Date`:
- *  las horas de EVE son UTC y convertirlas a la zona del equipo haría que la cronología de una
- *  venta no cuadrara con lo que se vio en el juego. El resto de la app también corta. */
-const fecha = (s: string | null | undefined): string =>
-  s ? `${s.slice(0, 10)} ${s.slice(11, 16)}` : "—";
-
 const facLogo = (id: number) => `https://images.evetech.net/corporations/${id}/logo?size=32`;
-
-/** Una fila `etiqueta: valor`. No se pinta si no hay valor: una ficha llena de guiones se lee como
- *  que faltan datos, cuando lo que pasa es que esa escalación no tuvo esa parte. */
-function Dato({ k, v, tone }: { k: string; v: React.ReactNode; tone?: "pos" | "neg" }) {
-  if (v == null || v === "" || v === "—") return null;
-  return (
-    <div className="esc-det-fila">
-      <span className="esc-det-k">{k}</span>
-      <span className={tone === "pos" ? "kpi-pos" : tone === "neg" ? "kpi-neg" : ""}>{v}</span>
-    </div>
-  );
-}
 
 export function EscalacionDetalle({
   esc,
@@ -120,41 +92,7 @@ export function EscalacionDetalle({
   onBorrar: () => void;
   onClose: () => void;
 }) {
-  /** ★★ EL BOTÍN DETALLADO, PEDIDO SOLO AL ABRIR ESTA FICHA — la otra mitad de la idea de RoGiz7:
-   *  *«leer la info solo cuando se pide en el detalle»*. Un pegado son decenas de líneas por run;
-   *  viajar con cada listado del histórico sería traer miles de filas para enseñar cuarenta.
-   *
-   *  `null` = todavía no se ha preguntado · `[]` = se preguntó y esa run no tiene detalle guardado,
-   *  que es el caso de **todas las runs anteriores al 2026-09-16**: el botín no se guardaba. Los dos
-   *  estados se distinguen a propósito, porque «cargando» y «no hay» no son lo mismo. */
-  const [botin, setBotin] = useState<RunLootLine[] | null>(null);
-  // El borrado pide confirmación DENTRO de la ficha, no en un diálogo aparte: ya estás mirando lo
-  // que vas a borrar, y sacar otra ventana encima obligaría a decidir sin verlo.
-  const [confirmando, setConfirmando] = useState(false);
-  useEffect(() => {
-    if (runId == null) return;
-    let vivo = true;
-    invoke<RunLootLine[]>("run_loot_list", { runId })
-      .then((r) => {
-        if (vivo) setBotin(r);
-      })
-      // Si falla, se queda en «no hay»: la ficha entera no se cae por el desglose.
-      .catch(() => {
-        if (vivo) setBotin([]);
-      });
-    return () => {
-      vivo = false;
-    };
-  }, [runId]);
-
   const vendida = esc.modo === "venta";
-  const dur = (() => {
-    if (!run?.started_at || !run.ended_at) return null;
-    const min = Math.round((Date.parse(run.ended_at) - Date.parse(run.started_at)) / 60000);
-    // Una run cerrada en el mismo gesto («Hecha» sin «Voy») dura ~0: no se pinta un «0 min» que se
-    // leería como que la hiciste en cero. Misma regla que el histórico.
-    return min >= 1 ? `${min} min` : null;
-  })();
 
   // Los participantes: si la run no tiene tabla hija, el dueño es el único que voló.
   const parts = run?.chars?.length
@@ -216,116 +154,17 @@ export function EscalacionDetalle({
               {tr("No se registró ninguna run: de esta escalación solo queda lo apuntado arriba.")}
             </p>
           ) : (
-            <>
-              <Dato k={tr("Duración")} v={dur} />
-              <Dato k={tr("Botín")} v={run.loot_isk != null ? fmtIsk(run.loot_isk) : null} tone="pos" />
-              <Dato k={tr("Coste de entrada")} v={run.entry_cost != null ? fmtIsk(run.entry_cost) : null} tone="neg" />
-              <Dato
-                k={tr("Nave perdida")}
-                v={run.ship_loss_isk != null ? fmtIsk(run.ship_loss_isk) : null}
-                tone="neg"
-              />
-              {/* ★ LA NOTA DEL BOTÍN, DESTACADA. Es lo ÚNICO que queda de aquel pegado del
-                  inventario —los objetos no se guardan—, así que ponerla en letra pequeña sería
-                  esconder la mejor pista de qué cayó. Y hasta hoy no se veía en ninguna parte. */}
-              {run.loot_note ? (
-                <div className="esc-det-nota">
-                  <span className="esc-det-k">{tr("Nota del botín")}</span>
-                  <div>{run.loot_note}</div>
-                </div>
-              ) : null}
-
-              {/* ---- el desglose, si esta run lo tiene ---- */}
-              {botin != null && botin.length > 0 && (
-                <div className="esc-det-loot">
-                  <table className="small sig-table">
-                    <thead>
-                      <tr className="sig-th">
-                        <th>{tr("Item")}</th>
-                        <th style={{ textAlign: "right" }}>{tr("Cant.")}</th>
-                        <th style={{ textAlign: "right" }}>{tr("Valor")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {botin.map((l, i) => (
-                        <tr key={i}>
-                          <td className="cell-icon">
-                            {l.type_id != null ? (
-                              <img className="run-ship" src={typeIcon(l.type_id, 32)} alt="" style={{ marginLeft: 0, marginRight: "0.3rem" }} />
-                            ) : null}
-                            {l.name}
-                          </td>
-                          <td style={{ textAlign: "right" }}>{l.qty}</td>
-                          {/* ★ La procedencia se VE, no se esconde: `~` y atenuado cuando el precio
-                              lo puso Koru y no el juego. Sin esta marca, una estimación local se
-                              leería como un precio del pegado — el mismo problema que él cazó en
-                              una captura cuando el total salía de precios locales y las filas
-                              decían «—». Y un BPC dice POR QUÉ no vale nada. */}
-                          <td style={{ textAlign: "right" }} className={l.isk_src === "koru" ? "muted" : ""}>
-                            {l.isk_src === "bpc"
-                              ? tr("copia de plano")
-                              : l.isk == null
-                                ? "—"
-                                : `${l.isk_src === "koru" ? "~" : ""}${fmtIsk(l.isk)}`}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {/* Las runs de antes del 2026-09-16 no tienen desglose porque no se guardaba. Decirlo
-                  es mejor que no poner nada: si no, parece que la ficha se dejó algo. */}
-              {botin != null && botin.length === 0 && run.loot_isk != null && (
-                <p className="muted small">
-                  {tr("De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.")}
-                </p>
-              )}
-            </>
+            <ComoFue run={run} runId={runId} />
           )}
         </div>
 
-        {/* ---- quién fue ---- */}
-        {parts.length > 0 && (
-          <div className="esc-det-sec">
-            <h5>{tr("Quién fue")}</h5>
-            {parts.map((p) => {
-              const muerto = p.outcome === "dead";
-              return (
-                <div className="esc-det-fila" key={p.character_id}>
-                  <span>
-                    <img
-                      src={`https://images.evetech.net/characters/${p.character_id}/portrait?size=32`}
-                      alt=""
-                      width={18}
-                      height={18}
-                      style={{ borderRadius: "50%", verticalAlign: "-4px", marginRight: "0.35rem" }}
-                    />
-                    {charName(p.character_id)}
-                    {/* El que la tenía va marcado: en multibox contesta «¿de quién era?». */}
-                    {p.character_id === esc.character_id ? (
-                      <span className="muted small"> · {tr("suya")}</span>
-                    ) : null}
-                  </span>
-                  <span className={muerto ? "kpi-neg" : ""}>
-                    {p.ship_type_id != null ? (
-                      <img
-                        src={typeIcon(p.ship_type_id, 32)}
-                        alt=""
-                        width={18}
-                        height={18}
-                        style={{ verticalAlign: "-4px", marginRight: "0.3rem" }}
-                        title={shipName(p.ship_type_id)}
-                      />
-                    ) : null}
-                    {p.ship_type_id != null ? shipName(p.ship_type_id) : ""}
-                    {muerto ? ` · 💀${p.lost_value ? ` ${fmtIsk(p.lost_value)}` : ""}` : ""}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <QuienFue
+          parts={parts}
+          duenoId={esc.character_id}
+          marcaDueno={tr("suya")}
+          charName={charName}
+          shipName={shipName}
+        />
 
         {/* ---- la venta ---- */}
         {vendida && (
@@ -343,14 +182,14 @@ export function EscalacionDetalle({
         {/* ---- cronología ---- */}
         <div className="esc-det-sec">
           <h5>{tr("Cronología")}</h5>
-          <Dato k={tr("Apuntada")} v={fecha(esc.abierta_at)} />
-          <Dato k={tr("Caducaba")} v={fecha(esc.caduca_at)} />
-          {vendida && <Dato k={tr("Cobrada")} v={fecha(esc.cobrada_at)} />}
-          {vendida && <Dato k={tr("Acceso dado")} v={fecha(esc.entregada_at)} />}
+          <Dato k={tr("Apuntada")} v={fechaCorta(esc.abierta_at)} />
+          <Dato k={tr("Caducaba")} v={fechaCorta(esc.caduca_at)} />
+          {vendida && <Dato k={tr("Cobrada")} v={fechaCorta(esc.cobrada_at)} />}
+          {vendida && <Dato k={tr("Acceso dado")} v={fechaCorta(esc.entregada_at)} />}
           {/* ★ El que de verdad importa de la modalidad de venta: mientras no se retire el acceso,
               el comprador sigue dentro de tu safe y la ranura sigue ocupada. */}
-          {vendida && <Dato k={tr("Acceso retirado")} v={fecha(esc.acceso_retirado_at)} />}
-          <Dato k={tr("Cerrada")} v={fecha(esc.cerrada_at)} />
+          {vendida && <Dato k={tr("Acceso retirado")} v={fechaCorta(esc.acceso_retirado_at)} />}
+          <Dato k={tr("Cerrada")} v={fechaCorta(esc.cerrada_at)} />
         </div>
 
         {esc.nota ? (
@@ -360,35 +199,15 @@ export function EscalacionDetalle({
           </div>
         ) : null}
 
-        {/* ---- borrar ----
-            ★ AQUÍ Y NO EN UN 🗑 POR FILA, al revés que en abisales. La fila del histórico entera
-              abre la ficha, así que un icono de borrar dentro de ella pondría el accidente a un
-              clic del gesto normal. Obligar a abrir la escalación primero significa que la ves
-              antes de borrarla.
-            ★ Y CONFIRMACIÓN CORTA, no el panel rojo del borrado de personaje: aquello es
-              irreversible y se lleva años de datos, esto es una fila. Un aviso desproporcionado
-              enseña a ignorar los avisos. */}
-        <div className="esc-det-sec esc-det-borrar">
-          {!confirmando ? (
-            <button className="esc-det-del" onClick={() => setConfirmando(true)}>
-              🗑 {tr("Borrar esta escalación")}
-            </button>
-          ) : (
-            <div className="esc-det-fila">
-              <span className="small">
-                {run
-                  ? tr("Se borra la escalación y su run, con el botín que tuviera anotado.")
-                  : tr("Se borra la escalación.")}
-              </span>
-              <span>
-                <button className="esc-det-del confirma" onClick={onBorrar}>
-                  {tr("Borrar")}
-                </button>{" "}
-                <button onClick={() => setConfirmando(false)}>{tr("Cancelar")}</button>
-              </span>
-            </div>
-          )}
-        </div>
+        <BloqueBorrar
+          etiqueta={tr("Borrar esta escalación")}
+          aviso={
+            run
+              ? tr("Se borra la escalación y su run, con el botín que tuviera anotado.")
+              : tr("Se borra la escalación.")
+          }
+          onBorrar={onBorrar}
+        />
       </div>
     </div>,
     document.body,

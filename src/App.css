@@ -11489,6 +11489,9 @@ h4 {
 }
 /* Las filas del histórico abren el detalle. El cursor es lo que lo dice: sin esto, que la fila
    responda al clic no se adivina. */
+/* La fila del histórico que abre una ficha. Nació en escalaciones y desde el 2026-09-16 la usan
+   también abismos y CRAB: el prefijo `esc-` es HISTORIA, no alcance. Lo mismo vale para el bloque
+   `.esc-det-*` de más arriba, que hoy pinta las dos fichas (ver `fichaRun.tsx`). */
 .esc-hist-fila {
   cursor: pointer;
 }

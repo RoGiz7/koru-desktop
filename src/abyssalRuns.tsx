@@ -13,6 +13,7 @@ import { playAbyssWarn, playAbyssCount, playAbyssOut } from "./sound";
 import { LootPasteModal } from "./lootPasteModal";
 import { loadShipRows, type ShipRow } from "./flotas";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
+import { RunDetalle } from "./fichaRun";
 import type { RunLootLine } from "./runLoot";
 import type { ActivityRun, RunChar, CharacterCard } from "./types";
 
@@ -184,10 +185,13 @@ export function AbyssalRunsView({
   const [finishing, setFinishing] = useState<null | "done" | "died" | "aborted">(null);
   const [finLoot, setFinLoot] = useState("");
   const [finShipLoss, setFinShipLoss] = useState("");
+  /** La nota del botín al cerrar. Hasta el 2026-09-16 el modal la pedía y aquí se TIRABA a
+   *  propósito: no había ninguna pantalla donde devolvértela, y recogerla sin enseñarla es el campo
+   *  de solo escritura que acabábamos de arreglar en escalaciones. Con la ficha de run ya hay
+   *  dónde, así que se guarda (decisión de RoGiz7, 2026-09-16). Solo de aquí en adelante. */
+  const [finNota, setFinNota] = useState("");
   const [lootOpen, setLootOpen] = useState(false);
-  // A dónde va el botín pegado: "finish" (panel de terminar) o el id de una fila en edición.
-  const [lootTarget, setLootTarget] = useState<"finish" | number>("finish");
-  /** ★★ EL BOTÍN OBJETO A OBJETO del último pegado, por destino (cerrar la run / editarla).
+  /** ★★ EL BOTÍN OBJETO A OBJETO del último pegado al CERRAR la run.
    *
    *  Hasta hoy el modal valoraba el pegado y **tiraba las líneas**: de una run quedaba el total y
    *  nada más. Escalaciones empezó a guardarlas esta tarde y dejar abismos y CRAB fuera era el
@@ -198,14 +202,15 @@ export function AbyssalRunsView({
    *  `run_loot_set`, que REEMPLAZA: editar el ISK a mano de una run que ya tenía desglose no debe
    *  borrárselo. */
   const [finBotin, setFinBotin] = useState<RunLootLine[]>([]);
-  const [editBotin, setEditBotin] = useState<RunLootLine[]>([]);
   const [lootIndex, setLootIndex] = useState<LootIndex>(new Map());
-  // Edición en línea de una run ya cerrada (corregir botín / nave olvidados) vía run_set.
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editLoot, setEditLoot] = useState("");
-  const [editShip, setEditShip] = useState("");
-  /** Coste de entrada en edición: en blanco en las runs viejas, para que lo rellenes si quieres. */
-  const [editEntry, setEditEntry] = useState("");
+  /** ★ La run cuya FICHA está abierta. Editar y borrar viven ahí dentro desde el 2026-09-16
+   *  (decisión de RoGiz7): la fila entera del histórico abre la ficha, y con la fila pulsable un
+   *  🗑 dentro de ella pondría el borrado a un clic del gesto normal. Es el mismo razonamiento que
+   *  ya estaba escrito en escalaciones, traído aquí.
+   *
+   *  Se guarda el ID y no la run: así, al guardar una corrección, la ficha se repinta con la fila
+   *  recargada del histórico en vez de con la copia vieja que se clicó. */
+  const [detalleId, setDetalleId] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const [period, setPeriod] = useState<string>("all"); // filtro de tiempo del histórico
   /** Clase elegida A MANO. `null` = la deduce la nave escrita. Se separan a propósito: si el
@@ -460,7 +465,8 @@ export function AbyssalRunsView({
         id: active.id,
         outcome: finishing,
         lootIsk: finishing === "aborted" ? null : parseIskShorthand(finLoot),
-        lootNote: null,
+        // Vacía viaja como null y no como "", que en la ficha se pintaría igual pero en la BD no.
+        lootNote: finishing === "aborted" ? null : finNota.trim() || null,
         shipLossIsk: finishing === "died" ? parseIskShorthand(finShipLoss) : null,
         note: null,
       });
@@ -477,6 +483,7 @@ export function AbyssalRunsView({
       setFinishing(null);
       setFinLoot("");
       setFinShipLoss("");
+      setFinNota("");
       setFinBotin([]);
       setCrewEnd(new Map());
       await reload();
@@ -487,36 +494,15 @@ export function AbyssalRunsView({
     }
   }
 
-  function startEdit(r: ActivityRun) {
-    setEditId(r.id);
-    setEditLoot(r.loot_isk != null ? String(r.loot_isk) : "");
-    setEditShip(r.ship_loss_isk != null ? String(r.ship_loss_isk) : "");
-    setEditEntry(r.entry_cost != null ? String(r.entry_cost) : "");
-  }
-  async function saveEdit(r: ActivityRun) {
+  /** Borrar una run desde su ficha. Cierra la ficha DESPUÉS de recargar: dejarla abierta encima de
+   *  una fila que ya no existe es el estado a medias que hace dudar de si se borró. */
+  async function borrarRun(id: number) {
     setBusy(true);
     setMsg("");
     try {
-      await invoke("run_set", {
-        id: r.id,
-        lootIsk: parseIskShorthand(editLoot),
-        lootNote: null,
-        shipLossIsk: r.outcome === "died" ? parseIskShorthand(editShip) : (r.ship_loss_isk ?? null),
-        note: null,
-        entryCost: parseIskShorthand(editEntry),
-      });
-      // Solo si en ESTA edición se pegó algo: `run_loot_set` reemplaza, y corregir el ISK a mano de
-      // una run que ya tenía desglose no debe borrárselo.
-      if (editBotin.length > 0) {
-        try {
-          await invoke("run_loot_set", { runId: r.id, items: editBotin });
-        } catch (e) {
-          setMsg(`${tr("Se guardó el total, pero no el detalle del botín")}: ${String(e).slice(0, 120)}`);
-        }
-      }
-      setEditBotin([]);
-      setEditId(null);
+      await invoke("run_delete", { id });
       await reload();
+      setDetalleId(null);
     } catch (e) {
       setMsg(`${tr("Error")}: ${String(e).slice(0, 160)}`);
     } finally {
@@ -801,7 +787,7 @@ export function AbyssalRunsView({
             <span className="abyss-finish">
               <span className="small muted">{tr("Botín")}:</span>
               <input className="small" value={finLoot} onChange={(e) => setFinLoot(e.target.value)} placeholder={tr("ISK (p.ej. 45m)")} style={{ width: 100 }} />
-              <button className="pp-add" onClick={() => { setLootTarget("finish"); setLootOpen(true); }}>📋 {tr("Pegar loot")}</button>
+              <button className="pp-add" onClick={() => setLootOpen(true)}>📋 {tr("Pegar loot")}</button>
               {finishing === "died" && (
                 <>
                   <span className="small muted">{tr("Nave perdida")}:</span>
@@ -1264,13 +1250,17 @@ export function AbyssalRunsView({
                 <th style={{ textAlign: "right" }}>{tr("Botín")}</th>
                 <th style={{ textAlign: "right" }} title={tr("Filamento(s) o baliza. Lo paga quien lanza; en blanco en las runs de antes de que Koru lo guardara.")}>{tr("Entrada")}</th>
                 <th style={{ textAlign: "right" }}>{tr("Nave perdida")}</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {viewRows.map((r) => (
+                // La fila ENTERA abre la ficha, igual que en escalaciones. Ahí dentro se edita y se
+                // borra: ver el comentario de `detalleId`.
                 <tr
                   key={r.id}
+                  className="esc-hist-fila"
+                  title={tr("Ver la ficha de esta run")}
+                  onClick={() => setDetalleId(r.id)}
                   style={{
                     background: `linear-gradient(90deg, ${outcomeColor(r.outcome)}14, transparent 60%)`,
                     borderLeft: `3px solid ${outcomeColor(r.outcome)}`,
@@ -1324,70 +1314,31 @@ export function AbyssalRunsView({
                       {r.outcome === "died" ? `💀 ${tr("Muerto")}` : r.outcome === "aborted" ? `✕ ${tr("Abortada")}` : `✓ ${tr("Completada")}`}
                     </span>
                   </td>
-                  {editId === r.id ? (
-                    <>
-                      <td style={{ textAlign: "right" }}>
-                        <input className="small" value={editLoot} onChange={(e) => setEditLoot(e.target.value)} placeholder={tr("ISK (p.ej. 45m)")} style={{ width: 90 }} />
-                        <button className="sig-done-btn" title={tr("Pegar loot")} onClick={() => { setLootTarget(r.id); setLootOpen(true); }}>📋</button>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <input className="small" value={editEntry} onChange={(e) => setEditEntry(e.target.value)} placeholder={tr("ISK")} style={{ width: 80 }} />
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        {r.outcome === "died" ? (
-                          <input className="small" value={editShip} onChange={(e) => setEditShip(e.target.value)} placeholder={tr("ISK")} style={{ width: 80 }} />
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        <button className="sig-done-btn" title={tr("Guardar")} onClick={() => saveEdit(r)} disabled={busy}>✓</button>
-                        <button className="sig-done-btn" title={tr("Cancelar")} onClick={() => setEditId(null)} disabled={busy}>✕</button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td style={{ textAlign: "right" }}>{r.loot_isk != null ? fmtIsk(r.loot_isk) : <span className="muted">—</span>}</td>
-                      {/* Las UNIDADES delante del total: «3 × −196 M» y «1 × −65 M» son historias
-                          distintas, y el total solo no las distingue. Las runs anteriores al
-                          2026-08-13 no las tienen (`null`) y se enseñan como siempre — no se
-                          inventa un 1 que en las cooperativas sería mentira. */}
-                      <td style={{ textAlign: "right" }} className="muted">
-                        {r.entry_cost != null ? (
-                          <>
-                            {`-${fmtIsk(r.entry_cost)}`}
-                            {/* Detrás y entre paréntesis, NO delante con un «×»: pegado al importe
-                                se leía como una multiplicación pendiente de hacer. */}
-                            {r.entry_units != null && r.entry_units > 1 && (
-                              <span className="run-uds" title={tr("Filamentos gastados")}>
-                                {" "}
-                                ({r.entry_units})
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right" }} className="abyss-died">
-                        {r.ship_loss_isk != null ? `-${fmtIsk(r.ship_loss_isk)}` : <span className="muted">—</span>}
-                      </td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        {/* Un botón DESHABILITADO no recibe eventos de ratón en WebView2, así que
-                            su `title` no se ve nunca: pulsarlo no hacía nada y no explicaba por
-                            qué (le pasó a RoGiz7 con sus runs abortadas). Si no se puede editar, no
-                            se pinta el botón y el motivo va en el hueco. */}
-                        {r.outcome === "aborted" ? (
-                          <span className="muted small" title={tr("Una run abortada no tiene botín que corregir. Si te equivocaste al cerrarla, bórrala y vuelve a registrarla.")}>
-                            —
+                  <td style={{ textAlign: "right" }}>{r.loot_isk != null ? fmtIsk(r.loot_isk) : <span className="muted">—</span>}</td>
+                  {/* Las UNIDADES delante del total: «3 × −196 M» y «1 × −65 M» son historias
+                      distintas, y el total solo no las distingue. Las runs anteriores al
+                      2026-08-13 no las tienen (`null`) y se enseñan como siempre — no se
+                      inventa un 1 que en las cooperativas sería mentira. */}
+                  <td style={{ textAlign: "right" }} className="muted">
+                    {r.entry_cost != null ? (
+                      <>
+                        {`-${fmtIsk(r.entry_cost)}`}
+                        {/* Detrás y entre paréntesis, NO delante con un «×»: pegado al importe
+                            se leía como una multiplicación pendiente de hacer. */}
+                        {r.entry_units != null && r.entry_units > 1 && (
+                          <span className="run-uds" title={tr("Filamentos gastados")}>
+                            {" "}
+                            ({r.entry_units})
                           </span>
-                        ) : (
-                          <button className="sig-done-btn" title={tr("Editar")} onClick={() => startEdit(r)} disabled={busy}>✏️</button>
                         )}
-                        <button className="sig-done-btn" title={tr("Eliminar")} onClick={() => invoke("run_delete", { id: r.id }).then(reload)} disabled={busy}>🗑</button>
-                      </td>
-                    </>
-                  )}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right" }} className="abyss-died">
+                    {r.ship_loss_isk != null ? `-${fmtIsk(r.ship_loss_isk)}` : <span className="muted">—</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1403,20 +1354,52 @@ export function AbyssalRunsView({
         title={tr("Botín de la run")}
         confirmLabel={tr("Usar botín")}
         onCancel={() => setLootOpen(false)}
-        onConfirm={(isk, _nota, lineas) => {
-          if (isk != null) {
-            if (lootTarget === "finish") setFinLoot(String(isk));
-            else setEditLoot(String(isk));
-          }
-          // Las líneas se guardan aparte del total y viajan con el guardado correspondiente.
-          // `_nota` se ignora a propósito: abismos no pide nota del botín, y recogerla sin tener
-          // dónde enseñarla sería justo el campo de solo escritura que acabamos de arreglar en
-          // escalaciones. Cuando exista la ficha de run compartida, entra sola.
-          if (lootTarget === "finish") setFinBotin(lineas);
-          else setEditBotin(lineas);
+        onConfirm={(isk, nota, lineas) => {
+          if (isk != null) setFinLoot(String(isk));
+          // ★ La nota YA NO SE TIRA. Este modal solo sirve al panel de TERMINAR una run: la edición
+          //   de una run cerrada tiene el suyo dentro de la ficha, con su propio destino.
+          if (nota.trim()) setFinNota(nota);
+          setFinBotin(lineas);
           setLootOpen(false);
         }}
       />
+
+      {/* ---- LA FICHA DE LA RUN ----
+          Compartida con escalaciones (`fichaRun.tsx`). Se busca en `runs` por id y no se guarda la
+          fila clicada: al corregir una cifra, la ficha se repinta con lo recargado. Si la run
+          desaparece del histórico (borrada, o fuera del filtro tras recargar), no se pinta nada. */}
+      {detalleId != null &&
+        (() => {
+          const r = runs.find((x) => x.id === detalleId);
+          if (!r) return null;
+          return (
+            <RunDetalle
+              run={r}
+              color={outcomeColor(r.outcome)}
+              titulo={
+                <>
+                  {r.variant_id ? (
+                    <img className="run-ship" src={typeIcon(r.variant_id, 32)} alt="" style={{ marginLeft: 0, marginRight: "0.35rem" }} />
+                  ) : null}
+                  {r.variant_name}
+                  {/* El clima solo en abisales: en CRAB la baliza ya lo dice todo. */}
+                  {r.weather ? (
+                    <span className="run-chip" style={{ marginLeft: "0.4rem", borderColor: weatherColor(r.weather), color: weatherColor(r.weather) }}>
+                      {r.tier ? `${r.tier} ` : ""}
+                      {r.weather}
+                    </span>
+                  ) : null}
+                </>
+              }
+              lootIndex={lootIndex}
+              charName={charName}
+              shipName={shipNameOf}
+              onGuardado={() => void reload()}
+              onBorrar={() => void borrarRun(r.id)}
+              onClose={() => setDetalleId(null)}
+            />
+          );
+        })()}
 
       {msg && <div className="small muted">{msg}</div>}
     </div>

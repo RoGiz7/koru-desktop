@@ -2241,6 +2241,12 @@ const EN: Record<string, string> = {
   "Se borra la escalación y su run, con el botín que tuviera anotado.":
     "This deletes the escalation and its run, along with any loot recorded.",
   "Se borra la escalación.": "This deletes the escalation.",
+  // --- La ficha de run compartida con abismos y CRAB (`fichaRun.tsx`, 2026-09-16) ---
+  "Ver la ficha de esta run": "See this run's card",
+  "Borrar esta run": "Delete this run",
+  "Se borra la run con el botín que tuviera anotado.":
+    "This deletes the run, along with any loot recorded.",
+  "Se guardará también el botín pegado": "The pasted loot will be saved too",
   // --- El botín objeto a objeto de una run (ver `run_loot` en schema.sql y `runLoot.ts`) ---
   "copia de plano": "blueprint copy",
   "La run se cerró, pero no se pudo guardar el detalle del botín":
