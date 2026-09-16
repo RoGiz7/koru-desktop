@@ -1521,6 +1521,27 @@ pub fn run_end(
     Ok(())
 }
 
+/// Guarda el botín de una run objeto a objeto. REEMPLAZA el anterior: volver a pegar corrige.
+///
+/// Va aparte de `run_end` a propósito y no como un parámetro más: el botín también se EDITA
+/// después (el histórico de exploración ya lo hace), y colgarlo del cierre obligaría a cerrar una
+/// run otra vez para corregir una línea. Ver el comentario de `run_loot` en `schema.sql`.
+#[tauri::command]
+pub fn run_loot_set(
+    state: State<'_, AppState>,
+    run_id: i64,
+    items: Vec<crate::db::RunLootRow>,
+) -> AppResult<usize> {
+    state.db.run_loot_set(run_id, &items)
+}
+
+/// El botín guardado de una run. Se pide SOLO al abrir una ficha de detalle: decenas de líneas por
+/// run no tienen por qué viajar con cada listado del histórico.
+#[tauri::command]
+pub fn run_loot_list(state: State<'_, AppState>, run_id: i64) -> AppResult<Vec<crate::db::RunLootRow>> {
+    state.db.run_loot_list(run_id)
+}
+
 /// La run abierta (en curso) de un personaje PARA UNA ACTIVIDAD (abyssal/crab), para restaurar el
 /// cronómetro. El filtro por actividad evita que una run CRAB abierta aparezca en abisales (y viceversa).
 #[tauri::command]

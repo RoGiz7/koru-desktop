@@ -2198,6 +2198,12 @@ const EN: Record<string, string> = {
   Botín: "Loot",
   Guardar: "Save",
   Deshacer: "Undo",
+  // --- El botín objeto a objeto de una run (ver `run_loot` en schema.sql y `runLoot.ts`) ---
+  "copia de plano": "blueprint copy",
+  "De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.":
+    "Only the total was saved for this run: item-by-item loot started being saved later.",
+  "La escalación se cerró, pero no se pudo guardar el detalle del botín":
+    "The escalation was closed, but the loot breakdown could not be saved",
   // --- Escalaciones: ventana de detalle de una archivada (ver `escalacionDetalle.tsx`) ---
   "Ver cómo fue": "See how it went",
   "Cómo fue": "How it went",

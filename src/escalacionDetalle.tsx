@@ -19,7 +19,10 @@
 //
 // Se monta por PORTAL en <body> por el mismo motivo que los demás modales: las secciones van
 // dentro de `.panel-art-wrap`, que con `isolation: isolate` dejaría la ventana presa.
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
+import type { RunLootLine } from "./runLoot";
 import { tr } from "./i18n";
 import { fmtIsk, typeIcon } from "./format";
 // Hoy, sin `onFicha`, esto pinta texto plano — igual que en las otras dos veces que se usa para un
@@ -90,17 +93,45 @@ function Dato({ k, v, tone }: { k: string; v: React.ReactNode; tone?: "pos" | "n
 
 export function EscalacionDetalle({
   esc,
+  runId,
   run,
   charName,
   shipName,
   onClose,
 }: {
   esc: EscDet;
+  /** El id de la run enlazada. Va aparte de `run` porque el desglose del botín se pide por id y
+   *  `run` puede no haber llegado todavía al mapa del histórico. */
+  runId: number | null;
   run: RunDet | undefined;
   charName: (id: number) => string;
   shipName: (id: number) => string;
   onClose: () => void;
 }) {
+  /** ★★ EL BOTÍN DETALLADO, PEDIDO SOLO AL ABRIR ESTA FICHA — la otra mitad de la idea de RoGiz7:
+   *  *«leer la info solo cuando se pide en el detalle»*. Un pegado son decenas de líneas por run;
+   *  viajar con cada listado del histórico sería traer miles de filas para enseñar cuarenta.
+   *
+   *  `null` = todavía no se ha preguntado · `[]` = se preguntó y esa run no tiene detalle guardado,
+   *  que es el caso de **todas las runs anteriores al 2026-09-16**: el botín no se guardaba. Los dos
+   *  estados se distinguen a propósito, porque «cargando» y «no hay» no son lo mismo. */
+  const [botin, setBotin] = useState<RunLootLine[] | null>(null);
+  useEffect(() => {
+    if (runId == null) return;
+    let vivo = true;
+    invoke<RunLootLine[]>("run_loot_list", { runId })
+      .then((r) => {
+        if (vivo) setBotin(r);
+      })
+      // Si falla, se queda en «no hay»: la ficha entera no se cae por el desglose.
+      .catch(() => {
+        if (vivo) setBotin([]);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [runId]);
+
   const vendida = esc.modo === "venta";
   const dur = (() => {
     if (!run?.started_at || !run.ended_at) return null;
@@ -176,6 +207,53 @@ export function EscalacionDetalle({
                   <div>{run.loot_note}</div>
                 </div>
               ) : null}
+
+              {/* ---- el desglose, si esta run lo tiene ---- */}
+              {botin != null && botin.length > 0 && (
+                <div className="esc-det-loot">
+                  <table className="small sig-table">
+                    <thead>
+                      <tr className="sig-th">
+                        <th>{tr("Item")}</th>
+                        <th style={{ textAlign: "right" }}>{tr("Cant.")}</th>
+                        <th style={{ textAlign: "right" }}>{tr("Valor")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {botin.map((l, i) => (
+                        <tr key={i}>
+                          <td className="cell-icon">
+                            {l.type_id != null ? (
+                              <img className="run-ship" src={typeIcon(l.type_id, 32)} alt="" style={{ marginLeft: 0, marginRight: "0.3rem" }} />
+                            ) : null}
+                            {l.name}
+                          </td>
+                          <td style={{ textAlign: "right" }}>{l.qty}</td>
+                          {/* ★ La procedencia se VE, no se esconde: `~` y atenuado cuando el precio
+                              lo puso Koru y no el juego. Sin esta marca, una estimación local se
+                              leería como un precio del pegado — el mismo problema que él cazó en
+                              una captura cuando el total salía de precios locales y las filas
+                              decían «—». Y un BPC dice POR QUÉ no vale nada. */}
+                          <td style={{ textAlign: "right" }} className={l.isk_src === "koru" ? "muted" : ""}>
+                            {l.isk_src === "bpc"
+                              ? tr("copia de plano")
+                              : l.isk == null
+                                ? "—"
+                                : `${l.isk_src === "koru" ? "~" : ""}${fmtIsk(l.isk)}`}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Las runs de antes del 2026-09-16 no tienen desglose porque no se guardaba. Decirlo
+                  es mejor que no poner nada: si no, parece que la ficha se dejó algo. */}
+              {botin != null && botin.length === 0 && run.loot_isk != null && (
+                <p className="muted small">
+                  {tr("De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.")}
+                </p>
+              )}
             </>
           )}
         </div>

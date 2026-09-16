@@ -455,6 +455,8 @@ pub fn run() {
             commands::run_end,
             commands::run_active,
             commands::run_list,
+            commands::run_loot_set,
+            commands::run_loot_list,
             commands::run_chars_set,
             commands::run_set,
             commands::run_delete,

@@ -62,6 +62,14 @@ def cuenta(con: sqlite3.Connection, tabla: str, col: str, cid: int) -> int:
         return -1
 
 
+def cuenta_sql(con: sqlite3.Connection, sql: str, *args) -> int:
+    """Para las cuentas que no son «tabla + columna»: ver el bloque de la cascada."""
+    try:
+        return con.execute(sql, args).fetchone()[0]
+    except sqlite3.Error:
+        return -1
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:]]
     cid = None
@@ -155,6 +163,26 @@ def main() -> int:
                 print(f"   {n:>10,}  {t}.{a}   → {intencion}")
     if not algo:
         print("   (nada)")
+
+    # --- 2b) lo que se va EN CASCADA, sin columna propia -----------------------------------
+    # `run_loot` (el botin objeto a objeto) NO lleva `character_id` ni `subject_id`, asi que el
+    # barrido generico NO LA VE: se va con su run por `ON DELETE CASCADE`. Eso esta medido, pero
+    # depende de `PRAGMA foreign_keys = ON`, y por eso `character_purge` limpia huerfanos ademas.
+    # Este bloque existe para que la radiografia no calle lo que no puede ver por columna.
+    if "run_loot" in tablas:
+        print("\n🔗 LO QUE SE VA EN CASCADA con sus runs (no tiene columna de personaje)")
+        n = cuenta_sql(
+            con,
+            "SELECT COUNT(*) FROM run_loot rl JOIN activity_runs r ON r.id = rl.run_id "
+            "WHERE r.character_id = ?",
+            cid,
+        )
+        huer = cuenta_sql(
+            con, "SELECT COUNT(*) FROM run_loot WHERE run_id NOT IN (SELECT id FROM activity_runs)"
+        )
+        print(f"   {n:>10,}  run_loot   (lineas de botin de SUS runs)")
+        etiqueta = "✓ ninguno" if huer == 0 else f"🚨 {huer:,} — el pragma foreign_keys no esta haciendo su trabajo"
+        print(f"   huerfanos en toda la tabla: {etiqueta}")
 
     # --- 3) las excepciones, para que se vea que siguen ahi --------------------------------
     print("\n🛡️ TABLAS QUE EL BORRADO SALTA A PROPOSITO (total de la tabla, no se tocan)")

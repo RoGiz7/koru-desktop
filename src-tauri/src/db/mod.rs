@@ -1194,6 +1194,19 @@ impl Db {
                 informe.push((etiqueta, n));
             }
         }
+        // ⚠️ `run_loot` NO tiene `character_id` ni `subject_id`, así que el barrido genérico de
+        // arriba **no la ve**: se va en cascada con su run (`ON DELETE CASCADE`). Eso funciona y
+        // está medido… pero depende de que `PRAGMA foreign_keys` siga en ON. Aquí se limpia lo que
+        // haya quedado suelto, que no es una tabla más en la lista a mano: es una limpieza de
+        // HUÉRFANOS —filas que apuntan a una run que ya no existe—, así que no puede llevarse nada
+        // de nadie. Si el pragma está donde debe, borra 0 filas y no aparece en el informe.
+        let n = tx.execute(
+            "DELETE FROM run_loot WHERE run_id NOT IN (SELECT id FROM activity_runs)",
+            [],
+        )?;
+        if n > 0 {
+            informe.push(("run_loot (huérfanos)".to_string(), n));
+        }
         // La fila del personaje, al final: si algo fallara antes, la transacción lo deshace entero
         // y el personaje sigue ahí. Al revés —borrarlo primero— dejaría huérfano todo lo demás.
         let n = tx.execute(
@@ -4671,6 +4684,26 @@ pub struct ActivityRun {
 /// La nave perdida es SUYA a propósito (su coste va a su P&L), mientras que el botín se reparte a
 /// partes iguales. Así el alt que muere mucho sale en rojo aunque el conjunto gane dinero — que es
 /// justo el dato que hace cambiar un fiteo.
+/// Una línea del botín de una run. Ver el comentario de `run_loot` en `schema.sql` para por qué
+/// esto es una tabla hija y no una nota, y por qué se guardan `name` y `type_id` a la vez.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RunLootRow {
+    /// `None` = Koru no reconoció el nombre. La línea se guarda igual: perderla sería tirar la
+    /// única pista de qué no supo leer el troceador.
+    #[serde(default)]
+    pub type_id: Option<i64>,
+    pub name: String,
+    #[serde(default)]
+    pub qty: i64,
+    /// Valor de la línea, CONGELADO al pegarlo. `None` = sin valorar.
+    #[serde(default)]
+    pub isk: Option<f64>,
+    /// De dónde salió ese valor: `pegado` (columna del juego) | `koru` (búsqueda local) | vacío.
+    /// Sin esto, una estimación de Koru y un precio del juego se leerían como el mismo dato.
+    #[serde(default)]
+    pub isk_src: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RunCharRow {
     pub character_id: i64,
@@ -5634,6 +5667,61 @@ impl Db {
 
     /// Termina una run: sella `ended_at`=ahora, el `outcome` (done/died/aborted) y el botín. Si muerte,
     /// `ship_loss_isk` = valor de la nave perdida (para el P&L honesto).
+    /// El botín de una run, objeto a objeto. REEMPLAZA el que hubiera: volver a pegar corrige, no
+    /// acumula — si no, un segundo pegado duplicaría el botín entero sin avisar.
+    ///
+    /// Mismo patrón que `ansiblex_replace`: borrar + insertar dentro de UNA transacción, así no
+    /// existe el instante en que la run se quedó sin botín.
+    ///
+    /// `pos` lo pone el servidor por el orden del vector recibido, no el frontend: es parte de la
+    /// clave primaria y dejar que la calcule el llamante es pedirle que no se equivoque.
+    pub fn run_loot_set(&self, run_id: i64, items: &[RunLootRow]) -> AppResult<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM run_loot WHERE run_id = ?1", rusqlite::params![run_id])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO run_loot (run_id, pos, type_id, name, qty, isk, isk_src)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            )?;
+            for (pos, it) in items.iter().enumerate() {
+                stmt.execute(rusqlite::params![
+                    run_id,
+                    pos as i64,
+                    it.type_id,
+                    it.name.trim(),
+                    it.qty,
+                    it.isk,
+                    it.isk_src,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(items.len())
+    }
+
+    /// El botín de una run, en el orden en que se pegó. Se lee SOLO cuando se pide (la ficha de
+    /// detalle): un pegado son decenas de líneas y no tienen por qué viajar con cada listado.
+    pub fn run_loot_list(&self, run_id: i64) -> AppResult<Vec<RunLootRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT type_id, name, qty, isk, isk_src FROM run_loot
+              WHERE run_id = ?1 ORDER BY pos",
+        )?;
+        let v = stmt
+            .query_map(rusqlite::params![run_id], |r| {
+                Ok(RunLootRow {
+                    type_id: r.get(0)?,
+                    name: r.get(1)?,
+                    qty: r.get(2)?,
+                    isk: r.get(3)?,
+                    isk_src: r.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(v)
+    }
+
     pub fn run_end(
         &self,
         id: i64,

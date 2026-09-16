@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk } from "./format";
 import { parseLootPaste, parseIskShorthand, type LootIndex } from "./lootPaste";
+import { lineasDeBotin, type RunLootLine } from "./runLoot";
 import { loadJson } from "./staticJson";
 
 type Props = {
@@ -17,8 +18,13 @@ type Props = {
   /** Cuántos sitios se van a cerrar con este loot (para el reparto). */
   siteCount: number;
   index: LootIndex;
-  /** Devuelve el ISK total (o null si no se metió botín) y una nota corta del loot. */
-  onConfirm: (totalIsk: number | null, note: string) => void;
+  /** Devuelve el ISK total (o null si no se metió botín), una nota corta del loot y, desde el
+   *  2026-09-16, **el botín línea a línea** para quien quiera guardarlo (`run_loot`).
+   *
+   *  El tercer parámetro es opcional en la práctica para los llamantes: quien no lo use sigue
+   *  funcionando igual y no guarda detalle. Así esto no obliga a tocar las cuatro pantallas que
+   *  abren este modal para estrenarlo en una. */
+  onConfirm: (totalIsk: number | null, note: string, lineas: RunLootLine[]) => void;
   onCancel: () => void;
   busy?: boolean;
   /** Título de la cabecera. Si se omite, «Botín de N sitio(s)» (contexto exploración). */
@@ -260,7 +266,17 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
         </div>
 
         <div className="loot-modal-actions">
-          <button className="pp-add" onClick={() => onConfirm(total, note.trim())} disabled={busy}>
+          <button
+            className="pp-add"
+            // Las líneas se construyen con `lineasDeBotin`, que reproduce esta misma cuenta del
+            // total (blueprints sin valorar, precio del pegado tal cual, precio local × qty). Está
+            // fuera del componente para poder comprobar que las dos cuadran — si no, la ficha de
+            // detalle enseñaría un número y el histórico otro sobre el mismo botín.
+            onClick={() =>
+              onConfirm(total, note.trim(), parse ? lineasDeBotin(parse.items, bpSet, preciosLocales) : [])
+            }
+            disabled={busy}
+          >
             ✓ {confirmLabel ?? `${tr("Marcar hechas")} (${siteCount})`}
           </button>
           <button className="pp-add" onClick={onCancel} disabled={busy}>

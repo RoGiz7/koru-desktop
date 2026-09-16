@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { LootPasteModal } from "./lootPasteModal";
 import { buildLootIndex, parseIskShorthand, type LootIndex } from "./lootPaste";
+import type { RunLootLine } from "./runLoot";
 import { loadShipRows, type ShipRow } from "./flotas";
 import type { CharacterCard } from "./types";
 import { tr } from "./i18n";
@@ -465,7 +466,7 @@ export function EscalacionesView({
     }
   }
 
-  async function cerrar(e: Escalacion, isk: number | null, nota: string) {
+  async function cerrar(e: Escalacion, isk: number | null, nota: string, botin: RunLootLine[] = []) {
     const muerto = cerrando?.muerto ?? false;
     try {
       // Si no hubo «Voy», la run se crea AHORA y se cierra a continuación: así los dos caminos
@@ -483,6 +484,18 @@ export function EscalacionesView({
         shipLossIsk: muerto ? parseIskShorthand(perdidaIsk) : null,
         note: null,
       });
+      // ★ El botín detallado, si el pegado dio líneas. Va en su propia llamada y con su propio
+      //   `catch`: es un EXTRA sobre el total, que ya está guardado arriba. Si esto fallara, la
+      //   escalación tiene que quedar cerrada igual con su cifra — perder el cierre por no poder
+      //   guardar el desglose sería cambiar un dato importante por uno accesorio.
+      if (botin.length > 0) {
+        try {
+          await invoke("run_loot_set", { runId, items: botin });
+        } catch (err) {
+          // No se tapa: se dice, pero sin deshacer el cierre.
+          setError(`${tr("La escalación se cerró, pero no se pudo guardar el detalle del botín")}: ${String(err)}`);
+        }
+      }
       // El estado de la escalación va DESPUÉS y aparte: si esto fallara, la run queda cerrada y la
       // escalación sigue viva — visible y arreglable. Al revés sería una escalación cerrada con una
       // run abierta para siempre, que no se ve.
@@ -917,9 +930,9 @@ export function EscalacionesView({
           setCerrando(null);
           setPerdidaIsk("");
         }}
-        onConfirm={(total, nota) => {
+        onConfirm={(total, nota, botin) => {
           const e = vivas?.find((x) => x.id === cerrando?.id);
-          if (e) void cerrar(e, total, nota);
+          if (e) void cerrar(e, total, nota, botin);
           else setCerrando(null);
         }}
       />
@@ -935,6 +948,7 @@ export function EscalacionesView({
           return (
             <EscalacionDetalle
               esc={e}
+              runId={e.run_id}
               run={e.run_id != null ? runs.get(e.run_id) : undefined}
               charName={(id) => chars.find((c) => c.character_id === id)?.name ?? `#${id}`}
               shipName={(id) => ships.find((s) => s.i === id)?.n ?? `#${id}`}

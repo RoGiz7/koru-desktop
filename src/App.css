@@ -11353,6 +11353,19 @@ h4 {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* El desglose del botín dentro de la ficha. Alto acotado con scroll propio: un pegado de cuarenta
+   líneas no debe empujar la cronología fuera de la ventana — lo que se ha venido a leer es la
+   ficha entera, y el botín es una parte de ella. */
+.esc-det-loot {
+  max-height: 15rem;
+  overflow-y: auto;
+  margin-top: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.esc-det-loot table {
+  margin: 0;
+}
 /* Las filas del histórico abren el detalle. El cursor es lo que lo dice: sin esto, que la fila
    responda al clic no se adivina. */
 .esc-hist-fila {

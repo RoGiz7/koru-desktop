@@ -806,6 +806,58 @@ CREATE TABLE IF NOT EXISTS activity_run_chars (
 );
 CREATE INDEX IF NOT EXISTS idx_arc_char ON activity_run_chars(character_id);
 
+-- ★★ EL BOTÍN, OBJETO A OBJETO (idea de RoGiz7, 2026-09-16).
+--
+-- Hasta hoy el pegado del inventario se VALORABA Y SE TIRABA: de una run quedaba `loot_isk` (un
+-- número) y `loot_note` (lo que escribieras). Así que la ficha de una escalación podía decir
+-- «381,05 M» y no qué cayó. Esto lo guarda.
+--
+-- ★ POR QUÉ TABLA HIJA Y NO NOTAS. Él propuso colgarlo del sistema de `note`, que ya tiene
+--   `note_anchor` (kind + id) y `note_step` con `trigger_id` + `qty` — o sea, la forma de una línea
+--   de botín. La idea era buena y casi colaba, pero tiene dos pegas que la descartan:
+--     1. `note_step.qty` significa «cuántos HACEN FALTA», no «cuántos cayeron», y `done_at`,
+--        `done_by` y `trigger_kind` no querrían decir nada aquí. Un objeto del botín no es una
+--        tarea pendiente. Mismo campo con dos significados es la hermana de las dos verdades.
+--     2. 🚨 `note` está en las EXCEPCIONES de `character_purge` porque **una nota es del JUGADOR**.
+--        `activity_runs` sí se barre. Borrar un personaje se habría llevado sus runs y **dejado su
+--        botín**, apuntando a runs que ya no existen: una exención que ya existe protegiendo datos
+--        que nadie decidió proteger. Es la familia de `intel_alias`, al revés.
+--   Aquí no hay `character_id` ni `subject_id`, así que el barrido genérico NO la ve — y no le hace
+--   falta: se va en cascada con su run. Comprobado en SQLite contra este mismo esquema, incluido el
+--   camino que usa el barrido (borrar de `activity_runs` por `character_id`): 0 huérfanos.
+--   ⚠️ Eso depende de `PRAGMA foreign_keys = ON` (db/mod.rs:37). Con el pragma apagado quedarían
+--   huérfanos: medido. Por eso `character_purge` además limpia los huérfanos explícitamente — en
+--   una operación destructiva, «no puede pasar» no es una defensa.
+--
+-- ★ `pos` EN LA CLAVE Y NO `type_id`: un pegado puede traer el MISMO tipo en dos líneas (dos pilas
+--   en contenedores distintos) y fundirlas cambiaría en silencio lo que pegaste. Se guarda lo que
+--   se pegó; agregar es cosa de la consulta (`GROUP BY type_id`), y para eso está el índice.
+--
+-- ★ `name` SE GUARDA AUNQUE HAYA `type_id`, y no es duplicar: `name` es el texto que pegaste y
+--   `type_id` es lo que Koru consiguió resolver. Cuando no lo reconoce (`type_id IS NULL`) la línea
+--   NO se pierde, que es lo que pasaría guardando solo el id — y saber qué no supo leer es la pista
+--   para arreglar el troceador.
+--
+-- ★ `isk_src` PORQUE EL VALOR TIENE DOS PROCEDENCIAS: la columna «Precio estimado» del juego
+--   ('pegado') o la búsqueda local de Koru cuando el pegado no la trae ('koru'). El modal ya
+--   distingue las dos en pantalla; guardar la cifra sin decir de dónde salió convertiría una
+--   estimación en un dato. Vacío = esa línea no tiene valor.
+--
+-- El valor va CONGELADO, igual que `entry_cost`: revalorarlo con el precio de hoy cambiaría tu
+-- histórico cada vez que se mueve el mercado.
+CREATE TABLE IF NOT EXISTS run_loot (
+    run_id   INTEGER NOT NULL REFERENCES activity_runs(id) ON DELETE CASCADE,
+    pos      INTEGER NOT NULL,          -- orden en que se pegó; parte de la clave (ver arriba)
+    type_id  INTEGER,                   -- NULL = Koru no reconoció el nombre
+    name     TEXT NOT NULL,             -- el texto pegado, tal cual
+    qty      INTEGER NOT NULL DEFAULT 1,
+    isk      REAL,                      -- valor de la LÍNEA, congelado. NULL = sin valorar
+    isk_src  TEXT NOT NULL DEFAULT '',  -- 'pegado' | 'koru' | '' (sin valor)
+    PRIMARY KEY (run_id, pos)
+);
+-- Para la pregunta que motiva todo esto: «¿qué cae de verdad en un 10/10?».
+CREATE INDEX IF NOT EXISTS idx_run_loot_type ON run_loot(type_id);
+
 CREATE INDEX IF NOT EXISTS idx_runs_activity ON activity_runs(activity);
 CREATE INDEX IF NOT EXISTS idx_runs_ended    ON activity_runs(ended_at);
 CREATE INDEX IF NOT EXISTS idx_runs_char     ON activity_runs(character_id);
