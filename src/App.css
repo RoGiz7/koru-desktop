@@ -11366,6 +11366,45 @@ h4 {
 .esc-det-loot table {
   margin: 0;
 }
+/* Los campos de la venta, en el panel de debajo de la fila (misma forma que «¿Quién va, y con
+   qué?»). Se envuelven: son tres campos y en una ventana estrecha no caben en fila. */
+.esc-venta-campos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.esc-venta-campos input {
+  flex: 1 1 10rem;
+  /* Un hijo de flex no baja de su contenido salvo que se le diga. Ya nos costó una barra
+     horizontal en el modal de botín. */
+  min-width: 0;
+}
+/* El borrado, al final de la ficha y separado: lo destructivo no comparte sitio con lo que se lee.
+   Sin color de alarma mientras es solo una invitación — el rojo entra al confirmar. */
+.esc-det-borrar {
+  margin-top: 0.2rem;
+}
+.esc-det-del {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted, #8b949e);
+  font-size: 0.8rem;
+  padding: 0.25rem 0.55rem;
+}
+.esc-det-del:hover {
+  border-color: var(--err, #e5534b);
+  color: var(--err, #e5534b);
+}
+/* Ya confirmando: aquí sí, porque el siguiente clic borra. */
+.esc-det-del.confirma {
+  border-color: var(--err, #e5534b);
+  color: var(--err, #e5534b);
+}
+.esc-det-del.confirma:hover {
+  background: var(--err, #e5534b);
+  color: #fff;
+}
 /* Las filas del histórico abren el detalle. El cursor es lo que lo dice: sin esto, que la fila
    responda al clic no se adivina. */
 .esc-hist-fila {

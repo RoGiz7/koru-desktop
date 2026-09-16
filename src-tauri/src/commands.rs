@@ -1080,6 +1080,16 @@ pub fn escalacion_run_start(
     state.db.escalacion_run_start(id, ship_type_id, character_id, entry_cost)
 }
 
+/// Borra una escalación y su run. Ver `Db::escalacion_delete` para por qué la run se va con ella y
+/// por qué las cadenas no se rompen.
+///
+/// Devuelve `false` si ese id ya no estaba: la pantalla puede recargar y no mentir diciendo que
+/// borró algo.
+#[tauri::command]
+pub fn escalacion_delete(state: State<'_, AppState>, id: i64) -> AppResult<bool> {
+    state.db.escalacion_delete(id)
+}
+
 #[tauri::command]
 pub fn escalacion_estado(state: State<'_, AppState>, id: i64, estado: String) -> AppResult<()> {
     state.db.escalacion_estado(id, &estado)

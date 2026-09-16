@@ -94,18 +94,30 @@ function Dato({ k, v, tone }: { k: string; v: React.ReactNode; tone?: "pos" | "n
 export function EscalacionDetalle({
   esc,
   runId,
+  partesEnCadena,
   run,
   charName,
   shipName,
+  onBorrar,
   onClose,
 }: {
   esc: EscDet;
   /** El id de la run enlazada. Va aparte de `run` porque el desglose del botín se pide por id y
    *  `run` puede no haber llegado todavía al mapa del histórico. */
   runId: number | null;
+  /** ★ Cuántas escalaciones comparten su `cadena_id`, contando ésta.
+   *
+   *  🚨 NO se puede deducir de `cadena_id`: sin `cadena_de`, `escalacion_abrir` hace
+   *  `SET cadena_id = id`, o sea que **una escalación suelta se apunta a sí misma** y `cadena_id`
+   *  nunca es null. La primera versión de esta ficha enseñaba «Cadena: parte 1» en TODAS por eso.
+   *  Con 1 aquí no es una cadena y la fila no se pinta; con más, dice «parte 2 de 3». */
+  partesEnCadena: number;
   run: RunDet | undefined;
   charName: (id: number) => string;
   shipName: (id: number) => string;
+  /** Borrar esta escalación. La ficha solo PIDE la confirmación; el borrado lo hace quien la
+   *  monta, que es quien sabe recargar las listas después. */
+  onBorrar: () => void;
   onClose: () => void;
 }) {
   /** ★★ EL BOTÍN DETALLADO, PEDIDO SOLO AL ABRIR ESTA FICHA — la otra mitad de la idea de RoGiz7:
@@ -116,6 +128,9 @@ export function EscalacionDetalle({
    *  que es el caso de **todas las runs anteriores al 2026-09-16**: el botín no se guardaba. Los dos
    *  estados se distinguen a propósito, porque «cargando» y «no hay» no son lo mismo. */
   const [botin, setBotin] = useState<RunLootLine[] | null>(null);
+  // El borrado pide confirmación DENTRO de la ficha, no en un diálogo aparte: ya estás mirando lo
+  // que vas a borrar, y sacar otra ventana encima obligaría a decidir sin verlo.
+  const [confirmando, setConfirmando] = useState(false);
   useEffect(() => {
     if (runId == null) return;
     let vivo = true;
@@ -167,11 +182,23 @@ export function EscalacionDetalle({
           <Dato k={tr("Sistema")} v={esc.system_name} />
           <Dato k={tr("Valoración DED")} v={esc.ded != null ? `${esc.ded}/10` : null} />
           {/* La cadena: las expediciones sin rating son de hasta CUATRO partes, y cada parte da 24 h
-              nuevas. Que una escalación sea la parte 3 de algo explica su reloj, y hasta ahora no
-              se veía en ningún sitio. */}
+              nuevas al completarse la anterior. Que una escalación sea la parte 3 de algo explica
+              su reloj, y no se veía en ningún sitio.
+              La condición es el NÚMERO DE HERMANAS, no `cadena_id != null` — ver `partesEnCadena`:
+              con `cadena_id` apuntándose a sí misma, esa comprobación era siempre cierta. */}
+          {/* ⚠️ `parte > partesEnCadena` NO es imposible: si se borra una parte anterior, quedan
+              una «parte 3» y una «parte 2» de una cadena de dos, y decir «parte 3 de 2» sería una
+              cifra falsa. Lo cazó la prueba en SQLite, no el razonamiento. Cuando no cuadra se
+              enseña solo el número de parte, que es el dato que sigue siendo cierto. */}
           <Dato
             k={tr("Cadena")}
-            v={esc.cadena_id != null ? `${tr("parte")} ${esc.parte}` : null}
+            v={
+              partesEnCadena <= 1
+                ? null
+                : esc.parte > partesEnCadena
+                  ? `${tr("parte")} ${esc.parte}`
+                  : `${tr("parte")} ${esc.parte} ${tr("de")} ${partesEnCadena}`
+            }
           />
           <Dato k={tr("Modalidad")} v={vendida ? `💰 ${tr("vendida")}` : tr("propia")} />
           <Dato
@@ -332,6 +359,36 @@ export function EscalacionDetalle({
             <div>{esc.nota}</div>
           </div>
         ) : null}
+
+        {/* ---- borrar ----
+            ★ AQUÍ Y NO EN UN 🗑 POR FILA, al revés que en abisales. La fila del histórico entera
+              abre la ficha, así que un icono de borrar dentro de ella pondría el accidente a un
+              clic del gesto normal. Obligar a abrir la escalación primero significa que la ves
+              antes de borrarla.
+            ★ Y CONFIRMACIÓN CORTA, no el panel rojo del borrado de personaje: aquello es
+              irreversible y se lleva años de datos, esto es una fila. Un aviso desproporcionado
+              enseña a ignorar los avisos. */}
+        <div className="esc-det-sec esc-det-borrar">
+          {!confirmando ? (
+            <button className="esc-det-del" onClick={() => setConfirmando(true)}>
+              🗑 {tr("Borrar esta escalación")}
+            </button>
+          ) : (
+            <div className="esc-det-fila">
+              <span className="small">
+                {run
+                  ? tr("Se borra la escalación y su run, con el botín que tuviera anotado.")
+                  : tr("Se borra la escalación.")}
+              </span>
+              <span>
+                <button className="esc-det-del confirma" onClick={onBorrar}>
+                  {tr("Borrar")}
+                </button>{" "}
+                <button onClick={() => setConfirmando(false)}>{tr("Cancelar")}</button>
+              </span>
+            </div>
+          )}
+        </div>
       </div>
     </div>,
     document.body,

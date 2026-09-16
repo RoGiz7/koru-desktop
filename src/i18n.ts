@@ -2200,6 +2200,27 @@ const EN: Record<string, string> = {
   Deshacer: "Undo",
   "Con un solo periodo todavía no hay tendencia que dibujar: la gráfica aparece en cuanto haya dos. Prueba «Día» si ya tienes escalaciones de varias fechas.":
     "With a single period there's no trend to draw yet: the chart appears as soon as there are two. Try «Day» if you already have escalations on different dates.",
+  // Cuatro cadenas que se quedaron sin inglés y nadie vio, porque `tr()` cae al español sin dar
+  // error. Las encontró `scripts/audit_i18n.py` la primera vez que se ejecutó (2026-09-16).
+  // «Prob.» es abreviatura de PROBABILIDAD (la de éxito de una invención), no de «probe».
+  "Abrir el sistema en Dotlan": "Open the system in Dotlan",
+  "Abrir el sistema en zKillboard": "Open the system in zKillboard",
+  "Prob.": "Chance",
+  "BPC (runs · ME/TE)": "BPC (runs · ME/TE)",
+  // --- Escalaciones, modalidad VENTA: la entrada que faltaba (`escalacion_venta` estaba escrito y
+  //     registrado, y no lo llamaba ninguna pantalla — auditoría de comandos huérfanos, 2026-09-16)
+  "¿A quién?": "To whom?",
+  "Anotar a quién se la vendes, por cuánto y en qué ranura de acceso":
+    "Record who you're selling it to, for how much, and in which access slot",
+  "la ranura es lo que luego te avisa de a quién sacar del safe cuando caduque":
+    "the slot is what later tells you who to remove from the safe when it expires",
+  "comprador (nombre ingame)": "buyer (in-game name)",
+  "precio (p.ej. 250m)": "price (e.g. 250m)",
+  "ranura de acceso (p.ej. Seller & buyer 1)": "access slot (e.g. Seller & buyer 1)",
+  "Borrar esta escalación": "Delete this escalation",
+  "Se borra la escalación y su run, con el botín que tuviera anotado.":
+    "This deletes the escalation and its run, along with any loot recorded.",
+  "Se borra la escalación.": "This deletes the escalation.",
   // --- El botín objeto a objeto de una run (ver `run_loot` en schema.sql y `runLoot.ts`) ---
   "copia de plano": "blueprint copy",
   "De esta run solo se guardó el total: el botín objeto a objeto empezó a guardarse después.":

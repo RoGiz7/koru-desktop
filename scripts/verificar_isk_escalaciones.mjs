@@ -17,6 +17,7 @@
  *  7. `null` de botín no es 0: no inventa un punto.
  */
 import { agregarIsk } from "../src/escalacionesIsk.ts";
+import { parseIskShorthand, iskCorto } from "../src/isk.ts";
 
 let ok = 0;
 let mal = 0;
@@ -165,6 +166,27 @@ console.log("\n9) VACÍO");
   const r = agregarIsk([], new Map(), "week");
   comp("sin escalaciones, sin series", r.labels, []);
   comp("y los totales a cero", [r.tBotin, r.tVenta, r.tPerdido], [0, 0, 0]);
+}
+
+console.log("\n10) ★ EL IDA Y VUELTA DEL PRECIO — el fallo que casi se escapa");
+{
+  // El panel de venta precarga el precio guardado para poder corregirlo. Si lo emite en un formato
+  // que `parseIskShorthand` lee distinto, abrir el panel y guardar SIN TOCAR NADA cambia el dato.
+  // Pasó: precargaba `precio / 1e6` («250» para 250 M) y un número sin sufijo son ISK enteros, o
+  // sea 250 ISK. Un millón de veces menos, sin ningún error por medio.
+  const casos = [250e6, 1e9, 2.5e9, 1500, 1e6, 45_500_000, 0, 7];
+  let todos = true;
+  for (const isk of casos) {
+    const texto = iskCorto(isk);
+    const vuelta = parseIskShorthand(texto);
+    const bien = vuelta === isk;
+    if (!bien) todos = false;
+    console.log(`      ${bien ? "·" : "✗"} ${isk.toLocaleString("es-ES")} → "${texto}" → ${vuelta?.toLocaleString("es-ES")}`);
+  }
+  comp("todos los precios vuelven siendo el mismo número", todos, true);
+  comp("null se precarga vacío (y no como un cero que no dijiste)", iskCorto(null), "");
+  // Y la regla al revés: lo que precargamos NUNCA debe leerse como ISK sueltos cuando son millones.
+  comp("250 M no vuelve como 250 ISK", parseIskShorthand(iskCorto(250e6)), 250e6);
 }
 
 console.log(`\n${"─".repeat(60)}\n${ok} bien · ${mal} mal`);

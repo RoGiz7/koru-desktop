@@ -67,18 +67,11 @@ async function construirLootIndex(): Promise<LootIndex> {
   return idx;
 }
 
-/** Interpreta un valor de ISK cómodo tecleado a mano: "45m" = 45.000.000, "1,2b" =
- *  1.200.000.000, "500k" = 500.000, o un número plano. Acepta coma o punto decimal. null si vacío. */
-export function parseIskShorthand(s: string): number | null {
-  const t = s.trim().toLowerCase().replace(/\s/g, "");
-  if (!t) return null;
-  const m = t.match(/^([0-9]*[.,]?[0-9]+)\s*([kmb])?$/);
-  if (!m) return null;
-  const n = parseFloat(m[1].replace(",", "."));
-  if (!isFinite(n)) return null;
-  const mult = m[2] === "b" ? 1e9 : m[2] === "m" ? 1e6 : m[2] === "k" ? 1e3 : 1;
-  return Math.round(n * mult);
-}
+// `parseIskShorthand` se mudó a `isk.ts` — un módulo HOJA, junto a su INVERSA (`iskCorto`), que
+// emite el texto que ésta vuelve a leer. Estaban en ficheros distintos y eso costó un precio
+// dividido por un millón en el panel de venta: ver el comentario de `isk.ts`. Se re-exporta aquí
+// para que los cinco sitios que la importaban de `lootPaste` sigan igual. Una sola definición.
+export { parseIskShorthand } from "./isk";
 
 /** "1.234.567,89" (ES) → 1234567.89. Quita los puntos de millar y usa la coma como decimal. */
 export function parseEsNumber(s: string): number {

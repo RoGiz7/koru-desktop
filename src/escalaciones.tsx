@@ -23,6 +23,7 @@ import { tr } from "./i18n";
 import { fmtSp, fmtIsk, typeIcon } from "./format";
 import { Kpi, MultiLineProgress, RangePresets } from "./charts";
 import { agregarIsk } from "./escalacionesIsk";
+import { iskCorto } from "./isk";
 import { EscalacionDetalle } from "./escalacionDetalle";
 import { SystemSearch } from "./map";
 import { loadNewEden } from "./neweden";
@@ -508,6 +509,54 @@ export function EscalacionesView({
     }
   }
 
+  /** Borra una escalación y su run. La ficha ya pidió la confirmación; aquí se ejecuta y se cierra.
+   *
+   *  Se cierra la ficha ANTES de recargar: si se dejara abierta, el `find` de la ficha no
+   *  encontraría la fila y se cerraría sola a mitad de la recarga — funciona igual, pero parece un
+   *  fallo. Cerrar a propósito es la misma cosa contada bien. */
+  async function borrar(id: number) {
+    try {
+      await invoke<boolean>("escalacion_delete", { id });
+      setDetalle(null);
+      await recargar();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  /** Qué escalación tiene abierto el panel de venta, y lo teclado hasta ahora. */
+  const [vendiendo, setVendiendo] = useState<{
+    id: number;
+    comprador: string;
+    precio: string;
+    lista: string;
+  } | null>(null);
+
+  /** Anota (o corrige) la venta: comprador, precio y ranura de acceso.
+   *
+   *  El precio se lee con `parseIskShorthand`, el MISMO de siempre: quien escribe «250m» en el
+   *  botín espera que aquí signifique lo mismo. Tener dos formas de teclear ISK en la misma
+   *  pantalla sería el error de las dos verdades con otro disfraz.
+   *
+   *  Los tres campos son OPCIONALES por separado —a veces se acuerda el precio antes de saber la
+   *  ranura— y el comando ya acepta `Option` en los tres. Vacío borra el valor, que es lo que se
+   *  espera al dejar un campo en blanco a propósito. */
+  async function guardarVenta(e: Escalacion) {
+    if (!vendiendo) return;
+    try {
+      await invoke("escalacion_venta", {
+        id: e.id,
+        comprador: vendiendo.comprador.trim() || null,
+        precio: parseIskShorthand(vendiendo.precio),
+        listaAcceso: vendiendo.lista.trim() || null,
+      });
+      setVendiendo(null);
+      await recargar();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   async function estado(id: number, e: string) {
     try {
       await invoke("escalacion_estado", { id, estado: e });
@@ -733,6 +782,39 @@ export function EscalacionesView({
                   </>
                 ) : (
                   <>
+                    {/* ★★ «A QUIÉN», y era el agujero de la sección. `escalacion_venta` —el ÚNICO
+                        comando que escribe comprador, precio y lista de acceso— estaba escrito,
+                        registrado y **no lo llamaba ninguna pantalla**. Lo destapó la auditoría de
+                        comandos huérfanos (2026-09-16).
+                        Sin esto, `lista_acceso` era siempre NULL, así que `escalaciones_ranuras`
+                        devolvía vacío y la sección «Listas de acceso ocupadas» —el disparador de
+                        «quítale el acceso al comprador», que es lo que justifica el reloj en modo
+                        venta— **no aparecía nunca**. Y el precio tampoco, así que la mitad
+                        «vendida» del ISK generado no podía existir. */}
+                    <button
+                      title={tr("Anotar a quién se la vendes, por cuánto y en qué ranura de acceso")}
+                      onClick={() =>
+                        setVendiendo(
+                          vendiendo?.id === e.id
+                            ? null
+                            : {
+                                id: e.id,
+                                // Se precargan los que ya tuviera: esto también sirve para CORREGIR
+                                // una venta, no solo para anotarla la primera vez.
+                                comprador: e.comprador ?? "",
+                                // ⚠️ CON LA `m`, y no es cosmética. `parseIskShorthand` lee un
+                                // número sin sufijo como ISK ENTEROS, así que precargar «250»
+                                // para 250 M y guardar sin tocar nada dejaba el precio en 250 ISK
+                                // —un millón de veces menos, sin ningún error—. El valor tiene que
+                                // volver por la MISMA puerta por la que salió.
+                                precio: iskCorto(e.precio),
+                                lista: e.lista_acceso ?? "",
+                              },
+                        )
+                      }
+                    >
+                      💰 {e.comprador ? tr("La venta") : tr("¿A quién?")}
+                    </button>
                     {e.estado === "en_venta" && (
                       <button onClick={() => estado(e.id, "cobrada")}>{tr("Cobrada")}</button>
                     )}
@@ -751,6 +833,62 @@ export function EscalacionesView({
                 así el piloto tiene más datos y estadísticas reales para luego decidir»*.
                 Va DEBAJO de la fila y no dentro: cabe una línea por piloto con su nave, y meterlo
                 en la fila habría empujado los botones fuera de la pantalla. */}
+            {/* ---- la venta: a quién, por cuánto y en qué ranura ---- */}
+            {vendiendo?.id === e.id && (
+              <div className="esc-voy">
+                <div className="esc-voy-tit small muted">
+                  {tr("La venta")}{" "}
+                  <span className="muted">
+                    · {tr("la ranura es lo que luego te avisa de a quién sacar del safe cuando caduque")}
+                  </span>
+                </div>
+                <div className="esc-venta-campos">
+                  <input
+                    className="small"
+                    value={vendiendo.comprador}
+                    onChange={(ev) => setVendiendo({ ...vendiendo, comprador: ev.target.value })}
+                    placeholder={tr("comprador (nombre ingame)")}
+                    list="esc-compradores"
+                    autoFocus
+                  />
+                  {/* Los compradores que ya usaste. La misma idea que el desplegable de naves: la
+                      gente vende varias veces a la misma persona y teclear el nombre entero cada
+                      vez es donde se cuelan las faltas que luego no cuadran. */}
+                  <datalist id="esc-compradores">
+                    {[...new Set([...(vivas ?? []), ...hist].map((x) => x.comprador).filter(Boolean))].map(
+                      (c) => (
+                        <option key={c as string} value={c as string} />
+                      ),
+                    )}
+                  </datalist>
+                  <input
+                    className="small"
+                    value={vendiendo.precio}
+                    onChange={(ev) => setVendiendo({ ...vendiendo, precio: ev.target.value })}
+                    placeholder={tr("precio (p.ej. 250m)")}
+                    style={{ width: 120 }}
+                  />
+                  <input
+                    className="small"
+                    value={vendiendo.lista}
+                    onChange={(ev) => setVendiendo({ ...vendiendo, lista: ev.target.value })}
+                    placeholder={tr("ranura de acceso (p.ej. Seller & buyer 1)")}
+                    list="esc-ranuras"
+                  />
+                  <datalist id="esc-ranuras">
+                    {[...new Set([...(vivas ?? []), ...hist].map((x) => x.lista_acceso).filter(Boolean))].map(
+                      (l) => (
+                        <option key={l as string} value={l as string} />
+                      ),
+                    )}
+                  </datalist>
+                  <button className="pp-add" onClick={() => void guardarVenta(e)}>
+                    {tr("Guardar")}
+                  </button>
+                  <button onClick={() => setVendiendo(null)}>{tr("Cancelar")}</button>
+                </div>
+              </div>
+            )}
             {yendo?.id === e.id && (
               <div className="esc-voy">
                 <div className="esc-voy-tit small muted">
@@ -945,13 +1083,22 @@ export function EscalacionesView({
           // desapareció (borrado del personaje, por ejemplo), la ventana se cierra sola.
           const e = hist.find((x) => x.id === detalle) ?? vivas?.find((x) => x.id === detalle);
           if (!e) return null;
+          // Las partes de una cadena comparten el VALOR de `cadena_id`. Se cuentan sobre las dos
+          // listas porque una expedición puede tener partes vivas y partes ya cerradas a la vez.
+          const partes = [...(vivas ?? []), ...hist].filter(
+            (x) => x.cadena_id != null && x.cadena_id === e.cadena_id,
+          );
+          // Sin `Set` no valdría: una cobrada-no-cerrada sale en las dos listas y contaría doble.
+          const enCadena = new Set(partes.map((x) => x.id)).size;
           return (
             <EscalacionDetalle
               esc={e}
               runId={e.run_id}
+              partesEnCadena={enCadena}
               run={e.run_id != null ? runs.get(e.run_id) : undefined}
               charName={(id) => chars.find((c) => c.character_id === id)?.name ?? `#${id}`}
               shipName={(id) => ships.find((s) => s.i === id)?.n ?? `#${id}`}
+              onBorrar={() => void borrar(e.id)}
               onClose={() => setDetalle(null)}
             />
           );

@@ -7022,6 +7022,47 @@ impl Db {
         Ok(id)
     }
 
+    /// ★★ BORRA UNA ESCALACIÓN Y SU RUN. Lo pidió RoGiz7 (2026-09-16) después de dejar en su BD
+    /// real las escalaciones de prueba con que estrenó la sección.
+    ///
+    /// ★ POR QUÉ HACÍA FALTA, y no es comodidad: hasta hoy **no existía forma de borrar una**. Ni
+    ///   comando, ni función, ni un `DELETE FROM escalaciones` en todo el repo — mientras abisales
+    ///   y CRAB sí tienen su `run_delete` con su botón. Así que las pruebas de cualquiera que
+    ///   estrenara la sección se quedaban para siempre, y desde que hay gráfica de ISK ya no son
+    ///   inocuas: una escalación de mentira con 381 M pasa a ser la cifra grande de la pantalla.
+    ///   `abandonada` no servía: no cuenta en la gráfica, pero el histórico la lista igual.
+    ///
+    /// ★ LA RUN SE VA CON ELLA, y en la MISMA transacción. Dejarla en `activity_runs` la
+    ///   convertiría en una run de escalación sin escalación: seguiría sumando en `run_list` y en
+    ///   cualquier estadística que mire por actividad, con lo que borrar dejaría los números
+    ///   IGUAL — el peor resultado posible, porque parece que funcionó.
+    ///   Al borrar la run, `activity_run_chars` y `run_loot` se van en cascada
+    ///   (`ON DELETE CASCADE` + `foreign_keys = ON`, medido).
+    ///
+    /// ★ Y LAS CADENAS NO SE ROMPEN, aunque parezca que sí. `cadena_id` de una suelta apunta a sí
+    ///   misma (ver `escalacion_abrir`), y las partes de una expedición comparten ese VALOR; nadie
+    ///   lo dereferencia como clave ajena. Borrar la parte 1 deja a las otras compartiendo un valor
+    ///   que ya no tiene fila, y siguen agrupándose entre ellas exactamente igual. No hay que
+    ///   reencadenar nada — pero había que comprobarlo antes de afirmarlo.
+    ///
+    /// Devuelve si se borró algo: `false` significa que ese id ya no estaba, y el llamante puede
+    /// decirlo en vez de fingir que hizo algo.
+    pub fn escalacion_delete(&self, id: i64) -> AppResult<bool> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        // Se lee el `run_id` ANTES de borrar la fila: después ya no hay dónde preguntarlo.
+        let run_id: Option<i64> = tx
+            .query_row("SELECT run_id FROM escalaciones WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?
+            .flatten();
+        let n = tx.execute("DELETE FROM escalaciones WHERE id = ?1", [id])?;
+        if let Some(rid) = run_id {
+            tx.execute("DELETE FROM activity_runs WHERE id = ?1", [rid])?;
+        }
+        tx.commit()?;
+        Ok(n > 0)
+    }
+
     /// Las vivas, **ordenadas por lo que caduca antes**, que es el único orden útil aquí.
     /// Incluye las ya caducadas que aún no se han cerrado: verlas es lo que enseña que se perdieron.
     pub fn escalaciones_vivas(&self) -> AppResult<Vec<Escalacion>> {
