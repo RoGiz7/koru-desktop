@@ -7714,6 +7714,101 @@ impl Db {
         hours
     }
 
+    // ---- ★ EL SISTEMA COMO SUJETO (2026-09-19) — la pregunta del cazador al revés ----
+    //
+    // La ficha del hostil responde «¿dónde anda éste?». Esto responde «¿quién pasa por AQUÍ, a qué
+    // horas y en qué?», que es lo que decide si un sistema está caliente para tu actividad o no.
+    // Pedido por RoGiz7 dos veces (2026-09-07 y 2026-09-19). Todo sale de `intel_sightings`, la
+    // cifra que manda desde que se cerró lo de las dos cuentas — y con `idx_sight_sys` cada
+    // consulta va por índice aunque el histórico tenga seis años.
+    //
+    // ⚠️ Todas las consultas llevan ventana [desde, hasta]: el cazador pregunta por «estos días»,
+    // no por la historia entera, y con seis años el total no describe ningún momento real.
+
+    /// Ranking de sistemas por avistamientos en una ventana: (system_id, avistamientos, hostiles
+    /// distintos, último ts). Para la lista del Cazador en modo «Sistemas».
+    pub fn intel_systems(&self, desde_ms: i64, limit: i64) -> Vec<(i64, i64, i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT system_id, COUNT(*) c, COUNT(DISTINCT name_lower), MAX(ts_ms)
+             FROM intel_sightings WHERE ts_ms >= ?1
+             GROUP BY system_id ORDER BY c DESC LIMIT ?2",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![desde_ms, limit], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            }) {
+                for x in rows.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
+    /// ★ LOS AVISTAMIENTOS DE UN SISTEMA, UNO A UNO, en una ventana: (name_lower, character_id,
+    /// ship_type_id, ts_ms), del más reciente al más antiguo, con tope.
+    ///
+    /// Sustituye a los cinco agregados que hubo aquí una tarde (stats, hostiles, naves, día×hora,
+    /// por día). Idea suya al ver la ficha: *«¿trasladar los pilotos y las naves a la gráfica?»*.
+    /// Para que pinchar una celda del mapa de calor filtre la lista de pilotos —y que un piloto
+    /// ilumine sus celdas— hace falta la fila cruda, no los totales. Y con la fila cruda en
+    /// pantalla, los agregados se calculan allí: **una sola fuente para gráficas y listas**, que
+    /// es lo que hace posible que se enlacen sin que un día digan cosas distintas.
+    ///
+    /// El tope existe porque «Todo» en un sistema de paso puede ser decenas de miles de filas; el
+    /// frontend dice en pantalla cuando se alcanza. Va por `idx_sight_sys`.
+    pub fn system_sightings(&self, system_id: i64, desde_ms: i64, hasta_ms: i64, limit: i64) -> Vec<(String, Option<i64>, Option<i64>, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT name_lower, character_id, ship_type_id, ts_ms FROM intel_sightings
+             WHERE system_id = ?1 AND ts_ms BETWEEN ?2 AND ?3
+             ORDER BY ts_ms DESC LIMIT ?4",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![system_id, desde_ms, hasta_ms, limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            }) {
+                for x in rows.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
+    /// El gemelo de `system_sightings` para un HOSTIL: (system_id, ship_type_id, ts_ms) en una
+    /// ventana, del más reciente al más antiguo, con tope. Alimenta el mismo bloque enlazado de la
+    /// ficha del hostil (mapa de calor, tiempo, sistemas y naves). Va por `idx_sight_name`.
+    pub fn pilot_sightings(&self, name_lower: &str, desde_ms: i64, hasta_ms: i64, limit: i64) -> Vec<(i64, Option<i64>, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        if let Ok(mut st) = conn.prepare(
+            "SELECT system_id, ship_type_id, ts_ms FROM intel_sightings
+             WHERE name_lower = ?1 AND ts_ms BETWEEN ?2 AND ?3
+             ORDER BY ts_ms DESC LIMIT ?4",
+        ) {
+            if let Ok(rows) = st.query_map(rusqlite::params![name_lower, desde_ms, hasta_ms, limit], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, i64>(2)?))
+            }) {
+                for x in rows.flatten() {
+                    out.push(x);
+                }
+            }
+        }
+        out
+    }
+
     /// Inserta un fiteo guardado. `modules` es JSON serializado. Devuelve el id nuevo.
     pub fn fit_insert(
         &self,

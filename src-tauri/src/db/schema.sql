@@ -296,6 +296,10 @@ CREATE TABLE IF NOT EXISTS intel_sightings (
     PRIMARY KEY (name_lower, system_id, ts_ms)
 );
 CREATE INDEX IF NOT EXISTS idx_sight_name ON intel_sightings(name_lower, ts_ms);
+-- ★ El sistema como sujeto (2026-09-19): la ficha de sistema del Cazador pregunta por
+-- (system_id, ventana de tiempo). Sin este índice cada pregunta recorrería la tabla entera, y con
+-- seis años de histórico eso se nota en una pantalla que se abre con el hostil a un salto.
+CREATE INDEX IF NOT EXISTS idx_sight_sys ON intel_sightings(system_id, ts_ms);
 
 -- ★★ LA LÍNEA DE INTEL, CRUDA. Idea de RoGiz7 (2026-09-08), y de las que cambian los cimientos.
 --

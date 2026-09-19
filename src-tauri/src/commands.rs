@@ -9474,6 +9474,133 @@ pub struct CountItem {
     pub id: i64,
     pub count: i64,
 }
+
+// ---- ★ EL SISTEMA COMO SUJETO (2026-09-19). Ver el bloque homónimo en db/mod.rs ----
+
+/// Una fila de la lista de sistemas del Cazador.
+#[derive(Debug, serde::Serialize)]
+pub struct IntelSystemRow {
+    pub system_id: i64,
+    pub sightings: i64,
+    pub hostiles: i64,
+    pub last_ms: i64,
+}
+
+/// Sistemas con avistamientos en los últimos `days` días, ordenados por actividad. `days = 0` =
+/// todo el histórico. Es la lista de la izquierda del modo «Sistemas».
+#[tauri::command]
+pub fn get_intel_systems(
+    state: State<'_, AppState>,
+    days: Option<i64>,
+    limit: Option<i64>,
+) -> AppResult<Vec<IntelSystemRow>> {
+    let d = days.unwrap_or(30).max(0);
+    let desde = if d == 0 { 0 } else { chrono::Utc::now().timestamp_millis() - d * 86_400_000 };
+    Ok(state
+        .db
+        .intel_systems(desde, limit.unwrap_or(300).clamp(1, 2000))
+        .into_iter()
+        .map(|(system_id, sightings, hostiles, last_ms)| IntelSystemRow { system_id, sightings, hostiles, last_ms })
+        .collect())
+}
+
+/// Un avistamiento de un sistema, tal cual, con el nombre bonito puesto si Koru lo conoce.
+#[derive(Debug, serde::Serialize)]
+pub struct SystemSighting {
+    pub name: String,
+    pub character_id: Option<i64>,
+    pub ship_type_id: Option<i64>,
+    pub ts_ms: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct SystemSightings {
+    pub system_id: i64,
+    pub rows: Vec<SystemSighting>,
+    /// Se alcanzó el tope: hay más filas antes de la más antigua devuelta. La pantalla lo dice.
+    pub truncado: bool,
+}
+
+/// Los avistamientos de un SISTEMA dentro de [from_ms, to_ms], uno a uno. La ficha de sistema
+/// calcula con ellos el mapa de calor, la serie, quién pasa y en qué — **de una sola fuente**,
+/// para que pinchar una celda pueda filtrar la lista y un piloto iluminar sus celdas. Ver
+/// `Db::system_sightings`. Nombres canónicos de `name_cache`: cero peticiones a ESI.
+#[tauri::command]
+pub fn get_system_sightings(
+    state: State<'_, AppState>,
+    system_id: i64,
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
+    limit: Option<i64>,
+) -> AppResult<SystemSightings> {
+    let desde = from_ms.unwrap_or(0);
+    let hasta = to_ms.unwrap_or(i64::MAX);
+    let tope = limit.unwrap_or(20_000).clamp(100, 100_000);
+    let crudas = state.db.system_sightings(system_id, desde, hasta, tope);
+    let truncado = crudas.len() as i64 >= tope;
+    // El nombre canónico se busca UNA vez por nombre distinto, no por fila.
+    let mut nombres: HashMap<String, (Option<i64>, String)> = HashMap::new();
+    let mut rows = Vec::with_capacity(crudas.len());
+    for (nl, cid, ship, ts) in crudas {
+        let (id_cache, display) = nombres
+            .entry(nl.clone())
+            .or_insert_with(|| {
+                let (id, disp) = state
+                    .db
+                    .name_cache_get(&nl)
+                    .map(|(id, disp, _)| (id.filter(|&x| x > 0), disp))
+                    .unwrap_or((None, None));
+                (id, disp.unwrap_or_else(|| nl.clone()))
+            })
+            .clone();
+        rows.push(SystemSighting {
+            name: display,
+            character_id: cid.filter(|&x| x > 0).or(id_cache),
+            ship_type_id: ship,
+            ts_ms: ts,
+        });
+    }
+    Ok(SystemSightings { system_id, rows, truncado })
+}
+
+/// Un avistamiento de un HOSTIL, tal cual: dónde, en qué y cuándo.
+#[derive(Debug, serde::Serialize)]
+pub struct PilotSighting {
+    pub system_id: i64,
+    pub ship_type_id: Option<i64>,
+    pub ts_ms: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PilotSightings {
+    pub rows: Vec<PilotSighting>,
+    pub truncado: bool,
+}
+
+/// Los avistamientos de un hostil dentro de [from_ms, to_ms], uno a uno — el gemelo de
+/// `get_system_sightings`, para que la ficha del hostil use el MISMO bloque enlazado (mapa de
+/// calor, tiempo, sistemas y naves) que la del sistema. Ver `Db::pilot_sightings`.
+#[tauri::command]
+pub fn get_pilot_sightings(
+    state: State<'_, AppState>,
+    name: String,
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
+    limit: Option<i64>,
+) -> AppResult<PilotSightings> {
+    let nl = name.trim().to_lowercase();
+    let tope = limit.unwrap_or(20_000).clamp(100, 100_000);
+    let crudas = state.db.pilot_sightings(&nl, from_ms.unwrap_or(0), to_ms.unwrap_or(i64::MAX), tope);
+    let truncado = crudas.len() as i64 >= tope;
+    Ok(PilotSightings {
+        rows: crudas
+            .into_iter()
+            .map(|(system_id, ship_type_id, ts_ms)| PilotSighting { system_id, ship_type_id, ts_ms })
+            .collect(),
+        truncado,
+    })
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct PilotProfile {
     pub name: String,

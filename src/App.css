@@ -8096,6 +8096,229 @@ h4 {
   flex: 1;
   min-width: 0;
 }
+/* El conmutador Hostiles/Sistemas va a ancho completo, encima de la búsqueda: es la pregunta que
+   cambia todo lo de abajo, así que no puede parecer un filtro más. */
+.cz-modo {
+  display: flex;
+}
+.cz-modo button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+.cz-sys-dias {
+  display: flex;
+}
+.cz-sys-dias button {
+  flex: 1;
+}
+.cz-sys-sub {
+  font-weight: normal;
+}
+.cz-sys-dias-ficha {
+  max-width: 420px;
+  margin: 0.25rem 0 0.5rem;
+}
+/* La ventana del hostil con su cifra al lado, en una fila. */
+.cz-ventana-fila {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+.cz-ventana-fila .cz-sys-dias-ficha {
+  margin: 0;
+  flex: 1 1 260px;
+}
+/* «Ahora»: fila con actividad en la última hora. Un punto de acento delante, no un color de fondo:
+   tiene que verse de reojo y no competir con la fila seleccionada. */
+.cazador-row.viva {
+  position: relative;
+}
+.cazador-row.viva::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #ff6ad5;
+  box-shadow: 0 0 6px rgba(255, 106, 213, 0.8);
+}
+tr.viva td:first-child::before {
+  content: "● ";
+  color: #ff6ad5;
+  font-size: 0.6rem;
+  vertical-align: 1px;
+}
+/* El desplegable de orden de las listas del Cazador. */
+.cz-orden {
+  flex: 0 0 auto;
+  max-width: 11rem;
+  font-size: 0.78rem;
+}
+/* ---- El mapa de calor día × hora de la ficha de sistema ----
+   Una rejilla de 7 filas × 24 celdas. La intensidad va por `background` inline (proporcional al
+   máximo de la rejilla); aquí solo la forma. El globo al pasar el ratón es el mismo truco que las
+   barras de horas (`content: attr(data-v)`), para que se lea al instante. */
+.cz-calor {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+}
+.cz-calor-fila {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.cz-calor-dia {
+  flex: 0 0 4.2rem;
+  color: var(--fg-muted, #9aa4b2);
+  white-space: nowrap;
+}
+.cz-calor-fila.hoy .cz-calor-dia {
+  color: var(--fg, #e6edf3);
+}
+.cz-calor-h {
+  flex: 1;
+  text-align: center;
+  color: var(--fg-muted, #9aa4b2);
+  font-size: 0.66rem;
+}
+.cz-calor-h.ahora {
+  color: #ffd1f0;
+}
+.cz-calor-tot {
+  flex: 0 0 2.2rem;
+  text-align: right;
+  color: var(--fg-muted, #9aa4b2);
+  font-variant-numeric: tabular-nums;
+}
+.cz-calor-celda {
+  flex: 1;
+  height: 18px;
+  border-radius: 2px;
+  position: relative;
+  background: #1d232d;
+  transition: box-shadow 0.1s ease;
+}
+/* Un cero es un cero, no un agujero: suelo tenue, como en las barras de horas. */
+.cz-calor-celda.vacia {
+  background: #1d232d;
+}
+.cz-calor-celda.ahora {
+  outline: 1px solid rgba(255, 209, 240, 0.45);
+  outline-offset: -1px;
+}
+.cz-calor-celda:hover {
+  box-shadow: 0 0 0 1px #ffa8e4 inset, 0 0 8px rgba(255, 106, 213, 0.6);
+}
+/* Las etiquetas de día y de hora son BOTONES (filtran la fila o la columna), pero se visten de
+   etiqueta: el borde y el fondo de botón competirían con las celdas. */
+button.cz-calor-dia,
+button.cz-calor-h {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: inherit;
+  text-align: left;
+}
+button.cz-calor-h {
+  text-align: center;
+  font-size: 0.66rem;
+}
+button.cz-calor-dia:hover,
+button.cz-calor-h:hover,
+.cz-calor-dia.sel,
+.cz-calor-h.sel {
+  color: #ffd1f0;
+}
+.cz-calor-dia.sel,
+.cz-calor-h.sel {
+  font-weight: 600;
+}
+.cz-calor-celda {
+  cursor: pointer;
+}
+/* Seleccionada: borde claro fijo. Apagada: fuera de la selección o sin el piloto/nave resaltado —
+   se atenúa, no se borra, para que el contexto siga ahí. */
+.cz-calor-celda.sel {
+  outline: 2px solid #ffd1f0;
+  outline-offset: -2px;
+}
+.cz-calor-celda.apagada {
+  opacity: 0.22;
+}
+/* Columnas del tiempo: pulsables, con selección y con la parte del resalte pintada encima. */
+.cz-col {
+  cursor: pointer;
+}
+.cz-col.sel .hourbar-fill {
+  outline: 2px solid #ffd1f0;
+  outline-offset: -1px;
+}
+.cz-col.apagada .hourbar-fill {
+  opacity: 0.22;
+}
+.cz-col .hourbar-fill {
+  position: relative;
+}
+.cz-col-res {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #ffd1f0;
+  border-radius: 1px 1px 0 0;
+}
+.cz-pista {
+  font-weight: normal;
+}
+/* La barra de selección encima de las listas: qué se está mirando y cómo volver a todo. */
+.cz-selbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0.2rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid rgba(255, 106, 213, 0.45);
+  border-radius: 6px;
+  background: rgba(255, 106, 213, 0.08);
+  font-size: 0.8rem;
+}
+/* Filas enlazadas con las gráficas: al pasar el ratón se marcan (y las gráficas responden). */
+.cz-tabla-enlazada tr {
+  cursor: default;
+}
+.cz-tabla-enlazada tr.res,
+.cz-fila-enlazada.res {
+  background: rgba(255, 106, 213, 0.12);
+}
+.cz-calor-celda:hover::after {
+  content: attr(data-v);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.15rem 0.4rem;
+  border-radius: 5px;
+  border: 1px solid #b4711e;
+  background: rgba(9, 12, 18, 0.96);
+  color: #ffd1f0;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
 .cazador-rows {
   display: flex;
   flex-direction: column;
