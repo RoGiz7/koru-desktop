@@ -996,6 +996,113 @@ impl Db {
             ach.push(mara.state("maraton_sondeo", "count"));
         }
 
+        // ==================== ESCALACIONES ====================
+        // Deuda de la v0.52.0: al sacar las escalaciones del dominio del abismo —porque cada
+        // sección se mide con el prisma de su propia actividad— se quedaron SIN ninguna medalla.
+        // Estas son las suyas.
+        //
+        // ★ LA QUE DA SENTIDO AL RESTO ES LA RACHA SIN CADUCAR, y no es una medalla más: la propia
+        //   memoria de la sección dice que **«el registro es la excusa; el aviso de las 24 h es el
+        //   producto»**. Premiar que no se te pase ninguna es premiar exactamente aquello para lo
+        //   que existe la sección.
+        //
+        // OJO con la honestidad, igual que en exploración: la tabla `escalaciones` nació en la
+        // v0.50.0 (2026-09-09), así que NO hay retroactividad. Miden «desde que las apuntas».
+        {
+            // Las contadas van por `cerrada_at`, que es cuándo pasó de verdad. `abierta_at` sería
+            // cuándo la apuntaste, que no es lo mismo: una del día 1 cerrada el día 3 cuenta el 3.
+            let mut hechas = Cross::new([10.0, 50.0, 200.0]);
+            // ★ Umbrales en la ESCALA DEL JUEGO, no inventados: bronce al 5/10, plata al 8/10 y
+            //   oro al 10/10. Un 10/10 ya es la cima para el juego; no hace falta otra vara.
+            //   `ded` NULL no es un hueco —las de anomalía y las expediciones no tienen rating—,
+            //   así que se filtra en el SQL en vez de contarlo como cero.
+            let mut mejor_ded = Cross::new([5.0, 8.0, 10.0]);
+            let mut vendidas = Cross::new([3.0, 15.0, 50.0]);
+            let mut isk_ventas = Cross::new([500e6, 2e9, 10e9]);
+
+            let sql = format!(
+                "SELECT substr(cerrada_at,1,10), estado, modo, ded
+                   FROM escalaciones
+                  WHERE cerrada_at IS NOT NULL {who} ORDER BY cerrada_at ASC"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            })?;
+            for (date, estado, _modo, ded) in rows.flatten() {
+                if estado == "hecha" {
+                    hechas.add(&date, 1.0);
+                    if let Some(d) = ded {
+                        mejor_ded.peak(&date, d as f64);
+                    }
+                }
+            }
+            ach.push(hechas.state("esc_hechas", "count"));
+            ach.push(mejor_ded.state("esc_ded", "count"));
+
+            // Ventas: manda `cobrada_at`, no el estado. El dinero entra al cobrar; lo que viene
+            // después (dar acceso, retirarlo) es gestión, y una vendida en curso no es un ingreso.
+            let sql_v = format!(
+                "SELECT substr(cobrada_at,1,10), COALESCE(precio,0) FROM escalaciones
+                  WHERE modo='venta' AND cobrada_at IS NOT NULL {who} ORDER BY cobrada_at ASC"
+            );
+            let mut stmt_v = conn.prepare(&sql_v)?;
+            let rows_v = stmt_v
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))?;
+            for (date, precio) in rows_v.flatten() {
+                vendidas.add(&date, 1.0);
+                isk_ventas.add(&date, precio);
+            }
+            ach.push(vendidas.state("esc_vendidas", "count"));
+            ach.push(isk_ventas.state("esc_isk_ventas", "isk"));
+
+            // ★ EXPEDICIONES COMPLETAS: más de una parte Y todas hechas.
+            // 🚨 El `COUNT(*) > 1` NO es un adorno: sin `cadena_de`, `escalacion_abrir` hace
+            //    `SET cadena_id = id`, o sea que **una escalación suelta se apunta a sí misma** y
+            //    sin ese filtro cada una contaría como «expedición completa». Es la misma trampa
+            //    que ya hizo que la ficha enseñara «parte 1 de 1» en todas.
+            let mut cadenas = Cross::new([1.0, 5.0, 20.0]);
+            let sql_c = format!(
+                "SELECT MAX(substr(cerrada_at,1,10)) FROM escalaciones
+                  WHERE cadena_id IS NOT NULL {who}
+                  GROUP BY cadena_id
+                 HAVING COUNT(*) > 1
+                    AND COUNT(*) = SUM(CASE WHEN estado='hecha' THEN 1 ELSE 0 END)
+                  ORDER BY 1 ASC"
+            );
+            let mut stmt_c = conn.prepare(&sql_c)?;
+            let rows_c = stmt_c.query_map([], |r| r.get::<_, Option<String>>(0))?;
+            for date in rows_c.flatten().flatten() {
+                cadenas.add(&date, 1.0);
+            }
+            ach.push(cadenas.state("esc_cadenas", "count"));
+
+            // ★ RACHA SIN DEJAR CADUCAR NINGUNA. Se CAMINA, como `racha_sin_morir`: cada una
+            // depende de la anterior y eso no se agrega con GROUP BY.
+            // ⚠️ Solo las PROPIAS. Una vendida no cuenta: al dar acceso, el reloj deja de ser tuyo
+            //    —«a partir de ahí es problema suyo»— así que sumarla inflaría la racha con algo
+            //    que no mide lo que dice. Medido en el fixture: 3 contra 2.
+            let mut racha = Cross::new([5.0, 15.0, 40.0]);
+            let mut viva = 0.0;
+            let sql_r = format!(
+                "SELECT substr(cerrada_at,1,10), estado FROM escalaciones
+                  WHERE modo='propia' AND cerrada_at IS NOT NULL {who} ORDER BY cerrada_at ASC"
+            );
+            let mut stmt_r = conn.prepare(&sql_r)?;
+            let rows_r = stmt_r
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for (date, estado) in rows_r.flatten() {
+                viva = if estado == "caducada" { 0.0 } else { viva + 1.0 };
+                racha.peak(&date, viva);
+            }
+            ach.push(racha.state("esc_racha", "count"));
+        }
+
         // ==================== RUNS ABISALES / CRAB ====================
         // Sobre `activity_runs` + sus participantes. Se usa la MISMA CTE que las estadísticas de la
         // sección para que los números no puedan divergir: si la run tiene participantes mandan
@@ -1488,6 +1595,52 @@ impl Db {
             m.insert(id.into(), cumulative(q(&format!(
                 "SELECT substr(done_at,1,7), COUNT(*) FROM exploration_log WHERE kind='{kind}' {who} GROUP BY 1 ORDER BY 1"))));
         }
+        // ---- ESCALACIONES ----
+        // Las seis llevan serie: una medalla sin ella abre la ficha para decir «sin datos de
+        // evolución», que es peor que no abrirse (lección de la propia ficha de medalla).
+        m.insert("esc_hechas".into(), cumulative(q(&format!(
+            "SELECT substr(cerrada_at,1,7), COUNT(*) FROM escalaciones
+              WHERE estado='hecha' AND cerrada_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("esc_ded".into(), running_max(q(&format!(
+            "SELECT substr(cerrada_at,1,7), MAX(ded) FROM escalaciones
+              WHERE estado='hecha' AND ded IS NOT NULL AND cerrada_at IS NOT NULL {who}
+              GROUP BY 1 ORDER BY 1"))));
+        m.insert("esc_vendidas".into(), cumulative(q(&format!(
+            "SELECT substr(cobrada_at,1,7), COUNT(*) FROM escalaciones
+              WHERE modo='venta' AND cobrada_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("esc_isk_ventas".into(), cumulative(q(&format!(
+            "SELECT substr(cobrada_at,1,7), SUM(COALESCE(precio,0)) FROM escalaciones
+              WHERE modo='venta' AND cobrada_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        // Espejo EXACTO del `HAVING` del motor: si divergen, la gráfica y la medalla contarían
+        // expediciones distintas del mismo dato.
+        m.insert("esc_cadenas".into(), cumulative(q(&format!(
+            "SELECT substr(fin,1,7), COUNT(*) FROM (
+               SELECT MAX(cerrada_at) fin FROM escalaciones
+                WHERE cadena_id IS NOT NULL {who}
+                GROUP BY cadena_id
+               HAVING COUNT(*) > 1
+                  AND COUNT(*) = SUM(CASE WHEN estado='hecha' THEN 1 ELSE 0 END))
+             WHERE fin IS NOT NULL GROUP BY 1 ORDER BY 1"))));
+        // La racha NO se puede agregar con GROUP BY: se camina, igual que en el motor y que
+        // `racha_sin_morir`. Se anota por mes la mejor racha viva en ese mes.
+        {
+            let filas = q(&format!(
+                "SELECT substr(cerrada_at,1,7), CASE estado WHEN 'caducada' THEN 1 ELSE 0 END
+                   FROM escalaciones
+                  WHERE modo='propia' AND cerrada_at IS NOT NULL {who} ORDER BY cerrada_at ASC"
+            ));
+            let mut viva = 0.0;
+            let mut por_mes: Vec<(String, f64)> = Vec::new();
+            for (mes, caducada) in filas {
+                viva = if caducada > 0.0 { 0.0 } else { viva + 1.0 };
+                match por_mes.last_mut() {
+                    Some((m0, v)) if *m0 == mes => *v = v.max(viva),
+                    _ => por_mes.push((mes, viva)),
+                }
+            }
+            m.insert("esc_racha".into(), running_max(por_mes));
+        }
+
         m.insert("sitios_totales".into(), cumulative(q(&format!(
             "SELECT substr(done_at,1,7), COUNT(*) FROM exploration_log WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
         m.insert("botin_explorado".into(), cumulative(q(&format!(

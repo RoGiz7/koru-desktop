@@ -1948,6 +1948,20 @@ const EN: Record<string, string> = {
   // clave DINÁMICA: el auditor de i18n no las ve y da verde igual. Se comprueban a mano.
   "Sitios explorados del mes": "Sites explored this month",
   "Ver esta actividad en su sección": "See this activity in its own section",
+  // --- Medallas de escalaciones (dominio propio, 2026-09-19) ---
+  "Rastreador": "Tracker",
+  "Escalaciones completadas a tiempo": "Escalations completed in time",
+  "Hasta el fondo": "All the way in",
+  "La valoración DED más alta que has completado": "The highest DED rating you've completed",
+  "Nunca se me pasa": "Never misses one",
+  "Escalaciones propias seguidas sin dejar caducar ninguna":
+    "Your own escalations in a row without letting one expire",
+  "Hasta la cuarta": "To the fourth",
+  "Expediciones completas: todas sus partes hechas": "Full expeditions: every part completed",
+  "Corredor": "Broker",
+  "Escalaciones vendidas y cobradas": "Escalations sold and paid for",
+  "Rentista": "Rentier",
+  "ISK cobrado vendiendo escalaciones": "ISK taken selling escalations",
   // --- La historia de un reto del mes (`retoDetalle.tsx`, 2026-09-16) ---
   "Ver tu historia mes a mes en este reto": "See your month-by-month history for this challenge",
   "Tu historia mes a mes, con la cota que tenías cada vez":

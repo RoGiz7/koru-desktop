@@ -87,6 +87,15 @@ export const ACH_UI: Record<string, { icon: string; label: string; desc: string;
   botin_explorado: { icon: "💎", label: "Fiebre del tesoro", desc: "Botín total sacado explorando", tid: 44992 }, // PLEX
   mejor_sitio: { icon: "🎁", label: "El premio gordo", desc: "El sitio más rentable de tu histórico", tid: 44992 },
   maraton_sondeo: { icon: "🌙", label: "Maratón de sondeo", desc: "Más sitios completados en un solo día", tid: 30488 },
+  // --- Escalaciones (de la tabla `escalaciones`; nació en la v0.50.0, sin retroactividad) ---
+  // typeIDs verificados en market_types.json y elegidos por lo que SIGNIFICAN, reusando el
+  // vocabulario que la app ya tiene para cada concepto.
+  esc_hechas: { icon: "🗺️", label: "Rastreador", desc: "Escalaciones completadas a tiempo", tid: 30746 }, // Ancient Coordinates Database: el objeto que ES una escalación
+  esc_ded: { icon: "🏅", label: "Hasta el fondo", desc: "La valoración DED más alta que has completado", tid: 17192 }, // Angel Diamond Tag
+  esc_racha: { icon: "⏳", label: "Nunca se me pasa", desc: "Escalaciones propias seguidas sin dejar caducar ninguna", tid: 3699 }, // Quafe, el que ya usa «Sin descanso»
+  esc_cadenas: { icon: "🧵", label: "Hasta la cuarta", desc: "Expediciones completas: todas sus partes hechas", tid: 33178 }, // Scan Pinpointing Array I
+  esc_vendidas: { icon: "🤝", label: "Corredor", desc: "Escalaciones vendidas y cobradas", tid: 17366 }, // Station Container: el safe donde se aparca
+  esc_isk_ventas: { icon: "💰", label: "Rentista", desc: "ISK cobrado vendiendo escalaciones", tid: 44992 }, // PLEX
   // --- Abismo y CRAB (de tus runs cronometradas) ---
   runs_hechas: { icon: "🌀", label: "Buceador", desc: "Runs abisales y CRAB completadas", tid: 47894 }, // Raging Dark Filament
   iskh_record: { icon: "⚡", label: "Racha dorada", desc: "Tu mejor ISK/hora en una run", tid: 17715 }, // Gila
@@ -158,6 +167,13 @@ const CATS: Cat[] = [
     color: "#7f5af0", // violeta de sonda
     tid: 30488, // Sisters Core Scanner Probe
     ids: ["relic_hechos", "data_hechos", "gas_hechos", "wh_anotados", "sitios_totales", "sistemas_explorados", "botin_explorado", "mejor_sitio", "maraton_sondeo"],
+  },
+  {
+    key: "escalaciones",
+    label: "Escalaciones",
+    color: "#e0a33e", // ámbar: el reloj de 24 h es lo que define la sección
+    tid: 30746, // Ancient Coordinates Database
+    ids: ["esc_hechas", "esc_ded", "esc_racha", "esc_cadenas", "esc_vendidas", "esc_isk_ventas"],
   },
   {
     key: "abismo",
