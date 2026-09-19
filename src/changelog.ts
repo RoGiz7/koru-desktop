@@ -7,7 +7,17 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 export const CHANGELOG: ChangelogEntry[] = [
   {
     // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
-    // ficheros de versión. Ver el checklist de release.
+    // ficheros de versión. Ver el checklist de release. Esta release ACUMULA: no se corta pronto.
+    version: "0.54.0",
+    date: "2026-09-19",
+    es: [
+      "✏️ Corregir un aviso de intel ya es corregirlo entero: varios pilotos, y también las naves. Hasta ahora «¿quién era?» solo admitía UN nombre, así que una línea con dos nombres pegados, o con una nave leída como piloto, no tenía arreglo. Ahora la tarjeta te enseña lo que Koru leyó —cada piloto y cada nave como una chapa con su ✕— y lo dejas como debería ser: quitas lo que sobra y añades lo que falta. Para añadir un piloto puedes **pinchar las palabras de la línea original** y componer el nombre sin teclear, o buscarlo entre los que Koru ya conoce; las naves salen de un buscador sobre el catálogo del juego. Koru sigue comprobando cada piloto con EVE antes de apuntarlo, y si uno no existe no guarda ninguno y te dice cuál. **Guardar sin pilotos ni naves también vale**: significa «en esta línea no hay nadie», que es como se quita un fantasma —una palabra suelta que Koru tomó por una persona— sin tocar nada más. La corrección sigue valiendo para esa línea exacta cada vez que alguien la repita, como antes: no se cambia cómo se leen las demás. Las correcciones que ya tenías se conservan tal cual.",
+    ],
+    en: [
+      "✏️ Correcting an intel report now means correcting all of it: several pilots, and ships too. Until now «who was it?» took ONE name, so a line with two names run together, or a ship read as a pilot, had no fix. Now the card shows you what Koru read — every pilot and every ship as a chip with its ✕ — and you leave it as it should be: remove what's wrong, add what's missing. To add a pilot you can **click the words of the original line** and build the name without typing, or pick from the ones Koru already knows; ships come from a search over the game's catalogue. Koru still checks every pilot with EVE before saving, and if one doesn't exist it saves none and tells you which. **Saving with no pilots and no ships is valid too**: it means «there's nobody in this line», which is how you remove a ghost — a stray word Koru took for a person — without touching anything else. A correction still applies to that exact line whenever anyone repeats it, as before: how other lines are read doesn't change. Corrections you already had are kept as they were.",
+    ],
+  },
+  {
     version: "0.53.0",
     date: "2026-09-19",
     es: [

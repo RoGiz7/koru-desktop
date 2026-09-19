@@ -196,6 +196,36 @@ CREATE TABLE IF NOT EXISTS intel_alias (
     created_at   TEXT NOT NULL
 );
 
+-- ★★ LA CORRECCIÓN COMPLETA (2026-09-19): una línea ya no se corrige a UNA persona, se declara
+-- ENTERA — «en esta línea hay estos pilotos y estas naves». Dos tablas: la cabecera dice que la
+-- línea está declarada, los ítems dicen qué hay. La cabecera existe aparte porque **una declaración
+-- con cero ítems es válida y significa «aquí no hay nadie»**: es como se corrige un reporte donde
+-- Koru vio un piloto que era jerga, sin tocar ninguna lista global (la trampa de `mobile`→«Small»).
+--
+-- ★ LA DECISIÓN DE ALCANCE ES SUYA (2026-09-19). Propuse anclar cada corrección al TROZO de texto
+-- para que generalizara; él lo tumbó: *«tal como lo tenemos está bien, es muy preciso, no lo
+-- cambiaría»*. Así que la clave sigue siendo la LÍNEA ENTERA normalizada (`claveAlias` en
+-- intel.ts), para siempre, aplicada a cualquier línea futura que la contenga. Y la semántica pasa a
+-- ser de SUSTITUCIÓN: lo que el troceador sacó de ese texto se tira y entra lo declarado.
+--
+-- `intel_alias` (arriba) se queda como está: una versión anterior de Koru la sigue leyendo, y las
+-- filas viejas se copian aquí UNA vez (`meta.intel_alias_v2`). No se borra nada.
+--
+-- ⚠️ La columna se llama `entity_id` y NO `character_id` a propósito: `character_purge` barre toda
+-- tabla con `character_id` salvo excepciones a mano, y este id es del HOSTIL declarado (o un
+-- typeID de nave), no del jugador. Con otro nombre no hay nada que exceptuar ni que olvidar.
+CREATE TABLE IF NOT EXISTS intel_alias_linea (
+    texto        TEXT PRIMARY KEY,        -- la misma clave que intel_alias
+    created_at   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS intel_alias_item (
+    texto        TEXT NOT NULL,
+    tipo         TEXT NOT NULL,           -- 'piloto' | 'nave'
+    entity_id    INTEGER NOT NULL,        -- character_id (confirmado por ESI) o type_id (catálogo)
+    display_name TEXT NOT NULL,
+    PRIMARY KEY (texto, tipo, entity_id)
+);
+
 -- QUIÉN puede ver cada estructura de jugador. Nace de una medición suya (2026-09-09): el 10,9% de
 -- las fichas de ESI se iban en 403 repetidos de `/universe/structures/`.
 --

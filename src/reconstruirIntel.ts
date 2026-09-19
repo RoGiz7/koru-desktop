@@ -21,7 +21,10 @@
 //    congelaría la ventana casi un minuto. Así se puede enseñar el progreso y la app respira.
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { classifyIntel, conSitiosLocales, creaDedupIntel, zonasDe, type SitiosLocales } from "./intel";
+import {
+  classifyIntel, conSitiosLocales, creaDedupIntel, mapaAlias, zonasDe,
+  type IntelAliasRow, type SitiosLocales,
+} from "./intel";
 import { loadJson } from "./staticJson";
 import type { IntelLine, NeSystem } from "./types";
 
@@ -59,7 +62,7 @@ async function indices() {
     // Las correcciones a mano. Van con los demás catálogos y no aparte: la reconstrucción
     // tiene que trocear EXACTAMENTE igual que el mapa, o el histórico y la pantalla dirían
     // cosas distintas de la misma línea.
-    invoke<{ texto: string; display_name: string }[]>("intel_alias_list").catch(() => []),
+    invoke<IntelAliasRow[]>("intel_alias_list").catch(() => [] as IntelAliasRow[]),
   ]);
   const nameIdx = new Map<string, NeSystem>(ne.systems.map((s) => [s.n.toLowerCase(), s]));
   const zonaIdx = zonasDe(ne);
@@ -76,7 +79,7 @@ async function indices() {
     // exactamente lo que esta tabla existe para no tener.
     zonaIdx,
     existen: new Set(existentes),
-    alias: new Map<string, string>(alias.map((a) => [a.texto, a.display_name])),
+    alias: mapaAlias(alias),
   };
 }
 

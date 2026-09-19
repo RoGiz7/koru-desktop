@@ -13,8 +13,9 @@ import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
 import {
-  buildIntelReports, claveAlias, conSitiosLocales, limpiarMarcadoEve, pilotTrack, zonasDe,
-  type SitiosLocales,
+  buildIntelReports, claveAlias, conSitiosLocales, limpiarMarcadoEve, mapaAlias,
+  pilotTrack, zonasDe,
+  type AliasLinea, type IntelAliasRow, type SitiosLocales,
 } from "./intel";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
@@ -1412,10 +1413,10 @@ export function MapView(props: {
    *  Ver `classifyIntel`. Se recargan al declarar una nueva para que el cambio se vea AL MOMENTO
    *  en el feed y en la tarjeta, no al siguiente arranque: una corrección que no se ve hecha se
    *  vuelve a intentar. */
-  const [alias, setAlias] = useState<Map<string, string>>(new Map());
+  const [alias, setAlias] = useState<Map<string, AliasLinea>>(new Map());
   const recargarAlias = () =>
-    invoke<{ texto: string; display_name: string }[]>("intel_alias_list")
-      .then((v) => setAlias(new Map(v.map((a) => [a.texto, a.display_name]))))
+    invoke<IntelAliasRow[]>("intel_alias_list")
+      .then((v) => setAlias(mapaAlias(v)))
       .catch(() => {});
   useEffect(() => {
     invoke<string[]>("intel_inexistentes")
@@ -1894,6 +1895,56 @@ export function MapView(props: {
   const [correccion, setCorreccion] = useState("");
   const [correccionErr, setCorreccionErr] = useState<string | null>(null);
   const [corrigiendoBusy, setCorrigiendoBusy] = useState(false);
+  /** ★★ LA DECLARACIÓN COMPLETA de la línea (2026-09-19): los pilotos y las naves que el piloto
+   *  dice que hay. Se prerrellena con la lectura de Koru, así que corregir es QUITAR lo que sobra
+   *  y AÑADIR lo que falta, no volver a escribir la línea. Los pilotos añadidos a mano llevan
+   *  `id: null` hasta que ESI los confirma al guardar; los de las sugerencias ya vienen con id.
+   *  Ver [[koru-intel-correccion-completa]]. */
+  const [declPilotos, setDeclPilotos] = useState<{ id: number | null; name: string }[]>([]);
+  const [declNaves, setDeclNaves] = useState<{ id: number; name: string }[]>([]);
+  const [naveQ, setNaveQ] = useState("");
+  /** Las naves del catálogo que casan con lo tecleado, sin una sola petición: el catálogo es local.
+   *  Se busca sobre TODOS los nombres (los de otros idiomas también) y se enseña el del catálogo. */
+  const navesSugeridas = useMemo(() => {
+    const q = naveQ.trim().toLowerCase();
+    if (q.length < 2) return [] as { id: number; name: string }[];
+    const vistos = new Set<number>();
+    const out: { id: number; name: string }[] = [];
+    // Primero los que EMPIEZAN por lo tecleado, luego los que lo contienen: «sab» debe dar Sabre
+    // antes que cualquier nave con «sab» en medio.
+    for (const pasada of [0, 1]) {
+      for (const [nombre, id] of shipNames) {
+        if (vistos.has(id)) continue;
+        const casa = pasada === 0 ? nombre.startsWith(q) : nombre.includes(q);
+        if (!casa) continue;
+        vistos.add(id);
+        out.push({ id, name: shipDisplay?.get(id) ?? nombre });
+        if (out.length >= 8) return out;
+      }
+    }
+    return out;
+  }, [naveQ, shipNames, shipDisplay]);
+  const addDeclPiloto = (name: string, id: number | null) => {
+    const n = name.trim();
+    if (!n) return;
+    setDeclPilotos((prev) =>
+      prev.some((p) => p.name.toLowerCase() === n.toLowerCase()) ? prev : [...prev, { id, name: n }],
+    );
+    setCorreccion("");
+  };
+  const addDeclNave = (nave: { id: number; name: string }) => {
+    setDeclNaves((prev) => (prev.some((s) => s.id === nave.id) ? prev : [...prev, nave]));
+    setNaveQ("");
+  };
+  /** Abrir el panel: se parte de lo que Koru leyó (ya resuelto, con ids), no de una hoja en blanco. */
+  const abrirCorreccion = () => {
+    setDeclPilotos((intelEntities?.characters ?? []).map((c) => ({ id: c.id, name: c.name })));
+    setDeclNaves((intelEntities?.ships ?? []).map((s) => ({ id: s.id, name: s.name })));
+    setCorreccion("");
+    setNaveQ("");
+    setCorreccionErr(null);
+    setCorrigiendo(true);
+  };
   /** ★ SUGERENCIAS MIENTRAS ESCRIBES — idea suya (2026-09-09). Salen de `search_pilots`, que busca
    *  **en local** sobre `name_cache`: cero peticiones, y permite buscar por TROZOS, cosa que ESI no
    *  hace (solo resuelve nombres exactos). Es el mismo mecanismo que ya usan las notas.
@@ -1939,9 +1990,17 @@ export function MapView(props: {
     setCorrigiendoBusy(true);
     setCorreccionErr(null);
     try {
+      // Lo que quede escrito en la caja y aún no se haya añadido cuenta también: pulsar Guardar
+      // con un nombre a medio meter es lo más normal, y perderlo en silencio sería un fallo mudo.
+      const pendiente = correccion.trim();
+      const pilotos = declPilotos.map((p) => p.name);
+      if (pendiente && !pilotos.some((n) => n.toLowerCase() === pendiente.toLowerCase())) {
+        pilotos.push(pendiente);
+      }
       await invoke("intel_alias_set", {
         texto: claveAlias(intelDetail.message),
-        nombre: correccion.trim(),
+        pilotos,
+        naves: declNaves,
       });
       await recargarAlias();
       setCorrigiendo(false);
@@ -5240,18 +5299,23 @@ export function MapView(props: {
                   es el PEOR para pedirle datos a nadie: quien lo lee está decidiendo si se mueve.
                   Si no le apetece, el hueco se queda y no pasa nada — la alarma ya sonó. */}
               {!intelEntLoading && !corrigiendo && !yaCorregido && (
-                <button className="intel-head-link" onClick={() => setCorrigiendo(true)}>
+                <button className="intel-head-link" onClick={abrirCorreccion}>
                   {intelEntities && intelEntities.characters.length === 0
                     ? tr("¿quién era?")
                     : tr("corregir")}
                 </button>
               )}
-              {/* Si este reporte YA está corregido, se dice y se puede deshacer. Una corrección a
-                  mano es justo lo que alguien puede escribir mal, y sin esto la única salida sería
-                  editar la base de datos. */}
-              {yaCorregido && (
+              {/* Si este reporte YA está corregido, se dice y se puede deshacer o retocar. Una
+                  corrección a mano es justo lo que alguien puede escribir mal, y sin esto la única
+                  salida sería editar la base de datos. */}
+              {yaCorregido && !corrigiendo && (
                 <div className="muted small">
                   ✏️ {tr("Corregido por ti")}{" "}
+                  {!intelEntLoading && (
+                    <button className="intel-head-link" onClick={abrirCorreccion}>
+                      {tr("editar")}
+                    </button>
+                  )}{" "}
                   <button
                     className="intel-head-link"
                     onClick={() => {
@@ -5264,11 +5328,61 @@ export function MapView(props: {
                   </button>
                 </div>
               )}
+              {/* ★★ LA CORRECCIÓN COMPLETA (2026-09-19). Se declara la LÍNEA ENTERA: qué pilotos y
+                  qué naves hay en ella. Lo que Koru leyó viene prerrellenado como chapas con su ✕;
+                  las palabras de la línea cruda se pulsan para componer un nombre («Hoto» +
+                  «Kokoa»); las naves salen de un buscador sobre el catálogo local. ESI solo entra
+                  al guardar, para confirmar que cada piloto existe — la regla de siempre.
+                  Y **guardar con cero pilotos y cero naves vale**: significa «aquí no hay nadie»,
+                  que es como se quita un fantasma sin tocar ninguna lista global. */}
               {corrigiendo && (
                 <div className="intel-corregir small">
                   <span className="muted">
-                    {tr("Escribe el nombre EXACTO del personaje. Koru lo comprueba con EVE antes de apuntarlo.")}
+                    {tr("Deja la línea como debería leerse: quita lo que sobra, añade lo que falta. Koru comprueba cada piloto con EVE antes de apuntarlo.")}
                   </span>
+                  {/* La línea cruda, palabra a palabra. Pulsar una la añade a la caja del piloto:
+                      así separar dos nombres pegados no exige teclear nada. */}
+                  <div className="intel-corregir-palabras">
+                    {limpiarMarcadoEve(intelDetail.message)
+                      .split(/\s+/)
+                      .filter(Boolean)
+                      .map((w, i) => (
+                        <button
+                          key={i}
+                          className="pp-tag"
+                          title={tr("Añadir esta palabra al nombre del piloto")}
+                          onClick={() => setCorreccion((c) => (c.trim() ? `${c.trim()} ${w}` : w))}
+                        >
+                          {w}
+                        </button>
+                      ))}
+                  </div>
+
+                  <span className="muted">{tr("Pilotos")}</span>
+                  <div className="intel-corregir-sug">
+                    {declPilotos.map((p) => (
+                      <span key={p.name.toLowerCase()} className="pp-tag intel-corregir-chip">
+                        {p.id != null && (
+                          <img
+                            className="kind-glyph"
+                            src={`https://images.evetech.net/characters/${p.id}/portrait?size=32`}
+                            alt=""
+                            style={{ borderRadius: "50%", width: 16, height: 16, verticalAlign: -3 }}
+                          />
+                        )}{" "}
+                        {p.name}
+                        {p.id == null && <span className="muted"> · {tr("sin confirmar")}</span>}
+                        <button
+                          className="intel-corregir-x"
+                          title={tr("Quitar")}
+                          onClick={() => setDeclPilotos((prev) => prev.filter((q) => q !== p))}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                    {declPilotos.length === 0 && <span className="muted">{tr("ninguno")}</span>}
+                  </div>
                   <div className="intel-corregir-fila">
                     <input
                       className="small"
@@ -5277,15 +5391,12 @@ export function MapView(props: {
                       placeholder={tr("Nombre del personaje")}
                       onChange={(e) => setCorreccion(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") void guardarCorreccion();
+                        if (e.key === "Enter") addDeclPiloto(correccion, null);
                         if (e.key === "Escape") setCorrigiendo(false);
                       }}
                     />
-                    <button className="pp-add" disabled={corrigiendoBusy || !correccion.trim()} onClick={() => void guardarCorreccion()}>
-                      {corrigiendoBusy ? tr("Comprobando…") : tr("Guardar")}
-                    </button>
-                    <button className="pp-add" onClick={() => { setCorrigiendo(false); setCorreccionErr(null); }}>
-                      {tr("Cancelar")}
+                    <button className="pp-add" disabled={!correccion.trim()} onClick={() => addDeclPiloto(correccion, null)}>
+                      {tr("Añadir piloto")}
                     </button>
                   </div>
                   {/* Los que Koru ya conoce, con su retrato: elegir uno es más rápido y no se
@@ -5298,7 +5409,7 @@ export function MapView(props: {
                         <button
                           key={id}
                           className="pp-tag"
-                          onClick={() => setCorreccion(nombre)}
+                          onClick={() => addDeclPiloto(nombre, id)}
                           title={tr("Usar este nombre")}
                         >
                           <img
@@ -5319,6 +5430,58 @@ export function MapView(props: {
                         : tr("Koru no conoce a nadie así todavía. Escríbelo entero y lo comprueba con EVE.")}
                     </span>
                   )}
+
+                  <span className="muted">{tr("Naves")}</span>
+                  <div className="intel-corregir-sug">
+                    {declNaves.map((s) => (
+                      <span key={s.id} className="pp-tag intel-corregir-chip">
+                        <img src={typeIcon(s.id, 32)} alt="" width={16} height={16} style={{ verticalAlign: -3 }} />{" "}
+                        {s.name}
+                        <button
+                          className="intel-corregir-x"
+                          title={tr("Quitar")}
+                          onClick={() => setDeclNaves((prev) => prev.filter((q) => q.id !== s.id))}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                    {declNaves.length === 0 && <span className="muted">{tr("ninguna")}</span>}
+                  </div>
+                  <div className="intel-corregir-fila">
+                    <input
+                      className="small"
+                      value={naveQ}
+                      placeholder={tr("Buscar nave en el catálogo")}
+                      onChange={(e) => setNaveQ(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && navesSugeridas.length > 0) addDeclNave(navesSugeridas[0]);
+                        if (e.key === "Escape") setCorrigiendo(false);
+                      }}
+                    />
+                  </div>
+                  {navesSugeridas.length > 0 && (
+                    <div className="intel-corregir-sug">
+                      {navesSugeridas.map((s) => (
+                        <button key={s.id} className="pp-tag" onClick={() => addDeclNave(s)} title={tr("Añadir esta nave")}>
+                          <img src={typeIcon(s.id, 32)} alt="" width={16} height={16} style={{ verticalAlign: -3 }} />{" "}
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="intel-corregir-fila">
+                    <button className="pp-add" disabled={corrigiendoBusy} onClick={() => void guardarCorreccion()}>
+                      {corrigiendoBusy ? tr("Comprobando…") : tr("Guardar")}
+                    </button>
+                    <button className="pp-add" onClick={() => { setCorrigiendo(false); setCorreccionErr(null); }}>
+                      {tr("Cancelar")}
+                    </button>
+                    {declPilotos.length === 0 && declNaves.length === 0 && !correccion.trim() && (
+                      <span className="muted">{tr("Guardar así apunta que en esta línea no hay nadie.")}</span>
+                    )}
+                  </div>
                   {correccionErr && <div className="kpi-neg small">{correccionErr}</div>}
                 </div>
               )}

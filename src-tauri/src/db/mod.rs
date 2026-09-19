@@ -1011,6 +1011,28 @@ impl Db {
             );
         }
 
+        // ★ Las correcciones de intel de una persona pasan al modelo de lista (2026-09-19). Copia,
+        // no mueve: `intel_alias` se queda intacta para que una versión anterior siga leyéndola.
+        // Ver el comentario de `intel_alias_linea` en schema.sql.
+        let alias_v2: String = conn
+            .query_row("SELECT value FROM meta WHERE key='intel_alias_v2'", [], |r| r.get(0))
+            .unwrap_or_default();
+        if alias_v2.is_empty() {
+            let _ = conn.execute_batch(
+                "BEGIN; \
+                 INSERT OR IGNORE INTO intel_alias_linea (texto, created_at) \
+                   SELECT texto, created_at FROM intel_alias; \
+                 INSERT OR IGNORE INTO intel_alias_item (texto, tipo, entity_id, display_name) \
+                   SELECT texto, 'piloto', character_id, display_name FROM intel_alias; \
+                 COMMIT;",
+            );
+            let _ = conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('intel_alias_v2','1') \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            );
+        }
+
         let db = Db {
             conn: Mutex::new(conn),
         };
@@ -4934,43 +4956,103 @@ impl Db {
 
     /// Todas las declaraciones, para dárselas al troceador. Son pocas por definición —una persona
     /// no corrige cien reportes— así que se leen enteras y no hay paginación que mantener.
-    pub fn intel_alias_list(&self) -> Vec<(String, i64, String)> {
+    ///
+    /// Devuelve UNA entrada por línea declarada, **también las que no tienen ningún ítem**: esa es
+    /// la declaración «aquí no hay nadie», y si se perdiera el troceador volvería a fichar al
+    /// fantasma. Por eso se parte de la cabecera y no de los ítems.
+    pub fn intel_alias_list(&self) -> Vec<(String, Vec<(i64, String)>, Vec<(i64, String)>)> {
         let conn = self.conn.lock().unwrap();
-        let mut out = Vec::new();
+        let mut out: Vec<(String, Vec<(i64, String)>, Vec<(i64, String)>)> = Vec::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT texto FROM intel_alias_linea ORDER BY texto") {
+            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                for texto in rows.flatten() {
+                    out.push((texto, Vec::new(), Vec::new()));
+                }
+            }
+        }
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT texto, character_id, display_name FROM intel_alias ORDER BY texto",
+            "SELECT texto, tipo, entity_id, display_name FROM intel_alias_item \
+             ORDER BY texto, tipo, display_name",
         ) {
             if let Ok(rows) = stmt.query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
             }) {
-                for f in rows.flatten() {
-                    out.push(f);
+                for (texto, tipo, id, nombre) in rows.flatten() {
+                    // Un ítem sin cabecera no debería existir (se escriben juntos), pero si lo
+                    // hubiera se le crea su línea en vez de tirarlo: mejor una corrección de más
+                    // que una que el usuario hizo y no se aplica.
+                    let pos = match out.iter().position(|(t, _, _)| *t == texto) {
+                        Some(p) => p,
+                        None => {
+                            out.push((texto.clone(), Vec::new(), Vec::new()));
+                            out.len() - 1
+                        }
+                    };
+                    if tipo == "nave" {
+                        out[pos].2.push((id, nombre));
+                    } else {
+                        out[pos].1.push((id, nombre));
+                    }
                 }
             }
         }
         out
     }
 
-    pub fn intel_alias_put(&self, texto: &str, character_id: i64, display_name: &str) {
-        let conn = self.conn.lock().unwrap();
+    /// Escribe la declaración ENTERA de una línea, sustituyendo la anterior. Va en una transacción
+    /// para que nunca quede una cabecera con la mitad de los ítems: o se ve la corrección completa
+    /// o se ve la de antes. `pilotos` y `naves` ya vienen comprobados (ESI y catálogo).
+    pub fn intel_alias_put(
+        &self,
+        texto: &str,
+        pilotos: &[(i64, String)],
+        naves: &[(i64, String)],
+    ) -> AppResult<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let texto = texto.trim().to_lowercase();
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = conn.execute(
-            "INSERT INTO intel_alias (texto, character_id, display_name, created_at)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(texto) DO UPDATE SET character_id = excluded.character_id,
-                 display_name = excluded.display_name, created_at = excluded.created_at",
-            rusqlite::params![texto.trim().to_lowercase(), character_id, display_name, now],
-        );
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO intel_alias_linea (texto, created_at) VALUES (?1, ?2)
+             ON CONFLICT(texto) DO UPDATE SET created_at = excluded.created_at",
+            rusqlite::params![texto, now],
+        )?;
+        tx.execute("DELETE FROM intel_alias_item WHERE texto = ?1", rusqlite::params![texto])?;
+        for (id, nombre) in pilotos {
+            tx.execute(
+                "INSERT OR REPLACE INTO intel_alias_item (texto, tipo, entity_id, display_name)
+                 VALUES (?1, 'piloto', ?2, ?3)",
+                rusqlite::params![texto, id, nombre],
+            )?;
+        }
+        for (id, nombre) in naves {
+            tx.execute(
+                "INSERT OR REPLACE INTO intel_alias_item (texto, tipo, entity_id, display_name)
+                 VALUES (?1, 'nave', ?2, ?3)",
+                rusqlite::params![texto, id, nombre],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Deshacer una declaración. Existe desde el principio a propósito: una corrección a mano es
     /// justo lo que alguien puede equivocarse al escribir, y un dato que se mete y no se puede
-    /// sacar es peor que no poder meterlo.
+    /// sacar es peor que no poder meterlo. Se borra también de la tabla vieja: si no, la próxima
+    /// migración (una BD restaurada de backup, p. ej.) la resucitaría.
     pub fn intel_alias_del(&self, texto: &str) -> usize {
         let conn = self.conn.lock().unwrap();
+        let texto = texto.trim().to_lowercase();
+        let _ = conn.execute("DELETE FROM intel_alias_item WHERE texto = ?1", rusqlite::params![texto]);
+        let _ = conn.execute("DELETE FROM intel_alias WHERE texto = ?1", rusqlite::params![texto]);
         conn.execute(
-            "DELETE FROM intel_alias WHERE texto = ?1",
-            rusqlite::params![texto.trim().to_lowercase()],
+            "DELETE FROM intel_alias_linea WHERE texto = ?1",
+            rusqlite::params![texto],
         )
         .unwrap_or(0)
     }

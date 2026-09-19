@@ -9025,12 +9025,27 @@ pub async fn resolve_intel_entities(
     })
 }
 
-/// Una declaración del piloto: «este trozo de intel es en realidad esta persona».
-#[derive(Debug, serde::Serialize)]
+/// Una entidad declarada por el piloto (persona confirmada por ESI, o nave del catálogo).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IntelAliasEnt {
+    pub id: i64,
+    pub name: String,
+}
+
+/// La declaración ENTERA de una línea de intel: pilotos y naves. Las dos listas pueden ir vacías
+/// a la vez, y eso significa «aquí no hay nadie» — ver `intel_alias_linea` en schema.sql.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct IntelAlias {
     pub texto: String,
-    pub character_id: i64,
-    pub display_name: String,
+    pub pilots: Vec<IntelAliasEnt>,
+    pub ships: Vec<IntelAliasEnt>,
+}
+
+/// Una nave declarada desde el frontend: typeID + nombre del catálogo.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct NaveDeclarada {
+    pub id: i64,
+    pub name: String,
 }
 
 /// ★★ CORREGIR A MANO UN REPORTE MAL TROCEADO — idea suya (2026-09-09).
@@ -9049,36 +9064,78 @@ pub struct IntelAlias {
 /// ⚠️ Y NO se acepta declarar el nombre de un sistema ni el de una nave: eso no corrige un
 /// reporte, lo rompe de otra manera. Esa comprobación vive en el frontend, que es quien tiene los
 /// catálogos cargados; aquí se comprueba lo único que el frontend no puede: que la persona existe.
+///
+/// ★★ AMPLIADO (2026-09-19): la declaración es la LÍNEA ENTERA — una lista de pilotos y otra de
+/// naves, las dos posiblemente vacías («aquí no hay nadie»). **Todos los pilotos se comprueban
+/// antes de escribir nada**: si uno no existe, no se guarda ninguno y el error dice cuál. Una
+/// declaración a medias sería peor que ninguna, porque parecería completa. Las naves llegan con
+/// su typeID del catálogo que tiene el frontend; aquí no hay nada que preguntar por ellas.
 #[tauri::command]
 pub async fn intel_alias_set(
     state: State<'_, AppState>,
     texto: String,
-    nombre: String,
+    pilotos: Vec<String>,
+    naves: Vec<NaveDeclarada>,
 ) -> AppResult<IntelAlias> {
     let texto_lc = texto.trim().to_lowercase();
-    let nombre = nombre.trim().to_string();
-    if texto_lc.is_empty() || nombre.is_empty() {
-        return Err(AppError::Other("falta el texto o el nombre".into()));
+    if texto_lc.is_empty() {
+        return Err(AppError::Other("falta el texto".into()));
     }
-    // Primero el catálogo: si ya preguntamos por esa persona, no se vuelve a preguntar.
-    if let Some((Some(id), disp, _)) = state.db.name_cache_get(&nombre.to_lowercase()) {
-        if id > 0 {
-            let display = disp.unwrap_or_else(|| nombre.clone());
-            state.db.intel_alias_put(&texto_lc, id, &display);
-            return Ok(IntelAlias { texto: texto_lc, character_id: id, display_name: display });
+    let mut pedidos: Vec<String> = pilotos
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    pedidos.sort_by_key(|s| s.to_lowercase());
+    pedidos.dedup_by_key(|s| s.to_lowercase());
+
+    // Primero el catálogo: lo que ya se preguntó no se vuelve a preguntar. Lo que falte va a ESI
+    // en UNA sola petición, sea uno o sean cinco.
+    let mut confirmados: Vec<(i64, String)> = Vec::new();
+    let mut faltan: Vec<String> = Vec::new();
+    for nombre in &pedidos {
+        match state.db.name_cache_get(&nombre.to_lowercase()) {
+            Some((Some(id), disp, _)) if id > 0 => {
+                confirmados.push((id, disp.unwrap_or_else(|| nombre.clone())));
+            }
+            _ => faltan.push(nombre.clone()),
         }
     }
-    let (chars, _ships) = state.esi.resolve_entities(&[nombre.clone()]).await?;
-    let Some((id, display)) = chars.into_iter().next() else {
-        // El «no» también se apunta: si vuelve a escribirlo, ya no cuesta otra petición.
-        state.db.name_cache_put_negative(&nombre.to_lowercase());
-        return Err(AppError::Other(format!(
-            "EVE no conoce a nadie que se llame «{nombre}»"
-        )));
-    };
-    state.db.name_cache_put(&display.to_lowercase(), id, &display);
-    state.db.intel_alias_put(&texto_lc, id, &display);
-    Ok(IntelAlias { texto: texto_lc, character_id: id, display_name: display })
+    if !faltan.is_empty() {
+        let (chars, _ships) = state.esi.resolve_entities(&faltan).await?;
+        let mut desconocidos: Vec<String> = Vec::new();
+        for nombre in &faltan {
+            let lc = nombre.to_lowercase();
+            match chars.iter().find(|(_, n)| n.to_lowercase() == lc) {
+                Some((id, display)) => {
+                    state.db.name_cache_put(&display.to_lowercase(), *id, display);
+                    confirmados.push((*id, display.clone()));
+                }
+                None => {
+                    // El «no» también se apunta: si vuelve a escribirlo, ya no cuesta otra petición.
+                    state.db.name_cache_put_negative(&lc);
+                    desconocidos.push(nombre.clone());
+                }
+            }
+        }
+        if !desconocidos.is_empty() {
+            return Err(AppError::Other(format!(
+                "EVE no conoce a nadie que se llame «{}»",
+                desconocidos.join("», «")
+            )));
+        }
+    }
+    let naves: Vec<(i64, String)> = naves
+        .into_iter()
+        .filter(|n| n.id > 0 && !n.name.trim().is_empty())
+        .map(|n| (n.id, n.name.trim().to_string()))
+        .collect();
+    state.db.intel_alias_put(&texto_lc, &confirmados, &naves)?;
+    Ok(IntelAlias {
+        texto: texto_lc,
+        pilots: confirmados.into_iter().map(|(id, name)| IntelAliasEnt { id, name }).collect(),
+        ships: naves.into_iter().map(|(id, name)| IntelAliasEnt { id, name }).collect(),
+    })
 }
 
 /// Las declaraciones, para que el troceador las aplique. Ver `intel_alias_set`.
@@ -9088,7 +9145,11 @@ pub fn intel_alias_list(state: State<'_, AppState>) -> AppResult<Vec<IntelAlias>
         .db
         .intel_alias_list()
         .into_iter()
-        .map(|(texto, character_id, display_name)| IntelAlias { texto, character_id, display_name })
+        .map(|(texto, pilots, ships)| IntelAlias {
+            texto,
+            pilots: pilots.into_iter().map(|(id, name)| IntelAliasEnt { id, name }).collect(),
+            ships: ships.into_iter().map(|(id, name)| IntelAliasEnt { id, name }).collect(),
+        })
         .collect())
 }
 

@@ -3454,6 +3454,16 @@ const EN: Record<string, string> = {
     "Koru does not know anyone by that name yet. Type it in full and it will check with EVE.",
   deshacer: "undo",
   corregir: "correct it",
+  editar: "edit",
+  "Deja la línea como debería leerse: quita lo que sobra, añade lo que falta. Koru comprueba cada piloto con EVE antes de apuntarlo.":
+    "Leave the line as it should read: remove what is wrong, add what is missing. Koru checks every pilot with EVE before saving.",
+  "Añadir esta palabra al nombre del piloto": "Add this word to the pilot's name",
+  "sin confirmar": "unconfirmed",
+  ninguno: "none",
+  "Añadir piloto": "Add pilot",
+  "Buscar nave en el catálogo": "Search ship in the catalogue",
+  "Añadir esta nave": "Add this ship",
+  "Guardar así apunta que en esta línea no hay nadie.": "Saving like this records that there is nobody in this line.",
   "Escribe el nombre EXACTO del personaje. Koru lo comprueba con EVE antes de apuntarlo.":
     "Type the character's EXACT name. Koru checks it with EVE before saving it.",
   "Nombre del personaje": "Character name",

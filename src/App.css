@@ -6684,6 +6684,39 @@ h4 {
   flex: 1 1 140px;
   min-width: 0;
 }
+/* La línea cruda, palabra a palabra y pulsable. Va en monoespaciada para que se lea como lo que
+   es —el texto tal cual se escribió— y no como otra fila de chapas de pilotos. */
+.intel-corregir-palabras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.intel-corregir-palabras .pp-tag {
+  margin-left: 0;
+  border-radius: 4px;
+}
+/* Una chapa declarada: nombre + su ✕. El ✕ va DENTRO de la chapa para que se vea de qué es. */
+.intel-corregir-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0;
+  color: var(--fg, #e6edf3);
+  border: 1px solid var(--border, #30363d);
+}
+.intel-corregir-x {
+  background: transparent;
+  border: none;
+  color: var(--fg-muted, #9aa4b2);
+  cursor: pointer;
+  padding: 0 0 0 0.2rem;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.intel-corregir-x:hover {
+  color: var(--danger, #f85149);
+}
 
 /* Campo extra opcional del modal de botín (hoy: la nave perdida al morir en una escalación). */
 .loot-modal-extra {

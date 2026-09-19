@@ -163,6 +163,49 @@ export function claveAlias(mensaje: string): string {
   return limpiarMarcadoEve(mensaje).replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** ★★ LA DECLARACIÓN COMPLETA de una línea (2026-09-19): lo que el piloto dice que hay en ella.
+ *
+ *  Antes era una sola persona; ahora es **la lista de pilotos y la de naves**, y las dos pueden ir
+ *  vacías a la vez — eso significa «aquí no hay nadie», que es como se corrige un reporte donde
+ *  Koru vio un piloto que era jerga sin tocar ninguna lista global.
+ *
+ *  La CLAVE sigue siendo la línea entera (`claveAlias`), decisión suya: *«tal como lo tenemos está
+ *  bien, es muy preciso, no lo cambiaría»*. Ver [[koru-intel-correccion-completa]]. */
+export type AliasLinea = { pilots: string[]; ships: { id: number; name: string }[] };
+
+/** Lo que devuelve `intel_alias_list` en Rust, tal cual. */
+export type IntelAliasRow = {
+  texto: string;
+  pilots: { id: number; name: string }[];
+  ships: { id: number; name: string }[];
+};
+/** De la lista de Rust al mapa que consume `classifyIntel`. Es UNA función y la usan el mapa y la
+ *  reconstrucción: si cada uno montara el mapa a su manera, un día trocearían distinto. */
+export function mapaAlias(rows: IntelAliasRow[]): Map<string, AliasLinea> {
+  return new Map(
+    rows.map((r) => [
+      r.texto,
+      { pilots: r.pilots.map((p) => p.name), ships: r.ships.map((s) => ({ id: s.id, name: s.name })) },
+    ]),
+  );
+}
+
+/** Las palabras de un texto, en minúsculas y sin puntuación por los bordes, para comparar lo que
+ *  el troceador extrajo con el texto del que salió. Se usa al aplicar una declaración: un piloto
+ *  cuyas palabras estén TODAS en el texto declarado salió de ahí, y se retira. */
+function palabrasDe(texto: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of texto.toLowerCase().split(/\s+/)) {
+    const t = w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (t) out.add(t);
+  }
+  return out;
+}
+function todasEn(nombre: string, palabras: Set<string>): boolean {
+  const propias = [...palabrasDe(nombre)];
+  return propias.length > 0 && propias.every((p) => palabras.has(p));
+}
+
 /** ★ ÍNDICE DE PREFIJOS DE NAVE, construido UNA vez por catálogo.
  *
  *  «Brutix Navy» tiene que reconocerse aunque el catálogo diga «Brutix Navy Issue», y solo si ese
@@ -618,8 +661,11 @@ export function classifyIntel(
    *  ⚠️ Manda sobre todo lo demás, y a propósito: es lo ÚNICO que ha dicho una persona mirando el
    *  reporte. Todo lo que hay encima son reglas; esto es un testigo.
    *
+   *  ★ Desde 2026-09-19 el valor es la declaración ENTERA (`AliasLinea`): pilotos y naves, con
+   *  semántica de SUSTITUCIÓN sobre lo que salió del texto declarado.
+   *
    *  Opcional: sin él, el comportamiento es exactamente el de antes. */
-  alias?: Map<string, string>,
+  alias?: Map<string, AliasLinea>,
   /** ★★ CÓMO SE ESCRIBE CADA NAVE (typeID → nombre del catálogo, de `public/ships.json`).
    *
    *  Idea suya al leer un chatlog donde se canta en inglés, ruso y chino: *«que traduzca los
@@ -1048,32 +1094,44 @@ export function classifyIntel(
   // ★★ Y LO ÚLTIMO, LO QUE DIJO UNA PERSONA. Va al final porque manda sobre todo lo anterior: las
   //   reglas de arriba son buenas conjeturas, esto es un testigo que miró el reporte.
   //
-  //   Lo que hace no es solo AÑADIR al piloto: **quita los trozos que salieron de ese mismo
-  //   texto**. Con «Stykes Stormbringer» hay que borrar el piloto fantasma «Stykes» Y la nave
-  //   «Stormbringer», o el aviso diría que hay un hostil más y una nave que nadie vuela. Añadir
-  //   sin quitar habría sido peor que no tocar nada: dos errores en vez de uno.
+  //   ★★ SEMÁNTICA DE SUSTITUCIÓN (2026-09-19): **lo que el troceador sacó del texto declarado se
+  //   tira, y entra lo que declaró la persona** — pilotos Y naves, las dos listas. Antes solo se
+  //   quitaban las palabras del nombre declarado, y eso no podía expresar «aquí no hay nadie» ni
+  //   corregir una nave. Con la declaración entera, corregir «Brutix Navy x4» (piloto fantasma
+  //   «Navy») es declarar cero pilotos y la nave Brutix Navy; y «Stykes Stormbringer stabber» es
+  //   declarar al piloto «Stykes Stormbringer» y la nave Stabber.
+  //
+  //   ⚠️ QUÉ SE RETIRA: lo que tenga TODAS sus palabras dentro del texto declarado. Como la clave
+  //   es la línea entera normalizada, en el caso normal (misma línea) eso es todo; y cuando la
+  //   declaración es una línea más corta contenida en otra más larga, solo se retira lo que salió
+  //   de esa parte. Se compara contra `escrito` en las naves, no contra `name`: el texto declarado
+  //   es lo que se escribió, y `name` puede ser «Vedmak» donde se escribió `维德马克级`.
   if (alias && alias.size > 0) {
     const lc = claveAlias(message);
-    for (const [texto, persona] of alias) {
+    for (const [texto, decl] of alias) {
       if (!lc.includes(texto)) continue;
-      // ⚠️ LAS PARTES SON LAS DEL NOMBRE DECLARADO, **no las del texto declarado**. Lo escribí al
-      //    revés y la prueba lo cazó: como lo que se declara es el mensaje ENTERO (para no
-      //    obligar al usuario a señalar qué trozo estaba mal), usar sus palabras se llevaba por
-      //    delante la nave de verdad — «Stykes Stormbringer stabber» se quedaba SIN stabber.
-      //    Quien se tragó los trozos es el NOMBRE, así que solo él dice qué hay que devolver.
-      const partes = new Set(persona.toLowerCase().split(/\s+/).filter(Boolean));
+      const palabras = palabrasDe(texto);
       for (let i = pilots.length - 1; i >= 0; i--) {
-        if (partes.has(pilots[i].toLowerCase())) pilots.splice(i, 1);
+        if (todasEn(pilots[i], palabras)) pilots.splice(i, 1);
       }
-      // ⚠️ SE COMPARA CONTRA `escrito`, NO CONTRA `name`, y es la diferencia entre funcionar y no.
-      //    `partes` son las palabras del mensaje ORIGINAL (lo que declaró la persona), así que hay
-      //    que contrastarlas con lo que estaba escrito en la línea. Desde que `name` es el nombre
-      //    del catálogo, los dos pueden no parecerse en nada —`维德马克级` contra «Vedmak»— y esta
-      //    comparación dejaría de devolver nada, en silencio y solo para el intel en chino.
       for (let i = ships.length - 1; i >= 0; i--) {
-        if (partes.has(ships[i].escrito.toLowerCase())) ships.splice(i, 1);
+        if (todasEn(ships[i].escrito, palabras)) ships.splice(i, 1);
       }
-      if (!pilots.some((p) => p.toLowerCase() === persona.toLowerCase())) pilots.push(persona);
+      // Las dos lecturas propuestas de un nombre partido ya no tienen sentido para lo que acaba
+      // de decidir una persona: si la corta se ha retirado, la alternativa se va con ella. Sin
+      // esto, el consumidor podría volver a meter «Stykes» por la puerta de atrás al resolverla.
+      for (let i = pilotAlts.length - 1; i >= 0; i--) {
+        if (todasEn(pilotAlts[i].corto, palabras)) pilotAlts.splice(i, 1);
+      }
+      for (let i = dudas.length - 1; i >= 0; i--) {
+        if (todasEn(dudas[i], palabras)) dudas.splice(i, 1);
+      }
+      for (const persona of decl.pilots) {
+        if (!pilots.some((p) => p.toLowerCase() === persona.toLowerCase())) pilots.push(persona);
+      }
+      for (const nave of decl.ships) {
+        if (!ships.some((s) => s.id === nave.id)) addShip(nave.id, nave.name);
+      }
     }
   }
   // Las dudas siguen el MISMO cerrojo: sin sistema no hay reporte, y sin reporte no hay a quién
@@ -1231,7 +1289,7 @@ export function buildIntelReports(
   /** Lo que el piloto declaró a mano — ver `classifyIntel`. Se pasa tal cual, y por el MISMO
    *  motivo que los otros tres: si uno de los sitios que trocean no lo recibiera, el feed diría
    *  una cosa y la tarjeta otra. Ya nos pasó con «Dee Yona». */
-  alias?: Map<string, string>,
+  alias?: Map<string, AliasLinea>,
   /** Cómo se escribe cada nave — ver `classifyIntel`. Se pasa tal cual, y por el mismo motivo:
    *  el feed y la tarjeta tienen que escribir la nave igual. */
   shipDisplay?: Map<number, string>,

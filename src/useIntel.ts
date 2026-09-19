@@ -10,7 +10,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { tr } from "./i18n";
 import { ensureNotifPerm, playAlertChoice, loadCustomSound } from "./sound";
 import { classifyIntel } from "./intel";
-import type { IntelRep, IntelFeedRow } from "./intel";
+import type { IntelRep, IntelFeedRow, AliasLinea } from "./intel";
 import type { Geo } from "./mapOverlays";
 import type { MapOverlay } from "./constants";
 import type { IntelConfig, NewEden, CharLoc } from "./types";
@@ -58,7 +58,7 @@ export function useIntel({
   /** Las correcciones a mano del piloto — ver `classifyIntel`. Viaja con los otros tres
    *  catálogos: si llegara a unos sitios y a otros no, la tarjeta y el feed dirían cosas
    *  distintas de la misma línea, que es el fallo de las DOS VERDADES ya documentado. */
-  alias?: Map<string, string>;
+  alias?: Map<string, AliasLinea>;
   intelReports: IntelReports;
   intelOrigins: number[];
   /** Dónde está y en qué vuela cada personaje tuyo. Se manda a Rust para que el aviso pueda decir
