@@ -3485,6 +3485,11 @@ const EN: Record<string, string> = {
   "No se pudo leer el rastro.": "Could not read the trail.",
   "Sin avistamientos con sistema y hora en ese periodo.": "No sightings with system and time in that period.",
   "Ordenar por": "Sort by",
+  "No consigo alcanzar el servidor de imágenes de EVE (images.evetech.net).": "I can't reach EVE's image server (images.evetech.net).",
+  "Todo lo demás funciona: solo faltan iconos y retratos. Suele ser un antivirus o cortafuegos cortando la app instalada con el .exe. Dos salidas: instalar con el .msi desde la página de la release, o añadir Koru a las excepciones de tu antivirus.":
+    "Everything else works: only icons and portraits are missing. It is usually an antivirus or firewall cutting off the app installed with the .exe. Two ways out: install with the .msi from the release page, or add Koru to your antivirus exceptions.",
+  "Abrir la página de la release": "Open the release page",
+  "Reintentar ahora": "Retry now",
   "Con actividad en la última hora": "Activity in the last hour",
   "Últimos 7 días": "Last 7 days",
   "El ×N compara los últimos 7 días con la media semanal del periodo elegido. Más de 1 = más movido que de costumbre en esa ventana.":

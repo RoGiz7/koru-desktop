@@ -34,6 +34,7 @@ import { SocialView } from "./social";
 import { OpsView } from "./ops";
 import { FichaPiloto } from "./fichaPiloto";
 import { GuiaInicio } from "./guia";
+import { useSondaImagenes } from "./sondaImagenes";
 import { pistasActivas, setPistasActivas } from "./pista";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
@@ -315,6 +316,9 @@ function App() {
 
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
   const [serverOffline, setServerOffline] = useState(false);
+  /** ★ ¿Llega el WebView al servidor de imágenes de EVE? Ver `sondaImagenes.ts`: un piloto con el
+   *  `.exe` no veía ni un icono y Koru no decía nada. */
+  const sondaImagenes = useSondaImagenes();
   useEffect(() => {
     const load = () =>
       invoke<ServerStatus>("get_server_status")
@@ -3493,6 +3497,30 @@ function App() {
                   "Tu histórico local se sigue viendo entero; lo que necesite datos en vivo no llegará hasta que Tranquility vuelva.",
                 )}
               </span>
+            </p>
+          )}
+          {/* ★ EL SERVIDOR DE IMÁGENES NO SE ALCANZA. Reporte real: un piloto instaló con el `.exe`
+              y no vio ni un icono; todo lo demás le iba, porque ESI va por Rust y las imágenes por
+              el WebView. Koru se quedaba con los huecos vacíos y parecía roto. El cartel nombra el
+              hecho, dice que el resto funciona y da las dos salidas (el `.msi`, que instala en
+              Program Files, o la excepción del antivirus) — no solo «prueba el MSI», que a quien ya
+              lo instaló así no le sirve. Se va solo en cuanto una sonda vuelva a cargar
+              (reintento cada minuto). En todas las secciones, como el de downtime: es cierto en
+              cualquiera de ellas. Ver `sondaImagenes.ts` y por qué NO es un `fetch`. */}
+          {sondaImagenes.estado === "sin-acceso" && (
+            <p className="dt-aviso small">
+              🖼️ {tr("No consigo alcanzar el servidor de imágenes de EVE (images.evetech.net).")}{" "}
+              <span className="muted">
+                {tr(
+                  "Todo lo demás funciona: solo faltan iconos y retratos. Suele ser un antivirus o cortafuegos cortando la app instalada con el .exe. Dos salidas: instalar con el .msi desde la página de la release, o añadir Koru a las excepciones de tu antivirus.",
+                )}
+              </span>{" "}
+              <button className="linklike small" onClick={() => openExternal("https://github.com/RoGiz7/koru-desktop/releases/latest")}>
+                {tr("Abrir la página de la release")}
+              </button>{" "}
+              <button className="linklike small" onClick={sondaImagenes.reintentar}>
+                {tr("Reintentar ahora")}
+              </button>
             </p>
           )}
 
