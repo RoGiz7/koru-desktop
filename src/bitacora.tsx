@@ -11,8 +11,9 @@ import { tr, getLang } from "./i18n";
 import type { Tab } from "./constants";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { MedalArt } from "./medalArt";
-import type { Bitacora, AchievementState, Medal, AchSeries, CharacterDetail } from "./types";
+import type { Bitacora, AchievementState, Medal, AchSeries, CharacterDetail, RetoMes } from "./types";
 import { MedalDetail } from "./medalDetail";
+import { RetoDetalle } from "./retoDetalle";
 import { loadJson } from "./staticJson";
 
 // Catálogo visual: emoji de reserva + typeID REAL de EVE (image server, vía typeIcon) para dar
@@ -449,6 +450,11 @@ export function BitacoraView({
 
   // Evolución mensual de cada logro (derivada del histórico; sirve global y por personaje).
   const [series, setSeries] = useState<Record<string, AchSeries>>({});
+  /** La historia de cada reto: qué hiciste cada mes, la cota que tenías y si la pasaste. La calcula
+   *  Rust porque la cota sale de `next_125`, que no se duplica en el front. */
+  const [retoHist, setRetoHist] = useState<Record<string, RetoMes[]>>({});
+  /** El reto cuya ventana está abierta. */
+  const [openReto, setOpenReto] = useState<string | null>(null);
   const [openMedal, setOpenMedal] = useState<string | null>(null);
   /** Pestaña de la Bitácora. `retos` · `progreso` · `oro` · o la clave de un dominio.
    *  Todo en pestañas (decisión de RoGiz7): la sección había crecido tanto que lo importante
@@ -461,6 +467,12 @@ export function BitacoraView({
     })
       .then((s) => alive && setSeries(s))
       .catch(() => alive && setSeries({}));
+    invoke<Record<string, RetoMes[]>>("get_challenge_history", {
+      characterId: typeof subject === "number" ? subject : null,
+    })
+      .then((h) => alive && setRetoHist(h))
+      // Si falla, la ventana de un reto dira que no hay historia. La seccion no se cae por esto.
+      .catch(() => alive && setRetoHist({}));
     return () => {
       alive = false;
     };
@@ -613,6 +625,14 @@ export function BitacoraView({
           <img className="bit-cat-img" src={typeIcon(TID_TARGET, 32)} alt="" loading="lazy" />{" "}
           {tr("Retos del mes")}
         </button>
+        {/* ★★ LA RAYA QUE SEPARA DOS COSAS DISTINTAS (idea de RoGiz7, 2026-09-16).
+            Él decía confundir «Retos del mes» con «Progresando» y «Completados», y con razón: iban
+            seguidos en la misma tira, así que se leían como tres categorías del mismo medallero.
+            **No lo son.** Una medalla es acumulativa y permanente; un reto se reinicia el día 1.
+            Ahora los retos van solos delante y el medallero empieza detrás de esta raya, con su
+            nombre puesto. La diferencia deja de haber que adivinarla. */}
+        <span className="bit-cat-sep" aria-hidden="true" />
+        <span className="bit-cat-grupo">{tr("Logros")}</span>
         <button className={tab === "progreso" ? "active" : ""} onClick={() => setTab("progreso")}>
           <img className="bit-cat-img" src={typeIcon(TID_MEDAL_MID, 32)} alt="" loading="lazy" />{" "}
           {tr("Progresando")} <span className="muted">({progresando.length})</span>
@@ -664,29 +684,28 @@ export function BitacoraView({
             // El metal que tienes HOY en la medalla hermana. 0 = aún sin bronce → el reto sale
             // conseguido y verde, sin metal. Un reto ganado nunca se apaga por esto.
             const metal = link ? (byId.get(link.ach)?.level ?? 0) : 0;
-            const irA = link && onIrA ? () => onIrA(link.tab) : undefined;
+            // ★ El clic abre la HISTORIA, no la sección. El salto se mudó dentro de esa ventana
+            //   (decisión suya): allí ya estás mirando el detalle, que es el sitio natural para
+            //   ofrecer «y llévame a la actividad». La tarjeta sola no contaba ninguna historia.
+            const irA = () => setOpenReto(c.id);
             return (
               <div
                 key={c.id}
-                className={`bit-card ${done ? "done" : ""}${done && metal > 0 ? ` m${metal}` : ""}${irA ? " ch-link" : ""}`}
-                // Pinchable en CUALQUIER estado, no solo conseguido: el gesto es el mismo («llévame
-                // a esa actividad») y dos tarjetas iguales donde una clica y la otra no se lee como
-                // un fallo. Va con `role`/teclado porque es un div, no un botón: dentro ya hay
-                // texto y barras, y un <button> con eso dentro es un lío de accesibilidad.
-                {...(irA
-                  ? {
-                      onClick: irA,
-                      role: "link",
-                      tabIndex: 0,
-                      onKeyDown: (e: React.KeyboardEvent) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          irA();
-                        }
-                      },
-                      title: tr("Ver esta actividad en su sección"),
-                    }
-                  : {})}
+                className={`bit-card ch-link ${done ? "done" : ""}${done && metal > 0 ? ` m${metal}` : ""}`}
+                // Pinchable en CUALQUIER estado, no solo conseguido: todos tienen historia, y dos
+                // tarjetas iguales donde una clica y la otra no se lee como un fallo. Va con
+                // `role`/teclado porque es un div, no un botón: dentro ya hay texto y barras, y un
+                // <button> con eso dentro es un lío de accesibilidad.
+                onClick={irA}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    irA();
+                  }
+                }}
+                title={tr("Ver tu historia mes a mes en este reto")}
               >
                 <div className="bit-card-head">
                   {ui.tid ? (
@@ -788,6 +807,25 @@ export function BitacoraView({
           if (!a) return null;
           const ui = ACH_UI[a.id] ?? { icon: "🏅", label: a.id, desc: "" };
           return <MedalDetail a={a} ui={ui} series={series[a.id]} onClose={() => setOpenMedal(null)} />;
+        })()}
+
+      {/* La historia del reto. Se busca AHORA y no al pulsar: si un `recargar()` la trae distinta,
+          la ventana abierta enseña lo nuevo en vez de una copia vieja. */}
+      {openReto &&
+        (() => {
+          const ui = CH_UI[openReto];
+          const c = data.challenges.find((x) => x.id === openReto);
+          if (!ui || !c) return null;
+          return (
+            <RetoDetalle
+              ui={ui}
+              unit={c.unit}
+              historia={retoHist[openReto] ?? []}
+              tab={CH_LINK[openReto]?.tab}
+              onIrA={onIrA}
+              onClose={() => setOpenReto(null)}
+            />
+          );
         })()}
 
       <p className="muted small bit-foot">

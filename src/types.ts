@@ -887,6 +887,9 @@ export type SeriesPoint = { month: string; value: number; delta: number };
 /** `cum` = métrica que suma (delta = lo del mes). `max` = mejor marca (delta = valor real del mes,
  *  que sube y baja; value = récord, que nunca baja). */
 export type AchSeries = { kind: "cum" | "max"; points: SeriesPoint[] };
+/** Un mes en la historia de un RETO. `target`/`achieved` son opcionales a propósito: hubo meses
+ *  sin reto, porque el mes anterior no tocaste esa actividad. Ver `RetoMes` en bitacora.rs. */
+export type RetoMes = { month: string; value: number; target: number | null; achieved: boolean | null };
 // Evento "bitacora-unlock": logros nuevos detectados en auto_sync (nombres los pone el front).
 export type BitacoraUnlock = { id: string; level: number };
 export type BitacoraUnlockEvent = { unlocks: BitacoraUnlock[] };

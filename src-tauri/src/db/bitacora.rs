@@ -1272,7 +1272,129 @@ fn running_max(rows: Vec<(String, f64)>) -> AchSeries {
     }
 }
 
+/// Un mes en la historia de un reto: lo que hiciste, la cota que tenías y si la pasaste.
+///
+/// `target` y `achieved` son OPCIONALES a propósito: **hay meses en los que no hubo reto**, porque
+/// el mes anterior no tocaste esa actividad. Enseñar ahí una cota sería inventar un listón que
+/// nadie tuvo delante — la misma regla que ya aplica `push_challenge` al exigir `baseline > 0`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RetoMes {
+    pub month: String,
+    pub value: f64,
+    pub target: Option<f64>,
+    pub achieved: Option<bool>,
+}
+
+/// Recorre los meses de una métrica y les pone su cota.
+///
+/// ⚠️ **Rellena los huecos a CERO.** El `GROUP BY` solo devuelve los meses con actividad, así que
+/// dos meses separados por un parón llegarían pegados y la historia diría que encadenaste algo que
+/// no encadenaste. Un mes sin filas es un mes a cero, que es la verdad.
+fn historia_de_reto(filas: Vec<(String, f64)>) -> Vec<RetoMes> {
+    if filas.is_empty() {
+        return Vec::new();
+    }
+    let por_mes: std::collections::HashMap<String, f64> = filas.iter().cloned().collect();
+    let siguiente = |m: &str| -> String {
+        let (a, b) = m.split_once('-').unwrap_or(("2026", "01"));
+        let (mut a, mut b) = (a.parse::<i32>().unwrap_or(2026), b.parse::<i32>().unwrap_or(1) + 1);
+        if b == 13 {
+            a += 1;
+            b = 1;
+        }
+        format!("{a:04}-{b:02}")
+    };
+    let fin = filas.last().map(|f| f.0.clone()).unwrap_or_default();
+    let mut out = Vec::new();
+    let mut mes = filas[0].0.clone();
+    let mut previo: Option<f64> = None;
+    loop {
+        let value = por_mes.get(&mes).copied().unwrap_or(0.0);
+        let target = match previo {
+            Some(p) if p > 0.0 => Some(next_125(p)),
+            _ => None,
+        };
+        out.push(RetoMes {
+            month: mes.clone(),
+            value,
+            target,
+            achieved: target.map(|t| value >= t),
+        });
+        if mes == fin {
+            break;
+        }
+        previo = Some(value);
+        mes = siguiente(&mes);
+    }
+    out
+}
+
 impl Db {
+    /// ★★ LA HISTORIA DE CADA RETO, mes a mes: qué hiciste, qué cota tenías y si la pasaste.
+    ///
+    /// **Por qué la calcula RUST y no el front, que ya tiene los valores mensuales** (viajan como
+    /// el `delta` de la serie de la medalla hermana): porque la cota la pone `next_125`, y portarla
+    /// a TypeScript dejaría **la misma regla escrita en dos sitios**. El día que una cambie, la
+    /// gráfica y el reto dirían cotas distintas del mismo mes — dos verdades, que es justo lo que
+    /// este proyecto lleva meses evitando a mano. Aquí sigue habiendo una sola.
+    ///
+    /// No guarda nada: se reconstruye del histórico local, igual que las series.
+    pub fn retos_historia(
+        &self,
+        character_id: Option<i64>,
+    ) -> AppResult<std::collections::HashMap<String, Vec<RetoMes>>> {
+        let who = character_id
+            .map(|c| format!("AND character_id = {c}"))
+            .unwrap_or_default();
+        let conn = self.conn.lock().unwrap();
+        // Mismo patrón que `bitacora_series`: si una consulta falla, esa historia sale vacía y la
+        // pantalla lo dice — no se cae la sección entera por un reto.
+        let q = |sql: &str| -> Vec<(String, f64)> {
+            let mut out = Vec::new();
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Ok(rows) = stmt.query_map([], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?.unwrap_or(0.0)))
+                }) {
+                    out = rows.flatten().collect();
+                }
+            }
+            out
+        };
+        let mut m = std::collections::HashMap::new();
+        // Las SIETE consultas son las MISMAS que alimentan la serie de la medalla hermana. Si
+        // alguna se toca, hay que tocarla en los dos sitios o el reto y su gráfica divergirán.
+        m.insert("rateo".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(date,1,7), SUM(amount) FROM wallet_journal
+              WHERE ref_type IN ('bounty_prizes','ess_escrow_transfer') AND amount>0
+                AND date IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("mineria".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(ml.date,1,7), SUM(ml.quantity*COALESCE(mp.average_price,0))
+               FROM mining_ledger ml LEFT JOIN market_prices mp ON mp.type_id=ml.type_id
+              WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("kills".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(killed_at,1,7), COUNT(*) FROM killmails
+              WHERE is_loss=0 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("isk_destruido".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(killed_at,1,7), SUM(isk_value) FROM killmails
+              WHERE is_loss=0 AND killed_at IS NOT NULL {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("exploracion".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(done_at,1,7), COUNT(*) FROM exploration_log
+              WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        m.insert("botin_exploracion".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(done_at,1,7), SUM(COALESCE(loot_isk,0)) FROM exploration_log
+              WHERE 1=1 {who} GROUP BY 1 ORDER BY 1"))));
+        // Runs: cuenta al que PARTICIPÓ, no solo al que registró, igual que el reto.
+        let quien_runs = character_id
+            .map(|c| format!("AND {c} IN (r.character_id, ac.character_id)"))
+            .unwrap_or_default();
+        m.insert("runs".to_string(), historia_de_reto(q(&format!(
+            "SELECT substr(r.ended_at,1,7), COUNT(DISTINCT r.id) FROM activity_runs r
+               LEFT JOIN activity_run_chars ac ON ac.run_id = r.id
+              WHERE r.activity IN ('abyssal','crab') AND r.ended_at IS NOT NULL
+                AND r.outcome <> 'aborted' {quien_runs} GROUP BY 1 ORDER BY 1"))));
+        Ok(m)
+    }
+
     /// Evolución mensual de cada logro, derivada del histórico local (mismo cálculo que las fechas
     /// retroactivas). No guarda nada nuevo: se reconstruye de killmails/wallet/minería/snapshots.
     pub fn bitacora_series(

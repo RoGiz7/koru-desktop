@@ -1948,6 +1948,23 @@ const EN: Record<string, string> = {
   // clave DINÁMICA: el auditor de i18n no las ve y da verde igual. Se comprueban a mano.
   "Sitios explorados del mes": "Sites explored this month",
   "Ver esta actividad en su sección": "See this activity in its own section",
+  // --- La historia de un reto del mes (`retoDetalle.tsx`, 2026-09-16) ---
+  "Ver tu historia mes a mes en este reto": "See your month-by-month history for this challenge",
+  "Tu historia mes a mes, con la cota que tenías cada vez":
+    "Your month-by-month history, with the bar you had each time",
+  "Todavía no hay historia que enseñar para este reto.":
+    "There's no history to show for this challenge yet.",
+  "Hace falta un mes con actividad para que el siguiente tenga cota: el listón lo pone tu mes anterior.":
+    "One month of activity is needed before the next one has a bar: your previous month sets it.",
+  "meses cumplidos": "months met",
+  "Racha": "Streak",
+  "mes seguido": "month in a row",
+  "meses seguidos": "months in a row",
+  "Tu mejor mes": "Your best month",
+  "cota": "bar",
+  "ese mes no hubo reto": "no challenge that month",
+  "La línea de cada mes es la cota que tenías entonces: la pone tu mes anterior, así que un buen mes te sube el listón del siguiente.":
+    "Each month's line is the bar you had then: your previous month sets it, so a good month raises the bar for the next one.",
   // ★★ LAS QUE VIVEN EN CATALOGOS (anadidas 2026-09-16). Se pintan con `tr(ui.label)` o
   // `tr(TAB_HEAD[t].subtitle)`, asi que el auditor no las veia y llevaban meses saliendo EN
   // ESPANOL para quien tiene Koru en ingles. Las destapo el bloque nuevo de `audit_i18n.py`.

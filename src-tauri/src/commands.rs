@@ -3647,6 +3647,19 @@ pub async fn get_achievement_series(
     state.db.bitacora_series(character_id)
 }
 
+/// La historia de cada reto del mes: qué hiciste cada mes, qué cota tenías y si la pasaste.
+///
+/// Va aparte de las series de medalla aunque salga de los mismos datos mensuales, porque lo que
+/// añade es la COTA — y esa la pone `next_125`, que vive en Rust y ahí se queda. Ver el comentario
+/// de `retos_historia`.
+#[tauri::command]
+pub async fn get_challenge_history(
+    character_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<String, Vec<crate::db::bitacora::RetoMes>>> {
+    state.db.retos_historia(character_id)
+}
+
 /// Proyectos personales (metas propias) del sujeto (0 = global), con su valor actual del histórico.
 #[tauri::command]
 pub async fn get_personal_projects(

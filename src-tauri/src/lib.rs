@@ -325,6 +325,7 @@ pub fn run() {
             commands::get_ticker,
             commands::get_bitacora,
             commands::get_achievement_series,
+            commands::get_challenge_history,
             commands::get_personal_projects,
             commands::create_personal_project,
             commands::delete_personal_project,

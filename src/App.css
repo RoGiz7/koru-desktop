@@ -708,6 +708,56 @@ select,
   color: #e8be3f;
 }
 
+/* ---- LA RAYA QUE PARTE LA TIRA DE PESTAÑAS ----
+   «Retos del mes» delante y solo; el medallero detrás, con su nombre. Van seguidos en la misma
+   fila —siguen siendo la misma navegación— pero deja de parecer que son tres categorías de lo
+   mismo: una medalla es permanente y un reto se reinicia el día 1. */
+.bit-cat-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 0.15rem 0 0.45rem;
+  background: var(--border);
+  opacity: 0.8;
+}
+.bit-cat-grupo {
+  align-self: center;
+  margin-right: 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted-2);
+}
+
+/* ---- LA HISTORIA DE UN RETO (retoDetalle.tsx) ---- */
+/* Las barras hablan el mismo idioma que el resto: verde cumplido, apagado no. */
+.reto-b-ok {
+  fill: var(--ok);
+}
+.reto-b-no {
+  fill: var(--accent);
+  opacity: 0.55;
+}
+/* Un mes SIN reto no se pinta ni como logro ni como fallo: no había nada que cumplir. */
+.reto-b-sin {
+  fill: var(--fg-muted-2);
+  opacity: 0.3;
+}
+/* ★ La cota: un tramo por mes, no una línea continua. El hueco donde no hubo reto es
+   información, y unir dos tramos separados dibujaría un listón que nunca existió. */
+.reto-cota {
+  stroke: var(--fg);
+  stroke-width: 2;
+  opacity: 0.85;
+}
+.reto-leyenda {
+  margin: 0.5rem 0 0;
+}
+.md-foot {
+  margin-top: 0.7rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* La tarjeta lleva a su sección. El realce es el mismo de cualquier cosa pulsable de la app. */
 .bit-card.ch-link {
   cursor: pointer;
