@@ -2403,7 +2403,12 @@ pub struct HabitualHostile {
     pub name_lower: String,
     pub character_id: Option<i64>,
     pub name: String,
+    /// MENCIONES (`name_cache.seen_count`). ⚠️ Es un DISPARADOR INTERNO, no una cifra de usuario:
+    /// decide cuándo vale la pena preguntarle a ESI por un nombre. Ver `name_cache_habitual`.
     pub seen_count: i64,
+    /// AVISTAMIENTOS (`intel_sightings`): las veces que se le ha situado con sitio y hora. **Esta
+    /// es la cifra que manda en pantalla** — ver el porqué en `name_cache_habitual`.
+    pub sightings: i64,
     pub last_seen: Option<String>,
     pub last_system_id: Option<i64>,
 }
@@ -6537,15 +6542,48 @@ impl Db {
         out
     }
 
-    /// Ranking de "hostiles habituales": los más mencionados en intel (excluye caché negativa).
+    /// Ranking de "hostiles habituales", con las DOS cuentas.
+    ///
+    /// ★★ CUÁL MANDA, decidido el 2026-09-19 después de dejarlo pendiente desde el 07-09.
+    ///
+    /// Había dos números en la misma pantalla —la lista decía «×186» y el KPI de la ficha «156»— y
+    /// los dos se leían como «cuántas veces le he visto». En septiembre se etiquetaron, que era lo
+    /// urgente; lo que faltaba era decidir **cuál es LA cifra**. Manda `intel_sightings`:
+    ///
+    /// · **Está deduplicada por construcción.** Su clave primaria es (nombre, sistema, hora), así
+    ///   que la misma línea contada dos veces no suma dos. `seen_count` es un `+1` suelto sin
+    ///   ninguna clave detrás.
+    /// · **Tiene sitio y hora**, así que es la única que se puede FILTRAR (por sistema, por fecha)
+    ///   y DIBUJAR. Una cifra que no se puede desglosar no se puede contrastar.
+    /// · **Y es la única que puede sostener un filtro.** Enseñar menciones arriba y luego filtrar
+    ///   por sistema abajo daría dos números de dos fuentes sin que nadie pueda ver por qué.
+    ///
+    /// ⚠️ `seen_count` NO se quita, y no es redundante: es el **disparador interno** que decide a
+    /// qué nombre le preguntamos a ESI (`name_cache_pendientes`). Ahí su inflación no molesta —
+    /// solo adelanta una pregunta que se iba a hacer igual. Pero **deja de ser una cifra de
+    /// usuario**: viaja para poder explicar la diferencia, no para presidir la lista.
+    ///
+    /// 🚨 PENDIENTE SEPARADO, y es más gordo que esto: **la ventana de un segundo del multibox
+    /// (`creaDedupIntel`) solo se aplica en la RECONSTRUCCIÓN, no en vivo.** El camino en vivo
+    /// (`useIntel`) deduplica por `ts` exacto, y dos clientes pueden fechar la misma línea con un
+    /// segundo de diferencia. O sea que los mismos datos dan cifras distintas según si has
+    /// reconstruido, y eso afecta a los DOS contadores. No se toca aquí porque cambia lo que se
+    /// guarda; hay que decidirlo aparte.
+    ///
+    /// El filtro sigue siendo por `seen_count` a propósito: es el índice barato, y como toda
+    /// mención con sitio suma también mención, `seen_count >= n` nunca deja fuera a nadie que
+    /// tenga n avistamientos.
     pub fn name_cache_habitual(&self, min_count: i64, limit: i64) -> Vec<HabitualHostile> {
         let conn = self.conn.lock().unwrap();
         let mut out = Vec::new();
         if let Ok(mut st) = conn.prepare(
-            "SELECT name_lower, character_id, COALESCE(display_name, name_lower), seen_count, last_seen, last_system_id
-             FROM name_cache
-             WHERE seen_count >= ?1 AND (character_id IS NULL OR character_id > 0)
-             ORDER BY seen_count DESC, last_seen DESC LIMIT ?2",
+            "SELECT n.name_lower, n.character_id, COALESCE(n.display_name, n.name_lower),
+                    n.seen_count,
+                    (SELECT COUNT(*) FROM intel_sightings s WHERE s.name_lower = n.name_lower),
+                    n.last_seen, n.last_system_id
+             FROM name_cache n
+             WHERE n.seen_count >= ?1 AND (n.character_id IS NULL OR n.character_id > 0)
+             ORDER BY n.seen_count DESC, n.last_seen DESC LIMIT ?2",
         ) {
             if let Ok(rows) = st.query_map(rusqlite::params![min_count, limit], |r| {
                 Ok(HabitualHostile {
@@ -6553,8 +6591,9 @@ impl Db {
                     character_id: r.get(1)?,
                     name: r.get(2)?,
                     seen_count: r.get(3)?,
-                    last_seen: r.get(4)?,
-                    last_system_id: r.get(5)?,
+                    sightings: r.get(4)?,
+                    last_seen: r.get(5)?,
+                    last_system_id: r.get(6)?,
                 })
             }) {
                 for h in rows.flatten() {

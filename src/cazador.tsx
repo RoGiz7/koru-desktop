@@ -48,7 +48,11 @@ type Habitual = {
   name_lower: string;
   character_id: number | null;
   name: string;
+  /** MENCIONES. Disparador interno, no cifra de usuario — ver `name_cache_habitual` en Rust. */
   seen_count: number;
+  /** AVISTAMIENTOS: la cifra que manda. Es la misma que el KPI de la ficha, así que la lista y la
+   *  ficha ya no pueden discrepar — antes salían «×186» y «156» y se leían igual. */
+  sightings: number;
   last_seen: string | null;
   last_system_id: number | null;
 };
@@ -530,7 +534,9 @@ export function CazadorView({
     if (ql) l = l.filter((h) => h.name.toLowerCase().includes(ql));
     l = [...l].sort((a, b) =>
       sort === "count"
-        ? b.seen_count - a.seen_count
+        // Por avistamientos, no por menciones: ordenar por la cifra que NO se enseña dejaba la
+        // lista en un orden que no se podía justificar leyéndola.
+        ? b.sightings - a.sightings || b.seen_count - a.seen_count
         : Date.parse(b.last_seen ?? "0") - Date.parse(a.last_seen ?? "0"),
     );
     return l;
@@ -548,7 +554,7 @@ export function CazadorView({
           />
           <div className="seg seg-sm">
             <button className={sort === "count" ? "active" : ""} onClick={() => setSort("count")}>
-              {tr("Menciones")}
+              {tr("Avistamientos")}
             </button>
             <button className={sort === "recent" ? "active" : ""} onClick={() => setSort("recent")}>
               {tr("Reciente")}
@@ -602,14 +608,21 @@ export function CazadorView({
                       </span>
                     )}
                   </div>
-                  {/* ★ Es `seen_count`: MENCIONES, no avistamientos. Los dos números conviven a
-                      propósito y significan cosas distintas — ver la ficha, donde salen juntos. El
-                      botón de ordenar de arriba ya se llamaba «Menciones»; esto lo termina. */}
+                  {/* ★ AVISTAMIENTOS, la misma cifra que el KPI de la ficha — antes aquí salía
+                      `seen_count` (menciones) y abajo los avistamientos, y los dos se leían como
+                      «cuántas veces le he visto». Etiquetarlos no bastó: lo que confundía es que
+                      la lista presidiera con un número que la ficha no repetía. Ahora es el mismo
+                      dato en los dos sitios y no pueden discrepar. Las menciones siguen ahí, en el
+                      `title`, y solo se nombran cuando difieren: si son iguales, decirlo sobra. */}
                   <span
                     className="intel-count fleet"
-                    title={`${fmtSp(h.seen_count)} ${tr("menciones en el intel")}`}
+                    title={
+                      h.seen_count !== h.sightings
+                        ? `${fmtSp(h.sightings)} ${tr("avistamientos con sitio y hora")} · ${fmtSp(h.seen_count)} ${tr("menciones en el intel")}`
+                        : `${fmtSp(h.sightings)} ${tr("avistamientos con sitio y hora")}`
+                    }
                   >
-                    ×{h.seen_count}
+                    ×{h.sightings}
                   </span>
                 </div>
               );

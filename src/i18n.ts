@@ -1113,6 +1113,9 @@ const EN: Record<string, string> = {
   // (la clave `Menciones` ya existía más abajo, para el botón de ordenar de la lista: es la
   //  misma palabra y el mismo significado, así que se reutiliza.)
   "menciones en el intel": "mentions in intel",
+  // El `title` del ×N de las dos listas de habituales (Cazador y mapa). Dice de qué son las veces,
+  // porque el número suelto es justo lo que se leía como «menciones».
+  "avistamientos con sitio y hora": "sightings with a place and a time",
   "Se le ha nombrado": "Named",
   "veces, y de ahí salen": "times, and that yields",
   "avistamientos distintos: los que traían sistema y hora, sin contar dos veces una línea repetida. Son los que alimentan su rastro, sus horas y sus sistemas.":

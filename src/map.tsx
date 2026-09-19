@@ -1974,7 +1974,10 @@ export function MapView(props: {
     name_lower: string;
     character_id: number | null;
     name: string;
+    /** Menciones. Llega para poder explicar la diferencia, no para presidir — ver Cazador. */
     seen_count: number;
+    /** Avistamientos: LA cifra, la misma que el Cazador y que la ficha del hostil. */
+    sightings: number;
     last_seen: string | null;
     last_system_id: number | null;
   };
@@ -5548,8 +5551,14 @@ export function MapView(props: {
                         </span>
                       )}
                     </div>
-                    <span className="intel-count fleet" title={tr("menciones")}>
-                      ×{h.seen_count}
+                    {/* La MISMA cifra que el Cazador y que la ficha del hostil. Aquí decía
+                        `seen_count` con un `title` que ponía solo «menciones» — tres pantallas y
+                        dos números distintos para la misma pregunta. */}
+                    <span
+                      className="intel-count fleet"
+                      title={tr("avistamientos con sitio y hora")}
+                    >
+                      ×{h.sightings}
                     </span>
                     <button
                       className={`intel-hab-track${huntPilots.includes(h.name) ? " active" : ""}`}
