@@ -1343,6 +1343,20 @@ export function MapView(props: {
   // --- Intel: parsear líneas → reportes por sistema + feed cronológico ---
   // Nombres de naves del SDE (nombre minúsculas → type_id) para clasificar tokens localmente.
   const [shipNames, setShipNames] = useState<Map<string, number>>(new Map());
+  /** ★ Y EL CAMINO DE VUELTA: typeID → cómo se escribe la nave. Es lo que hace que un `维德马克级`
+   *  cantado en chino se PINTE «Vedmak» en vez de repetir el texto pegado. `ships.json` son 19 KB
+   *  y ya viaja con la app.
+   *
+   *  ⚠️ Comprobado antes de escribir esto: **las 512 claves de `ship_names.json` y las 1.327 de
+   *  `ship_names_i18n.json` apuntan a typeIDs que están TODOS en `ships.json`** (cero huérfanos).
+   *  O sea que todo lo que el troceador puede reconocer, aquí tiene nombre. El respaldo al texto
+   *  crudo existe igualmente, pero hoy no se dispara nunca. Ver `classifyIntel`. */
+  const [shipDisplay, setShipDisplay] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    loadJson<{ i: number; n: string }[]>("/ships.json", []).then((rows) =>
+      setShipDisplay(new Map(rows.map((r) => [r.i, r.n]))),
+    );
+  }, []);
   useEffect(() => {
     // ★ DOS ficheros: `ship_names_i18n.json` trae los nombres de nave en los SIETE idiomas que NO son
     // inglés. Hay gente con el cliente en chino en el canal de intel — en la BD real aparecen
@@ -1401,12 +1415,12 @@ export function MapView(props: {
   const intelReports = useMemo(
     () =>
       geo && intel
-        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias)
+        ? buildIntelReports(intel.lines, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias, shipDisplay)
         : null,
     // `alias` va en las dependencias a propósito: sin él, declarar una corrección no repintaría el
     // feed hasta el siguiente cambio de intel, y una corrección que no se ve hecha se vuelve a
     // intentar. Es la misma razón por la que se recarga la lista al declararla.
-    [geo, intel?.lines, shipNames, noExisten, existen, alias],
+    [geo, intel?.lines, shipNames, shipDisplay, noExisten, existen, alias],
   );
 
   // --- Modo cazador: rastro HISTÓRICO persistente de un objetivo (tabla intel_sightings) ---
@@ -1937,7 +1951,7 @@ export function MapView(props: {
     intelDetailCount,
     intelAlert,
     setIntelAlert,
-  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, noExisten, existen, alias, intelReports, intelOrigins, charLocations: intelPilots });
+  } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, shipDisplay, noExisten, existen, alias, intelReports, intelOrigins, charLocations: intelPilots });
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -5401,7 +5415,14 @@ export function MapView(props: {
                     <button
                       key={s.id}
                       className="intel-ship"
-                      title={tr("zKillboard del tipo")}
+                      /* ★ Cuando Koru ha TRADUCIDO el nombre, el `title` dice qué leyó de verdad.
+                         Sin esto, un chino mal resuelto se vería exactamente igual que uno bien
+                         resuelto y no habría forma de pillarlo. Ver `shipDisplay` en intel.ts. */
+                      title={
+                        s.escrito
+                          ? `${s.escrito} → ${s.name} · ${tr("zKillboard del tipo")}`
+                          : tr("zKillboard del tipo")
+                      }
                       onClick={() => openExternal(`https://zkillboard.com/ship/${s.id}/`)}
                     >
                       <img src={typeIcon(s.id, 32)} alt="" width={22} height={22} />

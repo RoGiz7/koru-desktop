@@ -493,7 +493,10 @@ const esColaDeNombre = (s: string, buf: string[]) => buf.length > 0 && /^\d{1,4}
 export type IntelParsed = {
   systems: { id: number; name: string }[];
   pilots: string[];
-  ships: { id: number; name: string }[];
+  /** `name` es cómo se ESCRIBE la nave (el catálogo manda); `escrito`, lo que había en la línea.
+   *  Los dos, porque un nombre traducido que nadie puede contrastar es peor que el texto crudo:
+   *  la tarjeta enseña el primero y guarda el segundo en el `title`. Ver `shipDisplay`. */
+  ships: { id: number; name: string; escrito: string }[];
   count: number | null;
   isClear: boolean;
   /** ★★ NOMBRES QUE UN SISTEMA PARTIÓ POR LA MITAD — las dos lecturas, sin elegir.
@@ -566,7 +569,33 @@ export function classifyIntel(
    *  reporte. Todo lo que hay encima son reglas; esto es un testigo.
    *
    *  Opcional: sin él, el comportamiento es exactamente el de antes. */
-  alias?: Map<string, string>
+  alias?: Map<string, string>,
+  /** ★★ CÓMO SE ESCRIBE CADA NAVE (typeID → nombre del catálogo, de `public/ships.json`).
+   *
+   *  Idea suya al leer un chatlog donde se canta en inglés, ruso y chino: *«que traduzca los
+   *  caracteres de estos idiomas al idioma que se tenga por defecto»*. Y lo importante es **lo que
+   *  NO hacía falta**: Koru ya RECONOCÍA el 69 % de las naves chinas —el typeID salía bien y el
+   *  icono se pintaba— pero luego **repetía el texto pegado** en vez de escribir el nombre. Era un
+   *  fallo de render, no de reconocimiento.
+   *
+   *  Así que aquí no se reconoce nada nuevo: se le pone al typeID el nombre que el catálogo ya
+   *  sabe. `维德马克级` se lee y se pinta **Vedmak**; `sabres` y `manti` se pintan **Sabre** y
+   *  **Manticore**. La regla queda una y la misma para todos los idiomas: **se enseña el nombre
+   *  del catálogo, se haya escrito como se haya escrito.**
+   *
+   *  ★ Y no es una decisión nueva, es una ya tomada llegando por otra puerta: *«en EVE puedes tener
+   *  el cliente en español pero mantener los nombres de naves en inglés; los veteranos lo prefieren
+   *  así»*. Ver [[koru-i18n-bilingue]] y [[koru-intel-idiomas-cjk]].
+   *
+   *  ⚠️ El texto ORIGINAL no se tira: la tarjeta lo enseña en el `title` cuando difiere, para que
+   *  se pueda auditar qué leyó Koru. Un nombre traducido que nadie puede contrastar es peor que el
+   *  texto crudo.
+   *
+   *  ⚠️ NO afecta a lo que se GUARDA: `intel_sightings` almacena `ship_type_id`, nunca el nombre.
+   *  Por eso la reconstrucción del histórico no necesita este catálogo y no se le pasa.
+   *
+   *  Opcional: sin él, se enseña el texto tal y como se escribió — el comportamiento de antes. */
+  shipDisplay?: Map<number, string>
 ): IntelParsed {
   const esNadie = (s: string) => !!noExisten && noExisten.has(s.trim().toLowerCase());
   /** ¿Este candidato es demasiado corto para ser un personaje?
@@ -620,7 +649,12 @@ export function classifyIntel(
    *  en toda la vida**, y la respuesta —sí o no— se guarda para siempre. */
   const dudas: string[] = [];
   const systems: { id: number; name: string }[] = [];
-  const ships: { id: number; name: string }[] = [];
+  const ships: { id: number; name: string; escrito: string }[] = [];
+  /** La ÚNICA puerta por la que sale una nave. Existía tres veces la misma línea con el texto
+   *  crudo; ahora pasan las tres por aquí, que es lo que hace que el arreglo no se pueda olvidar
+   *  en una rama. Ver `shipDisplay`. */
+  const addShip = (id: number, escrito: string) =>
+    ships.push({ id, name: shipDisplay?.get(id) ?? escrito, escrito });
   const pilots: string[] = [];
   const pilotAlts: { corto: string; largo: string; sysId: number | null }[] = [];
   const zones: Zona[] = [];
@@ -667,6 +701,28 @@ export function classifyIntel(
     if (lc.endsWith("s")) {
       const sing = shipNames.get(lc.slice(0, -1));
       if (sing != null) return { kind: "ship", typeId: sing, name: c };
+    }
+    // ★ EL SUFIJO `级` QUE LA GENTE SE COME (2026-09-19). `级` es «clase»: el catálogo del SDE
+    //   guarda `剑齿虎级`, y en el canal se canta `剑齿虎` a secas. Es EXACTAMENTE la misma familia
+    //   que el plural de arriba y que `stilleto`/`retri`: el catálogo tiene la forma canónica y la
+    //   persona escribe la variante corta. Mismo remedio, mismo cerrojo — solo vale si al añadir el
+    //   sufijo hay coincidencia EXACTA.
+    //
+    //   Medido sobre el chatlog trilingüe real (658 mensajes, 207 apariciones de tokens chinos):
+    //   **142 → 150 resueltas**, y las cinco que gana son naves de verdad: Curse ×3, Sabre ×2,
+    //   Armageddon, Drake, Drekavac. Cero falsos positivos.
+    //
+    //   ⚠️ NO PUEDE QUITARLE NADA A NADIE, por dónde está: jerga, sistemas y el nombre exacto de
+    //   nave se resuelven ANTES, y un token Han nunca fue candidato a piloto (`pareceNombre` exige
+    //   mayúscula inicial y los Han dan `false`). Solo se pesca donde hoy no hay nada.
+    //
+    //   ⚠️ Y lo que SE DEJA FUERA a propósito: `级` también va en MEDIO (`狞獾级海军型` = Caracal
+    //   Navy Issue). Probé a insertarlo en cada corte del token y sobre este corpus **no gana ni
+    //   una sola aparición**, a cambio de N búsquedas por palabra. Una regla que no se ha visto
+    //   acertar nunca no entra. Si algún día aparece un corpus donde gane, aquí está medido.
+    if (/[一-鿿]$/.test(lc)) {
+      const conClase = shipNames.get(`${lc}级`);
+      if (conClase != null) return { kind: "ship", typeId: conClase, name: c };
     }
     // ★ REGIÓN O CONSTELACIÓN. Después de la nave a propósito: `Basilisk` es el logi, no la
     //   constelación (ver `zonasDe`). Y antes de la abreviatura, porque un nombre exacto siempre
@@ -737,7 +793,7 @@ export function classifyIntel(
       continue;
     }
     if (whole.kind === "ship") {
-      ships.push({ id: whole.typeId!, name: whole.name! });
+      addShip(whole.typeId!, whole.name!);
       continue;
     }
     if (whole.kind === "zona") {
@@ -795,7 +851,7 @@ export function classifyIntel(
       const nave = naveDesde(words, wi);
       if (nave) {
         flush();
-        ships.push({ id: nave.typeId, name: nave.name });
+        addShip(nave.typeId, nave.name);
         wi += nave.consume - 1;
         continue;
       }
@@ -833,7 +889,7 @@ export function classifyIntel(
         addSys(k.id!, k.name!);
       } else if (k.kind === "ship") {
         flush();
-        ships.push({ id: k.typeId!, name: k.name! });
+        addShip(k.typeId!, k.name!);
       } else if (k.kind === "zona") {
         // Una región cierra el nombre que se estuviera montando, igual que un sistema. La diferencia
         // es que aquí NO se guardan las dos lecturas: «Fulano Delve» no es el nombre de nadie.
@@ -959,8 +1015,13 @@ export function classifyIntel(
       for (let i = pilots.length - 1; i >= 0; i--) {
         if (partes.has(pilots[i].toLowerCase())) pilots.splice(i, 1);
       }
+      // ⚠️ SE COMPARA CONTRA `escrito`, NO CONTRA `name`, y es la diferencia entre funcionar y no.
+      //    `partes` son las palabras del mensaje ORIGINAL (lo que declaró la persona), así que hay
+      //    que contrastarlas con lo que estaba escrito en la línea. Desde que `name` es el nombre
+      //    del catálogo, los dos pueden no parecerse en nada —`维德马克级` contra «Vedmak»— y esta
+      //    comparación dejaría de devolver nada, en silencio y solo para el intel en chino.
       for (let i = ships.length - 1; i >= 0; i--) {
-        if (partes.has(ships[i].name.toLowerCase())) ships.splice(i, 1);
+        if (partes.has(ships[i].escrito.toLowerCase())) ships.splice(i, 1);
       }
       if (!pilots.some((p) => p.toLowerCase() === persona.toLowerCase())) pilots.push(persona);
     }
@@ -1121,11 +1182,14 @@ export function buildIntelReports(
    *  motivo que los otros tres: si uno de los sitios que trocean no lo recibiera, el feed diría
    *  una cosa y la tarjeta otra. Ya nos pasó con «Dee Yona». */
   alias?: Map<string, string>,
+  /** Cómo se escribe cada nave — ver `classifyIntel`. Se pasa tal cual, y por el mismo motivo:
+   *  el feed y la tarjeta tienen que escribir la nave igual. */
+  shipDisplay?: Map<number, string>,
 ): { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } {
   const rep = new Map<number, IntelRep>();
   const feed: IntelFeedRow[] = [];
   for (const l of lines) {
-    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen, alias);
+    const p = classifyIntel(l.message, nameIdx, shipNames, noExisten, zonaIdx, existen, alias, shipDisplay);
     const primary = p.systems[0];
     feed.push({
       ts: l.ts_ms,

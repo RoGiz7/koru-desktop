@@ -32,6 +32,7 @@ export function useIntel({
   overlay,
   intelDetail,
   shipNames,
+  shipDisplay,
   noExisten,
   existen,
   alias,
@@ -45,6 +46,9 @@ export function useIntel({
   overlay: MapOverlay;
   intelDetail: IntelDetail;
   shipNames: Map<string, number>;
+  /** typeID → cómo se escribe la nave — ver `classifyIntel`. Viaja con los demás catálogos por el
+   *  motivo de siempre: la tarjeta y el overlay tienen que escribir la misma nave igual. */
+  shipDisplay?: Map<number, string>;
   /** Nombres que ESI dijo que no existen — ver `classifyIntel`. Sin esto, `WH` o `YPW` seguirían
    *  saliendo como hostiles en la tarjeta y en el aviso. */
   noExisten?: Set<string>;
@@ -63,7 +67,10 @@ export function useIntel({
 }) {
   const [intelEntities, setIntelEntities] = useState<{
     characters: { id: number; name: string }[];
-    ships: { id: number; name: string }[];
+    /** `escrito` solo viene cuando NO coincide con `name`, o sea cuando Koru ha traducido algo
+     *  (un `维德马克级` que se pinta «Vedmak»). La tarjeta lo enseña en el `title` para que se
+     *  pueda comprobar qué leyó. Ver `shipDisplay` en intel.ts. */
+    ships: { id: number; name: string; escrito?: string }[];
   } | null>(null);
   const [intelEntLoading, setIntelEntLoading] = useState(false);
   const [intelTrackPilot, setIntelTrackPilot] = useState<string | null>(null);
@@ -89,10 +96,10 @@ export function useIntel({
    *  de «intel-alert» se registra UNA vez y su clausura se queda con los valores del primer render
    *  —cuando `geo` todavía es `null`—. Sin este espejo, el troceo de abajo se haría siempre con un
    *  catálogo vacío y el overlay nunca mejoraría. Compilando en verde, además. */
-  const catalogosRef = useRef({ geo, shipNames, noExisten, existen, alias });
+  const catalogosRef = useRef({ geo, shipNames, shipDisplay, noExisten, existen, alias });
   useEffect(() => {
-    catalogosRef.current = { geo, shipNames, noExisten, existen, alias };
-  }, [geo, shipNames, noExisten, existen, alias]);
+    catalogosRef.current = { geo, shipNames, shipDisplay, noExisten, existen, alias };
+  }, [geo, shipNames, shipDisplay, noExisten, existen, alias]);
 
   // Nº de hostiles del reporte abierto (del +N o, si no, de los pilotos listados) → flota vs solo.
   const intelDetailCount = useMemo(() => {
@@ -119,11 +126,16 @@ export function useIntel({
   // solo sobre los candidatos limpios (sin naves ni jerga) → ya no salen Eris/ansi/near como pilotos.
   useEffect(() => {
     if (!intelDetail || !geo) return;
-    const p = classifyIntel(intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias);
-    // naves locales, deduplicadas por type_id
-    const shipMap = new Map<number, string>();
-    for (const s of p.ships) shipMap.set(s.id, s.name);
-    const ships = [...shipMap].map(([id, name]) => ({ id, name }));
+    const p = classifyIntel(
+      intelDetail.message, geo.nameIdx, shipNames, noExisten, geo.zonaIdx, existen, alias, shipDisplay,
+    );
+    // naves locales, deduplicadas por type_id. Se guarda también CÓMO SE ESCRIBIÓ, pero solo si
+    // difiere del nombre del catálogo: así el `title` de la tarjeta solo habla cuando hay algo que
+    // contrastar, y no repite «Sabre → Sabre» en el 90 % de los avisos.
+    const shipMap = new Map<number, { name: string; escrito?: string }>();
+    for (const s of p.ships)
+      shipMap.set(s.id, { name: s.name, escrito: s.escrito !== s.name ? s.escrito : undefined });
+    const ships = [...shipMap].map(([id, v]) => ({ id, ...v }));
     const pilots = [...new Set(p.pilots)];
     // ★★ LAS DOS LECTURAS DE UN NOMBRE PARTIDO POR UN SISTEMA (ver `pilotAlts` en intel.ts).
     //
@@ -162,7 +174,7 @@ export function useIntel({
     // `alias` va en las dependencias: sin él, guardar una corrección NO vuelve a trocear y la
     // tarjeta se queda diciendo lo de antes — con el cartel de «Corregido por ti» encima, que es
     // la peor combinación posible. Lo arreglé en `intelReports` y no en su hermano de aquí.
-  }, [intelDetail, shipNames, noExisten, existen, alias]);
+  }, [intelDetail, shipNames, shipDisplay, noExisten, existen, alias]);
 
   // --- Intel: aprender "hostiles habituales" ---
   // Cada línea NUEVA aporta sus pilotos al índice (seen_count++ en backend). Dedup por clave de
@@ -343,6 +355,7 @@ export function useIntel({
         try {
           const p = classifyIntel(
             a.message, cat.geo.nameIdx, cat.shipNames, cat.noExisten, cat.geo.zonaIdx, cat.existen, cat.alias,
+            cat.shipDisplay,
           );
           void emit("intel-parse", {
             key: `${a.sys_id}-${a.ts_ms}`,
