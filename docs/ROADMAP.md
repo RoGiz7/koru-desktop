@@ -37,7 +37,7 @@
   incremental y datos a prueba de borrados (BD = fuente de verdad).
 - **v0.21.0 — Fase D «¿Dónde?»**: sistema por evento cruzando gamelog ↔ chatlogs de Local
   (`chatlog.rs`, tablas `*_sys`), 596 gamelogs huérfanos rescatados (2019–2021, 294 MB), y tres
-  datos falsos cazados (ratas en español, `Veldspar*`, `PS-94K*`).
+  datos falsos cazados (ratas en español, `Veldspar*`, sistemas con el `*` del nombre visible).
 - **v0.22.0 — Fase D en las vistas**: Minería «Por sistema» empalmada (2019→), Rateo con Bruto
   (gamelog) por sistema, **Daño y Fallos por arma**, Especiales con eje propio, fin de seis años
   de ceros falsos en Ratas/ISK-rata, cuentas sin suavizar, intel lee solo la cola del log.
@@ -59,7 +59,8 @@
   estructuras, peleas sin killmail, desde 2019), magnitud «Daño PvP (gamelog)» en la gráfica con
   top-5 rivales, fix intel (mtime congelado de Windows → fecha del nombre como respaldo),
   reescaneo REANUDABLE (marca reset_done por versión), y 3 venenos fuera (ratas fantasma tipo
-  "M2-XFE"/"Hoeybye[UKMF](Scimitar", fallos enemigos como propios, fila `*` en boosts).
+  nombre de sistema pegado al de un piloto con su ticker de corp, fallos enemigos como propios,
+  fila `*` en boosts).
   LOGI_DATA_VERSION=19. Lección de era: hint localized cambia de idioma según época → parsear
   el VISIBLE; validar parsers también contra la carpeta principal, no solo `old/`.
 
@@ -370,7 +371,7 @@ compuesta). Cero servidor nuestro.
   centroide de sus conexiones (`posOf`/`nameOf` manejan el hub sintético). Enlace a eve-scout como
   zKill/Dotlan. **LÍMITE conocido**: una ruta por WH NO se puede enviar a EVE (el juego no conoce el
   wormhole) → «Enviar a EVE» pone solo el destino; se avisa en la UI. Validado en Python:
-  Jita→1DQ1-A 42 saltos por puertas → 2 por Thera.
+  Jita→un staging de null 42 saltos por puertas → 2 por Thera.
 - ✅ **DESBLOQUEADO — Ansiblex: importación de la red** (jul 2026). Ya no espera ningún archivo: la
   red **se pega** desde la tabla que publica el wiki de la alianza y el piloto la confirma antes de
   que se guarde nada (`src/ansiblex.ts` + `src/ansiblexControl.tsx` + tabla `ansiblex`). Validado
