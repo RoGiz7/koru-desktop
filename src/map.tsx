@@ -12,7 +12,10 @@ import { useJumpPlanner } from "./useJumpPlanner";
 import { useRoutePlanner } from "./useRoutePlanner";
 import { useHuntTrack } from "./useHuntTrack";
 import { useIntel } from "./useIntel";
-import { buildIntelReports, claveAlias, limpiarMarcadoEve, pilotTrack, zonasDe } from "./intel";
+import {
+  buildIntelReports, claveAlias, conSitiosLocales, limpiarMarcadoEve, pilotTrack, zonasDe,
+  type SitiosLocales,
+} from "./intel";
 import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import { PilotoNombre } from "./fichaPiloto";
@@ -386,6 +389,10 @@ export function MapView(props: {
     characters = [],
   } = props;
   const [ne, setNe] = useState<NewEden | null>(null);
+  /** Nombres de sitio en otros idiomas, para que el intel los reconozca — ver `conSitiosLocales`
+   *  en intel.ts. Va en el estado (y en las dependencias de `geo`) a propósito: si llegara después
+   *  de construir los índices, el chino no se reconocería nunca y nada lo diría. */
+  const [sitiosLocales, setSitiosLocales] = useState<SitiosLocales | null>(null);
   const [factionMap, setFactionMap] = useState<Record<string, number> | null>(null);
   const [liveKills, setLiveKills] = useState<Map<number, number> | null>(null);
   const [liveJumps, setLiveJumps] = useState<Map<number, number> | null>(null);
@@ -593,6 +600,9 @@ export function MapView(props: {
 
   useEffect(() => {
     loadNewEden().then(setNe).catch(() => {});
+    // ★ Los sistemas, regiones y constelaciones dichos en otro idioma — ver `conSitiosLocales`.
+    //   Si no llega, el troceador se comporta EXACTAMENTE como antes.
+    loadJson<SitiosLocales>("/place_names_i18n.json", {}).then(setSitiosLocales);
     // Facción NPC por sistema (del SDE) para la capa de standings.
     loadJson<Record<string, number>>("/system-factions.json", {}).then(setFactionMap);
     // Actividad en vivo (1h) para tooltips, siempre disponible.
@@ -882,6 +892,11 @@ export function MapView(props: {
       regionEdges.push(ra < rb ? [ra, rb] : [rb, ra]);
     }
     const regionPos = new Map(regionLabels.map((r) => [r.id, r]));
+    // ★ Los sitios dichos en otro idioma entran AQUÍ, al construir los índices y antes de trocear
+    //   ni una línea: `sistemaAbreviado` cachea su índice de prefijos con `nameIdx` de clave, así
+    //   que mutarlo más tarde dejaría ese índice viejo sin que nada lo delate. Ver `conSitiosLocales`.
+    const zonaIdx = zonasDe(ne);
+    conSitiosLocales(nameIdx, zonaIdx, sitiosLocales);
     // Sistemas de cada región, para poder DESPLEGAR una sola sin recorrer los 5.000 cada vez.
     const byRegion = new Map<number, NeSystem[]>();
     for (const s of ne.systems) {
@@ -895,7 +910,7 @@ export function MapView(props: {
       nameIdx,
       // Regiones y constelaciones para el troceador de intel (ver `zonasDe`). Va en `geo` porque es
       // el sitio donde ya vive `nameIdx`: quien tiene uno tiene el otro y no pueden desincronizarse.
-      zonaIdx: zonasDe(ne),
+      zonaIdx,
       adj,
       jumpsPath,
       regionLabels,
@@ -905,7 +920,7 @@ export function MapView(props: {
       regionPos,
       byRegion,
     };
-  }, [ne]);
+  }, [ne, sitiosLocales]);
 
   // Centra la vista en un punto del mundo con el zoom dado. El transform es `mundo * z + offset`,
   // así que para dejar (wx,wy) en el centro: offset = centro − mundo*z.

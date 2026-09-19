@@ -21,7 +21,7 @@
 //    congelaría la ventana casi un minuto. Así se puede enseñar el progreso y la app respira.
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { classifyIntel, creaDedupIntel, zonasDe } from "./intel";
+import { classifyIntel, conSitiosLocales, creaDedupIntel, zonasDe, type SitiosLocales } from "./intel";
 import { loadJson } from "./staticJson";
 import type { IntelLine, NeSystem } from "./types";
 
@@ -41,7 +41,7 @@ export type ProgresoReconstruccion = {
 /** Los índices con los que el troceador contrasta cada palabra. Se cargan UNA vez por
  *  reconstrucción; son los mismos ficheros que usa el mapa. */
 async function indices() {
-  const [ne, i18n, en, inexistentes, existentes, alias] = await Promise.all([
+  const [ne, i18n, en, sitios, inexistentes, existentes, alias] = await Promise.all([
     loadJson<{
       systems: NeSystem[];
       regions?: { id: number; n: string }[];
@@ -49,6 +49,11 @@ async function indices() {
     }>("/neweden.json", { systems: [] }),
     loadJson<Record<string, number>>("/ship_names_i18n.json", {}),
     loadJson<Record<string, number>>("/ship_names.json", {}),
+    // Los sitios dichos en otro idioma. Va con los demás catálogos por la MISMA razón que las
+    // regiones de abajo: si la reconstrucción no los conociera, dejaría el histórico sin los
+    // avistamientos que el mapa en vivo sí produce, y ese desacuerdo es lo que esta tabla existe
+    // para no tener. Ver `conSitiosLocales`.
+    loadJson<SitiosLocales>("/place_names_i18n.json", {}),
     invoke<string[]>("intel_inexistentes").catch(() => [] as string[]),
     invoke<string[]>("intel_existentes").catch(() => [] as string[]),
     // Las correcciones a mano. Van con los demás catálogos y no aparte: la reconstrucción
@@ -56,15 +61,20 @@ async function indices() {
     // cosas distintas de la misma línea.
     invoke<{ texto: string; display_name: string }[]>("intel_alias_list").catch(() => []),
   ]);
+  const nameIdx = new Map<string, NeSystem>(ne.systems.map((s) => [s.n.toLowerCase(), s]));
+  const zonaIdx = zonasDe(ne);
+  // Antes de trocear nada, igual que en el mapa: el índice de prefijos se cachea con `nameIdx` de
+  // clave y mutarlo después lo dejaría viejo en silencio. Ver `conSitiosLocales`.
+  conSitiosLocales(nameIdx, zonaIdx, sitios);
   return {
-    nameIdx: new Map<string, NeSystem>(ne.systems.map((s) => [s.n.toLowerCase(), s])),
+    nameIdx,
     // El inglés se carga DESPUÉS y pisa, igual que en el mapa: manda el catálogo probado.
     shipNames: new Map<string, number>([...Object.entries(i18n), ...Object.entries(en)]),
     noExisten: new Set(inexistentes),
     // Del MISMO fichero que los sistemas: si la reconstrucción no conociera las regiones, dejaría
     // en la base de datos avistamientos que el mapa en vivo ya no produce. Ese desacuerdo es
     // exactamente lo que esta tabla existe para no tener.
-    zonaIdx: zonasDe(ne),
+    zonaIdx,
     existen: new Set(existentes),
     alias: new Map<string, string>(alias.map((a) => [a.texto, a.display_name])),
   };

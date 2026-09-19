@@ -473,6 +473,56 @@ export function zonasDe(ne: {
   return m;
 }
 
+/** Lo que escribe `scripts/extract_places_i18n.py`: nombre en minúsculas → id del sitio. */
+export type SitiosLocales = {
+  sistemas?: Record<string, number>;
+  zonas?: Record<string, number>;
+};
+
+/** ★★ LOS SITIOS DICHOS EN OTRO IDIOMA — la puerta de entrada, no la de salida (2026-09-19).
+ *
+ *  Pregunta suya después de que el intel aprendiera a escribir las naves: *«es importante que el
+ *  sistema sí se sepa»*. Y pesa más que las naves, porque **un sistema sin reconocer no dispara
+ *  aviso**: una nave mal leída se ve rara, un sistema mal leído es una alarma que no suena.
+ *  `静寂谷` es Vale of the Silent y `对舞之域` es Geminate, y `neweden.json` solo trae inglés.
+ *
+ *  Esto SOLO añade por dónde entra: el sitio que se apunta es el mismo objeto de siempre, así que
+ *  lo que se enseña y lo que se guarda siguen siendo el nombre y el id ingleses. Misma decisión
+ *  que con las naves, y por eso no hay migración ni datos nuevos en la base.
+ *
+ *  Los filtros de seguridad —lo ambiguo fuera, la nave gana al sitio— viven en el extractor y
+ *  están explicados allí. Aquí quedan los dos cerrojos que no puede poner un script:
+ *
+ *  ⚠️ NUNCA PISA UN NOMBRE QUE YA EXISTE. Si la clave ya está, manda el catálogo inglés. El
+ *     extractor ya descarta esos choques, así que esto es un cinturón sobre un tirante — pero es
+ *     el que evita que un fichero generado cambie algo que hoy funciona.
+ *  ⚠️ SOLO SE AÑADE UN SITIO QUE ESTA APP CONOZCA. Si el id no está en el catálogo cargado, se
+ *     calla: el JSON sale de un export del SDE que puede ser más nuevo que `neweden.json`, y un
+ *     sistema fantasma daría avisos de un sitio que el mapa no sabe dibujar.
+ *
+ *  🚨 HAY QUE LLAMARLO AL CONSTRUIR LOS ÍNDICES, ANTES DE TROCEAR NADA. `prefijosSistema` cachea
+ *     su índice en un `WeakMap` con `nameIdx` de clave: si se muta después de la primera línea
+ *     troceada, el índice de prefijos se queda viejo y no hay nada que lo delate. */
+export function conSitiosLocales(
+  nameIdx: Map<string, NeSystem>,
+  zonaIdx: Map<string, Zona>,
+  sitios: SitiosLocales | null | undefined,
+): void {
+  if (!sitios) return;
+  const sisPorId = new Map<number, NeSystem>();
+  for (const s of nameIdx.values()) sisPorId.set(s.id, s);
+  for (const [nombre, id] of Object.entries(sitios.sistemas ?? {})) {
+    const s = sisPorId.get(id);
+    if (s && !nameIdx.has(nombre)) nameIdx.set(nombre, s);
+  }
+  const zonaPorId = new Map<number, Zona>();
+  for (const z of zonaIdx.values()) zonaPorId.set(z.id, z);
+  for (const [nombre, id] of Object.entries(sitios.zonas ?? {})) {
+    const z = zonaPorId.get(id);
+    if (z && !zonaIdx.has(nombre)) zonaIdx.set(nombre, z);
+  }
+}
+
 /** ¿Puede esta palabra formar parte de un nombre de piloto?
  *
  *  **Todo nombre de personaje de EVE empieza por mayúscula.** Ese único criterio quita las frases
