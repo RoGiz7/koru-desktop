@@ -8156,6 +8156,57 @@ tr.viva td:first-child::before {
   font-size: 0.6rem;
   vertical-align: 1px;
 }
+/* ---- Wormholes / Fabricador ---- */
+.fab-que {
+  margin: 0 0 0.6rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border, #30363d);
+  border-left: 3px solid rgba(255, 106, 213, 0.7);
+  border-radius: 6px;
+  background: rgba(255, 106, 213, 0.05);
+}
+.fab-que summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.fab-que p {
+  margin: 0.4rem 0 0;
+}
+/* La barra de Rampancy con sus tres marcas */
+.fab-barra {
+  position: relative;
+  height: 14px;
+  margin: 0.4rem 0 1.6rem;
+  border-radius: 7px;
+  background: #1d232d;
+  border: 1px solid var(--border, #30363d);
+}
+.fab-barra-fill {
+  height: 100%;
+  border-radius: 7px;
+  transition: width 0.25s ease, background 0.25s ease;
+}
+.fab-marca {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: rgba(230, 237, 243, 0.55);
+}
+.fab-marca span {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  color: var(--fg-muted, #9aa4b2);
+}
+.fab-fuera {
+  opacity: 0.45;
+}
+.fab-tabla {
+  max-width: 420px;
+}
 /* El desplegable de orden de las listas del Cazador. */
 .cz-orden {
   flex: 0 0 auto;

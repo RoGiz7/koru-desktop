@@ -3490,6 +3490,64 @@ const EN: Record<string, string> = {
     "Everything else works: only icons and portraits are missing. It is usually an antivirus or firewall cutting off the app installed with the .exe. Two ways out: install with the .msi from the release page, or add Koru to your antivirus exceptions.",
   "Abrir la página de la release": "Open the release page",
   "Reintentar ahora": "Retry now",
+  // Fabricador (Rampancy), 2026-09-19
+  "Contenido de los agujeros de gusano. Hoy: el Rampant Drone Fabricator — qué nivel de amenaza te espera con la flota que llevas, y tus runs":
+    "Wormhole-space content. Today: the Rampant Drone Fabricator — which threat level awaits with the fleet you bring, and your runs",
+  "Qué es esto": "What this is",
+  "El Rampant Drone Fabricator es un sitio de combate que solo aparece en agujeros de gusano (C1–C6), permanente desde julio de 2026. En el centro hay una estructura de drones rebeldes, el Fabricator, que suelta oleadas de drones cada vez más duras, hasta 100. Los drones no dejan botín: se acumula dentro del Fabricator y lo recoges al destruirlo o cuando decides irte. Está pensado para grupos pequeños, y lo que decide lo duro que se pone es la Rampancy: cada nave que tengas cerca suma según su clase, y al pasar de 12, 36 y 72 el sitio sube de nivel de amenaza. Más nivel, más peligro y más recompensa.":
+    "The Rampant Drone Fabricator is a combat site found only in wormhole space (C1–C6), permanent since July 2026. At its centre sits a rogue-drone structure, the Fabricator, that spawns waves of drones of increasing strength, up to 100. The drones drop no loot: it builds up inside the Fabricator and you collect it by destroying it or when you decide to leave. It is meant for small groups, and what decides how hard it gets is Rampancy: every ship you have nearby adds points by its class, and at 12, 36 and 72 the site raises its threat level. More level, more danger, more reward.",
+  "Lo que hace Koru: sumar la Rampancy de tu plan ANTES de entrar —con la nave que lleva cada uno de tus pilotos, sin que escribas nada— y guardar después cómo fue cada run: oleadas, botín, quién fue y en qué.":
+    "What Koru does: add up your plan's Rampancy BEFORE you go in — from the ship each of your pilots is flying, nothing typed — and afterwards keep how each run went: waves, loot, who went and in what.",
+  "Ficha del sitio en la wiki de EVE University": "Site page on the EVE University wiki",
+  "La Rampancy es la suma de las naves que hay cerca del Fabricator y decide el nivel de amenaza: 12 Moderada · 36 Severa · 72 Crítica. El juego la enseña entre oleadas, cuando ya estás dentro; aquí se calcula ANTES, con la nave que lleva cada piloto y las que añadas a mano.":
+    "Rampancy is the sum of the ships near the Fabricator and decides the threat level: 12 Moderate · 36 Severe · 72 Critical. The game shows it between waves, once you are already inside; here it is worked out BEFORE, with the ship each pilot is in and the ones you add by hand.",
+  "Rampancy prevista": "Expected Rampancy",
+  "Nivel de amenaza": "Threat level",
+  "Naves en el plan": "Ships in the plan",
+  "Por encima de": "Above",
+  "Margen sobre": "Margin over",
+  "Sin escalación": "No escalation",
+  Moderada: "Moderate",
+  Severa: "Severe",
+  Crítica: "Critical",
+  "Estás justo sobre el umbral: un crucero menos y bajas de nivel. Si lo quieres, bien; si no, quita algo antes de entrar.":
+    "You are right on the threshold: one cruiser fewer and you drop a level. If that is what you want, fine; if not, remove something before going in.",
+  "Los NPC del sitio hacen el doble de daño a las capitales (a los carriers, +40 %). Un capital te pone en Crítica él solo.":
+    "The site's NPCs deal double damage to capitals (+40% to carriers). A single capital puts you at Critical on its own.",
+  "Tus pilotos, con la nave que llevan ahora": "Your pilots, in the ship they are flying now",
+  "Ningún personaje con nave conocida. Hace falta el permiso de nave (read_ship_type) y que esté conectado: Koru no adivina.":
+    "No character with a known ship. It needs the ship permission (read_ship_type) and to be online: Koru does not guess.",
+  Conectado: "Online",
+  "Desconectado: la nave es la última conocida": "Offline: the ship is the last one known",
+  desconectado: "offline",
+  "La nave es la que ESI dice que lleva puesta ahora (hasta 30 s de retraso). Si va a cambiarla antes de entrar, desmárcalo y añade la buena a mano.":
+    "The ship is the one ESI says they are in right now (up to 30 s behind). If they will swap before going in, untick them and add the right one by hand.",
+  "Compañeros y naves a mano": "Fleetmates and ships by hand",
+  "Nadie más en el plan. Añade las naves de los compañeros que no son personajes tuyos.":
+    "Nobody else in the plan. Add the ships of fleetmates who are not your characters.",
+  "Quitar una": "Remove one",
+  "Añadir otra": "Add another",
+  "Este plan se recuerda en este ordenador.": "This plan is remembered on this computer.",
+  "Cuánto suma cada clase": "How much each class adds",
+  "Selecciona un personaje para registrar runs del Fabricador. El planificador de arriba funciona igual en Global.":
+    "Pick a character to log Fabricator runs. The planner above works the same in Global.",
+  "Agujero · oleadas": "Hole · waves",
+  "Clase del agujero": "Wormhole class",
+  "La Rampancy del plan de arriba, tal y como está ahora. Se guarda con la run.": "The Rampancy of the plan above, as it stands now. It is saved with the run.",
+  Oleadas: "Waves",
+  oleadas: "waves",
+  "Rampancy prevista al entrar, congelada en esta run": "Rampancy expected on entry, frozen in this run",
+  "oleadas de media": "waves on average",
+  "mejor oleada": "best wave",
+  "Oleadas alcanzadas": "Waves reached",
+  "Rampancy al entrar": "Rampancy on entry",
+  "Capital (otros)": "Capital (other)",
+  "Battleship (otros)": "Battleship (other)",
+  "Battlecruiser (otros)": "Battlecruiser (other)",
+  "Cruiser (otros)": "Cruiser (other)",
+  "Fragatas, destructores, industriales y lo demás": "Frigates, destroyers, industrials and everything else",
+  "Fuente: notas de la versión 24.01 (2026-07-23). Solo en agujeros C1–C6. Koru no ve quién está a 50 km del Fabricator: esto es lo que sumaría tu plan si todos están cerca.":
+    "Source: version 24.01 patch notes (2026-07-23). Only in C1–C6 wormholes. Koru cannot see who is within 50 km of the Fabricator: this is what your plan would add up to if everyone is close.",
   "Con actividad en la última hora": "Activity in the last hour",
   "Últimos 7 días": "Last 7 days",
   "El ×N compara los últimos 7 días con la media semanal del periodo elegido. Más de 1 = más movido que de costumbre en esa ventana.":

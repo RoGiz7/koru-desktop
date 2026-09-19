@@ -119,6 +119,7 @@ const BASE: Record<Exclude<Tab, (typeof SIN_ARTE)[number]>, number> = {
   factional: 638,
   abyssals: 17715,
   crab: 19726,
+  wormholes: 28665, // Vargur: el marauder, la nave que más decide la Rampancy sin ser capital
   campanas: 44996,
   industria: 28606,
   exploracion: 33468,

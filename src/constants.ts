@@ -23,6 +23,7 @@ export type Tab =
   | "rateo"
   | "abyssals"
   | "crab"
+  | "wormholes"
   | "escalaciones"
   | "campanas"
   | "factional"
@@ -126,6 +127,11 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
       { key: "abyssals", label: "Abyssals", scopes: ["esi-wallet.read_character_wallet.v1"] },
       // CRAB: tracker manual de runs (sesión+cronómetro+loot), sin scope ESI — siempre habilitada.
       { key: "crab", label: "CRAB" },
+      // Wormholes: el contenido PvE propio de los agujeros. Hoy, el Rampant Drone Fabricator
+      // (planificador de Rampancy con la nave real de cada piloto + runs). El nombre es la
+      // categoría y no el sitio a propósito —él no sabía qué era «Fabricador» al verlo en el menú—
+      // y deja hueco a lo que venga (sleepers, etc.). Sin scope propio: usa poll_positions.
+      { key: "wormholes", label: "Wormholes" },
       // Escalaciones: como CRAB, tracker manual sin scope. Lo que la hace distinta es el RELOJ:
       // caducan a las 24 h y una olvidada se pierde entera.
       { key: "escalaciones", label: "Escalaciones" },
@@ -386,6 +392,7 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
     subtitle: "Caducan a las 24 h. Apúntalas y Koru te avisa antes de que se pierdan",
   },
   crab: { title: "CRAB", subtitle: "Sesiones cronometradas de CONCORD Rogue Analysis Beacon (ISK/hora, tasa de muerte, P&L)" },
+  wormholes: { title: "Wormholes", subtitle: "Contenido de los agujeros de gusano. Hoy: el Rampant Drone Fabricator — qué nivel de amenaza te espera con la flota que llevas, y tus runs" },
   campanas: { title: "Campañas", subtitle: "Las campañas militares de Nueva Eden: progreso en vivo, objetivos y recompensas" },
   factional: { title: "Factional", subtitle: "Tu participación en la Guerra de Facciones" },
   planetologia: { title: "Planetología", subtitle: "Tus colonias y extractores (PI)" },

@@ -38,6 +38,9 @@ export type RunDet = {
   loot_note?: string | null;
   ship_loss_isk: number | null;
   entry_cost?: number | null;
+  /** Fabricador: oleadas alcanzadas y Rampancy con la que se entró. Solo en esa actividad. */
+  waves?: number | null;
+  rampancy?: number | null;
   started_at: string | null;
   ended_at: string | null;
   ship_type_id: number | null;
@@ -174,6 +177,8 @@ export function ComoFue({ run, runId }: { run: RunDet; runId: number | null }) {
   return (
     <>
       <Dato k={tr("Duración")} v={duracionDeRun(run)} />
+      <Dato k={tr("Oleadas alcanzadas")} v={run.waves != null ? String(run.waves) : null} />
+      <Dato k={tr("Rampancy al entrar")} v={run.rampancy != null ? String(run.rampancy) : null} />
       <Dato k={tr("Botín")} v={run.loot_isk != null ? fmtIsk(run.loot_isk) : null} tone="pos" />
       <Dato k={tr("Coste de entrada")} v={run.entry_cost != null ? fmtIsk(run.entry_cost) : null} tone="neg" />
       <Dato k={tr("Nave perdida")} v={run.ship_loss_isk != null ? fmtIsk(run.ship_loss_isk) : null} tone="neg" />
@@ -325,6 +330,7 @@ export function RunDetalle({
   const [editando, setEditando] = useState(false);
   const [eLoot, setELoot] = useState("");
   const [eEntry, setEEntry] = useState("");
+  const [eWaves, setEWaves] = useState("");
   const [eShip, setEShip] = useState("");
   const [eNota, setENota] = useState("");
   /** Vacío = no se ha pegado nada en esta edición, y entonces NO se llama a `run_loot_set`, que
@@ -337,6 +343,7 @@ export function RunDetalle({
   function empezar() {
     setELoot(iskCorto(run.loot_isk));
     setEEntry(iskCorto(run.entry_cost));
+    setEWaves(run.waves != null ? String(run.waves) : "");
     setEShip(iskCorto(run.ship_loss_isk));
     setENota(run.loot_note ?? "");
     setEBotin([]);
@@ -356,6 +363,9 @@ export function RunDetalle({
         shipLossIsk: run.outcome === "died" ? parseIskShorthand(eShip) : (run.ship_loss_isk ?? null),
         note: null,
         entryCost: parseIskShorthand(eEntry),
+        // Oleadas: solo tiene sentido en el Fabricador; en las demás el campo no se pinta y viaja
+        // null, que en Rust es «no tocar».
+        waves: run.activity === "fabricator" && eWaves.trim() !== "" ? Math.max(0, Math.floor(Number(eWaves))) : null,
       });
       if (eBotin.length > 0) {
         try {
@@ -428,10 +438,17 @@ export function RunDetalle({
                   <button className="sig-done-btn" title={tr("Pegar loot")} onClick={() => setLootOpen(true)}>📋</button>
                 </span>
               </div>
-              <div className="esc-det-fila">
-                <span className="esc-det-k">{tr("Coste de entrada")}</span>
-                <input className="small" value={eEntry} onChange={(e) => setEEntry(e.target.value)} placeholder={tr("ISK")} style={{ width: 110 }} />
-              </div>
+              {run.activity === "fabricator" ? (
+                <div className="esc-det-fila">
+                  <span className="esc-det-k">{tr("Oleadas alcanzadas")}</span>
+                  <input className="small" type="number" min={0} max={100} value={eWaves} onChange={(e) => setEWaves(e.target.value)} style={{ width: 80 }} />
+                </div>
+              ) : (
+                <div className="esc-det-fila">
+                  <span className="esc-det-k">{tr("Coste de entrada")}</span>
+                  <input className="small" value={eEntry} onChange={(e) => setEEntry(e.target.value)} placeholder={tr("ISK")} style={{ width: 110 }} />
+                </div>
+              )}
               {run.outcome === "died" && (
                 <div className="esc-det-fila">
                   <span className="esc-det-k">{tr("Nave perdida")}</span>

@@ -167,11 +167,21 @@ const cachePrecio = new Map<number, number | null>();
 export function AbyssalRunsView({
   charId,
   activity = "abyssal",
+  rampancyPrevista = null,
 }: {
   charId?: number | null;
-  activity?: "abyssal" | "crab";
+  activity?: "abyssal" | "crab" | "fabricator";
+  /** Fabricador: la Rampancy que suma el plan de arriba en este momento. Se CONGELA en la run al
+   *  empezar — el nivel de amenaza con el que entraste es un hecho de esa run, no del plan de hoy. */
+  rampancyPrevista?: number | null;
 }) {
   const isCrab = activity === "crab";
+  /** ★ FABRICADOR (2026-09-19): la tercera actividad de este tracker. No tiene filamento ni baliza:
+   *  su «variante» es la CLASE del agujero (C1-C6) y su medida es la OLEADA a la que se llegó. La
+   *  entrada no cuesta nada (el sitio es una firma), así que sin coste ni unidades. */
+  const isFab = activity === "fabricator";
+  const [claseWh, setClaseWh] = useState("C3");
+  const [finWaves, setFinWaves] = useState("");
   const [active, setActive] = useState<ActivityRun | null>(null);
   const [runs, setRuns] = useState<ActivityRun[]>([]);
   const [tier, setTier] = useState("Raging");
@@ -338,7 +348,7 @@ export function AbyssalRunsView({
 
   // Variante a iniciar: filamento (tier+clima) en abisales; beacon en CRAB.
   const crabBeacon = CRAB_BEACONS.find((b) => b.id === beacon) ?? CRAB_BEACONS[0];
-  const filamentId = isCrab ? crabBeacon.id : FILAMENTS[tier]?.[weather];
+  const filamentId = isFab ? null : isCrab ? crabBeacon.id : FILAMENTS[tier]?.[weather];
   // Nave elegida (match exacto, sin distinguir mayúsculas). Vacío o sin match = null (opcional).
   const shipMatch = useMemo(() => {
     const q = shipName.trim().toLowerCase();
@@ -385,7 +395,7 @@ export function AbyssalRunsView({
   const clase: ClaseKey = claseManual ?? claseAuto ?? "cruiser";
   const filPorClase = CLASES.find((c) => c.key === clase)?.fil ?? 1;
   /** Unidades a gastar. CRAB gasta SIEMPRE una baliza: lo de las clases es solo del abismo. */
-  const uds = isCrab ? 1 : (filUds ?? filPorClase);
+  const uds = isFab ? 0 : isCrab ? 1 : (filUds ?? filPorClase);
 
   /** Coste de entrada = precio de la unidad × unidades.
    *  Antes era `variantPrice` a secas, dando por hecho UNA unidad siempre. Ver el comentario largo
@@ -394,16 +404,18 @@ export function AbyssalRunsView({
   const entryCost = variantPrice != null ? variantPrice * uds : null;
 
   async function startRun() {
-    if (!filamentId) return;
+    if (!filamentId && !isFab) return;
     setBusy(true);
     setMsg("");
     try {
       const id = await invoke<number>("run_start", {
         activity,
         variantId: filamentId,
-        variantName: isCrab ? crabBeacon.name : `${tier} ${weather} Filament`,
-        tier: isCrab ? null : tier,
-        weather: isCrab ? null : weather,
+        variantName: isFab ? `Rampant Drone Fabricator · ${claseWh}` : isCrab ? crabBeacon.name : `${tier} ${weather} Filament`,
+        // En el Fabricador `tier` es la clase del agujero: el mismo hueco que Calm..Cataclysmic en
+        // el abismo y «7/10» en escalaciones — el nivel de la cosa.
+        tier: isFab ? claseWh : isCrab ? null : tier,
+        weather: isCrab || isFab ? null : weather,
         systemId: null,
         systemName: "",
         shipTypeId: shipMatch?.i ?? null,
@@ -412,10 +424,12 @@ export function AbyssalRunsView({
         characterId: launcherId,
         // Coste de entrada estimado a mercado y CONGELADO aquí: una baliza o un filamento, a
         // cuenta de quien lanza. Congelarlo evita que el P&L del pasado cambie con el mercado.
-        entryCost: entryCost,
+        entryCost: isFab ? null : entryCost,
         // Cuántas unidades entraron en ese coste. Sin esto el histórico enseña «−196 M» y no hay
         // forma de saber si fue un filamento caro o tres normales.
-        entryUnits: uds,
+        entryUnits: isFab ? null : uds,
+        // Fabricador: la Rampancy del plan, congelada. Las otras actividades no la tienen.
+        rampancy: isFab ? rampancyPrevista : null,
       });
       // Solo se escriben participantes si de verdad hay varios: con uno, la run se queda
       // exactamente como siempre y no se crea una fila hija que no aporta nada.
@@ -470,6 +484,9 @@ export function AbyssalRunsView({
         lootNote: finishing === "aborted" ? null : finNota.trim() || null,
         shipLossIsk: finishing === "died" ? parseIskShorthand(finShipLoss) : null,
         note: null,
+        // Fabricador: la oleada a la que se llegó. Vale también en una run abortada: irse con el
+        // botín antes de morir ES el juego, y la oleada es lo que cuenta.
+        waves: isFab && finWaves.trim() !== "" ? Math.max(0, Math.floor(Number(finWaves))) : null,
       });
       // El desglose, si hubo pegado. Con su propio `catch`: es un EXTRA sobre el total, que ya
       // quedó guardado arriba. Perder el cierre de la run por no poder guardar el detalle sería
@@ -714,7 +731,7 @@ export function AbyssalRunsView({
   // visible en los últimos 3 (ahí ya no es un aviso, es información continua).
   const abyssFase = useRef<"" | "warn" | "count" | "out" | "off">("");
   useEffect(() => {
-    const activa = active && !isCrab;
+    const activa = active && !isCrab && !isFab;
     const endsAt = activa ? new Date(active!.started_at).getTime() + ABYSS_LIMIT_MS : 0;
     // Fase actual según lo que queda. Fuera de la run, "off".
     const fase: "" | "warn" | "count" | "out" | "off" = !activa
@@ -744,7 +761,7 @@ export function AbyssalRunsView({
       // un no-op mudo — y aquí el síntoma sería «el reloj no sale», sin más pistas.
       console.error("overlay_abyss", e),
     );
-  }, [active, isCrab, remaining]);
+  }, [active, isCrab, isFab, remaining]);
   // La caja en curso se tiñe por el clima del filamento (CRAB: azul CONCORD por defecto);
   // al elegir resultado vira a verde/rojo/gris.
   const activeCol = finishing ? outcomeColor(finishing) : weatherColor(active?.weather);
@@ -764,11 +781,14 @@ export function AbyssalRunsView({
             <img className="kind-glyph" src={typeIcon(active.variant_id, 32)} alt="" style={{ width: 22, height: 22 }} />
           )}
           <strong>{active.variant_name}</strong>
+          {isFab && active.rampancy != null && (
+            <span className="small muted" title={tr("Rampancy prevista al entrar, congelada en esta run")}>R{active.rampancy}</span>
+          )}
           {active.ship_type_id && (
             <img className="kind-glyph" src={typeIcon(active.ship_type_id, 32)} alt="" title={tr("Nave de la run")} style={{ width: 20, height: 20, borderRadius: 3 }} />
           )}
           <span className="abyss-timer">{fmtMMSS(elapsed)}</span>
-          {!isCrab && (
+          {!isCrab && !isFab && (
             <span className={`abyss-count small${remaining < 2 * 60 * 1000 ? " danger" : ""}`}>
               {remaining >= 0 ? `${tr("quedan")} ${fmtMMSS(remaining)}` : `${tr("pasado")} ${fmtMMSS(remaining)}`}
             </span>
@@ -781,11 +801,25 @@ export function AbyssalRunsView({
             </span>
           ) : finishing === "aborted" ? (
             <span className="abyss-end-btns">
+              {isFab && (
+                <>
+                  <span className="small muted">{tr("Oleadas")}:</span>
+                  <input className="small" type="number" min={0} max={100} value={finWaves} onChange={(e) => setFinWaves(e.target.value)} style={{ width: 64 }} />
+                </>
+              )}
               <button className="pp-add" onClick={endRun} disabled={busy}>{tr("Confirmar abortar")}</button>
               <button className="pp-add" onClick={() => setFinishing(null)} disabled={busy}>{tr("Cancelar")}</button>
             </span>
           ) : (
             <span className="abyss-finish">
+              {isFab && (
+                <>
+                  {/* LA OLEADA es la medida del Fabricador: la recompensa crece con ella y es lo
+                      que se compara entre runs. Va delante del botín a propósito. */}
+                  <span className="small muted">{tr("Oleadas")}:</span>
+                  <input className="small" type="number" min={0} max={100} value={finWaves} onChange={(e) => setFinWaves(e.target.value)} placeholder="1-100" style={{ width: 64 }} />
+                </>
+              )}
               <span className="small muted">{tr("Botín")}:</span>
               <input className="small" value={finLoot} onChange={(e) => setFinLoot(e.target.value)} placeholder={tr("ISK (p.ej. 45m)")} style={{ width: 100 }} />
               <button className="pp-add" onClick={() => setLootOpen(true)}>📋 {tr("Pegar loot")}</button>
@@ -845,7 +879,18 @@ export function AbyssalRunsView({
           className="abyss-active abyss-start"
           style={{ background: `linear-gradient(90deg, ${startCol}1c, transparent 70%)`, borderColor: `${startCol}66` }}
         >
-          {isCrab ? (
+          {isFab ? (
+            <>
+              <select className="small" value={claseWh} onChange={(e) => setClaseWh(e.target.value)} title={tr("Clase del agujero")}>
+                {["C1", "C2", "C3", "C4", "C5", "C6"].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <span className="small muted" title={tr("La Rampancy del plan de arriba, tal y como está ahora. Se guarda con la run.")}>
+                Rampancy {rampancyPrevista ?? "—"}
+              </span>
+            </>
+          ) : isCrab ? (
             <select className="small" value={beacon} onChange={(e) => setBeacon(Number(e.target.value))}>
               {CRAB_BEACONS.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
@@ -891,7 +936,7 @@ export function AbyssalRunsView({
           {shipMatch && (
             <img className="kind-glyph" src={typeIcon(shipMatch.i, 32)} alt="" title={shipMatch.n} style={{ width: 22, height: 22 }} />
           )}
-          {!isCrab && (
+          {!isCrab && !isFab && (
             <>
               {/* LA CLASE, que es lo que decide cuántos filamentos se gastan. Va pegada a la nave
                   porque casi siempre la deduce de ella; el desplegable está para cuando no escribes
@@ -1132,6 +1177,26 @@ export function AbyssalRunsView({
               <div className="explog-stat-n">{stats.n > 0 ? Math.round((stats.deaths / stats.n) * 100) : 0}%</div>
               <div className="explog-stat-l small muted">{tr("tasa de muerte")}</div>
             </div>
+            {/* Fabricador: la oleada es la medida. Media y mejor, solo sobre las runs que la
+                apuntaron — no se inventa un 0 para las que no. */}
+            {isFab && (() => {
+              const conOleadas = viewRows.filter((r) => r.waves != null);
+              if (conOleadas.length === 0) return null;
+              const media = conOleadas.reduce((a, r) => a + (r.waves ?? 0), 0) / conOleadas.length;
+              const mejor = Math.max(...conOleadas.map((r) => r.waves ?? 0));
+              return (
+                <>
+                  <div className="explog-stat">
+                    <div className="explog-stat-n">{media.toFixed(1)}</div>
+                    <div className="explog-stat-l small muted">{tr("oleadas de media")}</div>
+                  </div>
+                  <div className="explog-stat">
+                    <div className="explog-stat-n">{mejor}</div>
+                    <div className="explog-stat-l small muted">{tr("mejor oleada")}</div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
           {/* Se DICE lo que se ha dejado fuera. Un número que ignora datos en silencio es peor que
               uno raro: al menos el raro se cuestiona. El P&L de arriba sí las incluye. */}
@@ -1244,7 +1309,7 @@ export function AbyssalRunsView({
             <thead>
               <tr className="sig-th">
                 <th>{tr("Fecha")}</th>
-                <th>{isCrab ? tr("Beacon") : tr("Filamento")}</th>
+                <th>{isFab ? tr("Agujero · oleadas") : isCrab ? tr("Beacon") : tr("Filamento")}</th>
                 <th>{tr("Pilotos")}</th>
                 <th>{tr("Duración")}</th>
                 <th>{tr("Resultado")}</th>
@@ -1272,7 +1337,14 @@ export function AbyssalRunsView({
                     {r.variant_id && (
                       <img className="run-ship" src={typeIcon(r.variant_id, 32)} alt="" style={{ marginLeft: 0, marginRight: "0.35rem" }} />
                     )}
-                    {r.variant_name}
+                    {isFab ? (
+                      <>
+                        {r.tier ?? "?"}
+                        {" · "}
+                        <strong>{r.waves != null ? `${r.waves} ${tr("oleadas")}` : "—"}</strong>
+                        {r.rampancy != null && <span className="muted"> · R{r.rampancy}</span>}
+                      </>
+                    ) : r.variant_name}
                     {r.ship_type_id && (
                       <img
                         className="run-ship"

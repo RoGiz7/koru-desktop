@@ -1536,6 +1536,9 @@ pub fn run_start(
     // Cuántas unidades componen ese coste. Sin esto el histórico no distingue un filamento caro de
     // tres normales.
     entry_units: Option<i64>,
+    // Fabricador: la Rampancy prevista al entrar (suma de las naves del plan). Las demás
+    // actividades no la mandan.
+    rampancy: Option<i64>,
 ) -> AppResult<i64> {
     state.db.run_start(
         &activity,
@@ -1549,6 +1552,7 @@ pub fn run_start(
         character_id,
         entry_cost,
         entry_units,
+        rampancy,
     )
 }
 
@@ -1567,10 +1571,12 @@ pub fn run_end(
     loot_note: Option<String>,
     ship_loss_isk: Option<f64>,
     note: Option<String>,
+    // Fabricador: hasta qué oleada se llegó. Las demás actividades no lo mandan.
+    waves: Option<i64>,
 ) -> AppResult<()> {
     state
         .db
-        .run_end(id, &outcome, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref())?;
+        .run_end(id, &outcome, loot_isk, loot_note.as_deref(), ship_loss_isk, note.as_deref(), waves)?;
     if ship_loss_isk.is_none() && outcome == "died" {
         let _ = state.db.runs_completar_perdidas();
     }
@@ -1663,6 +1669,8 @@ pub fn run_set(
     // Editable: el estimado de mercado es solo un punto de partida. Si lo compraste más barato,
     // o te lo regalaron, o lo sacaste explorando, aquí pones lo que fue de verdad.
     entry_cost: Option<f64>,
+    // Fabricador: oleadas alcanzadas, corregibles después.
+    waves: Option<i64>,
 ) -> AppResult<()> {
     state.db.run_set(
         id,
@@ -1671,6 +1679,7 @@ pub fn run_set(
         ship_loss_isk,
         note.as_deref(),
         entry_cost,
+        waves,
     )
 }
 

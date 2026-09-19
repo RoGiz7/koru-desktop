@@ -164,7 +164,7 @@ export type ExplorationLogRow = {
 // tasa de muerte y P&L honesto. Espejo de la tabla activity_runs / comandos run_*.
 export type ActivityRun = {
   id: number;
-  activity: string; // "abyssal" | "crab"
+  activity: string; // "abyssal" | "crab" | "escalacion" | "fabricator"
   variant_id: number | null; // typeID del filamento / beacon
   variant_name: string;
   tier: string | null;
@@ -186,6 +186,10 @@ export type ActivityRun = {
   /** Unidades (filamentos/balizas) que componen ese coste. `null` en runs anteriores al
    *  2026-08-13, cuando Koru daba por hecho que siempre era una. */
   entry_units: number | null;
+  /** Fabricador: hasta qué oleada se llegó (1-100). `null` en las demás actividades. */
+  waves?: number | null;
+  /** Fabricador: la Rampancy prevista al entrar. `null` en las demás. */
+  rampancy?: number | null;
   /** Participantes (multibox). Vacío = run de un solo piloto, como toda la vida. */
   chars: RunChar[];
 };

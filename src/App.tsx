@@ -34,6 +34,7 @@ import { SocialView } from "./social";
 import { OpsView } from "./ops";
 import { FichaPiloto } from "./fichaPiloto";
 import { GuiaInicio } from "./guia";
+import { FabricadorSection } from "./fabricador";
 import { useSondaImagenes } from "./sondaImagenes";
 import { pistasActivas, setPistasActivas } from "./pista";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
@@ -3791,6 +3792,9 @@ function App() {
             ) : (
               <CrabSection charId={subjectId} />
             ))}
+          {/* El Fabricador es GLOBAL a propósito: la composición son TODOS tus pilotos conectados,
+              que es justo lo que un multibox quiere sumar. No hay «personaje sujeto» que elegir. */}
+          {tab === "wormholes" && <FabricadorSection cards={Object.values(cards)} charId={isGlobal ? null : subjectId} />}
           </div>
         </div>
       </div>

@@ -187,6 +187,12 @@ impl Db {
         // filamento caro de tres normales — y en el abismo cooperativo se gasta UNO POR NAVE.
         // NULL en las runs viejas: no se inventa un 1 que sería mentira en las cooperativas.
         let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN entry_units INTEGER", []);
+        // ★ FABRICADOR (2026-09-19): las dos cifras que definen una run del Rampant Drone Fabricator
+        // y que ninguna otra actividad tiene — hasta qué OLEADA se llegó (el sitio va de 1 a 100 y
+        // la recompensa crece con ellas) y con qué RAMPANCY se entró (la suma de las naves, que
+        // decide el nivel de amenaza). NULL en las demás actividades y en las runs viejas.
+        let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN waves INTEGER", []);
+        let _ = conn.execute("ALTER TABLE activity_runs ADD COLUMN rampancy INTEGER", []);
         // RECORRIDO PROPIO: por dónde han pasado TUS personajes y cuándo.
         //
         // Por qué existe: hasta ahora la posición era una foto que se pedía al arrancar la app y
@@ -4710,6 +4716,12 @@ pub struct ActivityRun {
     /// 2026-08-13: no se rellena con un 1 porque en las cooperativas sería falso.
     #[serde(default)]
     pub entry_units: Option<i64>,
+    /// Fabricador: hasta qué oleada se llegó (1-100). `None` en las demás actividades.
+    #[serde(default)]
+    pub waves: Option<i64>,
+    /// Fabricador: la Rampancy prevista al entrar (suma de las naves). `None` en las demás.
+    #[serde(default)]
+    pub rampancy: Option<i64>,
     /// Participantes de la run (multibox). Vacío = run de un solo piloto, como toda la vida.
     #[serde(default)]
     pub chars: Vec<RunCharRow>,
@@ -5746,17 +5758,19 @@ impl Db {
         // Unidades que componen ese coste: 1 baliza en CRAB, y en el abismo 1 crucero / 2
         // destructores / 3 fragatas — una por nave.
         entry_units: Option<i64>,
+        // Fabricador: la Rampancy prevista al entrar. `None` en las demás actividades.
+        rampancy: Option<i64>,
     ) -> AppResult<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO activity_runs
                  (activity, variant_id, variant_name, tier, weather, system_id, system_name,
-                  ship_type_id, started_at, outcome, character_id, entry_cost, entry_units)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10,?11,?12)",
+                  ship_type_id, started_at, outcome, character_id, entry_cost, entry_units, rampancy)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'open',?10,?11,?12,?13)",
             rusqlite::params![
                 activity, variant_id, variant_name, tier, weather, system_id, system_name,
-                ship_type_id, now, character_id, entry_cost, entry_units
+                ship_type_id, now, character_id, entry_cost, entry_units, rampancy
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -5883,13 +5897,16 @@ impl Db {
         loot_note: Option<&str>,
         ship_loss_isk: Option<f64>,
         note: Option<&str>,
+        // Fabricador: hasta qué oleada se llegó. Las demás actividades pasan `None` y la columna
+        // no se toca (COALESCE con lo que hubiera).
+        waves: Option<i64>,
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "UPDATE activity_runs SET ended_at = ?2, outcome = ?3, loot_isk = ?4, loot_note = ?5,
-                    ship_loss_isk = ?6, note = ?7 WHERE id = ?1",
-            rusqlite::params![id, now, outcome, loot_isk, loot_note, ship_loss_isk, note],
+                    ship_loss_isk = ?6, note = ?7, waves = COALESCE(?8, waves) WHERE id = ?1",
+            rusqlite::params![id, now, outcome, loot_isk, loot_note, ship_loss_isk, note, waves],
         )?;
         Ok(())
     }
@@ -5955,7 +5972,7 @@ impl Db {
             .query_row(
                 "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                         ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
-                        note, character_id, entry_cost, entry_units
+                        note, character_id, entry_cost, entry_units, waves, rampancy
                  FROM activity_runs
                  WHERE ended_at IS NULL AND activity = ?1
                    AND (character_id = ?2 OR (?2 IS NULL AND character_id IS NULL))
@@ -6023,7 +6040,7 @@ impl Db {
         let mut stmt = conn.prepare(
             "SELECT id, activity, variant_id, variant_name, tier, weather, system_id, system_name,
                     ship_type_id, started_at, ended_at, outcome, loot_isk, loot_note, ship_loss_isk,
-                    note, character_id, entry_cost, entry_units
+                    note, character_id, entry_cost, entry_units, waves, rampancy
              FROM activity_runs WHERE ended_at IS NOT NULL AND activity = ?1
              ORDER BY ended_at DESC, id DESC",
         )?;
@@ -6075,13 +6092,15 @@ impl Db {
         ship_loss_isk: Option<f64>,
         note: Option<&str>,
         entry_cost: Option<f64>,
+        // Fabricador: oleadas alcanzadas, editables después. `None` = no tocar.
+        waves: Option<i64>,
     ) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE activity_runs SET loot_isk = ?2, loot_note = ?3, ship_loss_isk = ?4, note = ?5,
-                    entry_cost = ?6
+                    entry_cost = ?6, waves = COALESCE(?7, waves)
              WHERE id = ?1",
-            rusqlite::params![id, loot_isk, loot_note, ship_loss_isk, note, entry_cost],
+            rusqlite::params![id, loot_isk, loot_note, ship_loss_isk, note, entry_cost, waves],
         )?;
         Ok(())
     }
@@ -6093,7 +6112,7 @@ impl Db {
         Ok(())
     }
 
-    /// Mapea una fila de `activity_runs` a `ActivityRun` (SELECT de 17 columnas, mismo orden en todos).
+    /// Mapea una fila de `activity_runs` a `ActivityRun` (SELECT de 21 columnas, mismo orden en todos).
     fn map_activity_run(r: &rusqlite::Row) -> rusqlite::Result<ActivityRun> {
         Ok(ActivityRun {
             id: r.get(0)?,
@@ -6115,6 +6134,8 @@ impl Db {
             character_id: r.get(16)?,
             entry_cost: r.get(17)?,
             entry_units: r.get(18)?,
+            waves: r.get(19)?,
+            rampancy: r.get(20)?,
             // Los participantes NO vienen en este SELECT: los rellenan run_active/run_list, que
             // los piden aparte para no repetir la fila de la run por cada piloto.
             chars: Vec::new(),
