@@ -2570,6 +2570,8 @@ const EN: Record<string, string> = {
   "Ahora mismo no hay campañas visibles en ESI.": "No campaigns visible on ESI right now.",
   "definición pendiente del próximo SDE": "definition pending the next SDE",
   Activa: "Active",
+  Fallida: "Failed",
+  Expirada: "Expired",
   // («Objetivo» ya existía como "Target" en ~188 — usamos el plural para la cabecera, TS1117)
   Objetivos: "Objectives",
   Método: "Method",

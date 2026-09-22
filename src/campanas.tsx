@@ -89,6 +89,22 @@ function loadDefs(): Promise<CampDefs | null> {
     defsPromise = loadJson<CampDefs | null>("/military_campaigns.json", null);
   return defsPromise;
 }
+/** El estado llega crudo de ESI («Active», «Completed»…): se traduce lo conocido y el resto pasa
+ *  tal cual (visto el 2026-09-22: «Completed» en inglés junto a «Activa»). */
+function estadoCampana(state: string): string {
+  switch (state) {
+    case "Active":
+      return tr("Activa");
+    case "Completed":
+      return tr("Completada");
+    case "Failed":
+      return tr("Fallida");
+    case "Expired":
+      return tr("Expirada");
+    default:
+      return state;
+  }
+}
 
 export function CampanasView({ characters = [] }: { characters?: Character[] }) {
   const [defs, setDefs] = useState<CampDefs | null>(null);
@@ -213,7 +229,7 @@ export function CampanasView({ characters = [] }: { characters?: Character[] }) 
                 <div className="muted small">{d ? cleanEveText(txt(d.s)) : ""}</div>
               </div>
               <div className="camp-state">
-                <span className={`camp-chip ${c.state === "Active" ? "on" : ""}`}>{c.state === "Active" ? tr("Activa") : c.state}</span>
+                <span className={`camp-chip ${c.state === "Active" ? "on" : ""}`}>{estadoCampana(c.state)}</span>
                 <div className="small">
                   {fmtSp(c.progress)}
                   {d?.target ? ` / ${fmtSp(d.target)}` : ""}
