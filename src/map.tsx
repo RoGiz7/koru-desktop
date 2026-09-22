@@ -1,11 +1,11 @@
 import { loadJson } from "./staticJson";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { tr } from "./i18n";
+import { tr, getLang } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
-import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, renderSignatures, MapScaleLegend, MapTrailLegend, scaleFor } from "./mapOverlays";
+import { renderBackdrop, renderSov, renderFw, renderStandings, renderAgents, renderCorps, renderIncursions, renderThera, renderSignatures, renderSovUpgrades, MapScaleLegend, MapTrailLegend, scaleFor } from "./mapOverlays";
 import type { SignatureSummary, SignatureRow } from "./signatures";
 import { computeJumpFuel, computeJumpFatEst, computeJumpReach } from "./jumpCalc";
 import { useJumpPlanner } from "./useJumpPlanner";
@@ -21,6 +21,8 @@ import { loadNewEden } from "./neweden";
 import { galon, loadShipNames, type Roster, type OpPlayback } from "./flotas";
 import { PilotoNombre } from "./fichaPiloto";
 import { edgeKey, ANSIBLEX_TYPE_ID, type AnsiblexRow } from "./ansiblex";
+import { loadSovUpgrades, sovKindIcon, type SovUpgradeDef, type SovUpgradeRow } from "./sovUpgrades";
+import type { SovSystemUpgrades } from "./mapOverlays";
 import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constants";
 import type { MapOverlay, Tab } from "./constants";
 import { openExternal } from "./openExternal";
@@ -1275,6 +1277,41 @@ export function MapView(props: {
   const sigCircles = useMemo(
     () => renderSignatures(geo, overlay, sigSummary, view.z),
     [geo, overlay, sigSummary, view.z],
+  );
+
+  // ★ MEJORAS DE SOBERANÍA declaradas por la alianza (Ajustes → Mapa). Se cargan una vez: son
+  // locales, pocas (cientos de filas) y la ficha del sistema las enseña EN CUALQUIER CAPA — saber
+  // que el sistema al que vas tiene un Major 3 vale igual mirando intel que mirando kills.
+  const [sovUpgRows, setSovUpgRows] = useState<SovUpgradeRow[] | null>(null);
+  const [sovUpgCatalog, setSovUpgCatalog] = useState<Map<number, SovUpgradeDef> | null>(null);
+  useEffect(() => {
+    loadSovUpgrades().then((c) => setSovUpgCatalog(new Map(c.map((d) => [d.i, d])))).catch(() => setSovUpgCatalog(new Map()));
+  }, []);
+  // ⚠️ Se RE-LEE al encender la capa y al elegir sistema, no solo al montar: el mapa sigue montado
+  // mientras pegas la lista en Ajustes, y la primera vez salió «0 sistemas con mejoras» con 604
+  // recién guardadas (visto por él el 2026-09-22). Es local y barato; no compensa un evento.
+  useEffect(() => {
+    invoke<SovUpgradeRow[]>("sov_upgrades_list").then(setSovUpgRows).catch(() => setSovUpgRows([]));
+  }, [overlay === "mejoras", selected]);
+  const sovUpgBySystem = useMemo(() => {
+    if (!sovUpgRows || !sovUpgCatalog) return null;
+    const m = new Map<number, SovUpgradeDef[]>();
+    for (const r of sovUpgRows) {
+      const d = sovUpgCatalog.get(r.type_id);
+      if (!d) continue;
+      const arr = m.get(r.system_id) ?? [];
+      arr.push(d);
+      m.set(r.system_id, arr);
+    }
+    return m;
+  }, [sovUpgRows, sovUpgCatalog]);
+  const sovUpgList = useMemo<SovSystemUpgrades[] | null>(
+    () => (sovUpgBySystem ? [...sovUpgBySystem.entries()].map(([system_id, defs]) => ({ system_id, defs })) : null),
+    [sovUpgBySystem],
+  );
+  const sovUpgCircles = useMemo(
+    () => renderSovUpgrades(geo, overlay, sovUpgList, subFilter, view.z),
+    [geo, overlay, sovUpgList, subFilter, view.z],
   );
 
   // Pilotos EXCLUIDOS de la proximidad de intel. Petición de RoGiz7: un alt aparcado en Jita
@@ -2680,6 +2717,8 @@ export function MapView(props: {
       ? "Incursiones de Sansha: sistemas infestados (el más grande = staging). Color = estado (rojo establecida · naranja movilizando · amarillo retirándose)."
       : overlay === "wormholes"
       ? "Conexiones de wormhole a Thera/Turnur (datos de eve-scout): sistemas k-space con salida (cian = Thera, naranja = Turnur). El tooltip muestra tipo, tamaño máx y horas restantes."
+      : overlay === "mejoras"
+      ? "Mejoras de soberanía que declaró tu alianza (se pegan en Ajustes → Mapa): rojo = detector de amenazas mayores (ratting fuerte; halo = nivel 3) · naranja = amenazas menores · ámbar = prospección de mineral · violeta = generador de efecto · gris = otras. El tooltip lista todas."
       : overlay === "firmas"
       ? "Tus firmas del escáner de sondas, por sistema (violeta = wormhole con destino anotado · cian = wormhole sin destino · ámbar = firmas sin identificar · gris = todo identificado). Se pegan y guardan en Ajustes → Firmas."
       : overlay === "kills"
@@ -2741,6 +2780,8 @@ export function MapView(props: {
       ? { value: fmtSp(theraConns.length), label: "Conexiones Thera/Turnur" }
       : overlay === "firmas" && sigSummary
       ? { value: fmtSp(sigSummary.length), label: "Sistemas con firmas" }
+      : overlay === "mejoras" && sovUpgBySystem
+      ? { value: fmtSp(sovUpgBySystem.size), label: "Sistemas con mejoras" }
       : overlay === "ubicacion"
       ? { value: fmtSp(charLocations?.length ?? 0), label: "Personajes situados" }
       : overlay === "poi"
@@ -2842,6 +2883,19 @@ export function MapView(props: {
                     {kv != null && <div>{tr("Kills 1h")}: <strong>{kv}</strong></div>}
                     {jv != null && <div>{tr("Jumps 1h")}: <strong>{jv}</strong></div>}
                     {av != null && <div>{tr("Assets (stacks)")}: <strong>{av}</strong></div>}
+                  </div>
+                )}
+                {/* ★ Las mejoras de soberanía del sistema, en CUALQUIER capa: es lo que decide si
+                    aquí se ratea o se mina, y lo declaró tu alianza (Ajustes → Mapa). */}
+                {(sovUpgBySystem?.get(selected)?.length ?? 0) > 0 && (
+                  <div className="sys-agents">
+                    <div className="muted small">🏗️ {tr("Mejoras de soberanía")}:</div>
+                    {sovUpgBySystem!.get(selected)!.map((d) => (
+                      <div key={d.i} className="sys-agent-row" title={getLang() === "es" ? d.de : d.d}>
+                        <span>{sovKindIcon(d.k)}</span>
+                        <span>{getLang() === "es" ? d.ne : d.n}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {overlay === "agentes" && (agentDetails?.get(selected)?.length ?? 0) > 0 && (
@@ -3654,6 +3708,7 @@ export function MapView(props: {
             {theraCircles}
             {/* overlay Firmas escaneadas (tuyas, memorizado) */}
             {sigCircles}
+            {sovUpgCircles}
             {/* overlay Intel en vivo (memorizado) */}
             {intelAnchorMarkers}
             {intelMutedMarkers}

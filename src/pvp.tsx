@@ -151,17 +151,27 @@ function UnifiedPvpChart({
   const pool = mag === "kills" ? [sKills, sLosses, ...ships, ...systems] : [sDado, sRecibido, ...rivals];
   const active = pool.filter((s) => selected.has(s.key));
 
-  // Semanas = unión de las series activas; etiqueta = primera fecha vista en esa semana.
-  const weekDates = new Map<string, string>();
-  for (const s of active)
-    for (const [w, d] of s.dates) {
-      const c = weekDates.get(w);
-      if (!c || d < c) weekDates.set(w, d);
+  // ★ Semanas CONTIGUAS del rango, con cero donde no hubo nada, etiquetadas por su LUNES.
+  // Antes eran «las semanas con datos», etiquetadas por la primera fecha vista: una semana
+  // vacía desaparecía (eje irregular: 06-26 → 07-20 → 08-23) y la última salía con el nombre
+  // de su primer kill — el 2026-09-22 él lo leyó como «la gráfica se quedó en el 17» cuando
+  // esa semana INCLUÍA el 18 y el 19. Ahora el eje llega hasta `hasta` (o hoy), y una semana
+  // en curso sin kills se ve como lo que es: un cero, no un corte.
+  let primera = from || "";
+  for (const s of active) for (const d of s.dates.values()) if (!primera || d < primera) primera = d;
+  const ultima = to || new Date().toISOString().slice(0, 10);
+  const weeks: string[] = [];
+  const labels: string[] = [];
+  if (primera && primera <= ultima) {
+    const lunes = new Date(primera + "T00:00:00Z");
+    lunes.setUTCDate(lunes.getUTCDate() - ((lunes.getUTCDay() + 6) % 7));
+    for (let i = 0; i < 400 && lunes.toISOString().slice(0, 10) <= ultima; i++) {
+      const d = lunes.toISOString().slice(0, 10);
+      labels.push(d);
+      weeks.push(weekKey(d));
+      lunes.setUTCDate(lunes.getUTCDate() + 7);
     }
-  const weeks = [...weekDates.keys()].sort((a, b) =>
-    weekDates.get(a)! < weekDates.get(b)! ? -1 : 1
-  );
-  const labels = weeks.map((w) => weekDates.get(w)!);
+  }
   const series = active.map((s) => ({
     name: s.name,
     color: s.color,

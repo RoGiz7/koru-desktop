@@ -245,6 +245,7 @@ export type MapOverlay =
   | "corps_npc"
   | "wormholes"
   | "firmas"
+  | "mejoras"
   | "recorrido"
   | "intel";
 
@@ -464,6 +465,14 @@ export const SUBFILTERS: Partial<Record<MapOverlay, { v: string; l: string }[]>>
     { v: "historico", l: "Históricos" },
     { v: "pvp", l: "PvP" },
   ],
+  // Mejoras de soberanía: la pregunta real es «¿dónde se ratea?» o «¿dónde hay zydrine?».
+  mejoras: [
+    { v: "all", l: "Todas" },
+    { v: "combate", l: "Combate" },
+    { v: "mineral", l: "Mineral" },
+    { v: "efecto", l: "Efectos" },
+    { v: "otros", l: "Otras" },
+  ],
 };
 
 // Categorías para agrupar las capas del mapa en desplegables (evita la fila enorme de iconos).
@@ -498,6 +507,9 @@ export const OVERLAYS: { key: MapOverlay; label: string; short: string; icon: st
   { key: "security", label: "Seguridad", short: "Seguridad", icon: "🛡️", typeId: 2046, cat: "universo" }, // Damage Control I
   { key: "soberania", label: "Soberanía", short: "Soberanía", icon: "👑", typeId: 32458, cat: "universo" }, // Sovereignty Hub
   { key: "fw", label: "Guerra de facciones", short: "Facciones", icon: "◎", typeId: 17841, cat: "universo" }, // Federation Navy Comet
+  // ★ Mejoras de soberanía (Equinox) que declara la alianza en Ajustes (2026-09-22): ESI no las
+  // publica. Icono: Major Threat Detection Array 3, la mejora que más decide dónde se ratea.
+  { key: "mejoras", label: "Mejoras de soberanía (alianza)", short: "Mejoras", icon: "🏗️", typeId: 82498, cat: "universo" },
   { key: "kills", label: "Kills última hora", short: "Kills 1h", icon: "💥", typeId: 484, cat: "vivo" }, // 125mm Gatling AutoCannon I
   { key: "jumps", label: "Jumps última hora", short: "Jumps 1h", icon: "➿", typeId: 21096, cat: "vivo" }, // Cynosural Field Generator I
   // Filamento triglaviano: icono rojo incandescente, imposible de confundir con el resto de la

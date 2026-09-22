@@ -2116,6 +2116,30 @@ const EN: Record<string, string> = {
   "Pegar red": "Paste network",
   "Actualizar red": "Update network",
   "Vaciar red": "Clear network",
+  // Mejoras de soberanía de la alianza (sovUpgradesControl.tsx, capa «mejoras» del mapa, 2026-09-22).
+  "Mejoras de soberanía de la alianza": "Alliance sovereignty upgrades",
+  "Mejoras de soberanía": "Sovereignty upgrades",
+  "Mejoras de soberanía (alianza)": "Sovereignty upgrades (alliance)",
+  Mejoras: "Upgrades",
+  mejoras: "upgrades",
+  "mejoras guardadas": "upgrades saved",
+  "sistemas sin mejora": "systems with no upgrade",
+  "Sin mejoras importadas.": "No upgrades imported.",
+  "Sistemas con mejoras": "Systems with upgrades",
+  "Pegar mejoras": "Paste upgrades",
+  "Actualizar mejoras": "Update upgrades",
+  "Lista vaciada.": "List cleared.",
+  Efectos: "Effects",
+  "ESI no dice qué mejora tiene instalada cada sistema (detectores de amenazas, prospección de mineral, generadores de efecto…): las alianzas lo reparten en una hoja de cálculo. Pide la tuya y pégala aquí; Koru la pinta en el mapa y en la ficha de cada sistema.":
+    "ESI doesn't say which upgrade each system has installed (threat detection arrays, ore prospecting, effect generators…): alliances share it in a spreadsheet. Ask for yours and paste it here; Koru draws it on the map and in each system's card.",
+  "Pega aquí la lista de tu alianza: una línea por sistema con sus mejoras tal cual las escribe el juego, separadas por coma. Vale el volcado en texto («J-XXXX <- Major Threat Detection Array 2, Zydrine Prospecting Array 3») y también las filas copiadas de una hoja de cálculo, con o sin cabecera, región o constelación.":
+    "Paste your alliance's list here: one line per system with its upgrades exactly as the game names them, comma-separated. The plain-text dump works («J-XXXX <- Major Threat Detection Array 2, Zydrine Prospecting Array 3») and so do rows copied from a spreadsheet, with or without header, region or constellation.",
+  "Mejoras que no están en el catálogo del juego (¿errata, o un SDE más viejo que la mejora?)":
+    "Upgrades not in the game's catalogue (a typo, or an SDE older than the upgrade?)",
+  "Al confirmar se sustituye la lista anterior por completo: la hoja es la foto entera y las mejoras se cambian y se retiran.":
+    "Confirming replaces the previous list entirely: the sheet is the whole picture, and upgrades get swapped and removed.",
+  "Mejoras de soberanía que declaró tu alianza (se pegan en Ajustes → Mapa): rojo = detector de amenazas mayores (ratting fuerte; halo = nivel 3) · naranja = amenazas menores · ámbar = prospección de mineral · violeta = generador de efecto · gris = otras. El tooltip lista todas.":
+    "Sovereignty upgrades your alliance declared (pasted in Settings → Map): red = major threat detection (serious ratting; halo = level 3) · orange = minor threats · amber = ore prospecting · violet = effect generator · grey = other. The tooltip lists them all.",
   "Red vaciada.": "Network cleared.",
   "Selecciona la tabla de jump bridges en el wiki de tu alianza, cópiala y pégala aquí tal cual. Da igual que traiga el título, la cabecera o columnas de más.":
     "Select the jump bridge table on your alliance wiki, copy it and paste it here as-is. It doesn't matter if it brings the title, the header row or extra columns.",
@@ -2572,6 +2596,18 @@ const EN: Record<string, string> = {
   Activa: "Active",
   Fallida: "Failed",
   Expirada: "Expired",
+  // Vigía de campañas (vigiaCampanas.ts): aviso nativo al cambiar de estado o aparecer una nueva.
+  activa: "active",
+  completada: "completed",
+  fallida: "failed",
+  expirada: "expired",
+  "Campaña militar nueva": "New military campaign",
+  "Campaña militar completada": "Military campaign completed",
+  "Campaña militar": "Military campaign",
+  "mírala en Bitácora → Campañas": "see it in Log → Campaigns",
+  "una campaña sin definición en el SDE todavía": "a campaign not yet defined in the SDE",
+  "Koru avisa con una notificación del sistema cuando una campaña se completa o aparece una nueva, aunque no estés en esta pestaña (mientras Koru esté en marcha).":
+    "Koru sends a system notification when a campaign completes or a new one appears, even if you're not on this tab (while Koru is running).",
   // («Objetivo» ya existía como "Target" en ~188 — usamos el plural para la cabecera, TS1117)
   Objetivos: "Objectives",
   Método: "Method",
@@ -3532,6 +3568,18 @@ const EN: Record<string, string> = {
   "Este plan se recuerda en este ordenador.": "This plan is remembered on this computer.",
   "Cuánto suma cada clase": "How much each class adds",
   "Entre oleadas": "Between waves",
+  // Tienda de Fabricator Data (Wormholes, 2026-09-22).
+  "Qué se compra con el Fabricator Data": "What Fabricator Data buys",
+  "No se ha podido leer la tienda de LP de Pochven (ESI).": "Couldn't read the Pochven LP store (ESI).",
+  "Leyendo la tienda de LP de Pochven…": "Reading the Pochven LP store…",
+  "La tienda de LP de Pochven no tiene hoy ninguna oferta que acepte Fabricator Data.":
+    "The Pochven LP store has no offer accepting Fabricator Data today.",
+  Oferta: "Offer",
+  "Comprarlo hecho": "Buy it made",
+  "Vender el Data": "Sell the Data",
+  "Tienda de The Convocation of Triglav (Pochven), leída de ESI sin permisos. Sin LP: se paga con el Data del sitio más ISK. Las dos últimas columnas son a precio de venta en Jita: lo que costaría comprar el objeto ya hecho frente a lo que vale el Data que entregas. Se marca en verde la que sale mejor, sin contar el viaje a Pochven.":
+    "The Convocation of Triglav store (Pochven), read from ESI with no permissions. No LP: you pay with the site's Data plus ISK. The last two columns are Jita sell prices: what buying the finished item would cost versus what the Data you hand over is worth. The better option is marked in green, not counting the trip to Pochven.",
+  "Ahora mismo el Fabricator Data se vende a": "Right now Fabricator Data sells at",
   "Desde el 22-09-2026: los NPC son inmunes al warp disruption y salen a buscar a quien se queda fuera del alcance del Fabricator; los interdictores solo reciben el 20 % del daño; el tiempo entre oleadas depende del nivel (antes de la oleada 5, 6 s siempre); y el Fabricator Data se puede cambiar en la tienda de LP de Pochven por mutaplásmidos de drones y el libro Hybrid Drone Specialization.":
     "Since 2026-09-22: NPCs are immune to warp disruption and go after anyone sitting outside the Fabricator's range; interdictors take only 20% damage; the time between waves depends on the level (before wave 5, always 6 s); and Fabricator Data can be exchanged in the Pochven LP store for drone mutaplasmids and the Hybrid Drone Specialization skillbook.",
   "Desde el 22-09-2026 los Ansiblex tienen capacitor (se agota con el tráfico y con la distancia al sistema capital de tu alianza), solo los usan miembros de la alianza dueña con soberanía en el origen, y las capitales no pasan. Koru no modela nada de eso: una ruta con Ansiblex da por hecho que el puente está cargado y te deja pasar.":

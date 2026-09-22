@@ -5,7 +5,7 @@ use crate::db::{
     AnsiblexRow, CharacterRow, Db, FacilityRow, FinancialSummary, NetworthPoint, PvpActivity,
     PvpStats, PvpTrendPoint, RattingDetail, WalletStats, WalletTrendPoint,
 };
-use crate::db::{NameCount, SystemActivity, TopKill};
+use crate::db::{NameCount, SovUpgradeRow, SystemActivity, TopKill};
 use crate::error::{AppError, AppResult};
 use crate::esi::assets::AssetsSummary;
 use crate::esi::industry::{JobRaw, MiningRow, MiningSummary};
@@ -1360,6 +1360,29 @@ pub fn ansiblex_replace(
 #[tauri::command]
 pub fn ansiblex_clear(state: State<'_, AppState>) -> AppResult<()> {
     state.db.ansiblex_clear()
+}
+
+// ---- Mejoras de soberanía declaradas por la alianza (2026-09-22) ----
+// Mismo trato que Ansiblex: el pegado lo lee el frontend contra `neweden.json` (sistemas) y
+// `sov_upgrades.json` (catálogo del SDE); Rust guarda lo que el piloto revisó y confirmó.
+
+#[tauri::command]
+pub fn sov_upgrades_list(state: State<'_, AppState>) -> AppResult<Vec<SovUpgradeRow>> {
+    state.db.sov_upgrades_list()
+}
+
+/// Sustituye la lista entera por la confirmada. Devuelve cuántas filas quedaron.
+#[tauri::command]
+pub fn sov_upgrades_replace(
+    state: State<'_, AppState>,
+    rows: Vec<SovUpgradeRow>,
+) -> AppResult<usize> {
+    state.db.sov_upgrades_replace(&rows)
+}
+
+#[tauri::command]
+pub fn sov_upgrades_clear(state: State<'_, AppState>) -> AppResult<()> {
+    state.db.sov_upgrades_clear()
 }
 
 // ---- Firmas y anomalías del escáner de sondas (mismo espíritu: la app propone, el piloto declara).
@@ -4535,6 +4558,43 @@ pub async fn get_military_campaigns(
         .get_cached(&state.db, 0, "/military-campaigns", None)
         .await?;
     Ok(w.campaigns)
+}
+
+// ---- Tienda de LP de una corporación NPC (PÚBLICO) ----
+// `/loyalty/stores/{corp}/offers/`: sin scope. Nació para Wormholes (Cradle of War, 2026-09-22):
+// la tienda de The Convocation of Triglav (1000298) acepta Fabricator Data (91773) como moneda —
+// verificado contra la ruta real ese día: 5 ofertas con `lp_cost: 0`, `isk_cost` y el Data en
+// `required_items`. Se devuelve tal cual (IDs); los nombres los pone el front con market_types.
+#[derive(Debug, Serialize, serde::Deserialize, Clone)]
+pub struct LoyaltyOfferItem {
+    pub type_id: i64,
+    pub quantity: i64,
+}
+#[derive(Debug, Serialize, serde::Deserialize, Clone)]
+pub struct LoyaltyOffer {
+    pub offer_id: i64,
+    pub type_id: i64,
+    pub quantity: i64,
+    #[serde(default)]
+    pub lp_cost: i64,
+    #[serde(default)]
+    pub isk_cost: i64,
+    #[serde(default)]
+    pub ak_cost: i64,
+    #[serde(default)]
+    pub required_items: Vec<LoyaltyOfferItem>,
+}
+
+/// Ofertas de la tienda de LP de una corporación NPC. Cache namespace 0 (público).
+#[tauri::command]
+pub async fn get_loyalty_offers(
+    corporation_id: i64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<LoyaltyOffer>> {
+    state
+        .esi
+        .get_cached(&state.db, 0, &format!("/loyalty/stores/{corporation_id}/offers/"), None)
+        .await
 }
 
 /// Objetivos de UNA campaña, siguiendo el cursor hasta agotarlo (10/página en los pegados reales).

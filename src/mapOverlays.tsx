@@ -8,6 +8,7 @@ import type { MapOverlay } from "./constants";
 import type { NeSystem, NewEden, SovSystem, FwSystem, Incursion, WhConn } from "./types";
 import type { Zona } from "./intel";
 import type { SignatureSummary } from "./signatures";
+import { sovShortLabel, type SovUpgradeDef } from "./sovUpgrades";
 
 // ===== Leyenda de escala =====
 // El mapa del juego pone SIEMPRE una leyenda abajo a la izquierda diciendo qué significa el color o
@@ -440,6 +441,69 @@ export function renderSignatures(
         )}
         <circle cx={p.px} cy={p.py} r={r} fill={col} fillOpacity={0.9} stroke="#0a0d12" strokeWidth={0.8} vectorEffect="non-scaling-stroke">
           <title>{`${sys.n} — ${parts.join(" · ")}`}</title>
+        </circle>
+      </g>
+    );
+  });
+}
+
+/** Colores de la capa de MEJORAS DE SOBERANÍA, por lo que más decide dónde ir: combate mayor >
+ *  combate menor > mineral > efecto de sistema > lo demás (cyno, logística, colonia). */
+const SOV_LAYER = {
+  mayor: "#f85149", // Major Threat Detection: aquí se ratea de verdad
+  menor: "#f0883e", // Minor: sitios de combate más flojos
+  mineral: "#e3b341", // Prospecting Array: cinturones de ese mineral
+  efecto: "#b06bff", // Stability Generator: efecto de sistema
+  otros: "#8b97a8",
+};
+
+/** Un sistema y las mejoras que declaró la alianza, ya resueltas contra el catálogo. */
+export type SovSystemUpgrades = { system_id: number; defs: SovUpgradeDef[] };
+
+function sovMatchesSub(d: SovUpgradeDef, sub: string): boolean {
+  if (sub === "all") return true;
+  if (sub === "combate") return d.k === "amenaza-mayor" || d.k === "amenaza-menor";
+  if (sub === "mineral") return d.k === "mineral";
+  if (sub === "efecto") return d.k === "efecto";
+  return d.k === "exploracion" || d.k === "servicio" || d.k === "colonia";
+}
+
+/** Capa «Mejoras de soberanía»: un punto por sistema con mejora declarada, coloreado por la más
+ *  decisiva de las que tiene, y con la lista entera en el tooltip. El subfiltro deja solo los
+ *  sistemas que tienen ALGUNA mejora de esa clase (y colorea por esa clase). */
+export function renderSovUpgrades(
+  geo: Geo | null,
+  overlay: MapOverlay,
+  rows: SovSystemUpgrades[] | null | undefined,
+  sub: string,
+  zoom: number,
+) {
+  if (!geo || overlay !== "mejoras" || !rows) return null;
+  const r = Math.min(2.4, 7 / Math.max(zoom, 0.001));
+  return rows.map((row) => {
+    const sys = geo.idx.get(row.system_id);
+    if (!sys) return null;
+    const defs = row.defs.filter((d) => sovMatchesSub(d, sub));
+    if (defs.length === 0) return null;
+    const p = geo.proj(sys);
+    const col = defs.some((d) => d.k === "amenaza-mayor")
+      ? SOV_LAYER.mayor
+      : defs.some((d) => d.k === "amenaza-menor")
+        ? SOV_LAYER.menor
+        : defs.some((d) => d.k === "mineral")
+          ? SOV_LAYER.mineral
+          : defs.some((d) => d.k === "efecto")
+            ? SOV_LAYER.efecto
+            : SOV_LAYER.otros;
+    const mayor = defs.find((d) => d.k === "amenaza-mayor");
+    return (
+      <g key={`sov-${row.system_id}`}>
+        {/* Halo si hay Major 3: el sitio de ratting que todo el mundo busca. */}
+        {mayor?.lvl === 3 && (
+          <circle cx={p.px} cy={p.py} r={r * 1.9} fill="none" stroke={col} strokeOpacity={0.4} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+        )}
+        <circle cx={p.px} cy={p.py} r={r} fill={col} fillOpacity={0.9} stroke="#0a0d12" strokeWidth={0.8} vectorEffect="non-scaling-stroke">
+          <title>{`${sys.n} — ${row.defs.map(sovShortLabel).join(" · ")}`}</title>
         </circle>
       </g>
     );

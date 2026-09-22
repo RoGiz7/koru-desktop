@@ -8207,6 +8207,11 @@ tr.viva td:first-child::before {
 .fab-tabla {
   max-width: 420px;
 }
+/* Tienda de Fabricator Data: la opción que sale mejor (comprarlo hecho o vender el Data). */
+.fab-mejor {
+  color: #3fb950;
+  font-weight: 600;
+}
 /* El desplegable de orden de las listas del Cazador. */
 .cz-orden {
   flex: 0 0 auto;

@@ -21,8 +21,9 @@
 //   composición que TÚ declaras —tus pilotos con su nave real, más los compañeros que añadas— y lo
 //   que sumaría si todos están cerca. Y sitios solo en C1-C6.
 import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
-import { fmtSp, typeIcon } from "./format";
+import { fmtIsk, fmtSp, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadJson } from "./staticJson";
 import { openExternal } from "./openExternal";
@@ -105,6 +106,110 @@ function leerPlan(): Manual[] {
   } catch {
     return [];
   }
+}
+
+// ---- ★ LA RECOMPENSA: qué se compra con el Fabricator Data (Cradle of War, 2026-09-22) ----
+// El botín del sitio es «Rampancy Data Dump» (typeID 91773, grupo de mercado «Fabricator Data»),
+// y desde el parche la tienda de LP de The Convocation of Triglav (corp 1000298) lo acepta como
+// MONEDA: cero LP, solo Data + ISK. Verificado contra `/loyalty/stores/1000298/offers/` el mismo
+// día: 5 ofertas (4 mutaplásmidos Radical y el libro Hybrid Drone Specialization).
+// Lo que decide un piloto es «¿vendo el Data en Jita o lo cambio?». Aquí se ponen las dos cifras
+// una al lado de la otra, ambas a precio de VENTA del hub (`get_hub_sell_prices`): lo que cuesta
+// comprar el mutaplásmido hecho frente a lo que vale el Data que te piden por él. Es la misma
+// aproximación que usan los filamentos; no es un precio de compra al instante y se dice.
+const FABRICATOR_DATA = 91773;
+const CORP_TIENDA_POCHVEN = 1000298;
+type OfertaLp = {
+  offer_id: number;
+  type_id: number;
+  quantity: number;
+  lp_cost: number;
+  isk_cost: number;
+  required_items: { type_id: number; quantity: number }[];
+};
+type TipoMercado = { i: number; n: string; g: number };
+
+function TiendaFabricatorData() {
+  const [ofertas, setOfertas] = useState<OfertaLp[] | null>(null);
+  const [error, setError] = useState(false);
+  const [nombres, setNombres] = useState<Map<number, string>>(new Map());
+  const [precios, setPrecios] = useState<Record<number, number>>({});
+  useEffect(() => {
+    let vivo = true;
+    invoke<OfertaLp[]>("get_loyalty_offers", { corporationId: CORP_TIENDA_POCHVEN })
+      .then((all) => {
+        if (!vivo) return;
+        const conData = all.filter((o) => o.required_items.some((r) => r.type_id === FABRICATOR_DATA));
+        setOfertas(conData);
+        const ids = [FABRICATOR_DATA, ...conData.map((o) => o.type_id)];
+        loadJson<TipoMercado[]>("/market_types.json", [])
+          .then((m) => {
+            if (!vivo) return;
+            const quiero = new Set(ids);
+            setNombres(new Map(m.filter((t) => quiero.has(t.i)).map((t) => [t.i, t.n])));
+          })
+          .catch(() => {});
+        invoke<Record<number, number>>("get_hub_sell_prices", { ids, regionId: null })
+          .then((p) => vivo && setPrecios(p))
+          .catch(() => {});
+      })
+      .catch(() => vivo && setError(true));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const precioData = precios[FABRICATOR_DATA] ?? 0;
+  const nombre = (id: number) => nombres.get(id) ?? `#${id}`;
+  return (
+    <div className="cazador-sec">
+      <h4>🎁 {tr("Qué se compra con el Fabricator Data")}</h4>
+      {error ? (
+        <p className="muted small">{tr("No se ha podido leer la tienda de LP de Pochven (ESI).")}</p>
+      ) : ofertas == null ? (
+        <p className="muted small">{tr("Leyendo la tienda de LP de Pochven…")}</p>
+      ) : ofertas.length === 0 ? (
+        <p className="muted small">{tr("La tienda de LP de Pochven no tiene hoy ninguna oferta que acepte Fabricator Data.")}</p>
+      ) : (
+        <table className="km-table cat-table">
+          <thead>
+            <tr>
+              <th>{tr("Oferta")}</th>
+              <th style={{ textAlign: "right" }}>Fabricator Data</th>
+              <th style={{ textAlign: "right" }}>ISK</th>
+              <th style={{ textAlign: "right" }}>{tr("Comprarlo hecho")}</th>
+              <th style={{ textAlign: "right" }}>{tr("Vender el Data")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ofertas.map((o) => {
+              const data = o.required_items.filter((r) => r.type_id === FABRICATOR_DATA).reduce((s, r) => s + r.quantity, 0);
+              const hecho = (precios[o.type_id] ?? 0) * o.quantity;
+              const vender = precioData * data;
+              // Compensa cambiarlo si el objeto hecho vale más que el Data que entregas más el ISK.
+              const compensa = hecho > 0 && vender > 0 ? hecho > vender + o.isk_cost : null;
+              return (
+                <tr key={o.offer_id}>
+                  <td>
+                    <img src={typeIcon(o.type_id, 32)} alt="" width={18} height={18} style={{ verticalAlign: -4 }} /> {nombre(o.type_id)}
+                    {o.quantity > 1 && <span className="muted small"> ×{o.quantity}</span>}
+                    {o.lp_cost > 0 && <span className="muted small"> · {fmtSp(o.lp_cost)} LP</span>}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtSp(data)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtIsk(o.isk_cost)}</td>
+                  <td style={{ textAlign: "right" }} className={compensa === true ? "fab-mejor" : ""}>{hecho > 0 ? fmtIsk(hecho) : "—"}</td>
+                  <td style={{ textAlign: "right" }} className={compensa === false ? "fab-mejor" : ""}>{vender > 0 ? fmtIsk(vender) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <p className="muted small">
+        {tr("Tienda de The Convocation of Triglav (Pochven), leída de ESI sin permisos. Sin LP: se paga con el Data del sitio más ISK. Las dos últimas columnas son a precio de venta en Jita: lo que costaría comprar el objeto ya hecho frente a lo que vale el Data que entregas. Se marca en verde la que sale mejor, sin contar el viaje a Pochven.")}
+        {precioData > 0 && ` ${tr("Ahora mismo el Fabricator Data se vende a")} ${fmtIsk(precioData)}.`}
+      </p>
+    </div>
+  );
 }
 
 export function FabricadorSection({ cards, charId }: { cards: CharacterCard[]; charId?: number | null }) {
@@ -367,6 +472,8 @@ export function FabricadorSection({ cards, charId }: { cards: CharacterCard[]; c
           {tr("Fuente: notas de la versión 24.01 (2026-07-23). Solo en agujeros C1–C6. Koru no ve quién está a 50 km del Fabricator: esto es lo que sumaría tu plan si todos están cerca.")}
         </p>
       </div>
+
+      <TiendaFabricatorData />
 
       {/* ★ LA PELÍCULA: las runs, con el mismo tracker que abismos y CRAB (sesión + cronómetro +
           botín + tripulación), más lo propio del Fabricador — la clase del agujero, la Rampancy

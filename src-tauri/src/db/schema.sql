@@ -681,6 +681,23 @@ CREATE TABLE IF NOT EXISTS ansiblex (
     PRIMARY KEY (a_id, b_id)
 );
 
+-- ★ MEJORAS DE SOBERANÍA (Equinox) declaradas por la alianza (2026-09-22).
+-- ESI no expone qué mejora tiene instalada cada sistema; las alianzas lo reparten en hojas de
+-- cálculo (una fila por sistema, columna «upgrades» con los nombres del juego separados por
+-- coma). Entra por PEGADO y el piloto confirma, como la red de Ansiblex. Una fila por
+-- (sistema, mejora); el nombre se copia para poder enseñarlo sin cargar el catálogo. Se sustituye
+-- ENTERA en cada importación: la hoja es la foto completa y una mejora que ya no está no debe
+-- sobrevivir. Sin nada de dueño ni alianza: solo qué hay dónde.
+CREATE TABLE IF NOT EXISTS sov_upgrade (
+    system_id   INTEGER NOT NULL,
+    type_id     INTEGER NOT NULL,   -- typeID de la mejora (public/sov_upgrades.json)
+    system_name TEXT NOT NULL,
+    type_name   TEXT NOT NULL,      -- nombre EN tal cual el juego
+    source      TEXT NOT NULL DEFAULT 'paste',
+    updated_at  TEXT,
+    PRIMARY KEY (system_id, type_id)
+);
+
 -- Firmas y anomalías del escáner de sondas, por sistema. El pegado del escáner NO trae el sistema
 -- (igual que la tabla de Ansiblex no traía la región): lo pone el piloto. Clave = (sistema, id de
 -- firma); el id ("QLO-590") es estable dentro del sistema hasta el downtime.

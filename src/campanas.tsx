@@ -348,6 +348,9 @@ export function CampanasView({ characters = [] }: { characters?: Character[] }) 
           ? tr("La columna «Tú» sale de tus personajes que han concedido el permiso de campañas: retrato encendido = apuntado ahora mismo, apagado = ya no lo está pero su aportación cuenta. Pasa el ratón para ver cuánto lleva cada uno.")
           : tr("¿Quieres ver TU aportación en cada objetivo? Vuelve a iniciar sesión eligiendo «Campañas militares» en el diálogo de permisos. Es un permiso solo de lectura y no hace falta concederlo en todos los personajes: los que no lo tengan seguirán funcionando igual.")}
       </p>
+      <p className="muted small">
+        {tr("Koru avisa con una notificación del sistema cuando una campaña se completa o aparece una nueva, aunque no estés en esta pestaña (mientras Koru esté en marcha).")}
+      </p>
       {msg && <div className="small muted">{msg}</div>}
     </div>
   );

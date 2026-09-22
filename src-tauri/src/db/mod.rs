@@ -4766,6 +4766,19 @@ pub struct RunCharRow {
     pub lost_value: f64,
 }
 
+/// Una mejora de soberanía instalada en un sistema, ya resuelta contra el SDE por el frontend.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SovUpgradeRow {
+    pub system_id: i64,
+    pub type_id: i64,
+    pub system_name: String,
+    pub type_name: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
 /// Un puente Ansiblex ya resuelto contra el SDE. Par CANÓNICO (a_id < b_id): el wiki lista cada
 /// puente dos veces, una por extremo, pero para el grafo de rutas es una sola arista.
 /// `ly_declared` es lo que decía la fuente y NO se usa para calcular: los años luz buenos salen de
@@ -5348,6 +5361,62 @@ impl Db {
     pub fn ansiblex_clear(&self) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM ansiblex", [])?;
+        Ok(())
+    }
+
+    // ---- sov_upgrade: mejoras de soberanía declaradas por la alianza (mismo trato que ansiblex) ----
+
+    pub fn sov_upgrades_list(&self) -> AppResult<Vec<SovUpgradeRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT system_id, type_id, system_name, type_name, source, updated_at
+             FROM sov_upgrade ORDER BY system_name, type_name",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(SovUpgradeRow {
+                    system_id: r.get(0)?,
+                    type_id: r.get(1)?,
+                    system_name: r.get(2)?,
+                    type_name: r.get(3)?,
+                    source: r.get(4)?,
+                    updated_at: r.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Sustituye la lista ENTERA (una hoja = la foto completa), en una transacción.
+    pub fn sov_upgrades_replace(&self, rows: &[SovUpgradeRow]) -> AppResult<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM sov_upgrade", [])?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO sov_upgrade
+                     (system_id, type_id, system_name, type_name, source, updated_at)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+            )?;
+            for r in rows {
+                stmt.execute(rusqlite::params![
+                    r.system_id,
+                    r.type_id,
+                    r.system_name,
+                    r.type_name,
+                    r.source.as_deref().unwrap_or("paste"),
+                    now
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(rows.len())
+    }
+
+    pub fn sov_upgrades_clear(&self) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM sov_upgrade", [])?;
         Ok(())
     }
 

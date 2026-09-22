@@ -36,6 +36,7 @@ import { FichaPiloto } from "./fichaPiloto";
 import { GuiaInicio } from "./guia";
 import { FabricadorSection } from "./fabricador";
 import { useSondaImagenes } from "./sondaImagenes";
+import { useVigiaCampanas } from "./vigiaCampanas";
 import { pistasActivas, setPistasActivas } from "./pista";
 import { CharHeader, SkillsView, GlobalSkillsView } from "./personaje";
 import { PlanetologiaView } from "./planetologia";
@@ -50,6 +51,7 @@ import { ReconView } from "./recon";
 import { GamelogControl, gamelogScan } from "./gamelogControl";
 import { MedalTexturesControl } from "./medalsControl";
 import { AnsiblexControl } from "./ansiblexControl";
+import { SovUpgradesControl } from "./sovUpgradesControl";
 import { ExplorationView } from "./exploration";
 import { ExplorationLogView } from "./explorationLog";
 import { WhatsNew, AppVersionTag } from "./whatsnew";
@@ -320,6 +322,8 @@ function App() {
   /** ★ ¿Llega el WebView al servidor de imágenes de EVE? Ver `sondaImagenes.ts`: un piloto con el
    *  `.exe` no veía ni un icono y Koru no decía nada. */
   const sondaImagenes = useSondaImagenes();
+  /** ★ Campaña militar nueva o completada → aviso nativo, aunque no estés en Campañas. */
+  useVigiaCampanas();
   useEffect(() => {
     const load = () =>
       invoke<ServerStatus>("get_server_status")
@@ -3128,7 +3132,11 @@ function App() {
               /* Red de Ansiblex de la alianza: se PEGA (ESI no la publica) y el piloto confirma. Es
                  casi configuración fija, por eso vive en Ajustes. Las firmas del escáner, que cambian
                  cada día, tienen su propia sección «Exploración». */
-              <AnsiblexControl />
+              <>
+                <AnsiblexControl />
+                {/* ★ Mejoras de soberanía (2026-09-22): mismo trato, misma pestaña. */}
+                <SovUpgradesControl />
+              </>
             )}
 
             {settingsTab === "medallas" && (
