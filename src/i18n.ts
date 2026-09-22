@@ -3529,6 +3529,11 @@ const EN: Record<string, string> = {
   "Añadir otra": "Add another",
   "Este plan se recuerda en este ordenador.": "This plan is remembered on this computer.",
   "Cuánto suma cada clase": "How much each class adds",
+  "Entre oleadas": "Between waves",
+  "Desde el 22-09-2026: los NPC son inmunes al warp disruption y salen a buscar a quien se queda fuera del alcance del Fabricator; los interdictores solo reciben el 20 % del daño; el tiempo entre oleadas depende del nivel (antes de la oleada 5, 6 s siempre); y el Fabricator Data se puede cambiar en la tienda de LP de Pochven por mutaplásmidos de drones y el libro Hybrid Drone Specialization.":
+    "Since 2026-09-22: NPCs are immune to warp disruption and go after anyone sitting outside the Fabricator's range; interdictors take only 20% damage; the time between waves depends on the level (before wave 5, always 6 s); and Fabricator Data can be exchanged in the Pochven LP store for drone mutaplasmids and the Hybrid Drone Specialization skillbook.",
+  "Desde el 22-09-2026 los Ansiblex tienen capacitor (se agota con el tráfico y con la distancia al sistema capital de tu alianza), solo los usan miembros de la alianza dueña con soberanía en el origen, y las capitales no pasan. Koru no modela nada de eso: una ruta con Ansiblex da por hecho que el puente está cargado y te deja pasar.":
+    "Since 2026-09-22 Ansiblexes have a capacitor (drained by traffic and by distance from your alliance's capital system), only members of the owning alliance with sovereignty at the origin can use them, and capitals cannot. Koru models none of that: a route with Ansiblex assumes the bridge is charged and lets you through.",
   "Selecciona un personaje para registrar runs del Fabricador. El planificador de arriba funciona igual en Global.":
     "Pick a character to log Fabricator runs. The planner above works the same in Global.",
   "Agujero · oleadas": "Hole · waves",

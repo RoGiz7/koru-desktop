@@ -79,6 +79,10 @@ const UMBRALES = [
   { valor: 36, nombre: "Severa", color: "#f0883e" },
   { valor: 72, nombre: "Crítica", color: "#f85149" },
 ] as const;
+/** ★ Segundos ENTRE OLEADAS según el nivel de la oleada anterior (Cradle of War, 2026-09-22.1):
+ *  Baja 18 · Moderada 15 · Severa 12 · Crítica 6. Antes de la oleada 5, siempre 6. Es lo que
+ *  convierte el nivel en tiempo de sitio: con más Rampancy se espera menos y se dispara más. */
+const SEGUNDOS_ENTRE_OLEADAS = [18, 15, 12, 6] as const;
 const CAPITALES = new Set(
   Object.entries(RAMPANCY_POR_GRUPO).filter(([, p]) => p >= 36).map(([g]) => g),
 );
@@ -197,6 +201,7 @@ export function FabricadorSection({ cards, charId }: { cards: CharacterCard[]; c
       <div className="kpis">
         <Kpi label={tr("Rampancy prevista")} value={fmtSp(total)} />
         <Kpi label={tr("Nivel de amenaza")} value={nivel.nombre} />
+        <Kpi label={tr("Entre oleadas")} value={`${SEGUNDOS_ENTRE_OLEADAS[nivel.indice + 1]} s`} />
         <Kpi label={tr("Naves en el plan")} value={fmtSp(cuantos)} />
         {siguiente ? (
           <Kpi label={`${tr("Para")} ${tr(siguiente.nombre)}`} value={`${tr("faltan")} ${fmtSp(siguiente.valor - total)}`} />
@@ -228,6 +233,9 @@ export function FabricadorSection({ cards, charId }: { cards: CharacterCard[]; c
           ⚠️ {tr("Los NPC del sitio hacen el doble de daño a las capitales (a los carriers, +40 %). Un capital te pone en Crítica él solo.")}
         </p>
       )}
+      <p className="muted small">
+        {tr("Desde el 22-09-2026: los NPC son inmunes al warp disruption y salen a buscar a quien se queda fuera del alcance del Fabricator; los interdictores solo reciben el 20 % del daño; el tiempo entre oleadas depende del nivel (antes de la oleada 5, 6 s siempre); y el Fabricator Data se puede cambiar en la tienda de LP de Pochven por mutaplásmidos de drones y el libro Hybrid Drone Specialization.")}
+      </p>
 
       <div className="cazador-grid">
         <div className="cazador-sec">

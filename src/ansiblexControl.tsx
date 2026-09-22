@@ -163,6 +163,18 @@ export function AnsiblexControl() {
           "ESI no publica los Ansiblex: no hay endpoint ni scope, y el de estructuras de corp exige rol Director, solo ve los de tu corp y ni siquiera trae el destino. Por eso la red se pega desde la tabla que publica tu alianza."
         )}
       </div>
+      {/* ★ CRADLE OF WAR (2026-09-22): los Ansiblex ya no son un salto libre. Capacitor limitado
+          (1.250 TJ, coste por clase de nave y por distancia al sistema capital de la alianza), solo
+          miembros de la alianza dueña con soberanía en el origen, y las capitales no pasan. Koru NO
+          modela nada de eso: la ruta con Ansiblex sigue dando por hecho que el puente está cargado
+          y que puedes usarlo. Se dice aquí para que nadie planifique una ruta contando con un
+          puente que le va a decir que no. Modelarlo pediría saber el capital de la alianza y el
+          estado del capacitor, que ESI no da. */}
+      <div className="small muted">
+        {tr(
+          "Desde el 22-09-2026 los Ansiblex tienen capacitor (se agota con el tráfico y con la distancia al sistema capital de tu alianza), solo los usan miembros de la alianza dueña con soberanía en el origen, y las capitales no pasan. Koru no modela nada de eso: una ruta con Ansiblex da por hecho que el puente está cargado y te deja pasar."
+        )}
+      </div>
 
       <div className="tb-logs-row">
         <button className="pp-add" onClick={() => setOpen((o) => !o)}>
