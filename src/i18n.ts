@@ -178,6 +178,13 @@ const EN: Record<string, string> = {
   "Ver todo en Misiones": "See all in Missions",
   // --- Trabajos por libre (Freelance Jobs) ---
   "Trabajos por libre": "Freelance jobs",
+  // Tablón público y contribución personal (freelance.tsx, 2026-09-22).
+  "Tablón público de trabajos por libre": "Public freelance job board",
+  "abiertos a cualquiera, sin permiso": "open to anyone, no permission needed",
+  "Ya participas": "You're in",
+  "por unidad": "per unit",
+  "Entregar objeto": "Deliver item",
+  "ISK que queda por repartir del total inicial": "ISK left to pay out of the initial total",
   "Trabajo por libre": "Freelance job",
   "trabajos activos": "active jobs",
   pendientes: "pending",
@@ -1184,8 +1191,8 @@ const EN: Record<string, string> = {
   // ⚠️ El campo de «botín (ISK)» se quitó: el botín se PEGA y lo valora Koru (corrección suya,
   //    2026-09-09). Se reutiliza el mismo modal que exploración y abismo, así que los ISK/hora de
   //    las tres secciones son comparables — con dos formas de contar no lo serían.
-  "El pegado no traía precio: este lo pone Koru con sus precios locales. Sí cuenta en el total.":
-    "The paste had no price: Koru filled this one in from its local prices. It does count towards the total.",
+  "El pegado no traía precio: este es lo que te darían ahora en Jita (mejor orden de compra). Sí cuenta en el total.":
+    "The paste had no price: this is what you would get for it in Jita right now (best buy order). It does count towards the total.",
   "Trazar la ruta hasta ahí: saltos, seguridad y el intel que haya por el camino":
     "Plot the route there: jumps, security and any intel along the way",
   "De quién es": "Whose it is",
@@ -3497,6 +3504,9 @@ const EN: Record<string, string> = {
   Hostiles: "Hostiles",
   hostiles: "hostiles",
   "Buscar sistema o región…": "Search system or region…",
+  // Cazador: placeholders cortos, el campo es estrecho y el largo salía recortado (22-09).
+  "Sistema o región…": "System or region…",
+  "Nombre del hostil…": "Hostile name…",
   "Ningún sistema así con avistamientos en ese periodo.": "No such system with sightings in that period.",
   "Sin avistamientos en ese periodo. Prueba una ventana más larga.": "No sightings in that period. Try a longer window.",
   "Selecciona un sistema para ver quién pasa por él, a qué horas y en qué.": "Pick a system to see who passes through it, at what hours and in what.",
@@ -3577,9 +3587,9 @@ const EN: Record<string, string> = {
   Oferta: "Offer",
   "Comprarlo hecho": "Buy it made",
   "Vender el Data": "Sell the Data",
-  "Tienda de The Convocation of Triglav (Pochven), leída de ESI sin permisos. Sin LP: se paga con el Data del sitio más ISK. Las dos últimas columnas son a precio de venta en Jita: lo que costaría comprar el objeto ya hecho frente a lo que vale el Data que entregas. Se marca en verde la que sale mejor, sin contar el viaje a Pochven.":
-    "The Convocation of Triglav store (Pochven), read from ESI with no permissions. No LP: you pay with the site's Data plus ISK. The last two columns are Jita sell prices: what buying the finished item would cost versus what the Data you hand over is worth. The better option is marked in green, not counting the trip to Pochven.",
-  "Ahora mismo el Fabricator Data se vende a": "Right now Fabricator Data sells at",
+  "Tienda de The Convocation of Triglav (Pochven), leída de ESI sin permisos. Sin LP: se paga con el Data del sitio más ISK. Las dos últimas columnas son de Jita: lo que costaría comprar el objeto ya hecho (mejor orden de venta) frente a lo que te darían por el Data que entregas (mejor orden de compra). Se marca en verde la que sale mejor, sin contar el viaje a Pochven.":
+    "The Convocation of Triglav store (Pochven), read from ESI with no permissions. No LP: you pay with the site's Data plus ISK. The last two columns are Jita: what buying the finished item would cost (best sell order) versus what you'd get for the Data you hand over (best buy order). The better option is marked in green, not counting the trip to Pochven.",
+  "Ahora mismo por el Fabricator Data te dan": "Right now Fabricator Data fetches",
   "Desde el 22-09-2026: los NPC son inmunes al warp disruption y salen a buscar a quien se queda fuera del alcance del Fabricator; los interdictores solo reciben el 20 % del daño; el tiempo entre oleadas depende del nivel (antes de la oleada 5, 6 s siempre); y el Fabricator Data se puede cambiar en la tienda de LP de Pochven por mutaplásmidos de drones y el libro Hybrid Drone Specialization.":
     "Since 2026-09-22: NPCs are immune to warp disruption and go after anyone sitting outside the Fabricator's range; interdictors take only 20% damage; the time between waves depends on the level (before wave 5, always 6 s); and Fabricator Data can be exchanged in the Pochven LP store for drone mutaplasmids and the Hybrid Drone Specialization skillbook.",
   "Desde el 22-09-2026 los Ansiblex tienen capacitor (se agota con el tráfico y con la distancia al sistema capital de tu alianza), solo los usan miembros de la alianza dueña con soberanía en el origen, y las capitales no pasan. Koru no modela nada de eso: una ruta con Ansiblex da por hecho que el puente está cargado y te deja pasar.":

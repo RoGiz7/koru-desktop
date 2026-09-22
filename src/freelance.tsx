@@ -24,6 +24,7 @@ const CAREER_TID: Record<string, number> = {
   Enforcer: 3244, // Warp Disruptor II (tackle)
   "Soldier of Fortune": 587, // Rifter
 };
+let cacheBoard: FreelanceJob[] | null = null;
 const STATE: Record<string, { es: string; cls: string }> = {
   Active: { es: "Activo", cls: "fl-active" },
   Completed: { es: "Completado", cls: "fl-done" },
@@ -33,6 +34,21 @@ const STATE: Record<string, { es: string; cls: string }> = {
   Unspecified: { es: "—", cls: "" },
 };
 const METHOD: Record<string, { es: string; icon: string }> = {
+  // El detalle público de los trabajos por libre escribe el método en PascalCase (visto en vivo
+  // el 2026-09-22: «DeliverItem»); los proyectos de corp, en snake_case. Las dos formas entran.
+  // Los vistos en el tablón real el 22-09: DeliverItem · KillNPC · MineOre · CaptureFWComplex.
+  // Los demás, los mismos nombres que usan las Campañas Militares (misma familia de ESI).
+  DeliverItem: { es: "Entregar objeto", icon: "📦" },
+  KillNPC: { es: "Matar NPC", icon: "💥" },
+  MineOre: { es: "Minar", icon: "⛏️" },
+  CaptureFWComplex: { es: "Complejos de FW", icon: "◎" },
+  CaptureDefendFWComplex: { es: "Complejos de FW", icon: "◎" },
+  KillCapsuleer: { es: "Matar capsuleers", icon: "⚔️" },
+  DamageShip: { es: "Hacer daño", icon: "⚔️" },
+  HackSomething: { es: "Hackear", icon: "📡" },
+  CompleteAgentMission: { es: "Misiones de agente", icon: "🧑‍✈️" },
+  RemoteRepairArmorOrShield: { es: "Reparación remota", icon: "🛡️" },
+  Manufacture: { es: "Fabricar", icon: "🏭" },
   mine_material: { es: "Minar", icon: "⛏️" },
   deliver_item: { es: "Entregar objeto", icon: "📦" },
   destroy_ships: { es: "Destruir naves", icon: "💥" },
@@ -196,6 +212,18 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
   const isGlobal = subject === "global";
   const subjectId = typeof subject === "number" ? subject : 0;
   const [jobs, setJobs] = useState<FreelanceJob[] | null>(null);
+  // ★ El TABLÓN PÚBLICO (2026-09-22): sin scope, igual para todos los personajes. Se pide una vez
+  //   por visita y se pinta lo último conocido al instante.
+  const [board, setBoard] = useState<FreelanceJob[] | null>(cacheBoard);
+  const [boardOpen, setBoardOpen] = useState(false);
+  useEffect(() => {
+    invoke<FreelanceJob[]>("get_freelance_board")
+      .then((d) => {
+        cacheBoard = d;
+        setBoard(d);
+      })
+      .catch(() => setBoard((b) => b ?? []));
+  }, []);
   const [projects, setProjects] = useState<CorpProject[]>([]);
   const [personal, setPersonal] = useState<PersonalProject[]>([]);
   const [pName, setPName] = useState("");
@@ -586,6 +614,16 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
                         )}
                         {j.reward_remaining > 0 && <span>💰 {fmtIsk(j.reward_remaining)}</span>}
                         {j.expires && <span>⏳ {j.expires.slice(0, 10)}</span>}
+                        {/* ★ TU aportación (2026-09-22), tal cual la da ESI: un entero acumulado en la
+                            unidad del trabajo. Multiplicado por el ISK por unidad da lo que llevas
+                            ganado, y ESO sí es una cifra que se entiende. */}
+                        {j.contributed != null && (
+                          <span title={j.participation ?? ""}>
+                            👤 {tr("Tú")}: {j.contributed.toLocaleString()}
+                            {j.reward_per_contribution > 0 && ` · ${fmtIsk(j.contributed * j.reward_per_contribution)}`}
+                            {j.participation && j.participation !== "Committed" ? ` · ${j.participation}` : ""}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -661,6 +699,77 @@ export function FreelanceView({ subject }: { subject: number | "global" }) {
             <p className="muted small" style={{ marginTop: "0.8rem" }}>
               {tr("Sin trabajos por libre ni proyectos de corp todavía (o falta conceder el acceso al reloguear).")}
             </p>
+          )}
+        </>
+      )}
+
+      {/* ---- ★ EL TABLÓN PÚBLICO (2026-09-22) ---- Sin permisos y para todos: son los trabajos
+          que cualquiera puede aceptar desde el juego. Hasta hoy solo veías los que ya llevabas, así
+          que no había forma de DESCUBRIR uno desde Koru. Plegado por defecto: es un catálogo, no tu
+          lista. Los tuyos se marcan para no proponerte lo que ya estás haciendo. */}
+      {board && board.length > 0 && (
+        <>
+          <div className="bit-head">
+            <h4>
+              <button className="linklike" onClick={() => setBoardOpen((o) => !o)}>
+                {boardOpen ? "▾" : "▸"} 📜 {tr("Tablón público de trabajos por libre")}
+              </button>
+            </h4>
+            <span className="muted small">
+              {board.length} · {tr("abiertos a cualquiera, sin permiso")}
+            </span>
+          </div>
+          {boardOpen && (
+            <div className="fl-list">
+              {[...board]
+                .sort((a, b) => b.reward_remaining - a.reward_remaining)
+                .map((j) => {
+                  const pct = j.progress_desired > 0 ? Math.min(100, (j.progress_current / j.progress_desired) * 100) : 0;
+                  const mio = (jobs ?? []).some((x) => x.id === j.id);
+                  return (
+                    <div key={j.id} className={`fl-card ${mio ? "fl-active" : ""}`}>
+                      <div className="fl-head">
+                        <span className="fl-career" title={j.career}>
+                          {CAREER_TID[j.career] ? (
+                            <img className="type-ico" src={typeIcon(CAREER_TID[j.career], 32)} alt="" loading="lazy" />
+                          ) : (
+                            CAREER_ICON[j.career] ?? "📋"
+                          )}
+                        </span>
+                        <strong>{j.name || tr("Trabajo por libre")}</strong>
+                        <span className="fl-state">{mio ? tr("Ya participas") : tr(METHOD[j.method]?.es ?? j.method)}</span>
+                      </div>
+                      {j.description && <div className="muted small fl-desc">{cleanEveText(j.description)}</div>}
+                      {j.progress_desired > 0 && (
+                        <div className="fl-bar">
+                          <div className="fl-bar-fill" style={{ width: `${pct}%` }} />
+                        </div>
+                      )}
+                      <div className="fl-meta muted small">
+                        {j.progress_desired > 0 && (
+                          <span>
+                            {j.progress_current.toLocaleString()} / {j.progress_desired.toLocaleString()} · {pct.toFixed(0)}%
+                          </span>
+                        )}
+                        {j.reward_remaining > 0 && (
+                          <span title={tr("ISK que queda por repartir del total inicial")}>
+                            💰 {fmtIsk(j.reward_remaining)}
+                            {j.reward_initial > 0 && ` / ${fmtIsk(j.reward_initial)}`}
+                          </span>
+                        )}
+                        {j.reward_per_contribution > 0 && <span>{fmtIsk(j.reward_per_contribution)} {tr("por unidad")}</span>}
+                        {j.expires && <span>⏳ {j.expires.slice(0, 10)}</span>}
+                        {(j.creator_name || j.creator_corp) && (
+                          <span>
+                            🧑‍💼 {j.creator_name}
+                            {j.creator_corp ? ` · ${j.creator_corp}` : ""}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           )}
         </>
       )}

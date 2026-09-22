@@ -1024,6 +1024,15 @@ export type FreelanceJob = {
   progress_current: number;
   progress_desired: number;
   reward_remaining: number;
+  // Ampliado 2026-09-22 (detalle público + participación personal). Ver commands.rs.
+  reward_initial: number;
+  reward_per_contribution: number;
+  method: string;
+  creator_name: string;
+  creator_corp: string;
+  created: string;
+  contributed: number | null;
+  participation: string | null;
 };
 // Proyecto de corporación (Corporation Projects; scope de corp read_projects). Parse best-effort.
 export type CorpProject = {

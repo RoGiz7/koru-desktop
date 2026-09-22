@@ -8248,8 +8248,17 @@ tr.viva td:first-child::before {
   color: var(--fg-muted, #9aa4b2);
   font-size: 0.66rem;
 }
+/* La hora ACTUAL: antes solo cambiaba el color y a un golpe de vista no se distinguía del resto
+   (anotado el 19-09, hecho el 22-09). Negrita + un subrayado del mismo rosa que la celda. */
 .cz-calor-h.ahora {
   color: #ffd1f0;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 106, 213, 0.8);
+  text-underline-offset: 2px;
+}
+.cz-calor-fila.hoy .cz-calor-dia {
+  font-weight: 700;
 }
 .cz-calor-tot {
   flex: 0 0 2.2rem;

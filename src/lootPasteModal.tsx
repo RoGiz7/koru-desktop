@@ -92,8 +92,10 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
     }
   }, [open]);
 
-  // Red: los items que el pegado NO trajo con precio, pero que reconocimos (typeId), se valoran con
-  // los precios locales (los mismos que el resto de assets). El camino normal es la columna de EVE.
+  // Red: los items que el pegado NO trajo con precio, pero que reconocimos (typeId), se valoran a
+  // lo que te DARÍAN por ellos ahora: la mejor orden de compra en Jita (`get_hub_buy_prices`), que
+  // cae sola a la media global si no hay órdenes. Antes era la media de todo New Eden, que en botín
+  // de nicho se va por VECES (2026-09-22). El camino normal sigue siendo la columna de EVE.
   useEffect(() => {
     if (!parse) {
       setFallbackIsk(0);
@@ -107,7 +109,7 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
       return;
     }
     const ids = [...new Set(unpriced.map((i) => i.typeId as number))];
-    invoke<Record<number, number>>("get_type_prices", { ids })
+    invoke<Record<number, number>>("get_hub_buy_prices", { ids, regionId: null })
       .then((prices) => {
         let f = 0;
         for (const it of unpriced) {
@@ -207,7 +209,7 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
                            esta fila no cuenta, y sí cuenta — está dentro del total. */
                         <span
                           className="muted"
-                          title={tr("El pegado no traía precio: este lo pone Koru con sus precios locales. Sí cuenta en el total.")}
+                          title={tr("El pegado no traía precio: este es lo que te darían ahora en Jita (mejor orden de compra). Sí cuenta en el total.")}
                         >
                           ~{fmtIsk(preciosLocales[it.typeId] * it.qty)}
                         </span>

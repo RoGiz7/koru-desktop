@@ -4967,6 +4967,118 @@ pub struct FreelanceJob {
     pub progress_current: i64,
     pub progress_desired: i64,
     pub reward_remaining: f64,
+    // ★ Ampliado el 2026-09-22 (las dos rutas que él cazó en agosto). Lo de abajo sale del detalle
+    // público y se rellena también para los tuyos; `contributed`/`participation` solo para los tuyos.
+    pub reward_initial: f64,
+    /// ISK por unidad contribuida (`contribution.reward_per_contribution`).
+    pub reward_per_contribution: f64,
+    /// `configuration.method`: DeliverItem / MineMaterial / … (tal cual ESI).
+    pub method: String,
+    pub creator_name: String,
+    pub creator_corp: String,
+    pub created: String,
+    /// TU contribución acumulada (`/characters/{id}/freelance-jobs/{job}/participation`,
+    /// scope read_freelance_jobs — el mismo del listado). None = ruta no consultada o sin respuesta.
+    pub contributed: Option<i64>,
+    /// Committed / Kicked / Resigned / Unspecified (spec OpenAPI leída el 2026-09-22).
+    pub participation: Option<String>,
+}
+
+/// Mapea el detalle público de un trabajo (`/freelance-jobs/{id}`) al struct. Shape verificado
+/// en vivo el 2026-09-22: `details.{career,description,created,expires,creator.{character,
+/// corporation}.name}`, `progress.{current,desired}`, `reward.{initial,remaining}`,
+/// `configuration.method`, `contribution.reward_per_contribution`. Todo defensivo: un campo que
+/// falte sale vacío o a 0, nunca rompe.
+fn freelance_from_value(id: &str, v: &serde_json::Value) -> FreelanceJob {
+    let top = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let nst = |a: &str, b: &str| {
+        v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    };
+    let nin = |a: &str, b: &str| v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_i64()).unwrap_or(0);
+    let nfl = |a: &str, b: &str| v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let creador = |quien: &str| {
+        v.get("details")
+            .and_then(|d| d.get("creator"))
+            .and_then(|c| c.get(quien))
+            .and_then(|c| c.get("name"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    FreelanceJob {
+        id: id.to_string(),
+        name: top("name"),
+        state: top("state"),
+        career: nst("details", "career"),
+        description: nst("details", "description"),
+        expires: nst("details", "expires"),
+        progress_current: nin("progress", "current"),
+        progress_desired: nin("progress", "desired"),
+        reward_remaining: nfl("reward", "remaining"),
+        reward_initial: nfl("reward", "initial"),
+        reward_per_contribution: nfl("contribution", "reward_per_contribution"),
+        method: nst("configuration", "method"),
+        creator_name: creador("character"),
+        creator_corp: creador("corporation"),
+        created: nst("details", "created"),
+        contributed: None,
+        participation: None,
+    }
+}
+
+/// ★ El TABLÓN PÚBLICO: `/freelance-jobs` (sin scope), paginado por cursor `{after}`. Hoy solo ves
+/// los trabajos en los que ya participas; con esto se pueden DESCUBRIR. Verificado en vivo el
+/// 2026-09-22: `{cursor:{before,after}, freelance_jobs:[{id,name,state,progress,reward}]}`, y
+/// el detalle por id trae creador, método, ISK por unidad y expiración. Tope de páginas por si
+/// el cursor no acabara; hoy son una decena de trabajos.
+#[tauri::command]
+pub async fn get_freelance_board(state: State<'_, AppState>) -> AppResult<Vec<FreelanceJob>> {
+    let mut ids: Vec<String> = Vec::new();
+    let mut after: Option<String> = None;
+    let mut vistos: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for _ in 0..20 {
+        let path = match &after {
+            Some(a) if a.chars().all(|c| c.is_ascii_alphanumeric() || "._-=".contains(c)) => {
+                format!("/freelance-jobs?after={a}")
+            }
+            Some(_) => break,
+            None => "/freelance-jobs".to_string(),
+        };
+        let page = state
+            .esi
+            .get_cached::<serde_json::Value>(&state.db, 0, &path, None)
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        let items = page
+            .get("freelance_jobs")
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if items.is_empty() {
+            break;
+        }
+        for it in &items {
+            if let Some(id) = it.get("id").and_then(|x| x.as_str()) {
+                ids.push(id.to_string());
+            }
+        }
+        match page.get("cursor").and_then(|c| c.get("after")).and_then(|x| x.as_str()) {
+            Some(a) if vistos.insert(a.to_string()) => after = Some(a.to_string()),
+            _ => break,
+        }
+    }
+    let mut out = Vec::new();
+    for id in ids.iter().take(200) {
+        let detail = state
+            .esi
+            .get_cached::<serde_json::Value>(&state.db, 0, &format!("/freelance-jobs/{id}"), None)
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        if detail.is_object() {
+            out.push(freelance_from_value(id, &detail));
+        }
+    }
+    Ok(out)
 }
 
 /// Mis trabajos por libre (en los que participo). DOS pasos (confirmado con el código de
@@ -5017,26 +5129,24 @@ pub async fn get_freelance_jobs(
             .await
             .unwrap_or(serde_json::Value::Null);
         let v = if detail.is_object() { &detail } else { it };
-        let top = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
-        let nst = |a: &str, b: &str| {
-            v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_str()).unwrap_or("").to_string()
-        };
-        let nin =
-            |a: &str, b: &str| v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_i64()).unwrap_or(0);
-        let nfl = |a: &str, b: &str| {
-            v.get(a).and_then(|o| o.get(b)).and_then(|x| x.as_f64()).unwrap_or(0.0)
-        };
-        jobs.push(FreelanceJob {
-            id: id.to_string(),
-            name: top("name"),
-            state: top("state"),
-            career: nst("details", "career"),
-            description: nst("details", "description"),
-            expires: nst("details", "expires"),
-            progress_current: nin("progress", "current"),
-            progress_desired: nin("progress", "desired"),
-            reward_remaining: nfl("reward", "remaining"),
-        });
+        let mut job = freelance_from_value(id, v);
+        // ★ TU contribución (2026-09-22): mismo scope que el listado, cero relogin. Best-effort:
+        // si la ruta falla, el trabajo se enseña igual y la columna queda en blanco.
+        let part = state
+            .esi
+            .get_cached::<serde_json::Value>(
+                &state.db,
+                character_id,
+                &format!("/characters/{character_id}/freelance-jobs/{id}/participation"),
+                Some(&valid.access_token),
+            )
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        if part.is_object() {
+            job.contributed = part.get("contributed").and_then(|x| x.as_i64());
+            job.participation = part.get("state").and_then(|x| x.as_str()).map(|s| s.to_string());
+        }
+        jobs.push(job);
     }
     Ok(jobs)
 }
@@ -10462,6 +10572,43 @@ pub async fn get_hub_sell_prices(
         };
         let mejor = lista.into_iter().fold(f64::INFINITY, f64::min);
         if mejor.is_finite() && mejor > 0.0 {
+            out.insert(id, mejor);
+        } else if let Some(m) = medias.get(&id) {
+            out.insert(id, *m);
+        }
+    }
+    Ok(out)
+}
+
+/// Precio REAL de VENDER algo ahora mismo: la mejor orden de COMPRA en el hub. La otra mitad del
+/// criterio (2026-09-22): lo que COMPRAS se valora a `sell` del hub y lo que VENDES —el botín de
+/// una run, el Fabricator Data que cambiarías— a `buy`. La media global infla el botín de nicho
+/// igual que se quedaba corta con los filamentos; el error es de veces, no de céntimos. Misma
+/// red que la de venta: si no hay órdenes, cae a `average_price` antes que a cero.
+#[tauri::command]
+pub async fn get_hub_buy_prices(
+    ids: Vec<i64>,
+    region_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> AppResult<std::collections::HashMap<i64, f64>> {
+    let region = region_id.unwrap_or(10000002);
+    let hub = hub_station_for_region(region);
+    let medias = state.db.prices_map().unwrap_or_default();
+    let mut out = std::collections::HashMap::new();
+    for id in ids {
+        let buys = crate::esi::market::region_orders(&state.esi, &state.db, region, id, "buy").await;
+        let en_hub: Vec<f64> = buys
+            .iter()
+            .filter(|o| hub == 0 || o.location_id == hub)
+            .map(|o| o.price)
+            .collect();
+        let lista = if en_hub.is_empty() {
+            buys.iter().map(|o| o.price).collect::<Vec<f64>>()
+        } else {
+            en_hub
+        };
+        let mejor = lista.into_iter().fold(0.0_f64, f64::max);
+        if mejor > 0.0 {
             out.insert(id, mejor);
         } else if let Some(m) = medias.get(&id) {
             out.insert(id, *m);

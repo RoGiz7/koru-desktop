@@ -114,9 +114,10 @@ function leerPlan(): Manual[] {
 // MONEDA: cero LP, solo Data + ISK. Verificado contra `/loyalty/stores/1000298/offers/` el mismo
 // día: 5 ofertas (4 mutaplásmidos Radical y el libro Hybrid Drone Specialization).
 // Lo que decide un piloto es «¿vendo el Data en Jita o lo cambio?». Aquí se ponen las dos cifras
-// una al lado de la otra, ambas a precio de VENTA del hub (`get_hub_sell_prices`): lo que cuesta
-// comprar el mutaplásmido hecho frente a lo que vale el Data que te piden por él. Es la misma
-// aproximación que usan los filamentos; no es un precio de compra al instante y se dice.
+// una al lado de la otra, cada una con SU precio: el mutaplásmido hecho a lo que pagarías por él
+// (mejor orden de venta, `get_hub_sell_prices`) y el Data a lo que te darían (mejor orden de
+// compra, `get_hub_buy_prices`). Es el criterio de toda la app desde el 22-09: lo que compras a
+// venta, lo que vendes a compra.
 const FABRICATOR_DATA = 91773;
 const CORP_TIENDA_POCHVEN = 1000298;
 type OfertaLp = {
@@ -142,6 +143,7 @@ function TiendaFabricatorData() {
         const conData = all.filter((o) => o.required_items.some((r) => r.type_id === FABRICATOR_DATA));
         setOfertas(conData);
         const ids = [FABRICATOR_DATA, ...conData.map((o) => o.type_id)];
+        // `ids` solo para los nombres; los precios van por separado (venta / compra).
         loadJson<TipoMercado[]>("/market_types.json", [])
           .then((m) => {
             if (!vivo) return;
@@ -149,8 +151,13 @@ function TiendaFabricatorData() {
             setNombres(new Map(m.filter((t) => quiero.has(t.i)).map((t) => [t.i, t.n])));
           })
           .catch(() => {});
-        invoke<Record<number, number>>("get_hub_sell_prices", { ids, regionId: null })
-          .then((p) => vivo && setPrecios(p))
+        // Dos precios distintos a propósito: el objeto hecho a lo que PAGAS (mejor venta) y el
+        // Data a lo que te DAN por él (mejor compra). Valorar los dos a venta favorecía cambiarlo.
+        invoke<Record<number, number>>("get_hub_sell_prices", { ids: conData.map((o) => o.type_id), regionId: null })
+          .then((p) => vivo && setPrecios((prev) => ({ ...prev, ...p })))
+          .catch(() => {});
+        invoke<Record<number, number>>("get_hub_buy_prices", { ids: [FABRICATOR_DATA], regionId: null })
+          .then((p) => vivo && setPrecios((prev) => ({ ...prev, ...p })))
           .catch(() => {});
       })
       .catch(() => vivo && setError(true));
@@ -205,8 +212,8 @@ function TiendaFabricatorData() {
         </table>
       )}
       <p className="muted small">
-        {tr("Tienda de The Convocation of Triglav (Pochven), leída de ESI sin permisos. Sin LP: se paga con el Data del sitio más ISK. Las dos últimas columnas son a precio de venta en Jita: lo que costaría comprar el objeto ya hecho frente a lo que vale el Data que entregas. Se marca en verde la que sale mejor, sin contar el viaje a Pochven.")}
-        {precioData > 0 && ` ${tr("Ahora mismo el Fabricator Data se vende a")} ${fmtIsk(precioData)}.`}
+        {tr("Tienda de The Convocation of Triglav (Pochven), leída de ESI sin permisos. Sin LP: se paga con el Data del sitio más ISK. Las dos últimas columnas son de Jita: lo que costaría comprar el objeto ya hecho (mejor orden de venta) frente a lo que te darían por el Data que entregas (mejor orden de compra). Se marca en verde la que sale mejor, sin contar el viaje a Pochven.")}
+        {precioData > 0 && ` ${tr("Ahora mismo por el Fabricator Data te dan")} ${fmtIsk(precioData)}.`}
       </p>
     </div>
   );

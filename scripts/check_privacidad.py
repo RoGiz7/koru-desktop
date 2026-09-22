@@ -66,10 +66,19 @@ RAIZ = Path(__file__).resolve().parent.parent
 def objetivos_por_defecto() -> list[Path]:
     fuera = {"node_modules", "dist", "target", ".git", "documentacion"}
     salida = [RAIZ / "src" / "changelog.ts"]
-    for p in sorted(RAIZ.rglob("*.md")):
-        if any(parte in fuera for parte in p.relative_to(RAIZ).parts):
-            continue
-        salida.append(p)
+    # Se PODA al bajar, no se filtra después: `rglob` entraba en node_modules y target enteros
+    # antes de descartar (2 min 37 s en el sandbox el 2026-09-22; ahora, segundos).
+    pendientes = [RAIZ]
+    encontrados: list[Path] = []
+    while pendientes:
+        d = pendientes.pop()
+        for p in d.iterdir():
+            if p.is_dir():
+                if p.name not in fuera:
+                    pendientes.append(p)
+            elif p.suffix == ".md":
+                encontrados.append(p)
+    salida.extend(sorted(encontrados))
     return salida
 
 

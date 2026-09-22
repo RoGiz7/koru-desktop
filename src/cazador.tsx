@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getLang, tr } from "./i18n";
-import { fmtAgo, fmtSp, typeIcon } from "./format";
+import { fmtAgo, fmtSp, secColor, typeIcon } from "./format";
 import { Kpi } from "./charts";
 import { loadNewEden } from "./neweden";
 import { openExternal } from "./openExternal";
@@ -713,7 +713,7 @@ function FichaSistema({
           <button className="linklike" onClick={() => onSistema(id)} title={tr("Abrir la ficha del sistema")}>
             {sysNames.get(id) ?? `#${id}`}
           </button>
-          {i && <span className="muted small"> {i.s.toFixed(1)}</span>}
+          {i && <span className="small" style={{ color: secColor(i.s) }}> {i.s.toFixed(1)}</span>}
         </td>
         <td className="muted small">{act ? `${fmtSp(act.hostiles)} ${tr("hostiles")}` : ""}</td>
         <td className="muted small">{act ? fmtAgo(Date.now() - act.last_ms) : ""}</td>
@@ -729,7 +729,7 @@ function FichaSistema({
           <IconoEve tid={TID_SISTEMAS} size={24} /> {nombre}
           {info && (
             <span className="muted small cz-sys-sub">
-              {" "}· {info.region} · {info.s.toFixed(1)}
+              {" "}· {info.region} · <span style={{ color: secColor(info.s) }}>{info.s.toFixed(1)}</span>
             </span>
           )}
         </h3>
@@ -1245,7 +1245,7 @@ export function CazadorView({
         <div className="cazador-tools">
           <input
             className="cazador-search"
-            placeholder={modo === "hostiles" ? tr("Buscar hostil…") : tr("Buscar sistema o región…")}
+            placeholder={modo === "hostiles" ? tr("Nombre del hostil…") : tr("Sistema o región…")}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -1303,7 +1303,12 @@ export function CazadorView({
                       <span className="cazador-row-name">{sysNames.get(r.system_id) ?? `#${r.system_id}`}</span>
                       <span className="muted small">
                         {info?.region}
-                        {info && ` · ${info.s.toFixed(1)}`}
+                        {info && (
+                          <>
+                            {" · "}
+                            <span style={{ color: secColor(info.s) }}>{info.s.toFixed(1)}</span>
+                          </>
+                        )}
                         {` · ${fmtSp(r.hostiles)} ${tr("hostiles")} · ${fmtAgo(Date.now() - r.last_ms)}`}
                       </span>
                     </div>
