@@ -611,7 +611,9 @@ export type IntelParsed = {
    *  ⚠️ `sysId` NO SE USA todavía en ningún sitio: se guardó para poder descontar el sistema si la
    *  lectura larga ganaba, y eso nunca se llegó a escribir. Se deja porque el dato es correcto y
    *  la decisión sigue abierta — ver la nota de traspaso. */
-  pilotAlts: { corto: string; largo: string; sysId: number | null }[];
+  /** Las dos lecturas de un nombre que algo partió. `cola` solo viene cuando el que partía iba EN
+   *  MEDIO: es el trozo de detrás, que hay que retirar si gana la lectura larga. */
+  pilotAlts: { corto: string; largo: string; sysId: number | null; cola?: string }[];
   /** Regiones y constelaciones nombradas en la línea. Se recogen para no fichar a un piloto
    *  llamado «Delve» y porque «van hacia Delve» es un dato; todavía no se pinta en ningún sitio. */
   zones: Zona[];
@@ -752,7 +754,7 @@ export function classifyIntel(
   const addShip = (id: number, escrito: string) =>
     ships.push({ id, name: shipDisplay?.get(id) ?? escrito, escrito });
   const pilots: string[] = [];
-  const pilotAlts: { corto: string; largo: string; sysId: number | null }[] = [];
+  const pilotAlts: { corto: string; largo: string; sysId: number | null; cola?: string }[] = [];
   const zones: Zona[] = [];
   const seenZona = new Set<number>();
   const addZona = (w: Word) => {
@@ -979,6 +981,45 @@ export function classifyIntel(
               largo: `${buf.join(" ")} ${k.name!}`,
               sysId: k.id!,
             });
+          } else if (sigueNombre && !/\d/.test(k.name!)) {
+            // ★★ Y SI EL SISTEMA VA EN MEDIO DEL NOMBRE (2026-09-23). Lo destapó él con la ficha
+            //  in-game de un hostil de TRES palabras cuyo apellido del medio es un sistema real:
+            //
+            //      «Nombre Sistema Apellido»  →  DOS pilotos falsos + un sistema que nadie cantó
+            //
+            //  El reporte salía partido en tres personas (las dos mitades y el compañero que venía
+            //  detrás, ése bien leído), y encima mandaba el aviso a un sistema de highsec por el
+            //  que no había pasado nadie. Un nombre que falta cuesta poco; un SITIO inventado es de
+            //  los caros.
+            //
+            //  Aquí no se elige, igual que en el caso de arriba: «persona + dónde está + otra
+            //  persona» sigue siendo una lectura posible, así que la corta se queda tal cual y la
+            //  larga se PROPONE. Decide `name_cache`/ESI, que es quien puede comprobarlo, y desde
+            //  ese momento la línea se lee entera ella sola.
+            //
+            //  ⚠️ El largo se compone mirando hacia delante SOLO mientras las palabras parezcan
+            //  nombre y no las reclame el catálogo: en cuanto aparece una nave, otro sistema, jerga
+            //  o un contador, se para. Sin ese tope, «Fulano Jita Mengano en gate» se propondría
+            //  entero y estaríamos inventando un nombre de cinco palabras.
+            const cola: string[] = [];
+            for (let j = wi + 1; j < words.length; j++) {
+              const c = clean(words[j]);
+              if (!pareceNombre(c) || classifyWord(words[j]).kind !== "other") break;
+              cola.push(c);
+            }
+            if (cola.length) {
+              pilotAlts.push({
+                corto: buf.join(" "),
+                largo: [...buf, k.name!, ...cola].join(" "),
+                sysId: k.id!,
+                // ★ La COLA se guarda porque, si gana la lectura larga, hay que retirarla: el corte
+                //   en medio deja DOS pilotos (la cabeza y la cola) y el desenganche de abajo solo
+                //   sabía sustituir la cabeza. Sin esto la persona salía dos veces — una entera y
+                //   otra partida. Se guarda el trozo EXACTO en vez de deducirlo por palabras, para
+                //   no llevarse por delante a un compañero que se llame parecido.
+                cola: cola.join(" "),
+              });
+            }
           }
         }
         flush();
@@ -1090,6 +1131,13 @@ export function classifyIntel(
     // Y si no estaba —«CCTV» está en `noExisten` y se tiró—, la larga ENTRA: ese es el caso peor,
     // el de la persona que hoy se pierde entera y en silencio.
     else if (!pilots.includes(a.largo)) pilots.push(a.largo);
+    // ★ Y LA COLA, cuando el que partía el nombre iba EN MEDIO: ahí la lectura corta dejó dos
+    //   pilotos —la cabeza y la cola— y quedarse solo con sustituir la cabeza deja a la misma
+    //   persona dos veces en el mismo aviso, una entera y otra a medias.
+    if (a.cola) {
+      const j = pilots.indexOf(a.cola);
+      if (j >= 0) pilots.splice(j, 1);
+    }
   }
   // ★★ Y LO ÚLTIMO, LO QUE DIJO UNA PERSONA. Va al final porque manda sobre todo lo anterior: las
   //   reglas de arriba son buenas conjeturas, esto es un testigo que miró el reporte.

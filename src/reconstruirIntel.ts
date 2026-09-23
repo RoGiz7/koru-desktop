@@ -216,9 +216,47 @@ export async function aprenderNombresMinuscula(
    *  significado es «esto lo dijo ESI».
    *
    *  ⚠️ Y NO decide quién es una persona: solo decide **a quién no se le pregunta**. Un nombre que
-   *  no se pregunta se queda exactamente como está hoy. */
+   *  no se pregunta se queda exactamente como está hoy.
+   *
+   *  ★★ Y EL REFRÁN ERA FALSO: SÍ HAY PILOTOS CON DOS APELLIDOS (2026-09-23). Lo destapó él con la
+   *  ficha in-game de un hostil de TRES palabras cuyo apellido del MEDIO es un sistema real, así
+   *  que el reporte salía partido en dos personas —y en tres contando al compañero, que sí se leía
+   *  bien—. Desde hoy el troceador propone también ese caso (ver `intel.ts`, la rama del sistema en
+   *  medio), y esa propuesta llega aquí con una FORMA NUEVA: el mismo nombre corto puede recibir
+   *  `Nombre Apellido` en una línea y `Nombre Apellido Segundo` en otra, según lo que viniera
+   *  detrás. Con la regla a pelo, **eso son dos finales distintos y se descartaban los dos**: la
+   *  persona no se aprendía nunca y la propuesta nueva no habría servido de nada.
+   *
+   *  **Lo que separa los dos casos por construcción es la CONTENCIÓN:** si un final es prefijo por
+   *  PALABRAS del otro, no son dos apellidos — es el mismo nombre visto a medias, y se pregunta el
+   *  entero. Dos finales que acaban en sitios distintos no se contienen y se siguen descartando.
+   *
+   *  ⚠️ Prefijo por PALABRAS, no por caracteres: con `startsWith` pelado, un código de sistema
+   *  recortado se «contendría» en el entero y dos sitios distintos pasarían por el mismo nombre.
+   *
+   *  ⚠️ Y la lectura a medias tampoco se pregunta: con un solo final maximal se pregunta EL LARGO.
+   *  Preguntar la corta es la vía para atribuirle a otra persona real los avistamientos de ésta —
+   *  un nombre que falta cuesta poco, un nombre equivocado cuesta mucho.
+   *
+   *  🚨 Y LA LECCIÓN DEL DÍA, que casi cuela: esta regla se escribió PRIMERO, con un fixture hecho
+   *  a mano, y era un **no-op** — los tres sitios que proponían una lectura larga construían
+   *  siempre `corto + UNA palabra`, así que dos finales del mismo corto nunca podían contenerse.
+   *  Compilaba, pasaba su prueba y no hacía nada. Solo sirve ACOMPAÑADA del cambio de `intel.ts`
+   *  que genera la forma nueva. **Validar la función no es validar la entrada.** */
+  const esPrefijoDe = (a: string, b: string) => b.startsWith(`${a} `);
   const dudosos = new Set<string>();
-  for (const [, ls] of apellidos) if (ls.size >= 2) for (const l of ls) dudosos.add(l);
+  for (const [, ls] of apellidos) {
+    const todos = [...ls];
+    // Los finales que NO son prefijo de ningún otro: las lecturas COMPLETAS de este nombre.
+    const maximales = todos.filter((a) => !todos.some((b) => b !== a && esPrefijoDe(a, b)));
+    if (maximales.length >= 2) {
+      // Dos lecturas completas que no se contienen → el final es el sitio, no un apellido.
+      for (const l of todos) dudosos.add(l);
+    } else {
+      // Una sola lectura completa: se pregunta ÉSA y se descartan sus versiones a medias.
+      for (const l of todos) if (!maximales.includes(l)) dudosos.add(l);
+    }
+  }
   const candidatos = [...veces]
     .filter(([k, n]) => n >= MIN_VECES && !dudosos.has(k))
     .map(([k]) => k);
