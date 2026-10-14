@@ -101,11 +101,15 @@ def main() -> int:
     wanted = {int(s["i"]) for s in ships}
     print(f"Naves en ships.json: {len(wanted)}")
 
-    zips = glob.glob(os.path.join(DOCS, "sde-source", "*.zip"))
+    # El MÁS NUEVO, como el resto de scripts. Hasta el 2026-10-14 era `glob(...)[0]` sin ordenar:
+    # con varios zips en la carpeta cogía uno cualquiera (el más viejo, en la práctica), y la
+    # Akoman salió «sin capacidad» porque ese SDE aún no la tenía.
+    zips = sorted(glob.glob(os.path.join(DOCS, "sde-source", "*jsonl.zip")))
     if not zips:
-        print("ERROR: no encuentro el SDE en documentacion/sde-source/*.zip", file=sys.stderr)
+        print("ERROR: no encuentro el SDE en documentacion/sde-source/*jsonl.zip", file=sys.stderr)
         return 1
-    z = zipfile.ZipFile(zips[0])
+    print(f"SDE elegido: {os.path.basename(zips[-1])}")
+    z = zipfile.ZipFile(zips[-1])
 
     # 2. Bodega general, del propio tipo.
     cargo: dict[int, float] = {}
