@@ -12094,7 +12094,7 @@ button.cz-calor-h:hover,
 }
 .ped-titulo { font-weight: 600; }
 .ped-estado { margin-left: auto; }
-.ped-acciones { display: flex; gap: 0.25rem; align-items: center; }
+.ped-acciones { display: flex; gap: 0.25rem; align-items: center; margin-left: auto; }
 .ped-acciones .pp-add { padding: 0.1rem 0.4rem; }
 .ped-retrato {
   width: 20px;

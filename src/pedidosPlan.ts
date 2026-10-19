@@ -44,7 +44,8 @@ export type ProductionOrder = {
 export const ACTIVE: OrderStatus[] = ["pending", "in_progress"];
 
 /** Tu mejor copia de cada plano: ME para el cálculo, y si es original o cuántas runs te quedan. */
-export type OwnedBp = { me: number; bpo: boolean; runs: number };
+/** `te` = el mejor TE de tus copias de ese plano (P3: la duración del job). */
+export type OwnedBp = { me: number; te: number; bpo: boolean; runs: number };
 
 export type PlanInput = {
   orders: ProductionOrder[];
@@ -77,6 +78,11 @@ export type BuildLine = {
   /** Runs que te quedan si es copia (Infinity si es original). */
   bpRuns: number;
   depth: number;
+  /** TE con el que se calcula la duración (0 si no tienes el plano). */
+  te: number;
+  /** Índice (en `builds` del mismo pedido) del job que CONSUME lo que fabrica éste; null = es el
+   *  producto del pedido. P3 lo usa para no empezar un job antes de que acaben sus componentes. */
+  parent: number | null;
 };
 
 /** Un material que hace falta: lo que sale del stock y lo que falta. */
@@ -184,7 +190,7 @@ export function planOrders(inp: PlanInput): PlanResult {
       m.set(tid, cur);
     };
 
-    const walk = (tid: number, qty: number, depth: number) => {
+    const walk = (tid: number, qty: number, depth: number, parent: number | null) => {
       if (qty <= 0) return;
       // 1) Stock primero, en cualquier nivel (también el producto final ya hecho).
       const { h, e, rest } = take(tid, qty);
@@ -226,14 +232,17 @@ export function planOrders(inp: PlanInput): PlanResult {
         me,
         bpRuns: ob ? (ob.bpo ? Infinity : ob.runs) : 0,
         depth,
+        te: ob?.te ?? 0,
+        parent,
       });
+      const yo = builds.length - 1;
       // Lo que sobra de la última run vuelve al stock de la instalación (se fabrica ahí).
       const surplus = runs * outQty - rest;
       if (surplus > 0) here.set(tid, (here.get(tid) ?? 0) + surplus);
-      for (const [mt, base] of act.in) walk(mt, matQty(base, runs, f), depth + 1);
+      for (const [mt, base] of act.in) walk(mt, matQty(base, runs, f), depth + 1, yo);
     };
 
-    walk(order.product_type_id, order.qty, 0);
+    walk(order.product_type_id, order.qty, 0, null);
 
     const needList = [...needs.values()];
     for (const n of needList) {

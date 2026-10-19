@@ -9,7 +9,7 @@
 // `pedidosPlan.ts`. Rust solo guarda los pedidos. Lo que esta fase NO hace —de dónde sacar cada
 // cosa que falta, lotes con su redondeo conjunto, slots y fechas— se dice en pantalla: son P2 y P3.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { tr, getLang } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
@@ -18,11 +18,21 @@ import { loadJson } from "./staticJson";
 import { loadNewEden } from "./neweden";
 import { parseIskShorthand, iskCorto } from "./isk";
 import { AnclarPiloto } from "./notas";
-import { makeBonosFor } from "./industry";
+import { makeBonosFor, makeTimeFor } from "./industry";
+import {
+  programar,
+  INDUSTRY_SKILL,
+  ADV_INDUSTRY_SKILL,
+  MASS_PRODUCTION,
+  ADV_MASS_PRODUCTION,
+  type Fabricante,
+  type Calendario,
+  type FechaPedido,
+} from "./pedidosCalendario";
 import { ObtencionBlock } from "./pedidosObtencion";
 import type { Tab } from "./constants";
 import type { BpIndustry, BpTree, IndustryRigs, Facility } from "./industry";
-import type { Blueprint } from "./types";
+import type { Blueprint, JobView } from "./types";
 import {
   planOrders,
   sortOrders,
@@ -40,6 +50,8 @@ type StockRow = { type_id: number; quantity: number; location_id: number };
 /** La misma clave que el panel de Fabricación: la última instalación elegida es una preferencia,
  *  y si ya calculas en un Sotiyo allí, aquí empiezas en el mismo. */
 const PICK_KEY = "koru_bom_facility";
+/** P3: tamaño máximo de cada parte de un job largo, en horas (0 = no trocear). Preferencia. */
+const CHUNK_KEY = "koru_ped_trozo";
 
 const STATUS: { k: OrderStatus; label: string }[] = [
   { k: "pending", label: "Pendiente" },
@@ -106,6 +118,18 @@ export function PedidosSection({
   const [form, setForm] = useState<ProductionOrder | null>(null);
   const [abierto, setAbierto] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
+  // P3 — calendario: skills de todos tus personajes, jobs de fabricación en marcha y el troceo.
+  const [chars, setChars] = useState<Fabricante[] | null>(null);
+  const [enMarcha, setEnMarcha] = useState<JobView[]>([]);
+  const [chunkH, setChunkH] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem(CHUNK_KEY);
+      return v != null && !isNaN(Number(v)) ? Number(v) : 24;
+    } catch {
+      return 24;
+    }
+  });
+  const [verTodos, setVerTodos] = useState(false);
 
   const recargar = () =>
     invoke<ProductionOrder[]>("orders_list")
@@ -180,8 +204,9 @@ export function PedidosSection({
   const owned = useMemo(() => {
     const m = new Map<number, OwnedBp>();
     for (const b of bps ?? []) {
-      const cur = m.get(b.type_id) ?? { me: b.me, bpo: false, runs: 0 };
+      const cur = m.get(b.type_id) ?? { me: b.me, te: b.te, bpo: false, runs: 0 };
       cur.me = Math.max(cur.me, b.me);
+      cur.te = Math.max(cur.te, b.te);
       if (b.runs === -1) cur.bpo = true;
       else if (b.runs > 0) cur.runs += b.runs;
       m.set(b.type_id, cur);
@@ -196,6 +221,7 @@ export function PedidosSection({
     return (sys ?? []).find((x) => x.id === st.system_id)?.s ?? null;
   }, [st, sys]);
   const bonosFor = useMemo(() => makeBonosFor(st, ir, sec, es), [st, ir, sec, es]);
+  const timeFor = useMemo(() => makeTimeFor(st, ir, sec), [st, ir, sec]);
 
   const stockAll = useMemo(() => {
     const m = new Map<number, number>();
@@ -284,6 +310,45 @@ export function PedidosSection({
 
   const falta = plan ? iskDe(plan.missingTotal) : { s: 0, sinPrecio: 0 };
   const empezables = plan?.plans.filter((p) => p.canStart).length ?? 0;
+
+  // P3: skills de TODOS tus personajes (velocidad, ranuras y las que piden los planos del plan) y
+  // los jobs de fabricación que ya ocupan ranuras. Se cargan cuando hay plan.
+  const skillIds = useMemo(() => {
+    const s = new Set<number>([INDUSTRY_SKILL, ADV_INDUSTRY_SKILL, MASS_PRODUCTION, ADV_MASS_PRODUCTION]);
+    for (const p of plan?.plans ?? [])
+      for (const b of p.builds) for (const [sk] of ind?.[String(b.bp)]?.m?.sk ?? []) s.add(sk);
+    return [...s].sort((a, b) => a - b);
+  }, [plan, ind]);
+  const skillKey = skillIds.join(",");
+  useEffect(() => {
+    if (!plan || plan.plans.length === 0) return;
+    invoke<Fabricante[]>("get_skill_levels_all", { ids: skillKey.split(",").map(Number) })
+      .then(setChars)
+      .catch(() => setChars([]));
+    invoke<JobView[]>("get_industry_global")
+      .then(setEnMarcha)
+      .catch(() => setEnMarcha([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skillKey]);
+
+  const cal: Calendario | null = useMemo(() => {
+    if (!plan || !ind || !chars || chars.length === 0) return null;
+    // En Global se reparten entre todos; con un personaje elegido, solo entre él.
+    const quien = subject === "global" ? chars : chars.filter((c) => c.character_id === subject);
+    if (quien.length === 0) return null;
+    const ahora = Date.now();
+    const porNombre = new Map(chars.map((c) => [c.name, c.character_id]));
+    const ocupado = new Map<number, number[]>();
+    for (const j of enMarcha) {
+      if (j.activity !== "Manufacturing" || !j.end_date || !j.character) continue;
+      const fin = Date.parse(j.end_date);
+      const id = porNombre.get(j.character);
+      if (id == null || !(fin > ahora)) continue;
+      if (!ocupado.has(id)) ocupado.set(id, []);
+      ocupado.get(id)!.push(fin);
+    }
+    return programar({ plans: plan.plans, ind, tree, timeFor, chars: quien, ocupado, ahora, chunkH });
+  }, [plan, ind, tree, chars, enMarcha, subject, timeFor, chunkH]);
 
   return (
     <div className="ped">
@@ -398,6 +463,7 @@ export function PedidosSection({
                     )}
                   </span>
                   <FechaEntrega d={o.due_date} />
+                  {cal && o.id != null && <Eta f={cal.fechas.get(o.id)} due={o.due_date} />}
                   {o.price != null && <span className="small muted">{fmtIsk(o.price)}</span>}
                   <span className="ped-estado">
                     <PlanBadge p={p} />
@@ -438,6 +504,26 @@ export function PedidosSection({
               </div>
             );
           })}
+
+          {plan && plan.buildTotal.size > 0 && (
+            <CalendarioBlock
+              cal={cal}
+              cargando={chars == null}
+              chunkH={chunkH}
+              setChunkH={(v) => {
+                setChunkH(v);
+                try {
+                  localStorage.setItem(CHUNK_KEY, String(v));
+                } catch {
+                  /* preferencia */
+                }
+              }}
+              verTodos={verTodos}
+              setVerTodos={setVerTodos}
+              nameOf={nameOf}
+              conInstalacion={st != null}
+            />
+          )}
 
           {plan && plan.buildTotal.size > 0 && (
             <>
@@ -888,5 +974,154 @@ function FormPedido({
         {!o.product_type_id && <span className="muted small">{tr("Elige el producto de la lista")}</span>}
       </div>
     </div>
+  );
+}
+
+/** Fecha corta local: «24 oct 11:18». */
+function fechaCorta(ms: number): string {
+  return new Date(ms).toLocaleString(getLang() === "es" ? "es-ES" : "en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** La fecha estimada de un pedido, comparada con la de entrega. */
+function Eta({ f, due }: { f: FechaPedido | undefined; due: string | null }) {
+  if (!f) return null;
+  if (f.fin == null)
+    return (
+      <span className="small ped-aviso" title={tr("Ninguno de tus personajes tiene las skills que piden algunos planos")}>
+        ⏱ {tr("sin fabricante para")} {f.sinFabricante} {tr("jobs")}
+      </span>
+    );
+  let veredicto: ReactNode = null;
+  if (due) {
+    const limite = Date.parse(`${due}T23:59:59Z`);
+    if (isFinite(limite)) {
+      const dias = Math.ceil((f.fin - limite) / 86_400_000);
+      veredicto =
+        f.fin <= limite ? (
+          <span className="ped-si"> ✓</span>
+        ) : (
+          <span className="ped-no">
+            {" "}
+            · {dias} {tr("d tarde")}
+          </span>
+        );
+    }
+  }
+  return (
+    <span className="small" title={tr("Fecha estimada contando desde que tengas los materiales que faltan")}>
+      ⏱ {tr("listo")} ~{fechaCorta(f.fin)}
+      {veredicto}
+    </span>
+  );
+}
+
+function CalendarioBlock({
+  cal,
+  cargando,
+  chunkH,
+  setChunkH,
+  verTodos,
+  setVerTodos,
+  nameOf,
+  conInstalacion,
+}: {
+  cal: Calendario | null;
+  cargando: boolean;
+  chunkH: number;
+  setChunkH: (v: number) => void;
+  verTodos: boolean;
+  setVerTodos: (v: boolean) => void;
+  nameOf: (t: number) => string;
+  conInstalacion: boolean;
+}) {
+  const LIMITE = 40;
+  const jobs = cal?.jobs ?? [];
+  const visibles = verTodos ? jobs : jobs.slice(0, LIMITE);
+  const fin = jobs.length ? Math.max(...jobs.map((j) => j.fin)) : null;
+  return (
+    <>
+      <h4>⏱ {tr("Calendario de fabricación")}</h4>
+      <p className="muted small">
+        {tr("Reparte los jobs de todos los pedidos entre tus personajes: cada uno con sus ranuras de fabricación (1 + Mass Production + Advanced Mass Production), descontando las que ya tienes ocupadas, y solo quien tiene las skills que pide el plano. Un job no empieza hasta que acaban sus componentes. Las fechas cuentan desde que tengas los materiales que faltan: ni las compras, ni la minería, ni el transporte entran todavía.")}
+        {!conInstalacion && ` ${tr("Sin instalación elegida, las duraciones van sin bonos de estructura ni rigs.")}`}
+      </p>
+      <p className="small">
+        {tr("Trocear jobs largos en partes de")}{" "}
+        <select value={chunkH} onChange={(e) => setChunkH(Number(e.target.value))}>
+          <option value={0}>{tr("no trocear")}</option>
+          <option value={12}>12 h</option>
+          <option value={24}>1 {tr("día")}</option>
+          <option value={72}>3 {tr("días")}</option>
+          <option value={168}>7 {tr("días")}</option>
+        </select>
+        {cal && (
+          <span className="muted">
+            {" "}
+            ·{" "}
+            {cal.ranuras
+              .map((r) => `${r.name}: ${r.total} ${tr("ranuras")}${r.ocupadas ? ` (${r.ocupadas} ${tr("ocupadas")})` : ""}`)
+              .join(" · ")}
+          </span>
+        )}
+      </p>
+      {cargando ? (
+        <p className="muted small">{tr("Cargando…")}</p>
+      ) : !cal ? (
+        <p className="muted small">{tr("No hay personajes con las skills de fabricación cargadas para repartir los jobs.")}</p>
+      ) : (
+        <>
+          {fin != null && (
+            <p className="small">
+              {fmtSp(jobs.length)} {tr("jobs")} · {tr("todo listo hacia")} <strong>{fechaCorta(fin)}</strong>
+            </p>
+          )}
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Empieza")}</th>
+                <th>{tr("Termina")}</th>
+                <th>{tr("Producto")}</th>
+                <th className="num">{tr("Runs")}</th>
+                <th>{tr("Pedido")}</th>
+                <th>{tr("Personaje")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibles.map((j, i) => (
+                <tr key={i}>
+                  <td className="small">{fechaCorta(j.inicio)}</td>
+                  <td className="small">{fechaCorta(j.fin)}</td>
+                  <td>
+                    <img className="kind-glyph" src={typeIcon(j.tid, 32)} alt="" /> {nameOf(j.tid)}
+                    {j.partes > 1 && <span className="muted small"> ({j.parte}/{j.partes})</span>}
+                    {j.sinPlano && <span className="ped-aviso small"> · {tr("no lo tienes")}</span>}
+                  </td>
+                  <td className="num">{fmtSp(j.runs)}</td>
+                  <td className="small">{j.orderName}</td>
+                  <td className="small">
+                    <img
+                      className="ped-retrato"
+                      src={`https://images.evetech.net/characters/${j.charId}/portrait?size=32`}
+                      alt=""
+                    />{" "}
+                    {j.charName}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {jobs.length > LIMITE && (
+            <button className="linklike small" onClick={() => setVerTodos(!verTodos)}>
+              {verTodos ? tr("Ver menos") : `${tr("Ver los")} ${jobs.length} ${tr("jobs")}`}
+            </button>
+          )}
+        </>
+      )}
+    </>
   );
 }

@@ -1427,6 +1427,34 @@ export function makeBonosFor(
   };
 }
 
+/** P3 de Pedidos — factor de TIEMPO de fabricación de una ficha, por producto (categoría + grupo).
+ *  Fórmula verificada en F1 contra el juego (fixture Bantam en Sotiyo de null, 18:53 al segundo):
+ *  t = t_base × runs × (1 − TE/100) × skills × Π(1 + rig_tiempo × seguridad / 100) × estructura.
+ *  Esto devuelve la parte de la INSTALACIÓN (rigs que aplican a ese producto × estructura); TE y
+ *  skills los pone quien llama. Qué rig aplica se decide con el mismo `aff` que el material.
+ *  Sin ficha o sin planta → 1 (sin bonos), que es lo honesto: no se inventa una estructura. */
+export function makeTimeFor(
+  st: Facility | null,
+  ir: IndustryRigs | null,
+  sec: number | null,
+): (cat: number | null, grp: number | null) => number {
+  if (!st || !st.has_mfg || !ir) return () => 1;
+  const sd = st.type_id != null ? ir.structures[String(st.type_id)] : null;
+  const band = sec != null ? secBand(sec) : "hi";
+  return (cat, grp) => {
+    let f = sd?.time ?? 1;
+    for (const id of st.rigs) {
+      const r = ir.rigs[String(id)];
+      if (!r || !r.time) continue;
+      const aplica = r.aff
+        ? (cat != null && r.aff.c.includes(cat)) || (grp != null && r.aff.g.includes(grp))
+        : cat != null && r.scopes.some((sc) => SCOPE_CAT[sc]?.includes(cat));
+      if (aplica) f *= 1 + (r.time * (r.sec[band] ?? 1)) / 100;
+    }
+    return f;
+  };
+}
+
 function BomPanel({
   bp,
   owned,
