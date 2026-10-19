@@ -19,6 +19,30 @@ import { loadJson } from "./staticJson";
 
 export type Via = "comprar" | "lp" | "reaccionar" | "minar" | "pi" | "traer";
 
+/** Iconografía de EVE para Pedidos (regla de la casa: el objeto del juego antes que el emoji).
+ *  typeIDs verificados contra public/market_types.json, y los mismos conceptos que ya usa la app:
+ *  PLEX = comprar y Badger = transportar (BOM de Fabricación), Station Container = tu hangar
+ *  (Notas), Veldspar = minar (grupo Industria), planta Standup = fabricar y reactor = reaccionar
+ *  (pestañas de Fabricación). Nuevos aquí: Contracting = los pedidos, Mass Production = el
+ *  calendario (es la skill de las ranuras) y un Command Center = planetología.
+ *  El LP se queda en emoji: los Loyalty Token son de UNA facción, y el LP no es de ninguna. */
+export const TID = {
+  pedidos: 25235, // Contracting (skillbook)
+  fabricar: 35878, // Standup Manufacturing Plant I
+  reaccionar: 45537, // Standup Composite Reactor I
+  comprar: 44992, // PLEX
+  traer: 648, // Badger
+  hangar: 17366, // Station Container
+  minar: 1230, // Veldspar
+  pi: 2254, // Temperate Command Center
+  calendario: 3387, // Mass Production (skillbook)
+} as const;
+
+/** Un icono de EVE alineado con el texto. */
+export function Glifo({ t, s = 16 }: { t: number; s?: number }) {
+  return <img className="ped-glifo" src={typeIcon(t, 32)} width={s} height={s} alt="" />;
+}
+
 const VIA: Record<Via, { icon: string; label: string; tab: Tab }> = {
   comprar: { icon: "🛒", label: "Comprar", tab: "comercio_watch" },
   lp: { icon: "🎖️", label: "LP", tab: "lealtad" },
@@ -387,14 +411,16 @@ export function ObtencionBlock({
 
   return (
     <>
-      <h4>🧭 {tr("Lo que falta, entre todos los pedidos — y de dónde sacarlo")}</h4>
+      <h4>
+        <Glifo t={TID.comprar} s={20} /> {tr("Lo que falta, entre todos los pedidos — y de dónde sacarlo")}
+      </h4>
       <p className="muted small">
         {tr("Koru propone las vías con sus números y tú decides. La decisión vale para ese material en todos los pedidos y se recuerda.")}{" "}
         {jita == null && tr("Consultando precios de Jita…")}
       </p>
       {hayMinar && (
         <p className="small muted">
-          ⛏️ {tr("Rendimiento de reprocesado")}{" "}
+          <Glifo t={TID.minar} /> {tr("Rendimiento de reprocesado")}{" "}
           <input
             type="number"
             min={50}
@@ -420,7 +446,7 @@ export function ObtencionBlock({
         </span>
         {resumen.comprarN > 0 && (
           <span>
-            🛒 {tr("Decidido comprar")}: <strong>{fmtIsk(resumen.comprarIsk)}</strong> · {fmtSp(resumen.comprarN)} {tr("tipos")} · {fmtSp(Math.round(resumen.comprarM3))} m³
+            <Glifo t={TID.comprar} /> {tr("Decidido comprar")}: <strong>{fmtIsk(resumen.comprarIsk)}</strong> · {fmtSp(resumen.comprarN)} {tr("tipos")} · {fmtSp(Math.round(resumen.comprarM3))} m³
             {resumen.sinPrecio > 0 && ` · ${resumen.sinPrecio} ${tr("sin precio")}`}
           </span>
         )}
@@ -432,7 +458,8 @@ export function ObtencionBlock({
         {(["minar", "pi", "reaccionar"] as Via[]).map((v) =>
           resumen.cuenta.get(v) ? (
             <span key={v}>
-              {VIA[v].icon} {tr(VIA[v].label)}: {resumen.cuenta.get(v)} {tr("tipos")}
+              <Glifo t={v === "minar" ? TID.minar : v === "pi" ? TID.pi : TID.reaccionar} /> {tr(VIA[v].label)}:{" "}
+              {resumen.cuenta.get(v)} {tr("tipos")}
             </span>
           ) : null,
         )}
@@ -448,7 +475,9 @@ export function ObtencionBlock({
             <th>{tr("Material")}</th>
             <th className="num">{tr("Cantidad")}</th>
             <th className="num">m³</th>
-            <th className="num">🛒 {tr("Jita (venta)")}</th>
+            <th className="num">
+              <Glifo t={TID.comprar} /> {tr("Jita (venta)")}
+            </th>
             <th>🎖️ {tr("Por LP")}</th>
             <th>{tr("Producirlo tú")}</th>
             <th>{tr("De dónde")}</th>
@@ -560,7 +589,7 @@ function Producirlo({
             : tr("No hay minería tuya de esa mena: no se puede estimar el tiempo")
         }
       >
-        ⛏️ ~{fmtSp(Math.round(e.m3))} m³ {e.oreName}
+        <Glifo t={e.ore} s={14} /> ~{fmtSp(Math.round(e.m3))} m³ {e.oreName}
         {e.dias != null ? (
           <> · <strong>~{e.dias < 1 ? "<1" : fmtSp(Math.ceil(e.dias))} {tr("d")}</strong></>
         ) : (

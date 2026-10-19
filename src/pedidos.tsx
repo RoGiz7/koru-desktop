@@ -29,7 +29,7 @@ import {
   type Calendario,
   type FechaPedido,
 } from "./pedidosCalendario";
-import { ObtencionBlock } from "./pedidosObtencion";
+import { ObtencionBlock, Glifo, TID } from "./pedidosObtencion";
 import type { Tab } from "./constants";
 import type { BpIndustry, BpTree, IndustryRigs, Facility } from "./industry";
 import type { Blueprint } from "./types";
@@ -414,7 +414,7 @@ export function PedidosSection({
 
       <div className="ped-barra">
         <label className="small">
-          🏭 {tr("Calcular con la instalación")}{" "}
+          <Glifo t={TID.fabricar} /> {tr("Calcular con la instalación")}{" "}
           <select
             value={st?.id ?? ""}
             onChange={(e) => {
@@ -473,7 +473,9 @@ export function PedidosSection({
             <Kpi label={tr("A traer de otros hangares")} value={`${fmtSp(Math.round(m3De(plan?.bringTotal ?? new Map())))} m³`} />
           </div>
 
-          <h4>📋 {tr("Pedidos, en el orden en que se reparten el stock")}</h4>
+          <h4>
+            <Glifo t={TID.pedidos} s={20} /> {tr("Pedidos, en el orden en que se reparten el stock")}
+          </h4>
           {sortOrders(activos).map((o) => {
             const p = o.id != null ? planDe.get(o.id) : undefined;
             const abi = o.id != null && abierto.has(o.id);
@@ -586,7 +588,9 @@ export function PedidosSection({
 
           {plan && plan.buildTotal.size > 0 && (
             <>
-              <h4>🔧 {tr("Fabricar en total")}</h4>
+              <h4>
+                <Glifo t={TID.fabricar} s={20} /> {tr("Fabricar en total")}
+              </h4>
               <p className="muted small">
                 {tr("Los jobs de todos los pedidos sumados por producto. Cuando un componente lo piden varios pedidos, aquí se ve junto; el redondeo conjunto en un solo job llega con la fase de lotes.")}
               </p>
@@ -634,7 +638,11 @@ export function PedidosSection({
           )}
           {plan && plan.bringTotal.size > 0 && (
             <TablaTipos
-              titulo={`📦 ${tr("Lo tienes, pero en otro sitio: hay que traerlo")}`}
+              titulo={
+                <>
+                  <Glifo t={TID.traer} s={20} /> {tr("Lo tienes, pero en otro sitio: hay que traerlo")}
+                </>
+              }
               nota={tr("Stock tuyo que los pedidos usan y que no está en la instalación elegida.")}
               m={plan.bringTotal}
               nameOf={nameOf}
@@ -711,11 +719,16 @@ function recienEntregado(p: OrderPlan): boolean {
 
 function PlanBadge({ p }: { p: OrderPlan | undefined }) {
   if (!p) return null;
-  if (p.enHangar) return <span className="ped-si small">📦 {tr("Ya está en tus hangares")}</span>;
+  if (p.enHangar)
+    return (
+      <span className="ped-si small">
+        <Glifo t={TID.hangar} s={14} /> {tr("Ya está en tus hangares")}
+      </span>
+    );
   if (recienEntregado(p))
     return (
       <span className="ped-si small" title={tr("Recogido en el juego; la foto de assets de ESI tarda hasta una hora en reflejarlo")}>
-        📦 {tr("Entregado: llegando a tu hangar")}
+        <Glifo t={TID.hangar} s={14} /> {tr("Entregado: llegando a tu hangar")}
       </span>
     );
   if (p.noRecipe) return <span className="ped-aviso small">⚠ {tr("no hay plano que lo fabrique")}</span>;
@@ -725,16 +738,32 @@ function PlanBadge({ p }: { p: OrderPlan | undefined }) {
   if (p.canStart)
     return (
       <span className="ped-si small">
-        {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}
-        {entregados > 0 && <span className="ped-horno">📦 {fmtSp(entregados)} {tr("entregados")} · </span>}✅{" "}
+        {enHorno > 0 && (
+          <span className="ped-horno">
+            <Glifo t={TID.fabricar} s={14} /> {enHorno} {tr("en marcha")} ·{" "}
+          </span>
+        )}
+        {entregados > 0 && (
+          <span className="ped-horno">
+            <Glifo t={TID.hangar} s={14} /> {fmtSp(entregados)} {tr("entregados")} ·{" "}
+          </span>
+        )}✅{" "}
         {p.builds.length === 0 ? tr("Solo falta que acaben los jobs") : tr("Se puede empezar")}
       </span>
     );
   const faltan = p.needs.filter((n) => n.missing > 0).length;
   return (
     <span className="small">
-      {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}
-      {entregados > 0 && <span className="ped-horno">📦 {fmtSp(entregados)} {tr("entregados")} · </span>}
+      {enHorno > 0 && (
+          <span className="ped-horno">
+            <Glifo t={TID.fabricar} s={14} /> {enHorno} {tr("en marcha")} ·{" "}
+          </span>
+        )}
+      {entregados > 0 && (
+          <span className="ped-horno">
+            <Glifo t={TID.hangar} s={14} /> {fmtSp(entregados)} {tr("entregados")} ·{" "}
+          </span>
+        )}
       {!p.rootOwned && <span className="ped-aviso">⚠ {tr("sin el plano (estimado con ME 0)")} · </span>}
       {p.shortRuns.length > 0 && <span className="ped-aviso">⚠ {tr("copia sin runs suficientes")} · </span>}
       {faltan > 0 ? (
@@ -769,7 +798,7 @@ function DetallePlan({
     <div className="ped-detalle">
       {p.covered.some((c) => c.fromHere + c.fromElsewhere > 0) && (
         <p className="small">
-          ♻️ {tr("Ya lo tienes hecho")}:{" "}
+          <Glifo t={TID.hangar} s={14} /> {tr("Ya lo tienes hecho")}:{" "}
           {p.covered
             .filter((c) => c.fromHere + c.fromElsewhere > 0)
             .map((c) => `${nameOf(c.tid)} ×${fmtSp(c.fromHere + c.fromElsewhere)}`)
@@ -778,7 +807,7 @@ function DetallePlan({
       )}
       {p.enMarcha.length > 0 && (
         <p className="small">
-          🏭 {tr("En marcha (jobs ya lanzados)")}:{" "}
+          <Glifo t={TID.fabricar} s={14} /> {tr("En marcha (jobs ya lanzados)")}:{" "}
           {p.enMarcha
             .map(
               (w) =>
@@ -795,7 +824,9 @@ function DetallePlan({
       )}
       {p.builds.length > 0 && (
         <>
-          <h5>🔧 {tr("Jobs de este pedido")}</h5>
+          <h5>
+            <Glifo t={TID.fabricar} /> {tr("Jobs de este pedido")}
+          </h5>
           <table className="km-table cat-table">
             <thead>
               <tr>
@@ -886,7 +917,7 @@ function TablaTipos({
   vols,
   onDonde,
 }: {
-  titulo: string;
+  titulo: ReactNode;
   nota: string;
   m: Map<number, number>;
   nameOf: (t: number) => string;
@@ -1122,7 +1153,7 @@ function Eta({ f, due }: { f: FechaPedido | undefined; due: string | null }) {
   }
   return (
     <span className="small" title={tr("Fecha estimada contando desde que tengas los materiales que faltan")}>
-      ⏱ {tr("listo")} ~{fechaCorta(f.fin)}
+      <Glifo t={TID.calendario} s={14} /> {tr("listo")} ~{fechaCorta(f.fin)}
       {veredicto}
     </span>
   );
@@ -1153,7 +1184,9 @@ function CalendarioBlock({
   const fin = jobs.length ? Math.max(...jobs.map((j) => j.fin)) : null;
   return (
     <>
-      <h4>⏱ {tr("Calendario de fabricación")}</h4>
+      <h4>
+        <Glifo t={TID.calendario} s={20} /> {tr("Calendario de fabricación")}
+      </h4>
       <p className="muted small">
         {tr("Reparte los jobs de todos los pedidos entre tus personajes: cada uno con sus ranuras de fabricación (1 + Mass Production + Advanced Mass Production), descontando las que ya tienes ocupadas, y solo quien tiene las skills que pide el plano. Un job no empieza hasta que acaban sus componentes. Las fechas cuentan desde que tengas los materiales que faltan: ni las compras, ni la minería, ni el transporte entran todavía.")}
         {!conInstalacion && ` ${tr("Sin instalación elegida, las duraciones van sin bonos de estructura ni rigs.")}`}

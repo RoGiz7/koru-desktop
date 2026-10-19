@@ -12167,3 +12167,6 @@ button.cz-calor-h:hover,
 /* Pedidos P4: lo que ya está en el horno y los cambios de estado que Koru propone. */
 .ped-horno { color: #58a6ff; }
 .ped-sugiere { margin-left: 0.4rem; border-color: rgba(63, 185, 80, 0.6) !important; }
+/* Pedidos: iconos de EVE alineados con el texto (cabeceras, insignias y resumen). */
+.ped-glifo { vertical-align: -3px; margin-right: 0.1rem; }
+h4 .ped-glifo, h5 .ped-glifo { vertical-align: -4px; }
