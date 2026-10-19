@@ -14,7 +14,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk, fmtSp, typeIcon } from "./format";
 import type { Tab } from "./constants";
-import type { LoyaltyCorp } from "./types";
+import type { LoyaltyCorp, MiningSeries, Planet, PlanetDetail, PiSchematic } from "./types";
+import { loadJson } from "./staticJson";
 
 export type Via = "comprar" | "lp" | "reaccionar" | "minar" | "pi" | "traer";
 
@@ -32,6 +33,19 @@ const VIA: Record<Via, { icon: string; label: string; tab: Tab }> = {
 const GRUPOS_MINAR = new Set([1857, 501, 1033, 1032, 1859, 983]);
 /** Los cinco niveles de materiales planetarios (P0…P4). */
 const GRUPOS_PI = new Set([1333, 1334, 1335, 1336, 1337]);
+
+/** Mena del catálogo embebido (`get_ore_data`): volumen por unidad, lote de reprocesado y lo que
+ *  da cada lote. Los mismos datos que usa la sección de Minería. */
+type Mena = { n: string; v: number; p: number; c: number; r: [number, number][] };
+
+/** Rendimiento de reprocesado por defecto: el mismo 85 % que usa Minería para «valor
+ *  reprocesado». Depende de tus skills, implantes y la estructura: se puede cambiar. */
+const EFF_KEY = "koru_ped_reproc";
+
+/** Estimación de minarlo tú: con qué mena, cuántos m³, y cuántos días a TU ritmo con esa mena. */
+type EstMinar = { ore: number; oreName: string; m3: number; dias: number | null; ritmo: number | null };
+/** Estimación de sacarlo de tus colonias: ritmo por hora y días. */
+type EstPi = { porHora: number; tipo: "extraccion" | "fabrica"; dias: number };
 
 type OfertaLp = {
   offer_id: number;
@@ -75,6 +89,151 @@ export function ObtencionBlock({
   const [jita, setJita] = useState<Map<number, number> | null>(null);
   const [lpCorps, setLpCorps] = useState<Map<number, { name: string; lp: number }> | null>(null);
   const [ofertas, setOfertas] = useState<Map<number, OfertaLp[]>>(new Map());
+  const [menas, setMenas] = useState<Map<number, Mena> | null>(null);
+  const [serie, setSerie] = useState<MiningSeries | null>(null);
+  const [pi, setPi] = useState<{ extraccion: Map<number, number>; fabrica: Map<number, number> } | null>(null);
+  const [eff, setEff] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem(EFF_KEY));
+      return v > 0 && v <= 100 ? v : 85;
+    } catch {
+      return 85;
+    }
+  });
+
+  // ¿Hay algo que se pueda minar o sacar de PI? Si no, no se carga nada de esto.
+  const hayMinar = useMemo(
+    () => [...missing.keys()].some((t) => GRUPOS_MINAR.has(groupOf(t) ?? -1)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [missing],
+  );
+  const hayPi = useMemo(
+    () => [...missing.keys()].some((t) => GRUPOS_PI.has(groupOf(t) ?? -1)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [missing],
+  );
+
+  useEffect(() => {
+    if (!hayMinar || menas) return;
+    invoke<Record<string, Mena> | null>("get_ore_data")
+      .then((d) => setMenas(new Map(Object.entries(d ?? {}).map(([k, v]) => [Number(k), v]))))
+      .catch(() => setMenas(new Map()));
+  }, [hayMinar, menas]);
+
+  // Tu minería en m³ por mena y día (el histórico local del mining ledger).
+  useEffect(() => {
+    if (!hayMinar) return;
+    let vivo = true;
+    const p =
+      subject === "global"
+        ? invoke<MiningSeries>("get_mining_series_global", { mode: "m3" })
+        : invoke<MiningSeries>("get_mining_series", { characterId: subject, mode: "m3" });
+    p.then((s) => vivo && setSerie(s)).catch(() => vivo && setSerie(null));
+    return () => {
+      vivo = false;
+    };
+  }, [hayMinar, subject]);
+
+  // Tus colonias: ritmo REAL de los extractores (caducado = 0) y CAPACIDAD de las fábricas — el
+  // mismo criterio que Planetología, que distingue producción de capacidad.
+  useEffect(() => {
+    if (!hayPi) return;
+    let vivo = true;
+    (async () => {
+      const esquemas = await loadJson<Record<string, PiSchematic>>("/pi_schematics.json", {});
+      let planetas: Planet[] = [];
+      try {
+        planetas =
+          subject === "global"
+            ? await invoke<Planet[]>("get_planets_global")
+            : await invoke<Planet[]>("get_planets", { characterId: subject });
+      } catch {
+        planetas = [];
+      }
+      const extraccion = new Map<number, number>();
+      const fabrica = new Map<number, number>();
+      const ahora = Date.now();
+      await Promise.all(
+        planetas
+          .filter((p) => p.planet_id > 0)
+          .map(async (p) => {
+            try {
+              const d = await invoke<PlanetDetail>("get_planet_detail", {
+                characterId: p.character_id,
+                planetId: p.planet_id,
+              });
+              for (const pin of d.pins) {
+                const ex = pin.extractor;
+                if (ex && ex.product_type_id && ex.qty_per_cycle && ex.cycle_time) {
+                  const muerto = pin.expiry_time != null && Date.parse(pin.expiry_time) < ahora;
+                  if (!muerto) {
+                    const h = (ex.qty_per_cycle * 3600) / ex.cycle_time;
+                    extraccion.set(ex.product_type_id, (extraccion.get(ex.product_type_id) ?? 0) + h);
+                  }
+                } else if (pin.schematic_id != null) {
+                  const sch = esquemas[String(pin.schematic_id)];
+                  if (sch && sch.t > 0) {
+                    const [tid, q] = sch.out;
+                    fabrica.set(tid, (fabrica.get(tid) ?? 0) + (q * 3600) / sch.t);
+                  }
+                }
+              }
+            } catch {
+              /* sin permiso o sin red: esa colonia no aporta, y se dice abajo */
+            }
+          }),
+      );
+      if (vivo) setPi({ extraccion, fabrica });
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [hayPi, subject]);
+
+  /** Tu ritmo con cada mena: m³ por DÍA DE MINERÍA (media de los días en que la minaste). */
+  const ritmoMena = useMemo(() => {
+    const out = new Map<number, number>();
+    if (!serie) return out;
+    const suma = new Map<number, number>();
+    const dias = new Map<number, Set<string>>();
+    for (const d of serie.daily_by_ore) {
+      if (d.value <= 0) continue;
+      suma.set(d.id, (suma.get(d.id) ?? 0) + d.value);
+      if (!dias.has(d.id)) dias.set(d.id, new Set());
+      dias.get(d.id)!.add(d.date);
+    }
+    for (const [id, s] of suma) out.set(id, s / (dias.get(id)?.size || 1));
+    return out;
+  }, [serie]);
+
+  const estMinar = (tid: number, qty: number): EstMinar | null => {
+    if (!menas) return null;
+    let mejor: EstMinar | null = null;
+    let mejorSinRitmo: EstMinar | null = null;
+    for (const [ore, m] of menas) {
+      if (!m.p || !m.v) continue;
+      const q = m.r.find(([mat]) => mat === tid)?.[1];
+      if (!q) continue;
+      // unidades de mena para sacar `qty` del material, con el rendimiento elegido
+      const porUnidad = (q / m.p) * (eff / 100);
+      const m3 = (qty / porUnidad) * m.v;
+      const ritmo = ritmoMena.get(ore) ?? null;
+      const cand: EstMinar = { ore, oreName: m.n, m3, dias: ritmo ? m3 / ritmo : null, ritmo };
+      if (cand.dias != null) {
+        if (!mejor || cand.dias < (mejor.dias ?? Infinity)) mejor = cand;
+      } else if (!mejorSinRitmo || cand.m3 < mejorSinRitmo.m3) mejorSinRitmo = cand;
+    }
+    return mejor ?? mejorSinRitmo;
+  };
+
+  const estPi = (tid: number, qty: number): EstPi | null => {
+    if (!pi) return null;
+    const e = pi.extraccion.get(tid);
+    if (e && e > 0) return { porHora: e, tipo: "extraccion", dias: qty / e / 24 };
+    const f = pi.fabrica.get(tid);
+    if (f && f > 0) return { porHora: f, tipo: "fabrica", dias: qty / f / 24 };
+    return null;
+  };
 
   useEffect(() => {
     invoke<[number, string][]>("sourcing_list")
@@ -233,6 +392,28 @@ export function ObtencionBlock({
         {tr("Koru propone las vías con sus números y tú decides. La decisión vale para ese material en todos los pedidos y se recuerda.")}{" "}
         {jita == null && tr("Consultando precios de Jita…")}
       </p>
+      {hayMinar && (
+        <p className="small muted">
+          ⛏️ {tr("Rendimiento de reprocesado")}{" "}
+          <input
+            type="number"
+            min={50}
+            max={100}
+            value={eff}
+            style={{ width: "4rem" }}
+            onChange={(e) => {
+              const v = Math.min(100, Math.max(1, Number(e.target.value) || 85));
+              setEff(v);
+              try {
+                localStorage.setItem(EFF_KEY, String(v));
+              } catch {
+                /* preferencia: si no se puede guardar, no pasa nada */
+              }
+            }}
+          />{" "}
+          % · {tr("depende de tus skills, implantes y la estructura donde reprocesas")}
+        </p>
+      )}
       <div className="ped-resumen small">
         <span>
           {tr("Si lo compras todo en Jita")}: <strong>{fmtIsk(resumen.todoIsk)}</strong>
@@ -269,6 +450,7 @@ export function ObtencionBlock({
             <th className="num">m³</th>
             <th className="num">🛒 {tr("Jita (venta)")}</th>
             <th>🎖️ {tr("Por LP")}</th>
+            <th>{tr("Producirlo tú")}</th>
             <th>{tr("De dónde")}</th>
           </tr>
         </thead>
@@ -299,6 +481,18 @@ export function ObtencionBlock({
                     <span className="muted">—</span>
                   )}
                 </td>
+                <td className="small">
+                  <Producirlo
+                    tid={tid}
+                    q={q}
+                    minar={GRUPOS_MINAR.has(groupOf(tid) ?? -1)}
+                    piOk={GRUPOS_PI.has(groupOf(tid) ?? -1)}
+                    estMinar={estMinar}
+                    estPi={estPi}
+                    cargandoMinar={menas == null || serie == null}
+                    cargandoPi={pi == null}
+                  />
+                </td>
                 <td className="ped-via">
                   <select
                     className={`small${dec ? "" : " ped-sin"}`}
@@ -328,8 +522,62 @@ export function ObtencionBlock({
         </tbody>
       </table>
       <p className="muted small">
-        {tr("Minar, planetología y reacciones ya se pueden elegir y te llevan a su sección; cuánto tardarías con tu ritmo real y tus colonias llega en la siguiente fase. «⚠» en LP = la oferta pide además objetos.")}
+        {tr("«Producirlo tú»: ⛏️ la mena que antes te lo da A TU RITMO (la media de m³ de los días que minaste esa mena, del registro de minería) y cuántos días de minería serían; una mena da varios minerales a la vez y aquí cada uno se cuenta por separado. 🪐 lo que producen hoy tus colonias: extractores activos (ritmo real) o fábricas (capacidad, que solo se cumple si les llega el material). «⚠» en LP = la oferta pide además objetos.")}
       </p>
     </>
   );
+}
+
+/** La celda «Producirlo tú»: minería y PI con números, o un guion si no aplica. */
+function Producirlo({
+  tid,
+  q,
+  minar,
+  piOk,
+  estMinar,
+  estPi,
+  cargandoMinar,
+  cargandoPi,
+}: {
+  tid: number;
+  q: number;
+  minar: boolean;
+  piOk: boolean;
+  estMinar: (t: number, q: number) => EstMinar | null;
+  estPi: (t: number, q: number) => EstPi | null;
+  cargandoMinar: boolean;
+  cargandoPi: boolean;
+}) {
+  if (minar) {
+    if (cargandoMinar) return <span className="muted">⛏️ …</span>;
+    const e = estMinar(tid, q);
+    if (!e) return <span className="muted">⛏️ {tr("ninguna mena lo da")}</span>;
+    return (
+      <span
+        title={
+          e.ritmo != null
+            ? `${tr("Tu ritmo con")} ${e.oreName}: ${fmtSp(Math.round(e.ritmo))} m³ ${tr("por día de minería")}`
+            : tr("No hay minería tuya de esa mena: no se puede estimar el tiempo")
+        }
+      >
+        ⛏️ ~{fmtSp(Math.round(e.m3))} m³ {e.oreName}
+        {e.dias != null ? (
+          <> · <strong>~{e.dias < 1 ? "<1" : fmtSp(Math.ceil(e.dias))} {tr("d")}</strong></>
+        ) : (
+          <span className="muted"> · {tr("sin ritmo tuyo")}</span>
+        )}
+      </span>
+    );
+  }
+  if (piOk) {
+    if (cargandoPi) return <span className="muted">🪐 …</span>;
+    const e = estPi(tid, q);
+    if (!e) return <span className="muted">🪐 {tr("ninguna colonia tuya lo produce")}</span>;
+    return (
+      <span title={e.tipo === "fabrica" ? tr("Capacidad de tus fábricas: solo se cumple si les llega el material") : tr("Ritmo real de tus extractores activos")}>
+        🪐 {fmtSp(Math.round(e.porHora))}/h{e.tipo === "fabrica" ? "*" : ""} · <strong>~{e.dias < 1 ? "<1" : fmtSp(Math.ceil(e.dias))} {tr("d")}</strong>
+      </span>
+    );
+  }
+  return <span className="muted">—</span>;
 }

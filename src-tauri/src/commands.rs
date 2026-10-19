@@ -13480,6 +13480,14 @@ struct OreInfo {
     c: i64,        // typeID comprimido (0 si no)
     r: Vec<(i64, i64)>, // materiales de reprocesado [(materialTypeID, cantidad por lote)]
 }
+/// Pedidos P2b: el catálogo de menas (reprocesado por lote, volumen) tal cual va embebido, para
+/// que el frontend calcule «cuánto habría que minar» con los MISMOS datos que la minería.
+/// Embebido y no en `public/` a propósito: una sola copia (la lección de los dos `ships.json`).
+#[tauri::command]
+pub fn get_ore_data() -> serde_json::Value {
+    serde_json::from_str(include_str!("../ore_data.json")).unwrap_or(serde_json::Value::Null)
+}
+
 fn ore_data() -> &'static std::collections::HashMap<i64, OreInfo> {
     static D: std::sync::OnceLock<std::collections::HashMap<i64, OreInfo>> =
         std::sync::OnceLock::new();
