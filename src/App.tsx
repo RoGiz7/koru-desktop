@@ -3679,7 +3679,16 @@ function App() {
           {tab === "industria" && (
             <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} subject={subject} />
           )}
-          {tab === "pedidos" && <PedidosSection subject={subject} />}
+          {tab === "pedidos" && (
+            <PedidosSection
+              subject={subject}
+              onIr={changeTab}
+              onDonde={(nombre) => {
+                setAssetQuery(nombre);
+                changeTab("assets");
+              }}
+            />
+          )}
           {(tab === "comercio" ||
             tab === "comercio_pnl" ||
             tab === "comercio_watch" ||

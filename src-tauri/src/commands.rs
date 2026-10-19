@@ -1408,6 +1408,18 @@ pub fn order_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
     state.db.order_delete(id)
 }
 
+/// P2: de dónde sale cada material que falta. Devuelve pares [typeID, vía].
+#[tauri::command]
+pub fn sourcing_list(state: State<'_, AppState>) -> AppResult<Vec<(i64, String)>> {
+    state.db.sourcing_list()
+}
+
+/// P2: fija (o borra, con vía vacía) la decisión de obtención de un tipo.
+#[tauri::command]
+pub fn sourcing_set(state: State<'_, AppState>, type_id: i64, via: String) -> AppResult<()> {
+    state.db.sourcing_set(type_id, &via)
+}
+
 // ---- Firmas y anomalías del escáner de sondas (mismo espíritu: la app propone, el piloto declara).
 // El pegado no trae el sistema → lo pasa el frontend. Rust solo persiste lo confirmado.
 

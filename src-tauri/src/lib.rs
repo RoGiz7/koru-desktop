@@ -446,6 +446,8 @@ pub fn run() {
             commands::orders_list,
             commands::order_save,
             commands::order_delete,
+            commands::sourcing_list,
+            commands::sourcing_set,
             commands::signatures_list,
             commands::signatures_replace_system,
             commands::signature_set_note,

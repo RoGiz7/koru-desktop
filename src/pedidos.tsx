@@ -19,6 +19,8 @@ import { loadNewEden } from "./neweden";
 import { parseIskShorthand, iskCorto } from "./isk";
 import { AnclarPiloto } from "./notas";
 import { makeBonosFor } from "./industry";
+import { ObtencionBlock } from "./pedidosObtencion";
+import type { Tab } from "./constants";
 import type { BpIndustry, BpTree, IndustryRigs, Facility } from "./industry";
 import type { Blueprint } from "./types";
 import {
@@ -69,13 +71,24 @@ function diasHasta(d: string | null): number | null {
   return Math.ceil((t - Date.now()) / 86_400_000);
 }
 
-export function PedidosSection({ subject }: { subject: number | "global" }) {
+export function PedidosSection({
+  subject,
+  onIr,
+  onDonde,
+}: {
+  subject: number | "global";
+  /** Abrir otra sección (las vías de obtención enlazan a la que resuelve cada material). */
+  onIr: (t: Tab) => void;
+  /** Abrir Assets buscando ese nombre: «¿dónde lo tengo?». */
+  onDonde: (nombre: string) => void;
+}) {
   const es = getLang() === "es";
   const [orders, setOrders] = useState<ProductionOrder[] | null>(null);
   const [ind, setInd] = useState<BpIndustry | null>(null);
   const [tree, setTree] = useState<BpTree | null>(null);
   const [ir, setIr] = useState<IndustryRigs | null>(null);
   const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [grupos, setGrupos] = useState<Map<number, number>>(new Map());
   const [vols, setVols] = useState<Map<number, number>>(new Map());
   const [sys, setSys] = useState<{ id: number; n: string; s: number }[] | null>(null);
   const [facs, setFacs] = useState<Facility[] | null>(null);
@@ -107,7 +120,10 @@ export function PedidosSection({ subject }: { subject: number | "global" }) {
     loadJson<BpIndustry>("/bp_industry.json", {} as BpIndustry).then(setInd);
     loadJson<BpTree | null>("/bp_tree.json", null).then(setTree);
     loadJson<IndustryRigs | null>("/industry_rigs.json", null).then(setIr);
-    loadJson<MType[]>("/market_types.json", []).then((m) => setNames(new Map(m.map((t) => [t.i, t.n]))));
+    loadJson<MType[]>("/market_types.json", []).then((m) => {
+      setNames(new Map(m.map((t) => [t.i, t.n])));
+      setGrupos(new Map(m.map((t) => [t.i, t.g])));
+    });
     loadJson<Record<string, number>>("/type_volumes.json", {}).then((d) =>
       setVols(new Map(Object.entries(d).map(([k, v]) => [Number(k), v]))),
     );
@@ -459,13 +475,16 @@ export function PedidosSection({ subject }: { subject: number | "global" }) {
           )}
 
           {plan && plan.missingTotal.size > 0 && (
-            <TablaTipos
-              titulo={`🛒 ${tr("Lo que falta, entre todos los pedidos")}`}
-              nota={tr("Estimado a precio medio de New Eden. Decidir si se compra, se mina, sale de tus colonias o se reacciona es la fase siguiente.")}
-              m={plan.missingTotal}
+            <ObtencionBlock
+              missing={plan.missingTotal}
+              reacciones={
+                new Set(plan.plans.flatMap((p) => p.needs.filter((n) => n.kind === "reaction").map((n) => n.tid)))
+              }
               nameOf={nameOf}
-              prices={prices}
+              groupOf={(t) => grupos.get(t) ?? null}
               vols={vols}
+              subject={subject}
+              onIr={onIr}
             />
           )}
           {plan && plan.bringTotal.size > 0 && (
@@ -476,6 +495,7 @@ export function PedidosSection({ subject }: { subject: number | "global" }) {
               nameOf={nameOf}
               prices={prices}
               vols={vols}
+              onDonde={onDonde}
             />
           )}
         </>
@@ -670,6 +690,7 @@ function TablaTipos({
   nameOf,
   prices,
   vols,
+  onDonde,
 }: {
   titulo: string;
   nota: string;
@@ -677,6 +698,7 @@ function TablaTipos({
   nameOf: (t: number) => string;
   prices: Map<number, number>;
   vols: Map<number, number>;
+  onDonde?: (nombre: string) => void;
 }) {
   const filas = [...m].sort((a, b) => (prices.get(b[0]) ?? 0) * b[1] - (prices.get(a[0]) ?? 0) * a[1]);
   let isk = 0;
@@ -698,6 +720,7 @@ function TablaTipos({
             <th className="num">{tr("Cantidad")}</th>
             <th className="num">m³</th>
             <th className="num">{tr("Precio medio")}</th>
+            {onDonde && <th></th>}
           </tr>
         </thead>
         <tbody>
@@ -709,6 +732,13 @@ function TablaTipos({
               <td className="num">{fmtSp(q)}</td>
               <td className="num">{vols.has(tid) ? fmtSp(Math.round((vols.get(tid) ?? 0) * q)) : "—"}</td>
               <td className="num">{prices.has(tid) ? fmtIsk((prices.get(tid) ?? 0) * q) : "—"}</td>
+              {onDonde && (
+                <td>
+                  <button className="linklike small" onClick={() => onDonde(nameOf(tid))}>
+                    📍 {tr("Ver dónde")}
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

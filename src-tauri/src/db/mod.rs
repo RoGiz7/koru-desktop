@@ -5527,6 +5527,35 @@ impl Db {
         Ok(())
     }
 
+    /// Decisiones de obtención por tipo (P2): typeID → vía.
+    pub fn sourcing_list(&self) -> AppResult<Vec<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT type_id, via FROM production_sourcing")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Fija la vía de un tipo. Vía vacía = borrar la decisión (vuelve a «sin decidir»).
+    pub fn sourcing_set(&self, type_id: i64, via: &str) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        if via.trim().is_empty() {
+            conn.execute(
+                "DELETE FROM production_sourcing WHERE type_id = ?1",
+                rusqlite::params![type_id],
+            )?;
+        } else {
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO production_sourcing (type_id, via, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(type_id) DO UPDATE SET via = excluded.via, updated_at = excluded.updated_at",
+                rusqlite::params![type_id, via, now],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Firmas PENDIENTES de un sistema (las que salen en la pestaña "Pendientes"). Filtra las ya
     /// marcadas como hechas (`done_log_id` no NULL): esas viven en `exploration_log` y se ven en el
     /// Histórico, no aquí. Una firma hecha se puede "deshacer" (ver `signature_mark_done_undo`), lo

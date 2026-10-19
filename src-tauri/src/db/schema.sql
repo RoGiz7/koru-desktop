@@ -966,3 +966,13 @@ CREATE TABLE IF NOT EXISTS production_order (
     updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_production_order_status ON production_order(status);
+
+-- ★ PEDIDOS P2 — de dónde sale cada material que falta (2026-10-19, SPEC_PEDIDOS.md §4).
+-- Koru PROPONE las vías con sus números; la decisión es del piloto y se guarda POR TIPO (no por
+-- pedido): si el Megacyte lo minas, lo minas para todos los pedidos. Sin fila = sin decidir.
+-- via: comprar | lp | minar | pi | reaccionar | traer
+CREATE TABLE IF NOT EXISTS production_sourcing (
+    type_id    INTEGER PRIMARY KEY,
+    via        TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
