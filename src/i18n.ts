@@ -3666,6 +3666,10 @@ const EN: Record<string, string> = {
   atracado: "docked",
   salió: "left",
   // ---- Pedidos P4 (seguimiento) ----
+  entregados: "delivered",
+  "Recogido en el juego; la foto de assets de ESI tarda hasta una hora en reflejarlo": "Collected in game; ESI's assets snapshot takes up to an hour to show it",
+  "Entregado: llegando a tu hangar": "Delivered: on its way to your hangar",
+  "entregado; Koru lo verá en tu hangar con la próxima foto de assets": "delivered; Koru will see it in your hangar with the next assets snapshot",
   "Ya está en tus hangares": "Already in your hangars",
   "en marcha": "running",
   "Solo falta que acaben los jobs": "Just waiting for the jobs to finish",

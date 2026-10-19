@@ -66,7 +66,7 @@ export type PlanInput = {
   /** P4: lo que ya está «en el horno» — jobs de fabricación/reacción sin entregar — por producto,
    *  con cuándo acaba cada uno (ms). Se gasta DESPUÉS del stock y ANTES de fabricar más: un job
    *  lanzado sale de la cola en vez de programarse dos veces. */
-  wip?: Map<number, { units: number; fin: number }[]>;
+  wip?: Map<number, { units: number; fin: number; entregado?: boolean }[]>;
 };
 
 /** Un job a lanzar para un pedido. */
@@ -121,7 +121,7 @@ export type OrderPlan = {
   /** El catálogo no sabe fabricar el producto (no hay plano publicado). */
   noRecipe: boolean;
   /** P4: lo que este pedido toma de jobs ya en marcha (producto, unidades, cuándo acaba). */
-  enMarcha: { tid: number; units: number; fin: number }[];
+  enMarcha: { tid: number; units: number; fin: number; entregado: boolean }[];
   /** P4: si el propio producto viene de un job en marcha, cuándo acaba (ms; 0 = no). */
   esperaRaiz: number;
   /** P4: el producto ya está entero en tus hangares — no hay nada que fabricar ni que esperar. */
@@ -175,11 +175,14 @@ export function planOrders(inp: PlanInput): PlanResult {
   for (const [bp, o] of owned) runsLeft.set(bp, o.bpo ? Infinity : o.runs);
 
   // P4: copia mutable de lo que está en marcha, por producto, lo que antes acaba primero.
-  const wip = new Map<number, { units: number; fin: number }[]>();
+  const wip = new Map<number, { units: number; fin: number; entregado?: boolean }[]>();
   for (const [tid, l] of inp.wip ?? []) wip.set(tid, [...l].sort((a, b) => a.fin - b.fin).map((x) => ({ ...x })));
   const takeWip = (tid: number, qty: number) => {
+    // Una entrada POR job tomado: mezclar un job que aún corre con uno ya entregado en una sola
+    // línea hacía decir «entregado» de algo que seguía en el horno (visto en vivo, 2026-10-19).
     let w = 0;
     let fin = 0;
+    const partes: { units: number; fin: number; entregado: boolean }[] = [];
     for (const x of wip.get(tid) ?? []) {
       if (w >= qty) break;
       const t = Math.min(x.units, qty - w);
@@ -187,8 +190,9 @@ export function planOrders(inp: PlanInput): PlanResult {
       x.units -= t;
       w += t;
       fin = Math.max(fin, x.fin);
+      partes.push({ units: t, fin: x.fin, entregado: !!x.entregado });
     }
-    return { w, fin };
+    return { w, fin, partes };
   };
 
   const take = (tid: number, qty: number) => {
@@ -239,10 +243,10 @@ export function planOrders(inp: PlanInput): PlanResult {
       const { h, e, rest: tras } = take(tid, qty);
       // 2) P4: lo que ya está en el horno. El que lo espera (su padre, o el pedido si es el
       //    producto) no puede empezar antes de que acabe.
-      const { w, fin: finW } = takeWip(tid, tras);
+      const { w, fin: finW, partes } = takeWip(tid, tras);
       const rest = tras - w;
       if (w > 0) {
-        enMarcha.push({ tid, units: w, fin: finW });
+        for (const x of partes) enMarcha.push({ tid, ...x });
         if (parent == null) esperaRaiz = Math.max(esperaRaiz, finW);
         else builds[parent].espera = Math.max(builds[parent].espera, finW);
       }

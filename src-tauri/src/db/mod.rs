@@ -4779,6 +4779,8 @@ pub struct WipJob {
     pub runs: i64,
     pub status: Option<String>,
     pub end_date: Option<String>,
+    /// Solo en los entregados: cuándo se recogió. Ver `orders_wip`.
+    pub completed_date: Option<String>,
 }
 
 /// Un pedido de producción (SPEC_PEDIDOS.md, P1). Ver el comentario de la tabla en `schema.sql`:
@@ -5544,17 +5546,21 @@ impl Db {
 
     /// Pedidos P4: jobs de fabricación (1) y reacción (9, y 11 por si ESI usa el id nuevo) que
     /// no han entregado todavía. Lee la BD que ya llena el auto_sync: cero llamadas a ESI.
-    pub fn industry_wip(&self) -> AppResult<Vec<WipJob>> {
+    /// `delivered_since` (RFC3339): también los ENTREGADOS desde entonces — el llamante decide
+    /// cuáles siguen sin aparecer en la foto de assets.
+    pub fn industry_wip(&self, delivered_since: &str) -> AppResult<Vec<WipJob>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT job_id, character_id, activity_id, product_type_id, blueprint_type_id, runs,
-                    status, end_date
+                    status, end_date, completed_date
              FROM industry_job
              WHERE activity_id IN (1, 9, 11)
-               AND status IN ('active', 'paused', 'ready')",
+               AND (status IN ('active', 'paused', 'ready')
+                    OR (status = 'delivered' AND completed_date IS NOT NULL
+                        AND completed_date >= ?1))",
         )?;
         let rows = stmt
-            .query_map([], |r| {
+            .query_map(rusqlite::params![delivered_since], |r| {
                 Ok(WipJob {
                     job_id: r.get(0)?,
                     character_id: r.get(1)?,
@@ -5564,6 +5570,7 @@ impl Db {
                     runs: r.get(5)?,
                     status: r.get(6)?,
                     end_date: r.get(7)?,
+                    completed_date: r.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

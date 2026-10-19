@@ -44,6 +44,7 @@ type WipJob = {
   runs: number;
   status: string | null;
   end_date: string | null;
+  completed_date: string | null;
 };
 import {
   planOrders,
@@ -265,7 +266,7 @@ export function PedidosSection({
     };
   }, []);
   const wip = useMemo(() => {
-    const m = new Map<number, { units: number; fin: number }[]>();
+    const m = new Map<number, { units: number; fin: number; entregado?: boolean }[]>();
     if (!ind) return m;
     const ahora = Date.now();
     for (const j of wipJobs ?? []) {
@@ -275,9 +276,12 @@ export function PedidosSection({
       const b = ind[String(j.blueprint_type_id)];
       const act = j.activity_id === 1 ? b?.m : b?.r;
       const porRun = act?.out?.[0]?.[1] ?? 1;
-      const fin = j.end_date ? Date.parse(j.end_date) : ahora;
+      // Un job ENTREGADO llega aquí solo si la foto de assets aún no lo ha recogido (ver
+      // `orders_wip`): está disponible ya, solo que Koru todavía no lo ve en tu hangar.
+      const entregado = j.status === "delivered";
+      const fin = entregado ? ahora : j.end_date ? Date.parse(j.end_date) : ahora;
       if (!m.has(j.product_type_id)) m.set(j.product_type_id, []);
-      m.get(j.product_type_id)!.push({ units: j.runs * porRun, fin: isFinite(fin) ? fin : ahora });
+      m.get(j.product_type_id)!.push({ units: j.runs * porRun, fin: isFinite(fin) ? fin : ahora, entregado });
     }
     return m;
   }, [wipJobs, ind, subject]);
@@ -512,12 +516,12 @@ export function PedidosSection({
                     <PlanBadge p={p} />
                     {/* P4: Koru PROPONE el cambio de estado con lo que ve; el clic es tuyo. Un
                         producto en tu hangar puede ser tuyo y no del cliente: por eso no se marca solo. */}
-                    {p?.enHangar && o.status !== "ready" && (
+                    {p && (p.enHangar || recienEntregado(p)) && o.status !== "ready" && (
                       <button className="pp-add small ped-sugiere" onClick={() => guardar({ ...o, status: "ready" })}>
                         ✔ {tr("Marcar listo")}
                       </button>
                     )}
-                    {p && !p.enHangar && o.status === "pending" && p.enMarcha.length > 0 && (
+                    {p && !p.enHangar && !recienEntregado(p) && o.status === "pending" && p.enMarcha.length > 0 && (
                       <button className="pp-add small ped-sugiere" onClick={() => guardar({ ...o, status: "in_progress" })}>
                         ▶ {tr("Marcar en curso")}
                       </button>
@@ -695,15 +699,34 @@ function FechaEntrega({ d }: { d: string | null }) {
   );
 }
 
+/** P4: todo lo que le queda al pedido es producto YA recogido que la foto de assets aún no ve. */
+function recienEntregado(p: OrderPlan): boolean {
+  return (
+    p.builds.length === 0 &&
+    p.enMarcha.length > 0 &&
+    p.enMarcha.every((w) => w.entregado) &&
+    p.needs.every((n) => n.missing === 0)
+  );
+}
+
 function PlanBadge({ p }: { p: OrderPlan | undefined }) {
   if (!p) return null;
   if (p.enHangar) return <span className="ped-si small">📦 {tr("Ya está en tus hangares")}</span>;
+  if (recienEntregado(p))
+    return (
+      <span className="ped-si small" title={tr("Recogido en el juego; la foto de assets de ESI tarda hasta una hora en reflejarlo")}>
+        📦 {tr("Entregado: llegando a tu hangar")}
+      </span>
+    );
   if (p.noRecipe) return <span className="ped-aviso small">⚠ {tr("no hay plano que lo fabrique")}</span>;
-  const enHorno = p.enMarcha.length;
+  // Solo cuenta como «en marcha» lo que sigue en el horno; lo entregado va aparte.
+  const enHorno = p.enMarcha.filter((w) => !w.entregado).length;
+  const entregados = p.enMarcha.filter((w) => w.entregado).reduce((s, w) => s + w.units, 0);
   if (p.canStart)
     return (
       <span className="ped-si small">
-        {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}✅{" "}
+        {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}
+        {entregados > 0 && <span className="ped-horno">📦 {fmtSp(entregados)} {tr("entregados")} · </span>}✅{" "}
         {p.builds.length === 0 ? tr("Solo falta que acaben los jobs") : tr("Se puede empezar")}
       </span>
     );
@@ -711,6 +734,7 @@ function PlanBadge({ p }: { p: OrderPlan | undefined }) {
   return (
     <span className="small">
       {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}
+      {entregados > 0 && <span className="ped-horno">📦 {fmtSp(entregados)} {tr("entregados")} · </span>}
       {!p.rootOwned && <span className="ped-aviso">⚠ {tr("sin el plano (estimado con ME 0)")} · </span>}
       {p.shortRuns.length > 0 && <span className="ped-aviso">⚠ {tr("copia sin runs suficientes")} · </span>}
       {faltan > 0 ? (
@@ -756,7 +780,16 @@ function DetallePlan({
         <p className="small">
           🏭 {tr("En marcha (jobs ya lanzados)")}:{" "}
           {p.enMarcha
-            .map((w) => `${nameOf(w.tid)} ×${fmtSp(w.units)} (${w.fin > Date.now() ? `${tr("acaba")} ${fechaCorta(w.fin)}` : tr("listo para recoger")})`)
+            .map(
+              (w) =>
+                `${nameOf(w.tid)} ×${fmtSp(w.units)} (${
+                  w.entregado
+                    ? tr("entregado; Koru lo verá en tu hangar con la próxima foto de assets")
+                    : w.fin > Date.now()
+                      ? `${tr("acaba")} ${fechaCorta(w.fin)}`
+                      : tr("listo para recoger")
+                })`,
+            )
             .join(" · ")}
         </p>
       )}

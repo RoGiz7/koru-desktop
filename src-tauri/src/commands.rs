@@ -1409,9 +1409,45 @@ pub fn order_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
 }
 
 /// P4: jobs de fabricación y reacción que aún no han entregado (lo que está «en el horno»).
+///
+/// ⚠️ EL HUECO DEL ENTREGADO (visto en vivo el 2026-10-19). Al recoger un job, ESI lo marca
+/// `delivered` al momento, pero la foto de assets vale ~1 h (`get_cached` respeta el `Expires`):
+/// durante ese rato el producto NO está ni en el horno ni en tu hangar, y el pedido volvía a decir
+/// «se puede empezar» como si no hubieras fabricado nada. Así que un job entregado DESPUÉS de la
+/// foto de assets de su personaje sigue contando como «en camino» hasta que la foto lo recoja.
+/// La hora de la foto se deduce del `expires` del caché menos la hora que ESI cachea los assets;
+/// sin caché no se sabe, y entonces no se cuenta (mejor un hueco que contarlo dos veces).
 #[tauri::command]
 pub fn orders_wip(state: State<'_, AppState>) -> AppResult<Vec<crate::db::WipJob>> {
-    state.db.industry_wip()
+    let desde = (chrono::Utc::now() - chrono::Duration::hours(3)).to_rfc3339();
+    let mut out = Vec::new();
+    let mut fotos: std::collections::HashMap<i64, Option<chrono::DateTime<chrono::Utc>>> =
+        std::collections::HashMap::new();
+    for j in state.db.industry_wip(&desde)? {
+        if j.status.as_deref() != Some("delivered") {
+            out.push(j);
+            continue;
+        }
+        let foto = *fotos.entry(j.character_id).or_insert_with(|| {
+            state
+                .db
+                .get_cache(j.character_id, &format!("/characters/{}/assets/?page=1", j.character_id))
+                .ok()
+                .flatten()
+                .and_then(|c| c.expires.as_deref().and_then(crate::esi::parse_http_or_rfc3339))
+                .map(|exp| exp - chrono::Duration::seconds(3600))
+        });
+        let entregado = j
+            .completed_date
+            .as_deref()
+            .and_then(crate::esi::parse_http_or_rfc3339);
+        if let (Some(f), Some(e)) = (foto, entregado) {
+            if e > f {
+                out.push(j);
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// P2: de dónde sale cada material que falta. Devuelve pares [typeID, vía].
