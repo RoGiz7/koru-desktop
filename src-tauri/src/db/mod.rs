@@ -4766,6 +4766,40 @@ pub struct RunCharRow {
     pub lost_value: f64,
 }
 
+/// Un pedido de producción (SPEC_PEDIDOS.md, P1). Ver el comentario de la tabla en `schema.sql`:
+/// el cliente va en `client_char_id` y no en `character_id` a propósito.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProductionOrder {
+    /// `None` al crear; el que devuelve la BD al guardar.
+    #[serde(default)]
+    pub id: Option<i64>,
+    #[serde(default)]
+    pub client_name: String,
+    #[serde(default)]
+    pub client_char_id: Option<i64>,
+    pub product_type_id: i64,
+    pub product_name: String,
+    pub qty: i64,
+    #[serde(default)]
+    pub due_date: Option<String>,
+    #[serde(default)]
+    pub price: Option<f64>,
+    #[serde(default)]
+    pub priority: i64,
+    #[serde(default = "order_status_default")]
+    pub status: String,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+fn order_status_default() -> String {
+    "pending".to_string()
+}
+
 /// Una mejora de soberanía instalada en un sistema, ya resuelta contra el SDE por el frontend.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SovUpgradeRow {
@@ -5417,6 +5451,79 @@ impl Db {
     pub fn sov_upgrades_clear(&self) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM sov_upgrade", [])?;
+        Ok(())
+    }
+
+    // ---- production_order: pedidos de producción (SPEC_PEDIDOS.md, P1) ----
+
+    pub fn orders_list(&self) -> AppResult<Vec<ProductionOrder>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, client_name, client_char_id, product_type_id, product_name, qty, due_date,
+                    price, priority, status, note, created_at, updated_at
+             FROM production_order ORDER BY id",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(ProductionOrder {
+                    id: r.get(0)?,
+                    client_name: r.get(1)?,
+                    client_char_id: r.get(2)?,
+                    product_type_id: r.get(3)?,
+                    product_name: r.get(4)?,
+                    qty: r.get(5)?,
+                    due_date: r.get(6)?,
+                    price: r.get(7)?,
+                    priority: r.get(8)?,
+                    status: r.get(9)?,
+                    note: r.get(10)?,
+                    created_at: r.get(11)?,
+                    updated_at: r.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Crea (sin `id`) o actualiza (con `id`). Devuelve el id del pedido.
+    pub fn order_save(&self, o: &ProductionOrder) -> AppResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let qty = o.qty.max(1);
+        match o.id {
+            Some(id) => {
+                conn.execute(
+                    "UPDATE production_order SET client_name=?1, client_char_id=?2,
+                         product_type_id=?3, product_name=?4, qty=?5, due_date=?6, price=?7,
+                         priority=?8, status=?9, note=?10, updated_at=?11
+                     WHERE id=?12",
+                    rusqlite::params![
+                        o.client_name, o.client_char_id, o.product_type_id, o.product_name, qty,
+                        o.due_date, o.price, o.priority, o.status, o.note, now, id
+                    ],
+                )?;
+                Ok(id)
+            }
+            None => {
+                conn.execute(
+                    "INSERT INTO production_order (client_name, client_char_id, product_type_id,
+                         product_name, qty, due_date, price, priority, status, note,
+                         created_at, updated_at)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",
+                    rusqlite::params![
+                        o.client_name, o.client_char_id, o.product_type_id, o.product_name, qty,
+                        o.due_date, o.price, o.priority, o.status, o.note, now
+                    ],
+                )?;
+                let id = conn.last_insert_rowid();
+                Ok(id)
+            }
+        }
+    }
+
+    pub fn order_delete(&self, id: i64) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM production_order WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
     }
 

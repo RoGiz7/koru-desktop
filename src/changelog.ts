@@ -6,6 +6,18 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
+    // ficheros de versión. Ver el checklist de release.
+    version: "0.55.0",
+    date: "2026-10-19",
+    es: [
+      "📋 Nueva sección en Industria: **Pedidos**. Nació de un encargo de verdad —«¿qué tan rápido me podrías fabricar esta nave?»— y de que, con varios clientes a la vez, la pregunta deja de ser «¿cuánto cuesta uno?» y pasa a ser **«¿qué puedo empezar ya y qué me falta para el resto?»**. Apuntas qué te encargan, cuánto, para quién (un piloto de EVE comprobado, o un nombre cualquiera) y para cuándo, y Koru junta todos los pedidos y los cruza con tus planos, tus hangares y la instalación que elijas, con las mismas fórmulas de Fabricación. El que antes vence se lleva primero el stock y el siguiente ve lo que queda; si uno corre más, lo subes de prioridad. Para cada pedido: si se puede empezar ya, qué jobs hay que lanzar —un componente se fabrica si tienes su plano, y lo que ya tienes hecho se usa antes de fabricar más—, qué falta, qué tienes pero en otro sitio, y si a una copia no le quedan runs. Y abajo, todo junto: lo que hay que fabricar entre todos los pedidos y lo que falta comprar o conseguir, con su precio y sus m³. Es la primera fase: decidir de dónde sale cada cosa que falta —mercado, minería, planetología, reacciones, traerla— y las fechas según tus slots vienen después.",
+    ],
+    en: [
+      "📋 New section in Industry: **Orders**. It came from a real request — «how fast could you build me this ship?» — and from the fact that, with several customers at once, the question stops being «how much does one cost?» and becomes **«what can I start now and what am I missing for the rest?»**. You log what you're asked for, how many, for whom (a verified EVE pilot, or any name) and by when, and Koru puts every order together and checks it against your blueprints, your hangars and the facility you pick, with the same formulas as Manufacturing. The one due first takes the stock first and the next one sees what's left; if one is more urgent, you raise its priority. For each order: whether it can start now, which jobs to run — a component is built if you have its blueprint, and what you already have built is used before building more —, what's missing, what you have but elsewhere, and whether a copy is short of runs. And below, everything together: what has to be built across all orders and what's left to buy or get, with its price and m³. This is the first phase: deciding where each missing thing comes from — market, mining, planetary, reactions, bringing it over — and dates based on your slots come next.",
+    ],
+  },
+  {
     version: "0.54.0",
     date: "2026-10-19",
     es: [

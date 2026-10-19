@@ -1,0 +1,862 @@
+// Pedidos — fase P1 de SPEC_PEDIDOS.md (2026-10-19).
+//
+// Nació de un encargo real («¿qué tan rápido me podrías fabricar un Phoenix Navy Issue?»). Un
+// pedido es QUÉ fabricar, CUÁNTO, PARA QUIÉN y PARA CUÁNDO; la sección junta TODOS los pedidos
+// activos y los cruza con lo que ya tienes para contestar la pregunta que de verdad importa con
+// varios clientes: **qué puedo empezar ya, y qué me falta para el resto**.
+//
+// El cálculo es el motor de Fabricación (mismas fórmulas, mismos bonos de ficha), en
+// `pedidosPlan.ts`. Rust solo guarda los pedidos. Lo que esta fase NO hace —de dónde sacar cada
+// cosa que falta, lotes con su redondeo conjunto, slots y fechas— se dice en pantalla: son P2 y P3.
+
+import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { tr, getLang } from "./i18n";
+import { fmtIsk, fmtSp, typeIcon } from "./format";
+import { Kpi } from "./charts";
+import { loadJson } from "./staticJson";
+import { loadNewEden } from "./neweden";
+import { parseIskShorthand, iskCorto } from "./isk";
+import { AnclarPiloto } from "./notas";
+import { makeBonosFor } from "./industry";
+import type { BpIndustry, BpTree, IndustryRigs, Facility } from "./industry";
+import type { Blueprint } from "./types";
+import {
+  planOrders,
+  sortOrders,
+  ACTIVE,
+  type ProductionOrder,
+  type OrderStatus,
+  type OwnedBp,
+  type OrderPlan,
+  type NeedLine,
+} from "./pedidosPlan";
+
+type MType = { i: number; n: string; g: number };
+type StockRow = { type_id: number; quantity: number; location_id: number };
+
+/** La misma clave que el panel de Fabricación: la última instalación elegida es una preferencia,
+ *  y si ya calculas en un Sotiyo allí, aquí empiezas en el mismo. */
+const PICK_KEY = "koru_bom_facility";
+
+const STATUS: { k: OrderStatus; label: string }[] = [
+  { k: "pending", label: "Pendiente" },
+  { k: "in_progress", label: "En curso" },
+  { k: "ready", label: "Listo" },
+  { k: "delivered", label: "Entregado" },
+  { k: "cancelled", label: "Cancelado" },
+];
+
+const VACIO: ProductionOrder = {
+  id: null,
+  client_name: "",
+  client_char_id: null,
+  product_type_id: 0,
+  product_name: "",
+  qty: 1,
+  due_date: null,
+  price: null,
+  priority: 0,
+  status: "pending",
+  note: null,
+};
+
+/** Días hasta la fecha de entrega (negativo = pasada). null sin fecha. */
+function diasHasta(d: string | null): number | null {
+  if (!d) return null;
+  const t = Date.parse(`${d}T23:59:59Z`);
+  if (!isFinite(t)) return null;
+  return Math.ceil((t - Date.now()) / 86_400_000);
+}
+
+export function PedidosSection({ subject }: { subject: number | "global" }) {
+  const es = getLang() === "es";
+  const [orders, setOrders] = useState<ProductionOrder[] | null>(null);
+  const [ind, setInd] = useState<BpIndustry | null>(null);
+  const [tree, setTree] = useState<BpTree | null>(null);
+  const [ir, setIr] = useState<IndustryRigs | null>(null);
+  const [names, setNames] = useState<Map<number, string>>(new Map());
+  const [vols, setVols] = useState<Map<number, number>>(new Map());
+  const [sys, setSys] = useState<{ id: number; n: string; s: number }[] | null>(null);
+  const [facs, setFacs] = useState<Facility[] | null>(null);
+  const [bps, setBps] = useState<Blueprint[] | null>(null);
+  const [stockRows, setStockRows] = useState<StockRow[] | null>(null);
+  const [prices, setPrices] = useState<Map<number, number>>(new Map());
+  const [pick, setPick] = useState<number | null>(() => {
+    try {
+      const v = Number(localStorage.getItem(PICK_KEY));
+      return v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  const [form, setForm] = useState<ProductionOrder | null>(null);
+  const [abierto, setAbierto] = useState<Set<number>>(new Set());
+  const [error, setError] = useState("");
+
+  const recargar = () =>
+    invoke<ProductionOrder[]>("orders_list")
+      .then(setOrders)
+      .catch((e) => {
+        console.error("orders_list", e);
+        setOrders([]);
+      });
+
+  useEffect(() => {
+    void recargar();
+    loadJson<BpIndustry>("/bp_industry.json", {} as BpIndustry).then(setInd);
+    loadJson<BpTree | null>("/bp_tree.json", null).then(setTree);
+    loadJson<IndustryRigs | null>("/industry_rigs.json", null).then(setIr);
+    loadJson<MType[]>("/market_types.json", []).then((m) => setNames(new Map(m.map((t) => [t.i, t.n]))));
+    loadJson<Record<string, number>>("/type_volumes.json", {}).then((d) =>
+      setVols(new Map(Object.entries(d).map(([k, v]) => [Number(k), v]))),
+    );
+    loadNewEden()
+      .then((d) => setSys(d.systems))
+      .catch(() => setSys([]));
+    invoke<Facility[]>("facility_list").then(setFacs).catch(() => setFacs([]));
+  }, []);
+
+  // Planos y stock dependen del sujeto: en Global cuentan todos tus personajes.
+  useEffect(() => {
+    setBps(null);
+    setStockRows(null);
+    const b =
+      subject === "global"
+        ? invoke<Blueprint[]>("get_blueprints_global")
+        : invoke<Blueprint[]>("get_blueprints", { characterId: subject });
+    b.then(setBps).catch(() => setBps([]));
+    const s =
+      subject === "global"
+        ? invoke<StockRow[]>("get_assets_detail_global")
+        : invoke<StockRow[]>("get_assets_detail", { characterId: subject });
+    s.then(setStockRows).catch(() => setStockRows([]));
+  }, [subject]);
+
+  const nameOf = (tid: number) => names.get(tid) ?? `#${tid}`;
+
+  // Índices del catálogo: producto → plano (solo publicados) y producto → fórmula de reacción.
+  const { bpByProduct, reactByProduct } = useMemo(() => {
+    const m = new Map<number, string>();
+    const r = new Map<number, string>();
+    for (const [bid, v] of Object.entries(ind ?? {})) {
+      if (v.np) continue; // ver BpIndustry.np: un plano que no existe en el juego no es una rama
+      const out = v.m?.out?.[0]?.[0];
+      if (out != null) m.set(out, bid);
+      const ro = v.r?.out?.[0]?.[0];
+      if (ro != null) r.set(ro, bid);
+    }
+    return { bpByProduct: m, reactByProduct: r };
+  }, [ind]);
+
+  // Lo que se puede pedir: todo producto con plano publicado.
+  const productos = useMemo(
+    () =>
+      [...bpByProduct.keys()]
+        .map((tid) => ({ tid, n: names.get(tid) ?? "" }))
+        .filter((p) => p.n)
+        .sort((a, b) => a.n.localeCompare(b.n)),
+    [bpByProduct, names],
+  );
+
+  // Tus planos: mejor ME por plano; si alguno es original, sin límite de runs; si no, la suma de
+  // las runs que te quedan en las copias.
+  const owned = useMemo(() => {
+    const m = new Map<number, OwnedBp>();
+    for (const b of bps ?? []) {
+      const cur = m.get(b.type_id) ?? { me: b.me, bpo: false, runs: 0 };
+      cur.me = Math.max(cur.me, b.me);
+      if (b.runs === -1) cur.bpo = true;
+      else if (b.runs > 0) cur.runs += b.runs;
+      m.set(b.type_id, cur);
+    }
+    return m;
+  }, [bps]);
+
+  const usable = useMemo(() => (facs ?? []).filter((f) => f.eligible && f.has_mfg), [facs]);
+  const st = useMemo(() => usable.find((f) => f.id === pick) ?? null, [usable, pick]);
+  const sec = useMemo(() => {
+    if (!st) return null;
+    return (sys ?? []).find((x) => x.id === st.system_id)?.s ?? null;
+  }, [st, sys]);
+  const bonosFor = useMemo(() => makeBonosFor(st, ir, sec, es), [st, ir, sec, es]);
+
+  const stockAll = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of stockRows ?? []) m.set(r.type_id, (m.get(r.type_id) ?? 0) + r.quantity);
+    return m;
+  }, [stockRows]);
+  const stockHere = useMemo(() => {
+    if (stockRows == null || st?.structure_id == null) return null;
+    const m = new Map<number, number>();
+    for (const r of stockRows)
+      if (r.location_id === st.structure_id) m.set(r.type_id, (m.get(r.type_id) ?? 0) + r.quantity);
+    return m;
+  }, [stockRows, st?.structure_id]);
+
+  const listo = orders != null && ind != null && bps != null && stockRows != null;
+  const plan = useMemo(() => {
+    if (!listo) return null;
+    return planOrders({
+      orders: orders!,
+      ind: ind!,
+      tree,
+      bpByProduct,
+      reactByProduct,
+      owned,
+      bonosFor,
+      stockHere,
+      stockAll,
+    });
+  }, [listo, orders, ind, tree, bpByProduct, reactByProduct, owned, bonosFor, stockHere, stockAll]);
+
+  // Precio medio de lo que falta (estimación: P2 decidirá comprar/minar/PI con su precio de hub).
+  useEffect(() => {
+    if (!plan) return;
+    const ids = [...new Set([...plan.missingTotal.keys(), ...plan.bringTotal.keys()])];
+    if (ids.length === 0) return;
+    invoke<Record<number, number>>("get_type_prices", { ids })
+      .then((r) => setPrices(new Map(Object.entries(r).map(([k, v]) => [Number(k), v]))))
+      .catch(() => setPrices(new Map()));
+  }, [plan]);
+
+  const iskDe = (m: Map<number, number>) => {
+    let s = 0;
+    let sinPrecio = 0;
+    for (const [tid, q] of m) {
+      const p = prices.get(tid);
+      if (p == null) sinPrecio++;
+      else s += p * q;
+    }
+    return { s, sinPrecio };
+  };
+  const m3De = (m: Map<number, number>) => {
+    let s = 0;
+    for (const [tid, q] of m) s += (vols.get(tid) ?? 0) * q;
+    return s;
+  };
+
+  async function guardar(o: ProductionOrder) {
+    setError("");
+    try {
+      await invoke<number>("order_save", { order: o });
+      await recargar();
+      return true;
+    } catch (e) {
+      console.error("order_save", e);
+      setError(String(e));
+      return false;
+    }
+  }
+
+  async function borrar(o: ProductionOrder) {
+    if (o.id == null) return;
+    if (!window.confirm(`${tr("¿Borrar el pedido de")} ${o.product_name}?`)) return;
+    try {
+      await invoke("order_delete", { id: o.id });
+      await recargar();
+    } catch (e) {
+      console.error("order_delete", e);
+      setError(String(e));
+    }
+  }
+
+  const activos = (orders ?? []).filter((o) => ACTIVE.includes(o.status));
+  const cerrados = (orders ?? []).filter((o) => !ACTIVE.includes(o.status));
+  const planDe = new Map<number, OrderPlan>();
+  for (const p of plan?.plans ?? []) if (p.order.id != null) planDe.set(p.order.id, p);
+
+  const falta = plan ? iskDe(plan.missingTotal) : { s: 0, sinPrecio: 0 };
+  const empezables = plan?.plans.filter((p) => p.canStart).length ?? 0;
+
+  return (
+    <div className="ped">
+      <details className="fab-que">
+        <summary>❓ {tr("Qué es esto")}</summary>
+        <p className="small">
+          {tr("Apunta lo que te encargan —qué, cuánto, para quién y para cuándo— y Koru junta todos los pedidos y los cruza con lo que ya tienes: tus planos, tus hangares y tu instalación. El que antes vence se lleva primero el stock, y el siguiente ve lo que queda.")}
+        </p>
+        <p className="small">
+          {tr("Para cada pedido te dice si puedes empezarlo ya, qué jobs hay que lanzar y qué materiales faltan. Un componente se fabrica si tienes su plano; si no, sale como algo a conseguir. Lo que ya tienes hecho se usa antes de fabricar más, y lo que sobra de un job pasa al pedido siguiente.")}
+        </p>
+        <p className="small muted">
+          {tr("Todavía no: de dónde sacar cada cosa que falta (comprar, minar, planetología, traer…), juntar los jobs de varios pedidos con su redondeo, y las fechas según tus slots. Llegan en las próximas fases.")}
+        </p>
+      </details>
+
+      <div className="ped-barra">
+        <label className="small">
+          🏭 {tr("Calcular con la instalación")}{" "}
+          <select
+            value={st?.id ?? ""}
+            onChange={(e) => {
+              const v = Number(e.target.value) || null;
+              setPick(v);
+              try {
+                if (v) localStorage.setItem(PICK_KEY, String(v));
+              } catch {
+                /* preferencia: si no se puede guardar, no pasa nada */
+              }
+            }}
+          >
+            <option value="">{tr("— sin instalación (solo ME) —")}</option>
+            {usable.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="pp-add" onClick={() => setForm({ ...VACIO })} disabled={!ind}>
+          ＋ {tr("Nuevo pedido")}
+        </button>
+      </div>
+      {st && stockHere == null && (
+        <p className="muted small">
+          {tr("Esta ficha no tiene estructura conocida: no se distingue lo que está en la instalación de lo que hay que traer.")}
+        </p>
+      )}
+
+      {form && (
+        <FormPedido
+          inicial={form}
+          productos={productos}
+          onCancel={() => setForm(null)}
+          onSave={async (o) => {
+            if (await guardar(o)) setForm(null);
+          }}
+        />
+      )}
+      {error && <p className="ped-err small">{error}</p>}
+
+      {!listo ? (
+        <p className="muted">{tr("Cargando…")}</p>
+      ) : activos.length === 0 && !form ? (
+        <p className="muted">
+          {tr("No hay pedidos activos. Pulsa «Nuevo pedido» para apuntar el primero.")}
+        </p>
+      ) : (
+        <>
+          <div className="kpis">
+            <Kpi label={tr("Pedidos activos")} value={fmtSp(activos.length)} />
+            <Kpi label={tr("Se pueden empezar ya")} value={fmtSp(empezables)} tone={empezables > 0 ? "pos" : undefined} />
+            <Kpi label={tr("Tipos que faltan")} value={fmtSp(plan?.missingTotal.size ?? 0)} />
+            <Kpi label={tr("Lo que falta (precio medio)")} value={`${fmtIsk(falta.s)}${falta.sinPrecio ? " *" : ""}`} />
+            <Kpi label={tr("A traer de otros hangares")} value={`${fmtSp(Math.round(m3De(plan?.bringTotal ?? new Map())))} m³`} />
+          </div>
+
+          <h4>📋 {tr("Pedidos, en el orden en que se reparten el stock")}</h4>
+          {sortOrders(activos).map((o) => {
+            const p = o.id != null ? planDe.get(o.id) : undefined;
+            const abi = o.id != null && abierto.has(o.id);
+            return (
+              <div key={o.id ?? 0} className={`ped-card${p?.canStart ? " ped-ok" : ""}`}>
+                <div className="ped-cab">
+                  <img className="kind-glyph" src={typeIcon(o.product_type_id, 32)} alt="" />
+                  <button
+                    className="linklike ped-titulo"
+                    onClick={() => {
+                      if (o.id == null) return;
+                      const n = new Set(abierto);
+                      if (n.has(o.id)) n.delete(o.id);
+                      else n.add(o.id);
+                      setAbierto(n);
+                    }}
+                  >
+                    {abi ? "▾" : "▸"} {o.product_name} ×{fmtSp(o.qty)}
+                  </button>
+                  <span className="small">
+                    {o.client_char_id != null ? (
+                      <>
+                        <img
+                          className="ped-retrato"
+                          src={`https://images.evetech.net/characters/${o.client_char_id}/portrait?size=32`}
+                          alt=""
+                        />{" "}
+                        {o.client_name}
+                      </>
+                    ) : o.client_name ? (
+                      o.client_name
+                    ) : (
+                      <span className="muted">{tr("pedido propio")}</span>
+                    )}
+                  </span>
+                  <FechaEntrega d={o.due_date} />
+                  {o.price != null && <span className="small muted">{fmtIsk(o.price)}</span>}
+                  <span className="ped-estado">
+                    <PlanBadge p={p} />
+                  </span>
+                  <span className="ped-acciones">
+                    <button className="pp-add small" title={tr("Subir prioridad")} onClick={() => guardar({ ...o, priority: o.priority + 1 })}>
+                      ▲
+                    </button>
+                    <button className="pp-add small" title={tr("Bajar prioridad")} onClick={() => guardar({ ...o, priority: o.priority - 1 })}>
+                      ▼
+                    </button>
+                    <select
+                      className="small"
+                      value={o.status}
+                      onChange={(e) => guardar({ ...o, status: e.target.value as OrderStatus })}
+                    >
+                      {STATUS.map((s) => (
+                        <option key={s.k} value={s.k}>
+                          {tr(s.label)}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="pp-add small" onClick={() => setForm({ ...o })}>
+                      ✎
+                    </button>
+                    <button className="pp-add small" onClick={() => borrar(o)}>
+                      🗑
+                    </button>
+                  </span>
+                </div>
+                {o.priority !== 0 && (
+                  <p className="muted small ped-nota">
+                    {tr("Prioridad manual")}: {o.priority > 0 ? `+${o.priority}` : o.priority}
+                  </p>
+                )}
+                {o.note && <p className="small ped-nota">{o.note}</p>}
+                {abi && p && <DetallePlan p={p} nameOf={nameOf} prices={prices} />}
+              </div>
+            );
+          })}
+
+          {plan && plan.buildTotal.size > 0 && (
+            <>
+              <h4>🔧 {tr("Fabricar en total")}</h4>
+              <p className="muted small">
+                {tr("Los jobs de todos los pedidos sumados por producto. Cuando un componente lo piden varios pedidos, aquí se ve junto; el redondeo conjunto en un solo job llega con la fase de lotes.")}
+              </p>
+              <table className="km-table cat-table">
+                <thead>
+                  <tr>
+                    <th>{tr("Producto")}</th>
+                    <th className="num">{tr("Runs")}</th>
+                    <th className="num">{tr("Unidades")}</th>
+                    <th className="num">{tr("Pedidos")}</th>
+                    <th>{tr("Plano")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...plan.buildTotal]
+                    .sort((a, b) => b[1].runs - a[1].runs)
+                    .map(([tid, v]) => (
+                      <tr key={tid}>
+                        <td>
+                          <img className="kind-glyph" src={typeIcon(tid, 32)} alt="" /> {nameOf(tid)}
+                        </td>
+                        <td className="num">{fmtSp(v.runs)}</td>
+                        <td className="num">{fmtSp(v.units)}</td>
+                        <td className="num">{v.orders}</td>
+                        <td className="small">{v.owned ? "✓" : <span className="ped-aviso">{tr("no lo tienes")}</span>}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {plan && plan.missingTotal.size > 0 && (
+            <TablaTipos
+              titulo={`🛒 ${tr("Lo que falta, entre todos los pedidos")}`}
+              nota={tr("Estimado a precio medio de New Eden. Decidir si se compra, se mina, sale de tus colonias o se reacciona es la fase siguiente.")}
+              m={plan.missingTotal}
+              nameOf={nameOf}
+              prices={prices}
+              vols={vols}
+            />
+          )}
+          {plan && plan.bringTotal.size > 0 && (
+            <TablaTipos
+              titulo={`📦 ${tr("Lo tienes, pero en otro sitio: hay que traerlo")}`}
+              nota={tr("Stock tuyo que los pedidos usan y que no está en la instalación elegida.")}
+              m={plan.bringTotal}
+              nameOf={nameOf}
+              prices={prices}
+              vols={vols}
+            />
+          )}
+        </>
+      )}
+
+      {cerrados.length > 0 && (
+        <details className="ped-cerrados">
+          <summary className="small">
+            {tr("Pedidos cerrados")} ({cerrados.length})
+          </summary>
+          <table className="km-table cat-table">
+            <tbody>
+              {cerrados.map((o) => (
+                <tr key={o.id ?? 0}>
+                  <td>
+                    <img className="kind-glyph" src={typeIcon(o.product_type_id, 32)} alt="" /> {o.product_name} ×{fmtSp(o.qty)}
+                  </td>
+                  <td className="small">{o.client_name || tr("pedido propio")}</td>
+                  <td className="small">{tr(STATUS.find((s) => s.k === o.status)?.label ?? o.status)}</td>
+                  <td className="small">{o.price != null ? fmtIsk(o.price) : ""}</td>
+                  <td>
+                    <select
+                      className="small"
+                      value={o.status}
+                      onChange={(e) => guardar({ ...o, status: e.target.value as OrderStatus })}
+                    >
+                      {STATUS.map((s) => (
+                        <option key={s.k} value={s.k}>
+                          {tr(s.label)}
+                        </option>
+                      ))}
+                    </select>{" "}
+                    <button className="pp-add small" onClick={() => borrar(o)}>
+                      🗑
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function FechaEntrega({ d }: { d: string | null }) {
+  const n = diasHasta(d);
+  if (d == null || n == null) return <span className="small muted">{tr("sin fecha")}</span>;
+  const cls = n < 0 ? "ped-tarde" : n <= 3 ? "ped-justo" : "muted";
+  const txt = n < 0 ? `${tr("vencido hace")} ${-n} ${tr("d")}` : n === 0 ? tr("vence hoy") : `${tr("en")} ${n} ${tr("d")}`;
+  return (
+    <span className={`small ${cls}`} title={d}>
+      📅 {d} · {txt}
+    </span>
+  );
+}
+
+function PlanBadge({ p }: { p: OrderPlan | undefined }) {
+  if (!p) return null;
+  if (p.noRecipe) return <span className="ped-aviso small">⚠ {tr("no hay plano que lo fabrique")}</span>;
+  if (p.canStart) return <span className="ped-si small">✅ {tr("Se puede empezar")}</span>;
+  const faltan = p.needs.filter((n) => n.missing > 0).length;
+  return (
+    <span className="small">
+      {!p.rootOwned && <span className="ped-aviso">⚠ {tr("sin el plano (estimado con ME 0)")} · </span>}
+      {p.shortRuns.length > 0 && <span className="ped-aviso">⚠ {tr("copia sin runs suficientes")} · </span>}
+      {faltan > 0 ? (
+        <span className="ped-no">
+          ❌ {tr("faltan")} {faltan} {tr("materiales")}
+        </span>
+      ) : (
+        <span className="ped-no">❌ {tr("faltan planos")}</span>
+      )}
+    </span>
+  );
+}
+
+const KIND_LABEL: Record<NeedLine["kind"], string> = {
+  leaf: "",
+  reaction: "⚗️ sale de reacción",
+  "build-no-bp": "🔧 fabricable si tuvieras el plano",
+};
+
+function DetallePlan({
+  p,
+  nameOf,
+  prices,
+}: {
+  p: OrderPlan;
+  nameOf: (t: number) => string;
+  prices: Map<number, number>;
+}) {
+  const faltan = p.needs.filter((n) => n.missing > 0);
+  const tienes = p.needs.filter((n) => n.missing === 0);
+  return (
+    <div className="ped-detalle">
+      {p.covered.length > 0 && (
+        <p className="small">
+          ♻️ {tr("Ya lo tienes hecho")}:{" "}
+          {p.covered.map((c) => `${nameOf(c.tid)} ×${fmtSp(c.need)}`).join(" · ")}
+        </p>
+      )}
+      {p.builds.length > 0 && (
+        <>
+          <h5>🔧 {tr("Jobs de este pedido")}</h5>
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Producto")}</th>
+                <th className="num">{tr("Runs")}</th>
+                <th className="num">ME</th>
+                <th>{tr("Plano")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.builds.map((b, i) => (
+                <tr key={`${b.tid}-${i}`}>
+                  <td style={{ paddingLeft: `${0.4 + b.depth * 1}rem` }}>
+                    <img className="kind-glyph" src={typeIcon(b.tid, 32)} alt="" /> {nameOf(b.tid)}
+                  </td>
+                  <td className="num">{fmtSp(b.runs)}</td>
+                  <td className="num">{b.me}</td>
+                  <td className="small">
+                    {!b.owned ? (
+                      <span className="ped-aviso">{tr("no lo tienes")}</span>
+                    ) : b.bpRuns === Infinity ? (
+                      tr("original")
+                    ) : (
+                      `${tr("copia")} · ${fmtSp(b.bpRuns)} ${b.bpRuns === 1 ? "run" : tr("runs")}`
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {p.shortRuns.length > 0 && (
+        <p className="small ped-aviso">
+          ⚠ {p.shortRuns.map((s) => `${nameOf(s.tid)}: ${tr("hacen falta")} ${s.need} runs, ${tr("quedan")} ${s.have}`).join(" · ")}
+        </p>
+      )}
+      {faltan.length > 0 && (
+        <>
+          <h5>❌ {tr("Lo que falta para este pedido")}</h5>
+          <table className="km-table cat-table">
+            <thead>
+              <tr>
+                <th>{tr("Material")}</th>
+                <th className="num">{tr("Necesita")}</th>
+                <th className="num">{tr("En la instalación")}</th>
+                <th className="num">{tr("En otro sitio")}</th>
+                <th className="num">{tr("Falta")}</th>
+                <th className="num">{tr("Precio medio")}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {faltan
+                .sort((a, b) => (prices.get(b.tid) ?? 0) * b.missing - (prices.get(a.tid) ?? 0) * a.missing)
+                .map((n) => (
+                  <tr key={n.tid}>
+                    <td>
+                      <img className="kind-glyph" src={typeIcon(n.tid, 32)} alt="" /> {nameOf(n.tid)}
+                    </td>
+                    <td className="num">{fmtSp(n.need)}</td>
+                    <td className="num">{n.fromHere ? fmtSp(n.fromHere) : ""}</td>
+                    <td className="num">{n.fromElsewhere ? fmtSp(n.fromElsewhere) : ""}</td>
+                    <td className="num ped-no">{fmtSp(n.missing)}</td>
+                    <td className="num">{prices.has(n.tid) ? fmtIsk((prices.get(n.tid) ?? 0) * n.missing) : "—"}</td>
+                    <td className="small muted">{KIND_LABEL[n.kind] ? tr(KIND_LABEL[n.kind]) : ""}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {tienes.length > 0 && (
+        <p className="small muted">
+          ✓ {tr("Cubierto con tu stock")}: {tienes.map((n) => `${nameOf(n.tid)} ×${fmtSp(n.need)}`).join(" · ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TablaTipos({
+  titulo,
+  nota,
+  m,
+  nameOf,
+  prices,
+  vols,
+}: {
+  titulo: string;
+  nota: string;
+  m: Map<number, number>;
+  nameOf: (t: number) => string;
+  prices: Map<number, number>;
+  vols: Map<number, number>;
+}) {
+  const filas = [...m].sort((a, b) => (prices.get(b[0]) ?? 0) * b[1] - (prices.get(a[0]) ?? 0) * a[1]);
+  let isk = 0;
+  let m3 = 0;
+  for (const [tid, q] of filas) {
+    isk += (prices.get(tid) ?? 0) * q;
+    m3 += (vols.get(tid) ?? 0) * q;
+  }
+  return (
+    <>
+      <h4>{titulo}</h4>
+      <p className="muted small">
+        {nota} {fmtSp(filas.length)} {tr("tipos")} · {fmtIsk(isk)} · {fmtSp(Math.round(m3))} m³
+      </p>
+      <table className="km-table cat-table">
+        <thead>
+          <tr>
+            <th>{tr("Material")}</th>
+            <th className="num">{tr("Cantidad")}</th>
+            <th className="num">m³</th>
+            <th className="num">{tr("Precio medio")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map(([tid, q]) => (
+            <tr key={tid}>
+              <td>
+                <img className="kind-glyph" src={typeIcon(tid, 32)} alt="" /> {nameOf(tid)}
+              </td>
+              <td className="num">{fmtSp(q)}</td>
+              <td className="num">{vols.has(tid) ? fmtSp(Math.round((vols.get(tid) ?? 0) * q)) : "—"}</td>
+              <td className="num">{prices.has(tid) ? fmtIsk((prices.get(tid) ?? 0) * q) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function FormPedido({
+  inicial,
+  productos,
+  onCancel,
+  onSave,
+}: {
+  inicial: ProductionOrder;
+  productos: { tid: number; n: string }[];
+  onCancel: () => void;
+  onSave: (o: ProductionOrder) => void;
+}) {
+  const [o, setO] = useState<ProductionOrder>(inicial);
+  const [q, setQ] = useState(inicial.product_name);
+  const [precio, setPrecio] = useState(iskCorto(inicial.price));
+  const [anclar, setAnclar] = useState(false);
+
+  const sugerencias = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (t.length < 2 || (o.product_type_id && o.product_name === q)) return [];
+    const empieza = productos.filter((p) => p.n.toLowerCase().startsWith(t));
+    const contiene = productos.filter((p) => !p.n.toLowerCase().startsWith(t) && p.n.toLowerCase().includes(t));
+    return [...empieza, ...contiene].slice(0, 12);
+  }, [q, productos, o.product_type_id, o.product_name]);
+
+  const precioNum = parseIskShorthand(precio);
+  const precioMal = precio.trim() !== "" && precioNum == null;
+  const valido = o.product_type_id > 0 && o.qty > 0 && !precioMal;
+
+  return (
+    <div className="ped-form">
+      <h4>{o.id == null ? `＋ ${tr("Nuevo pedido")}` : `✎ ${tr("Editar pedido")}`}</h4>
+      <div className="ped-form-fila">
+        <label>
+          {tr("Producto")}
+          <input
+            type="search"
+            value={q}
+            placeholder={tr("Escribe el nombre (p. ej. Hammerhead II)")}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setO({ ...o, product_type_id: 0, product_name: "" });
+            }}
+            autoFocus
+          />
+        </label>
+        {o.product_type_id > 0 && <img className="kind-glyph" src={typeIcon(o.product_type_id, 32)} alt="" />}
+        <label>
+          {tr("Cantidad")}
+          <input
+            type="number"
+            min={1}
+            value={o.qty}
+            onChange={(e) => setO({ ...o, qty: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+            style={{ width: "6rem" }}
+          />
+        </label>
+      </div>
+      {sugerencias.length > 0 && (
+        <div className="ped-sug">
+          {sugerencias.map((p) => (
+            <button
+              key={p.tid}
+              className="linklike small"
+              onClick={() => {
+                setO({ ...o, product_type_id: p.tid, product_name: p.n });
+                setQ(p.n);
+              }}
+            >
+              <img className="kind-glyph" src={typeIcon(p.tid, 32)} alt="" /> {p.n}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="ped-form-fila">
+        <label>
+          {tr("Cliente")}
+          <input
+            type="text"
+            value={o.client_name}
+            placeholder={tr("vacío = pedido propio")}
+            onChange={(e) => setO({ ...o, client_name: e.target.value, client_char_id: null })}
+          />
+        </label>
+        {o.client_char_id != null ? (
+          <span className="small ped-si">
+            <img
+              className="ped-retrato"
+              src={`https://images.evetech.net/characters/${o.client_char_id}/portrait?size=32`}
+              alt=""
+            />{" "}
+            ✓ {tr("piloto comprobado")}
+          </span>
+        ) : (
+          <button className="pp-add small" onClick={() => setAnclar(!anclar)}>
+            🔎 {tr("Buscar piloto de EVE")}
+          </button>
+        )}
+      </div>
+      {anclar && o.client_char_id == null && (
+        <AnclarPiloto
+          onPick={(id, nombre) => {
+            setO({ ...o, client_char_id: id, client_name: nombre });
+            setAnclar(false);
+          }}
+        />
+      )}
+      <div className="ped-form-fila">
+        <label>
+          {tr("Fecha de entrega")}
+          <input
+            type="date"
+            value={o.due_date ?? ""}
+            onChange={(e) => setO({ ...o, due_date: e.target.value || null })}
+          />
+        </label>
+        <label>
+          {tr("Precio acordado")}
+          <input
+            type="text"
+            value={precio}
+            placeholder={tr("opcional, p. ej. 5,2b")}
+            onChange={(e) => setPrecio(e.target.value)}
+            className={precioMal ? "ped-mal" : ""}
+            style={{ width: "9rem" }}
+          />
+        </label>
+      </div>
+      <label className="ped-form-nota">
+        {tr("Nota")}
+        <input type="text" value={o.note ?? ""} onChange={(e) => setO({ ...o, note: e.target.value || null })} />
+      </label>
+      <div className="ped-form-fila">
+        <button className="pp-add" disabled={!valido} onClick={() => onSave({ ...o, price: precioNum })}>
+          💾 {tr("Guardar")}
+        </button>
+        <button className="pp-add" onClick={onCancel}>
+          {tr("Cancelar")}
+        </button>
+        {!o.product_type_id && <span className="muted small">{tr("Elige el producto de la lista")}</span>}
+      </div>
+    </div>
+  );
+}

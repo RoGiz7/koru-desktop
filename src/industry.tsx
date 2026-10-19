@@ -17,7 +17,7 @@ import { Pista } from "./pista";
  *  nombres ES/EN del SDE. Es la jerarquía que usa el cliente de EVE en su ventana de planos.
  *  (El árbol de MERCADO de planos NO vale: mete los supercarriers dentro de "Carriers" — la Nyx
  *  salía como portanave. Cazado por RoGiz7 y verificado en EVE Ref.) */
-type BpTree = {
+export type BpTree = {
   bp: Record<string, [number, number]>; // blueprintTypeID → [categoríaID, grupoID]
   cat: Record<string, { es: string; en: string }>;
   grp: Record<string, { es: string; en: string }>;
@@ -27,8 +27,8 @@ type BpTree = {
 
 /** public/bp_industry.json (R3): actividad → tiempo, insumos [[tid,qty]], producto, skills.
  *  En invención (`i`) el out lleva [bpT2, runs, probabilidad] y `sk` las skills [[id, nivel]]. */
-type BpAct = { t: number; in: [number, number][]; out: number[][]; sk?: [number, number][] };
-type BpIndustry = Record<
+export type BpAct = { t: number; in: [number, number][]; out: number[][]; sk?: [number, number][] };
+export type BpIndustry = Record<
   string,
   {
     m?: BpAct;
@@ -51,7 +51,7 @@ type MType = { i: number; n: string; g: number };
  *  Estructura: FACTORES ya listos (0.99 = −1 %). Rig: % BASE negativo, a multiplicar por la
  *  seguridad. `scopes` = los alcances del rig, del nombre de sus efectos del SDE (p. ej.
  *  "AllShipManufacture"): dicen a qué aplica. Son VARIOS a propósito — el 43705 tiene cuatro. */
-type IndustryRigs = {
+export type IndustryRigs = {
   /** Grupos donde ENTRA la Standup Manufacturing Plant I, leídos de sus propios `canFitShipGroupNN`:
    *  1657 Citadel · 1404 Engineering Complex · 1406 Refinery. Fuera de ahí no se fabrica, punto. */
   mfg_groups: number[];
@@ -105,7 +105,7 @@ type IndustryRigs = {
  *  un hecho concreto — los rigs y los servicios de una estructura NO se ven in-game si no eres
  *  Director, y ESI tampoco los da. Así que no hay nada que deducir: lo declara quien lo sabe.
  *  Aquí NO se guardan porcentajes; los bonos se derivan del SDE con `type_id` y `rigs` al calcular. */
-type Facility = {
+export type Facility = {
   id: number;
   structure_id: number | null;
   name: string;
@@ -231,7 +231,7 @@ function secBand(sec: number): "hi" | "low" | "null" {
 }
 
 /** Bonos de la instalación ya resueltos desde el dato, listos para el cálculo. */
-type Bonos = {
+export type Bonos = {
   /** Factor de material de la estructura (0.99 = −1 %). 1 = sin bono (p. ej. un Fortizar). */
   strMat: number;
   /** Factor de coste del trabajo de la estructura (0.95 = −5 %). */
@@ -244,7 +244,7 @@ type Bonos = {
  *  (1−ME) × factor_estructura × Π(1 + rig_base×mult_seguridad/100) de los rigs que APLICAN.
  *  Todo sale del SDE: el 0.99 del Sotiyo, el −2,4 del rig y el ×2,1 del nullsec. Nada a mano.
  *  ⚠️ Nunca usar el % que muestra EVE: viene redondeado (−5,0 % cuando es −5,04 %) y miente. */
-function matFactor(me: number, b: Bonos | null): number {
+export function matFactor(me: number, b: Bonos | null): number {
   let f = 1 - me / 100;
   if (!b) return f;
   f *= b.strMat;
@@ -253,7 +253,7 @@ function matFactor(me: number, b: Bonos | null): number {
 }
 
 /** Cantidad real que pide EVE. `ceil`, con el mínimo de 1 por carrera. */
-function matQty(base: number, runs: number, factor: number): number {
+export function matQty(base: number, runs: number, factor: number): number {
   return Math.max(runs, Math.ceil(base * runs * factor));
 }
 
@@ -1380,6 +1380,53 @@ function ProduccionBlock({
 /** F1a — Árbol BOM: qué hace falta para fabricar ESTE plano, con TU ME y los bonos de TU
  *  instalación. Fórmula verificada contra el juego (ver SPEC_F1_FABRICACION.md). Sin ISK todavía:
  *  primero que el árbol sea CIERTO; el dinero llega en F1b. */
+/** F1d — bonos de FABRICACIÓN de una ficha, por producto (categoría + grupo). Sacado del BomPanel
+ *  el 2026-10-19 para que Pedidos calcule con EXACTAMENTE la misma lógica verificada contra el
+ *  juego, sin copiarla. `sec` = seguridad del sistema de la ficha (null = no se sabe → banda hi,
+ *  como hacía el panel). Devuelve null si la ficha no tiene planta de fabricación. */
+export function makeBonosFor(
+  st: Facility | null,
+  ir: IndustryRigs | null,
+  sec: number | null,
+  es: boolean,
+): ((cat: number | null, grp: number | null) => Bonos) | null {
+  // Sin planta de fabricación declarada (🏭) los bonos de fabricar no aplican: la ficha puede
+  // ser un laboratorio puro. La invención va aparte, con su propio bloque.
+  if (!st || !st.has_mfg || !ir) return null;
+  const sd = st.type_id != null ? ir.structures[String(st.type_id)] : null;
+  const band = sec != null ? secBand(sec) : "hi";
+  return (cat: number | null, grp: number | null): Bonos => {
+    const rigs = st.rigs.map((id) => {
+      const r = ir.rigs[String(id)];
+      if (!r) return { id, name: `#${id}`, mat: 0, eff: 0, state: "unmapped" as const };
+      const eff = r.mat * (r.sec[band] ?? 1);
+      // Decidir si el rig aplica a ESTE producto. Dos vías, por orden de calidad del dato:
+      //   1) `aff` (SDE oficial desde el 2026-08-11, antes Hoboleaks; es la tabla con la que
+      //      decide el SERVIDOR): categorías + grupos.
+      //      Con aff el veredicto es BINARIO (on/off): ya no existe «unmapped» para estos rigs.
+      //   2) Fallback por nombre de efecto (SCOPE_CAT), para rigs sin aff — con sus tres estados
+      //      de siempre (on / off afirmado / unmapped que no aplicamos y decimos).
+      let state: "on" | "off" | "unmapped";
+      if (r.aff) {
+        const cubre =
+          (cat != null && r.aff.c.includes(cat)) || (grp != null && r.aff.g.includes(grp));
+        state = cubre ? "on" : "off";
+      } else {
+        const conocidos = r.scopes.filter((s) => SCOPE_CAT[s]);
+        const cubre = cat != null && conocidos.some((s) => SCOPE_CAT[s].includes(cat));
+        state = cubre
+          ? "on"
+          : conocidos.length < r.scopes.length || r.scopes.length === 0
+            ? "unmapped"
+            : "off";
+      }
+      return { id, name: es ? r.n.es : r.n.en, mat: r.mat, eff, state };
+    });
+    // Fortizar y compañía no tienen bono de material: `null` = sin bono (factor 1), NO cero.
+    return { strMat: sd?.mat ?? 1, strCost: sd?.cost ?? 1, rigs };
+  };
+}
+
 function BomPanel({
   bp,
   owned,
@@ -1481,43 +1528,10 @@ function BomPanel({
   /** F1d — bonos POR PRODUCTO: el mismo cálculo de siempre pero parametrizado por la categoría y el
    *  grupo del producto que se fabrica en CADA nodo del árbol (antes todo el árbol se juzgaba con la
    *  categoría del producto RAÍZ: bien para el Bantam, mal en cuanto se despliegan componentes). */
-  const bonosFor = useMemo(() => {
-    // Sin planta de fabricación declarada (🏭) los bonos de fabricar no aplican: la ficha puede
-    // ser un laboratorio puro. La invención va aparte, con su propio bloque.
-    if (!st || !st.has_mfg || !ir) return null;
-    const sd = st.type_id != null ? ir.structures[String(st.type_id)] : null;
-    const band = sysHit ? secBand(sysHit.s) : "hi";
-    return (cat: number | null, grp: number | null): Bonos => {
-      const rigs = st.rigs.map((id) => {
-        const r = ir.rigs[String(id)];
-        if (!r) return { id, name: `#${id}`, mat: 0, eff: 0, state: "unmapped" as const };
-        const eff = r.mat * (r.sec[band] ?? 1);
-        // Decidir si el rig aplica a ESTE producto. Dos vías, por orden de calidad del dato:
-        //   1) `aff` (SDE oficial desde el 2026-08-11, antes Hoboleaks; es la tabla con la que
-        //      decide el SERVIDOR): categorías + grupos.
-        //      Con aff el veredicto es BINARIO (on/off): ya no existe «unmapped» para estos rigs.
-        //   2) Fallback por nombre de efecto (SCOPE_CAT), para rigs sin aff — con sus tres estados
-        //      de siempre (on / off afirmado / unmapped que no aplicamos y decimos).
-        let state: "on" | "off" | "unmapped";
-        if (r.aff) {
-          const cubre =
-            (cat != null && r.aff.c.includes(cat)) || (grp != null && r.aff.g.includes(grp));
-          state = cubre ? "on" : "off";
-        } else {
-          const conocidos = r.scopes.filter((s) => SCOPE_CAT[s]);
-          const cubre = cat != null && conocidos.some((s) => SCOPE_CAT[s].includes(cat));
-          state = cubre
-            ? "on"
-            : conocidos.length < r.scopes.length || r.scopes.length === 0
-              ? "unmapped"
-              : "off";
-        }
-        return { id, name: es ? r.n.es : r.n.en, mat: r.mat, eff, state };
-      });
-      // Fortizar y compañía no tienen bono de material: `null` = sin bono (factor 1), NO cero.
-      return { strMat: sd?.mat ?? 1, strCost: sd?.cost ?? 1, rigs };
-    };
-  }, [st, ir, sysHit, es]);
+  const bonosFor = useMemo(
+    () => makeBonosFor(st, ir, sysHit ? sysHit.s : null, es),
+    [st, ir, sysHit, es],
+  );
 
   /** F-REACCIONES — bonos de reacción de la ficha para EL PRODUCTO que sale de la fórmula.
    *

@@ -12066,3 +12066,90 @@ button.cz-calor-h:hover,
 .esc-hist-fila:hover {
   background: rgba(255, 255, 255, 0.04);
 }
+
+/* ---- Pedidos (SPEC_PEDIDOS.md, P1) ---- */
+.ped-barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0.6rem;
+}
+.ped-barra select { max-width: 22rem; }
+.ped-card {
+  margin: 0.4rem 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border, #30363d);
+  border-left: 3px solid rgba(248, 81, 73, 0.55);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.ped-card.ped-ok { border-left-color: rgba(63, 185, 80, 0.75); }
+.ped-cab {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.ped-titulo { font-weight: 600; }
+.ped-estado { margin-left: auto; }
+.ped-acciones { display: flex; gap: 0.25rem; align-items: center; }
+.ped-acciones .pp-add { padding: 0.1rem 0.4rem; }
+.ped-retrato {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  vertical-align: -5px;
+}
+.ped-nota { margin: 0.25rem 0 0 1.8rem; }
+.ped-detalle { margin: 0.5rem 0 0.2rem 1.2rem; }
+.ped-detalle h5 { margin: 0.6rem 0 0.3rem; }
+.ped-si { color: #3fb950; }
+.ped-no { color: #f85149; }
+.ped-aviso { color: #d29922; }
+.ped-tarde { color: #f85149; font-weight: 600; }
+.ped-justo { color: #d29922; }
+.ped-err { color: #f85149; }
+.ped-mal { border-color: #f85149 !important; }
+.ped-form {
+  margin: 0.6rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--accent-border, #4f9cff);
+  border-radius: 6px;
+  background: rgba(79, 156, 255, 0.05);
+}
+.ped-form h4 { margin: 0 0 0.4rem; }
+.ped-form-fila {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0;
+}
+.ped-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+.ped-form-nota { margin: 0.35rem 0; }
+.ped-form-nota input { width: 100%; max-width: 40rem; }
+.ped-sug {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0.2rem 0 0.4rem;
+}
+.ped-cerrados { margin-top: 1rem; }
+/* Iconos de tipo en las tablas de Pedidos: alineados con el texto (salían por encima de la línea). */
+.ped .kind-glyph {
+  width: 22px;
+  height: 22px;
+  vertical-align: middle;
+  margin-right: 0.25rem;
+}
+.ped-cab > .kind-glyph { width: 32px; height: 32px; }

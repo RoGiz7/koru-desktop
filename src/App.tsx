@@ -35,6 +35,7 @@ import { OpsView } from "./ops";
 import { FichaPiloto } from "./fichaPiloto";
 import { GuiaInicio } from "./guia";
 import { FabricadorSection } from "./fabricador";
+import { PedidosSection } from "./pedidos";
 import { useSondaImagenes } from "./sondaImagenes";
 import { useVigiaCampanas } from "./vigiaCampanas";
 import { pistasActivas, setPistasActivas } from "./pista";
@@ -3678,6 +3679,7 @@ function App() {
           {tab === "industria" && (
             <IndustryView jobs={jobsData} busy={sectionBusy} global={isGlobal} subject={subject} />
           )}
+          {tab === "pedidos" && <PedidosSection subject={subject} />}
           {(tab === "comercio" ||
             tab === "comercio_pnl" ||
             tab === "comercio_watch" ||

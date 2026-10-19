@@ -122,6 +122,7 @@ const BASE: Record<Exclude<Tab, (typeof SIN_ARTE)[number]>, number> = {
   wormholes: 28665, // Vargur: el marauder, la nave que más decide la Rampancy sin ser capital
   campanas: 44996,
   industria: 28606,
+  pedidos: 28352, // Rorqual: la industria capital, la que hace falta para los encargos grandes
   exploracion: 33468,
   exploracion_log: 33468,
   // ★ LAS NUEVE QUE SE HABÍAN QUEDADO SIN FONDO (2026-09-16). El rollout de la «carta de la

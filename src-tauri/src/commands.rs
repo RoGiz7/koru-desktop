@@ -1385,6 +1385,29 @@ pub fn sov_upgrades_clear(state: State<'_, AppState>) -> AppResult<()> {
     state.db.sov_upgrades_clear()
 }
 
+// ---- Pedidos de producción (2026-10-19, SPEC_PEDIDOS.md, P1) ----
+// Rust solo guarda los pedidos. El plan (qué falta, qué se fabrica) lo calcula el frontend con el
+// mismo motor de Fabricación, porque las recetas, los rigs y las fichas ya viven allí.
+
+#[tauri::command]
+pub fn orders_list(state: State<'_, AppState>) -> AppResult<Vec<crate::db::ProductionOrder>> {
+    state.db.orders_list()
+}
+
+/// Crea o actualiza un pedido. Devuelve su id.
+#[tauri::command]
+pub fn order_save(
+    state: State<'_, AppState>,
+    order: crate::db::ProductionOrder,
+) -> AppResult<i64> {
+    state.db.order_save(&order)
+}
+
+#[tauri::command]
+pub fn order_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    state.db.order_delete(id)
+}
+
 // ---- Firmas y anomalías del escáner de sondas (mismo espíritu: la app propone, el piloto declara).
 // El pegado no trae el sistema → lo pasa el frontend. Rust solo persiste lo confirmado.
 

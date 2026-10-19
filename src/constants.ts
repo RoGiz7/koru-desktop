@@ -16,6 +16,7 @@ export type Tab =
   | "skills"
   | "assets"
   | "industria"
+  | "pedidos"
   | "comercio"
   | "comercio_pnl"
   | "comercio_watch"
@@ -147,6 +148,9 @@ export const NAV: { group: string; icon: string; typeId?: number; imgSrc?: strin
     subs: [
       { key: "mineria", label: "Minería", scopes: ["esi-industry.read_character_mining.v1"] },
       { key: "industria", label: "Industria", scopes: ["esi-industry.read_character_jobs.v1"] },
+      // Pedidos (SPEC_PEDIDOS.md): qué te encargan, para quién y para cuándo, cruzado con tus planos
+      // y tu stock. Sin scope propio: usa lo que ya sincronizan Industria y Assets.
+      { key: "pedidos", label: "Pedidos" },
       { key: "planetologia", label: "Planetología", scopes: ["esi-planets.manage_planets.v1"] },
     ],
   },
@@ -341,6 +345,10 @@ export const TAB_HEAD: Record<Tab, { title: string; subtitle: string }> = {
   skills: { title: "Skills", subtitle: "SP totales y cola de entrenamiento" },
   assets: { title: "Assets", subtitle: "Inventario, tipos y valor estimado de mercado" },
   industria: { title: "Industria", subtitle: "Trabajos activos y registro de minería" },
+  pedidos: {
+    title: "Pedidos",
+    subtitle: "Lo que te encargan, para quién y para cuándo — qué puedes empezar ya y qué te falta",
+  },
   mineria: { title: "Minería", subtitle: "Mineral extraído, valor estimado y por sistema" },
   bitacora: {
     title: "Bitácora",

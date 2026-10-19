@@ -942,3 +942,27 @@ CREATE INDEX IF NOT EXISTS idx_run_loot_type ON run_loot(type_id);
 CREATE INDEX IF NOT EXISTS idx_runs_activity ON activity_runs(activity);
 CREATE INDEX IF NOT EXISTS idx_runs_ended    ON activity_runs(ended_at);
 CREATE INDEX IF NOT EXISTS idx_runs_char     ON activity_runs(character_id);
+
+-- ★ PEDIDOS DE PRODUCCIÓN (2026-10-19, SPEC_PEDIDOS.md, fase P1).
+-- Un pedido = QUÉ fabricar, CUÁNTO, PARA QUIÉN y PARA CUÁNDO. El PLAN (qué falta, qué se fabrica,
+-- qué se compra) NO se guarda: se recalcula cada vez, porque el stock, los precios y los jobs
+-- cambian solos y un plan congelado mentiría al día siguiente.
+-- ⚠️ El cliente va en `client_char_id`, NO en `character_id`, A PROPÓSITO: el barrido que borra un
+-- personaje pregunta por `character_id`, y aquí ese id es el de OTRA persona (el cliente). Borrar
+-- tu alt no debe llevarse los pedidos de tus clientes. La trampa ya se pagó con intel_alias.
+CREATE TABLE IF NOT EXISTS production_order (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_name     TEXT NOT NULL DEFAULT '',  -- '' = pedido propio (para ti / para la corp)
+    client_char_id  INTEGER,                   -- personaje de EVE comprobado; NULL = texto libre
+    product_type_id INTEGER NOT NULL,          -- typeID del PRODUCTO (no del plano)
+    product_name    TEXT NOT NULL,             -- copiado para enseñarlo sin cargar el catálogo
+    qty             INTEGER NOT NULL DEFAULT 1,
+    due_date        TEXT,                      -- 'YYYY-MM-DD'; NULL = sin fecha
+    price           REAL,                      -- precio acordado TOTAL; NULL = sin pactar
+    priority        INTEGER NOT NULL DEFAULT 0,-- ajuste manual: mayor = antes; a igual prioridad manda la fecha
+    status          TEXT NOT NULL DEFAULT 'pending', -- pending|in_progress|ready|delivered|cancelled
+    note            TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_production_order_status ON production_order(status);
