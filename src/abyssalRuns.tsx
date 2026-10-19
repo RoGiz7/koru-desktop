@@ -990,7 +990,7 @@ export function AbyssalRunsView({
               )}
             </span>
           )}
-          <button className="pp-add" onClick={startRun} disabled={busy || !filamentId}>▶ {tr("Iniciar run")}</button>
+          <button className="pp-add" onClick={startRun} disabled={busy || (!filamentId && !isFab)}>▶ {tr("Iniciar run")}</button>
         </div>
       )}
 
