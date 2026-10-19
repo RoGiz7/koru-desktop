@@ -1408,6 +1408,12 @@ pub fn order_delete(state: State<'_, AppState>, id: i64) -> AppResult<()> {
     state.db.order_delete(id)
 }
 
+/// P4: jobs de fabricación y reacción que aún no han entregado (lo que está «en el horno»).
+#[tauri::command]
+pub fn orders_wip(state: State<'_, AppState>) -> AppResult<Vec<crate::db::WipJob>> {
+    state.db.industry_wip()
+}
+
 /// P2: de dónde sale cada material que falta. Devuelve pares [typeID, vía].
 #[tauri::command]
 pub fn sourcing_list(state: State<'_, AppState>) -> AppResult<Vec<(i64, String)>> {

@@ -449,6 +449,7 @@ pub fn run() {
             commands::sourcing_list,
             commands::sourcing_set,
             commands::get_ore_data,
+            commands::orders_wip,
             commands::signatures_list,
             commands::signatures_replace_system,
             commands::signature_set_note,

@@ -116,7 +116,7 @@ export function programar(inp: CalInput): Calendario {
       if (!act) continue;
       const req = act.sk ?? [];
       const capaces = chars.filter((c) => req.every(([s, lvl]) => (c.levels[s] ?? 0) >= lvl));
-      const listo = Math.max(ahora, ...(hijos.get(i) ?? []).map((h) => fin.get(h) ?? ahora));
+      const listo = Math.max(ahora, b.espera ?? 0, ...(hijos.get(i) ?? []).map((h) => fin.get(h) ?? ahora));
       if (capaces.length === 0) {
         sinFabricante++;
         fin.set(i, listo);
@@ -164,7 +164,8 @@ export function programar(inp: CalInput): Calendario {
       }
       fin.set(i, acaba);
     }
-    const finPedido = p.builds.length ? Math.max(...[...fin.values()]) : ahora;
+    // P4: si el producto (o parte) viene de un job ya en marcha, el pedido no está antes de eso.
+    const finPedido = Math.max(p.builds.length ? Math.max(...[...fin.values()]) : ahora, p.esperaRaiz ?? 0);
     fechas.set(orderId, {
       orderId,
       fin: sinFabricante > 0 ? null : finPedido,

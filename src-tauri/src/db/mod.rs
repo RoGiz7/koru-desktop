@@ -4766,6 +4766,21 @@ pub struct RunCharRow {
     pub lost_value: f64,
 }
 
+/// Pedidos P4: un job de fabricación o reacción que AÚN no ha entregado su producto (activo,
+/// pausado o terminado sin recoger). Su producto está «en camino»: el plan lo cuenta como
+/// suministro y el calendario como ranura ocupada.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WipJob {
+    pub job_id: i64,
+    pub character_id: i64,
+    pub activity_id: i64,
+    pub product_type_id: Option<i64>,
+    pub blueprint_type_id: i64,
+    pub runs: i64,
+    pub status: Option<String>,
+    pub end_date: Option<String>,
+}
+
 /// Un pedido de producción (SPEC_PEDIDOS.md, P1). Ver el comentario de la tabla en `schema.sql`:
 /// el cliente va en `client_char_id` y no en `character_id` a propósito.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -5525,6 +5540,34 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM production_order WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
+    }
+
+    /// Pedidos P4: jobs de fabricación (1) y reacción (9, y 11 por si ESI usa el id nuevo) que
+    /// no han entregado todavía. Lee la BD que ya llena el auto_sync: cero llamadas a ESI.
+    pub fn industry_wip(&self) -> AppResult<Vec<WipJob>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT job_id, character_id, activity_id, product_type_id, blueprint_type_id, runs,
+                    status, end_date
+             FROM industry_job
+             WHERE activity_id IN (1, 9, 11)
+               AND status IN ('active', 'paused', 'ready')",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(WipJob {
+                    job_id: r.get(0)?,
+                    character_id: r.get(1)?,
+                    activity_id: r.get(2)?,
+                    product_type_id: r.get(3)?,
+                    blueprint_type_id: r.get(4)?,
+                    runs: r.get(5)?,
+                    status: r.get(6)?,
+                    end_date: r.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Decisiones de obtención por tipo (P2): typeID → vía.

@@ -32,7 +32,19 @@ import {
 import { ObtencionBlock } from "./pedidosObtencion";
 import type { Tab } from "./constants";
 import type { BpIndustry, BpTree, IndustryRigs, Facility } from "./industry";
-import type { Blueprint, JobView } from "./types";
+import type { Blueprint } from "./types";
+
+/** P4: un job sin entregar, tal como lo devuelve `orders_wip`. */
+type WipJob = {
+  job_id: number;
+  character_id: number;
+  activity_id: number;
+  product_type_id: number | null;
+  blueprint_type_id: number;
+  runs: number;
+  status: string | null;
+  end_date: string | null;
+};
 import {
   planOrders,
   sortOrders,
@@ -120,7 +132,8 @@ export function PedidosSection({
   const [error, setError] = useState("");
   // P3 — calendario: skills de todos tus personajes, jobs de fabricación en marcha y el troceo.
   const [chars, setChars] = useState<Fabricante[] | null>(null);
-  const [enMarcha, setEnMarcha] = useState<JobView[]>([]);
+  /** P4: jobs de fabricación/reacción sin entregar (BD local que llena el auto_sync). */
+  const [wipJobs, setWipJobs] = useState<WipJob[] | null>(null);
   const [chunkH, setChunkH] = useState<number>(() => {
     try {
       const v = localStorage.getItem(CHUNK_KEY);
@@ -236,7 +249,40 @@ export function PedidosSection({
     return m;
   }, [stockRows, st?.structure_id]);
 
-  const listo = orders != null && ind != null && bps != null && stockRows != null;
+  // P4: lo que está en el horno. Se relee al entrar y cada 5 minutos (el auto_sync lo refresca
+  // cada 30, así que esto basta para que un job recién lanzado salga de la cola sin recargar).
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () =>
+      invoke<WipJob[]>("orders_wip")
+        .then((r) => vivo && setWipJobs(r))
+        .catch(() => vivo && setWipJobs([]));
+    void cargar();
+    const t = window.setInterval(cargar, 5 * 60 * 1000);
+    return () => {
+      vivo = false;
+      window.clearInterval(t);
+    };
+  }, []);
+  const wip = useMemo(() => {
+    const m = new Map<number, { units: number; fin: number }[]>();
+    if (!ind) return m;
+    const ahora = Date.now();
+    for (const j of wipJobs ?? []) {
+      if (j.product_type_id == null) continue;
+      // Con un personaje elegido, solo sus jobs (igual que el stock); en Global, todos.
+      if (subject !== "global" && j.character_id !== subject) continue;
+      const b = ind[String(j.blueprint_type_id)];
+      const act = j.activity_id === 1 ? b?.m : b?.r;
+      const porRun = act?.out?.[0]?.[1] ?? 1;
+      const fin = j.end_date ? Date.parse(j.end_date) : ahora;
+      if (!m.has(j.product_type_id)) m.set(j.product_type_id, []);
+      m.get(j.product_type_id)!.push({ units: j.runs * porRun, fin: isFinite(fin) ? fin : ahora });
+    }
+    return m;
+  }, [wipJobs, ind, subject]);
+
+  const listo = orders != null && ind != null && bps != null && stockRows != null && wipJobs != null;
   const plan = useMemo(() => {
     if (!listo) return null;
     return planOrders({
@@ -249,8 +295,9 @@ export function PedidosSection({
       bonosFor,
       stockHere,
       stockAll,
+      wip,
     });
-  }, [listo, orders, ind, tree, bpByProduct, reactByProduct, owned, bonosFor, stockHere, stockAll]);
+  }, [listo, orders, ind, tree, bpByProduct, reactByProduct, owned, bonosFor, stockHere, stockAll, wip]);
 
   // Precio medio de lo que falta (estimación: P2 decidirá comprar/minar/PI con su precio de hub).
   useEffect(() => {
@@ -325,9 +372,6 @@ export function PedidosSection({
     invoke<Fabricante[]>("get_skill_levels_all", { ids: skillKey.split(",").map(Number) })
       .then(setChars)
       .catch(() => setChars([]));
-    invoke<JobView[]>("get_industry_global")
-      .then(setEnMarcha)
-      .catch(() => setEnMarcha([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skillKey]);
 
@@ -337,18 +381,17 @@ export function PedidosSection({
     const quien = subject === "global" ? chars : chars.filter((c) => c.character_id === subject);
     if (quien.length === 0) return null;
     const ahora = Date.now();
-    const porNombre = new Map(chars.map((c) => [c.name, c.character_id]));
+    // Ranuras de FABRICACIÓN ocupadas: los jobs de fabricación (actividad 1) que aún corren.
     const ocupado = new Map<number, number[]>();
-    for (const j of enMarcha) {
-      if (j.activity !== "Manufacturing" || !j.end_date || !j.character) continue;
+    for (const j of wipJobs ?? []) {
+      if (j.activity_id !== 1 || !j.end_date) continue;
       const fin = Date.parse(j.end_date);
-      const id = porNombre.get(j.character);
-      if (id == null || !(fin > ahora)) continue;
-      if (!ocupado.has(id)) ocupado.set(id, []);
-      ocupado.get(id)!.push(fin);
+      if (!(fin > ahora)) continue;
+      if (!ocupado.has(j.character_id)) ocupado.set(j.character_id, []);
+      ocupado.get(j.character_id)!.push(fin);
     }
     return programar({ plans: plan.plans, ind, tree, timeFor, chars: quien, ocupado, ahora, chunkH });
-  }, [plan, ind, tree, chars, enMarcha, subject, timeFor, chunkH]);
+  }, [plan, ind, tree, chars, wipJobs, subject, timeFor, chunkH]);
 
   return (
     <div className="ped">
@@ -467,6 +510,18 @@ export function PedidosSection({
                   {o.price != null && <span className="small muted">{fmtIsk(o.price)}</span>}
                   <span className="ped-estado">
                     <PlanBadge p={p} />
+                    {/* P4: Koru PROPONE el cambio de estado con lo que ve; el clic es tuyo. Un
+                        producto en tu hangar puede ser tuyo y no del cliente: por eso no se marca solo. */}
+                    {p?.enHangar && o.status !== "ready" && (
+                      <button className="pp-add small ped-sugiere" onClick={() => guardar({ ...o, status: "ready" })}>
+                        ✔ {tr("Marcar listo")}
+                      </button>
+                    )}
+                    {p && !p.enHangar && o.status === "pending" && p.enMarcha.length > 0 && (
+                      <button className="pp-add small ped-sugiere" onClick={() => guardar({ ...o, status: "in_progress" })}>
+                        ▶ {tr("Marcar en curso")}
+                      </button>
+                    )}
                   </span>
                   <span className="ped-acciones">
                     <button className="pp-add small" title={tr("Subir prioridad")} onClick={() => guardar({ ...o, priority: o.priority + 1 })}>
@@ -642,11 +697,20 @@ function FechaEntrega({ d }: { d: string | null }) {
 
 function PlanBadge({ p }: { p: OrderPlan | undefined }) {
   if (!p) return null;
+  if (p.enHangar) return <span className="ped-si small">📦 {tr("Ya está en tus hangares")}</span>;
   if (p.noRecipe) return <span className="ped-aviso small">⚠ {tr("no hay plano que lo fabrique")}</span>;
-  if (p.canStart) return <span className="ped-si small">✅ {tr("Se puede empezar")}</span>;
+  const enHorno = p.enMarcha.length;
+  if (p.canStart)
+    return (
+      <span className="ped-si small">
+        {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}✅{" "}
+        {p.builds.length === 0 ? tr("Solo falta que acaben los jobs") : tr("Se puede empezar")}
+      </span>
+    );
   const faltan = p.needs.filter((n) => n.missing > 0).length;
   return (
     <span className="small">
+      {enHorno > 0 && <span className="ped-horno">🏭 {enHorno} {tr("en marcha")} · </span>}
       {!p.rootOwned && <span className="ped-aviso">⚠ {tr("sin el plano (estimado con ME 0)")} · </span>}
       {p.shortRuns.length > 0 && <span className="ped-aviso">⚠ {tr("copia sin runs suficientes")} · </span>}
       {faltan > 0 ? (
@@ -679,10 +743,21 @@ function DetallePlan({
   const tienes = p.needs.filter((n) => n.missing === 0);
   return (
     <div className="ped-detalle">
-      {p.covered.length > 0 && (
+      {p.covered.some((c) => c.fromHere + c.fromElsewhere > 0) && (
         <p className="small">
           ♻️ {tr("Ya lo tienes hecho")}:{" "}
-          {p.covered.map((c) => `${nameOf(c.tid)} ×${fmtSp(c.need)}`).join(" · ")}
+          {p.covered
+            .filter((c) => c.fromHere + c.fromElsewhere > 0)
+            .map((c) => `${nameOf(c.tid)} ×${fmtSp(c.fromHere + c.fromElsewhere)}`)
+            .join(" · ")}
+        </p>
+      )}
+      {p.enMarcha.length > 0 && (
+        <p className="small">
+          🏭 {tr("En marcha (jobs ya lanzados)")}:{" "}
+          {p.enMarcha
+            .map((w) => `${nameOf(w.tid)} ×${fmtSp(w.units)} (${w.fin > Date.now() ? `${tr("acaba")} ${fechaCorta(w.fin)}` : tr("listo para recoger")})`)
+            .join(" · ")}
         </p>
       )}
       {p.builds.length > 0 && (

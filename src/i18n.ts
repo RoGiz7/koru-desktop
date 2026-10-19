@@ -3665,6 +3665,15 @@ const EN: Record<string, string> = {
   "Sin encuadrar": "Unassigned",
   atracado: "docked",
   salió: "left",
+  // ---- Pedidos P4 (seguimiento) ----
+  "Ya está en tus hangares": "Already in your hangars",
+  "en marcha": "running",
+  "Solo falta que acaben los jobs": "Just waiting for the jobs to finish",
+  "En marcha (jobs ya lanzados)": "Running (jobs already started)",
+  "acaba": "ends",
+  "listo para recoger": "ready to collect",
+  "Marcar listo": "Mark ready",
+  "Marcar en curso": "Mark in progress",
   // ---- Pedidos P3 (calendario) ----
   "Calendario de fabricación": "Manufacturing schedule",
   "Empieza": "Starts",

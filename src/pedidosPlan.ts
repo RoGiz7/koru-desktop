@@ -63,6 +63,10 @@ export type PlanInput = {
   stockHere: Map<number, number> | null;
   /** Stock TOTAL de todas tus ubicaciones (incluye el de la instalación). */
   stockAll: Map<number, number>;
+  /** P4: lo que ya está «en el horno» — jobs de fabricación/reacción sin entregar — por producto,
+   *  con cuándo acaba cada uno (ms). Se gasta DESPUÉS del stock y ANTES de fabricar más: un job
+   *  lanzado sale de la cola en vez de programarse dos veces. */
+  wip?: Map<number, { units: number; fin: number }[]>;
 };
 
 /** Un job a lanzar para un pedido. */
@@ -83,6 +87,8 @@ export type BuildLine = {
   /** Índice (en `builds` del mismo pedido) del job que CONSUME lo que fabrica éste; null = es el
    *  producto del pedido. P3 lo usa para no empezar un job antes de que acaben sus componentes. */
   parent: number | null;
+  /** P4: no puede empezar antes de esto (ms): lo que espera de jobs ya en marcha. 0 = nada. */
+  espera: number;
 };
 
 /** Un material que hace falta: lo que sale del stock y lo que falta. */
@@ -93,6 +99,8 @@ export type NeedLine = {
   /** Sale de tu stock pero está en OTRO sitio: hay que traerlo. */
   fromElsewhere: number;
   missing: number;
+  /** P4: unidades que vienen de jobs ya en marcha. */
+  enCamino: number;
   /** Cómo se podría conseguir lo que falta, para etiquetar (la decisión es P2). */
   kind: "leaf" | "reaction" | "build-no-bp";
 };
@@ -112,6 +120,12 @@ export type OrderPlan = {
   shortRuns: { bp: number; tid: number; need: number; have: number }[];
   /** El catálogo no sabe fabricar el producto (no hay plano publicado). */
   noRecipe: boolean;
+  /** P4: lo que este pedido toma de jobs ya en marcha (producto, unidades, cuándo acaba). */
+  enMarcha: { tid: number; units: number; fin: number }[];
+  /** P4: si el propio producto viene de un job en marcha, cuándo acaba (ms; 0 = no). */
+  esperaRaiz: number;
+  /** P4: el producto ya está entero en tus hangares — no hay nada que fabricar ni que esperar. */
+  enHangar: boolean;
 };
 
 export type PlanResult = {
@@ -160,6 +174,23 @@ export function planOrders(inp: PlanInput): PlanResult {
   const runsLeft = new Map<number, number>();
   for (const [bp, o] of owned) runsLeft.set(bp, o.bpo ? Infinity : o.runs);
 
+  // P4: copia mutable de lo que está en marcha, por producto, lo que antes acaba primero.
+  const wip = new Map<number, { units: number; fin: number }[]>();
+  for (const [tid, l] of inp.wip ?? []) wip.set(tid, [...l].sort((a, b) => a.fin - b.fin).map((x) => ({ ...x })));
+  const takeWip = (tid: number, qty: number) => {
+    let w = 0;
+    let fin = 0;
+    for (const x of wip.get(tid) ?? []) {
+      if (w >= qty) break;
+      const t = Math.min(x.units, qty - w);
+      if (t <= 0) continue;
+      x.units -= t;
+      w += t;
+      fin = Math.max(fin, x.fin);
+    }
+    return { w, fin };
+  };
+
   const take = (tid: number, qty: number) => {
     const h = Math.min(here.get(tid) ?? 0, qty);
     if (h > 0) here.set(tid, (here.get(tid) ?? 0) - h);
@@ -181,8 +212,20 @@ export function planOrders(inp: PlanInput): PlanResult {
     const rootBp = bpByProduct.get(order.product_type_id) ?? null;
     const rootOwned = rootBp != null && owned.has(Number(rootBp));
 
-    const addTo = (m: Map<number, NeedLine>, tid: number, kind: NeedLine["kind"], need: number, h: number, e: number, rest: number) => {
-      const cur = m.get(tid) ?? { tid, need: 0, fromHere: 0, fromElsewhere: 0, missing: 0, kind };
+    const enMarcha: OrderPlan["enMarcha"] = [];
+    let esperaRaiz = 0;
+    const addTo = (
+      m: Map<number, NeedLine>,
+      tid: number,
+      kind: NeedLine["kind"],
+      need: number,
+      h: number,
+      e: number,
+      rest: number,
+      w = 0,
+    ) => {
+      const cur = m.get(tid) ?? { tid, need: 0, fromHere: 0, fromElsewhere: 0, missing: 0, enCamino: 0, kind };
+      cur.enCamino += w;
       cur.need += need;
       cur.fromHere += h;
       cur.fromElsewhere += e;
@@ -193,7 +236,16 @@ export function planOrders(inp: PlanInput): PlanResult {
     const walk = (tid: number, qty: number, depth: number, parent: number | null) => {
       if (qty <= 0) return;
       // 1) Stock primero, en cualquier nivel (también el producto final ya hecho).
-      const { h, e, rest } = take(tid, qty);
+      const { h, e, rest: tras } = take(tid, qty);
+      // 2) P4: lo que ya está en el horno. El que lo espera (su padre, o el pedido si es el
+      //    producto) no puede empezar antes de que acabe.
+      const { w, fin: finW } = takeWip(tid, tras);
+      const rest = tras - w;
+      if (w > 0) {
+        enMarcha.push({ tid, units: w, fin: finW });
+        if (parent == null) esperaRaiz = Math.max(esperaRaiz, finW);
+        else builds[parent].espera = Math.max(builds[parent].espera, finW);
+      }
       const bp = bpByProduct.get(tid) ?? null;
       const bpOwned = bp != null && owned.has(Number(bp));
       // ¿Se fabrica? El raíz siempre (para estimar); un intermedio solo si el plano es tuyo.
@@ -204,10 +256,10 @@ export function planOrders(inp: PlanInput): PlanResult {
           : bp != null
             ? "build-no-bp"
             : "leaf";
-        addTo(needs, tid, kind, qty, h, e, rest);
+        addTo(needs, tid, kind, qty, h, e, rest, w);
         return;
       }
-      if (h + e > 0) addTo(covered, tid, "leaf", h + e, h, e, 0);
+      if (h + e + w > 0) addTo(covered, tid, "leaf", h + e + w, h, e, 0, w);
       if (rest <= 0) return;
       const act = ind[bp]?.m;
       if (!act) return;
@@ -234,6 +286,7 @@ export function planOrders(inp: PlanInput): PlanResult {
         depth,
         te: ob?.te ?? 0,
         parent,
+        espera: 0,
       });
       const yo = builds.length - 1;
       // Lo que sobra de la última run vuelve al stock de la instalación (se fabrica ahí).
@@ -271,6 +324,13 @@ export function planOrders(inp: PlanInput): PlanResult {
       canStart: rootBp != null && allOwned && shortRuns.length === 0 && needList.every((n) => n.missing === 0),
       shortRuns,
       noRecipe: rootBp == null,
+      enMarcha,
+      esperaRaiz,
+      enHangar:
+        builds.length === 0 &&
+        enMarcha.length === 0 &&
+        needList.length === 0 &&
+        (covered.get(order.product_type_id)?.fromHere ?? 0) + (covered.get(order.product_type_id)?.fromElsewhere ?? 0) >= order.qty,
     });
   }
   return { plans, missingTotal, bringTotal, buildTotal };
