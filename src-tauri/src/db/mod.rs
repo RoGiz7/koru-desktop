@@ -5541,6 +5541,41 @@ impl Db {
     pub fn order_delete(&self, id: i64) -> AppResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM production_order WHERE id = ?1", rusqlite::params![id])?;
+        // Sus asignaciones de jobs: sin el pedido, esos jobs vuelven a «automático».
+        conn.execute("DELETE FROM production_order_job WHERE order_id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }
+
+    /// De qué pedido es cada job que el piloto ha asignado a mano: pares [job_id, order_id]
+    /// (order_id 0 = de ningún pedido). Los que no salen aquí son automáticos.
+    pub fn order_jobs_list(&self) -> AppResult<Vec<(i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT job_id, order_id FROM production_order_job")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Asigna un job a un pedido (0 = a ninguno). `None` = borrar: vuelve a automático.
+    pub fn order_job_set(&self, job_id: i64, order_id: Option<i64>) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        match order_id {
+            None => {
+                conn.execute(
+                    "DELETE FROM production_order_job WHERE job_id = ?1",
+                    rusqlite::params![job_id],
+                )?;
+            }
+            Some(oid) => {
+                let now = chrono::Utc::now().to_rfc3339();
+                conn.execute(
+                    "INSERT INTO production_order_job (job_id, order_id, updated_at) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(job_id) DO UPDATE SET order_id = excluded.order_id, updated_at = excluded.updated_at",
+                    rusqlite::params![job_id, oid, now],
+                )?;
+            }
+        }
         Ok(())
     }
 

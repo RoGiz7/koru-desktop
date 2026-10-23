@@ -446,6 +446,8 @@ pub fn run() {
             commands::orders_list,
             commands::order_save,
             commands::order_delete,
+            commands::order_jobs_list,
+            commands::order_job_set,
             commands::sourcing_list,
             commands::sourcing_set,
             commands::get_ore_data,

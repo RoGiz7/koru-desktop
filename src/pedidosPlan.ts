@@ -66,8 +66,13 @@ export type PlanInput = {
   /** P4: lo que ya está «en el horno» — jobs de fabricación/reacción sin entregar — por producto,
    *  con cuándo acaba cada uno (ms). Se gasta DESPUÉS del stock y ANTES de fabricar más: un job
    *  lanzado sale de la cola en vez de programarse dos veces. */
-  wip?: Map<number, { units: number; fin: number; entregado?: boolean }[]>;
+  wip?: Map<number, WipEntry[]>;
 };
+
+/** Un job en el horno (o recién entregado). `owner`: de qué pedido lo ha dicho el piloto —
+ *  undefined = automático (lo toma el pedido activo que antes lo necesite); un id = solo ese
+ *  pedido (si está cerrado, nadie); 0 = de ningún pedido. */
+export type WipEntry = { jobId?: number; units: number; fin: number; entregado?: boolean; owner?: number };
 
 /** Un job a lanzar para un pedido. */
 export type BuildLine = {
@@ -121,7 +126,7 @@ export type OrderPlan = {
   /** El catálogo no sabe fabricar el producto (no hay plano publicado). */
   noRecipe: boolean;
   /** P4: lo que este pedido toma de jobs ya en marcha (producto, unidades, cuándo acaba). */
-  enMarcha: { tid: number; units: number; fin: number; entregado: boolean }[];
+  enMarcha: { tid: number; units: number; fin: number; entregado: boolean; jobId?: number }[];
   /** P4: si el propio producto viene de un job en marcha, cuándo acaba (ms; 0 = no). */
   esperaRaiz: number;
   /** P4: el producto ya está entero en tus hangares — no hay nada que fabricar ni que esperar. */
@@ -175,22 +180,39 @@ export function planOrders(inp: PlanInput): PlanResult {
   for (const [bp, o] of owned) runsLeft.set(bp, o.bpo ? Infinity : o.runs);
 
   // P4: copia mutable de lo que está en marcha, por producto, lo que antes acaba primero.
-  const wip = new Map<number, { units: number; fin: number; entregado?: boolean }[]>();
-  for (const [tid, l] of inp.wip ?? []) wip.set(tid, [...l].sort((a, b) => a.fin - b.fin).map((x) => ({ ...x })));
-  const takeWip = (tid: number, qty: number) => {
+  // Un job asignado a un pedido que ya no está activo (o a «ninguno», 0) no cuenta para nadie.
+  const activosIds = new Set(
+    inp.orders.filter((o) => ACTIVE.includes(o.status) && o.id != null).map((o) => o.id as number),
+  );
+  const wip = new Map<number, WipEntry[]>();
+  for (const [tid, l] of inp.wip ?? [])
+    wip.set(
+      tid,
+      l
+        .filter((x) => x.owner == null || activosIds.has(x.owner))
+        .sort((a, b) => a.fin - b.fin)
+        .map((x) => ({ ...x })),
+    );
+  const takeWip = (tid: number, qty: number, orderId: number | null, soloMios: boolean) => {
     // Una entrada POR job tomado: mezclar un job que aún corre con uno ya entregado en una sola
     // línea hacía decir «entregado» de algo que seguía en el horno (visto en vivo, 2026-10-19).
+    // `soloMios`: los jobs que el piloto ha dicho que son de ESTE pedido (van antes que el stock:
+    // él ha dicho que ese job es para esto). Si no, los automáticos.
     let w = 0;
     let fin = 0;
-    const partes: { units: number; fin: number; entregado: boolean }[] = [];
-    for (const x of wip.get(tid) ?? []) {
+    const partes: { units: number; fin: number; entregado: boolean; jobId?: number }[] = [];
+    const lista = wip.get(tid) ?? [];
+    const cuales = soloMios
+      ? lista.filter((x) => orderId != null && x.owner === orderId)
+      : lista.filter((x) => x.owner == null);
+    for (const x of cuales) {
       if (w >= qty) break;
       const t = Math.min(x.units, qty - w);
       if (t <= 0) continue;
       x.units -= t;
       w += t;
       fin = Math.max(fin, x.fin);
-      partes.push({ units: t, fin: x.fin, entregado: !!x.entregado });
+      partes.push({ units: t, fin: x.fin, entregado: !!x.entregado, jobId: x.jobId });
     }
     return { w, fin, partes };
   };
@@ -202,6 +224,19 @@ export function planOrders(inp: PlanInput): PlanResult {
     if (e > 0) elsewhere.set(tid, (elsewhere.get(tid) ?? 0) - e);
     return { h, e, rest: qty - h - e };
   };
+
+  // Un pedido LISTO ya está hecho y espera al cliente en tu hangar: sus unidades son suyas y
+  // ningún otro pedido las puede contar como stock libre (visto en vivo, 2026-10-19: Bantam ×1
+  // listo, y el ×10 decía «Ya lo tienes hecho: Bantam ×1»). Se descuenta lo que aún viene de un
+  // job asignado a él (entregado pero fuera de la foto de assets): eso no está en el stock todavía.
+  // Un pedido ENTREGADO no aparta nada: si se entregó, ya no está en tu hangar.
+  for (const o of inp.orders) {
+    if (o.status !== "ready" || o.id == null) continue;
+    let enJobs = 0;
+    for (const x of inp.wip?.get(o.product_type_id) ?? []) if (x.owner === o.id) enJobs += x.units;
+    const r = o.qty - enJobs;
+    if (r > 0) take(o.product_type_id, r);
+  }
 
   const plans: OrderPlan[] = [];
   const missingTotal = new Map<number, number>();
@@ -239,12 +274,17 @@ export function planOrders(inp: PlanInput): PlanResult {
 
     const walk = (tid: number, qty: number, depth: number, parent: number | null) => {
       if (qty <= 0) return;
-      // 1) Stock primero, en cualquier nivel (también el producto final ya hecho).
-      const { h, e, rest: tras } = take(tid, qty);
+      // 0) Los jobs que el piloto ha asignado a ESTE pedido, antes que nada.
+      const a = takeWip(tid, qty, order.id, true);
+      // 1) Stock, en cualquier nivel (también el producto final ya hecho).
+      const { h, e, rest: tras } = take(tid, qty - a.w);
       // 2) P4: lo que ya está en el horno. El que lo espera (su padre, o el pedido si es el
       //    producto) no puede empezar antes de que acabe.
-      const { w, fin: finW, partes } = takeWip(tid, tras);
-      const rest = tras - w;
+      const b = takeWip(tid, tras, order.id, false);
+      const w = a.w + b.w;
+      const finW = Math.max(a.fin, b.fin);
+      const partes = [...a.partes, ...b.partes];
+      const rest = tras - b.w;
       if (w > 0) {
         for (const x of partes) enMarcha.push({ tid, ...x });
         if (parent == null) esperaRaiz = Math.max(esperaRaiz, finW);

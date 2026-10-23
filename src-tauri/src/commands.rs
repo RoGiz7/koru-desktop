@@ -1450,6 +1450,18 @@ pub fn orders_wip(state: State<'_, AppState>) -> AppResult<Vec<crate::db::WipJob
     Ok(out)
 }
 
+/// De qué pedido es cada job asignado a mano: pares [job_id, order_id] (0 = de ninguno).
+#[tauri::command]
+pub fn order_jobs_list(state: State<'_, AppState>) -> AppResult<Vec<(i64, i64)>> {
+    state.db.order_jobs_list()
+}
+
+/// Asigna un job a un pedido (0 = a ninguno); sin `order_id`, vuelve a automático.
+#[tauri::command]
+pub fn order_job_set(state: State<'_, AppState>, job_id: i64, order_id: Option<i64>) -> AppResult<()> {
+    state.db.order_job_set(job_id, order_id)
+}
+
 /// P2: de dónde sale cada material que falta. Devuelve pares [typeID, vía].
 #[tauri::command]
 pub fn sourcing_list(state: State<'_, AppState>) -> AppResult<Vec<(i64, String)>> {

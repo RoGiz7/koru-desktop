@@ -976,3 +976,14 @@ CREATE TABLE IF NOT EXISTS production_sourcing (
     via        TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- ★ PEDIDOS — de qué pedido es cada job (2026-10-19). Sin fila = automático: el job lo toma el
+-- pedido activo que antes lo necesite. Con fila, el piloto ha dicho de quién es: solo cuenta para
+-- ese pedido (y si ese pedido ya está cerrado, para nadie). order_id 0 = «no es de ningún pedido».
+-- Nació en vivo: dos pedidos de Bantam, el de 1 cerrado a mano, y el de 10 seguía contando como
+-- suyo el job que fue para el otro.
+CREATE TABLE IF NOT EXISTS production_order_job (
+    job_id     INTEGER PRIMARY KEY,
+    order_id   INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);

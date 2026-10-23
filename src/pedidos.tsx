@@ -55,7 +55,11 @@ import {
   type OwnedBp,
   type OrderPlan,
   type NeedLine,
+  type WipEntry,
 } from "./pedidosPlan";
+
+/** Un job de `orders_wip` ya en unidades, con su producto y su personaje. */
+type Trabajo = WipEntry & { tid: number; charId: number; jobId: number };
 
 type MType = { i: number; n: string; g: number };
 type StockRow = { type_id: number; quantity: number; location_id: number };
@@ -265,9 +269,19 @@ export function PedidosSection({
       window.clearInterval(t);
     };
   }, []);
-  const wip = useMemo(() => {
-    const m = new Map<number, { units: number; fin: number; entregado?: boolean }[]>();
-    if (!ind) return m;
+  // De qué pedido es cada job, si el piloto lo ha dicho (sin entrada = automático).
+  const [asignados, setAsignados] = useState<Map<number, number>>(new Map());
+  const recargarAsignados = () =>
+    invoke<[number, number][]>("order_jobs_list")
+      .then((r) => setAsignados(new Map(r)))
+      .catch(() => setAsignados(new Map()));
+  useEffect(() => {
+    void recargarAsignados();
+  }, []);
+  // Los jobs que cuentan, uno por fila (también los usa el formulario para asignarlos).
+  const trabajos = useMemo(() => {
+    const out: Trabajo[] = [];
+    if (!ind) return out;
     const ahora = Date.now();
     for (const j of wipJobs ?? []) {
       if (j.product_type_id == null) continue;
@@ -280,11 +294,26 @@ export function PedidosSection({
       // `orders_wip`): está disponible ya, solo que Koru todavía no lo ve en tu hangar.
       const entregado = j.status === "delivered";
       const fin = entregado ? ahora : j.end_date ? Date.parse(j.end_date) : ahora;
-      if (!m.has(j.product_type_id)) m.set(j.product_type_id, []);
-      m.get(j.product_type_id)!.push({ units: j.runs * porRun, fin: isFinite(fin) ? fin : ahora, entregado });
+      out.push({
+        tid: j.product_type_id,
+        charId: j.character_id,
+        jobId: j.job_id,
+        units: j.runs * porRun,
+        fin: isFinite(fin) ? fin : ahora,
+        entregado,
+        owner: asignados.get(j.job_id),
+      });
+    }
+    return out;
+  }, [wipJobs, ind, subject, asignados]);
+  const wip = useMemo(() => {
+    const m = new Map<number, WipEntry[]>();
+    for (const t of trabajos) {
+      if (!m.has(t.tid)) m.set(t.tid, []);
+      m.get(t.tid)!.push(t);
     }
     return m;
-  }, [wipJobs, ind, subject]);
+  }, [trabajos]);
 
   const listo = orders != null && ind != null && bps != null && stockRows != null && wipJobs != null;
   const plan = useMemo(() => {
@@ -408,7 +437,7 @@ export function PedidosSection({
           {tr("Para cada pedido te dice si puedes empezarlo ya, qué jobs hay que lanzar y qué materiales faltan. Un componente se fabrica si tienes su plano; si no, sale como algo a conseguir. Lo que ya tienes hecho se usa antes de fabricar más, y lo que sobra de un job pasa al pedido siguiente.")}
         </p>
         <p className="small muted">
-          {tr("Todavía no: de dónde sacar cada cosa que falta (comprar, minar, planetología, traer…), juntar los jobs de varios pedidos con su redondeo, y las fechas según tus slots. Llegan en las próximas fases.")}
+          {tr("Debajo de los pedidos: de dónde sacar cada cosa que falta (comprar, minar, planetología, traer, LP…), un calendario con tus ranuras y tus skills, y los jobs que ya tienes en marcha, que Koru cuenta solo. Si un job era para otro pedido, se corrige al editar el pedido.")}
         </p>
       </details>
 
@@ -449,8 +478,29 @@ export function PedidosSection({
         <FormPedido
           inicial={form}
           productos={productos}
+          trabajos={
+            form.id == null
+              ? []
+              : trabajos.filter(
+                  (t) =>
+                    t.tid === form.product_type_id ||
+                    t.owner === form.id ||
+                    (planDe.get(form.id!)?.enMarcha.some((x) => x.jobId === t.jobId) ?? false),
+                )
+          }
+          pedidos={orders ?? []}
+          nameOf={nameOf}
           onCancel={() => setForm(null)}
-          onSave={async (o) => {
+          onSave={async (o, cambios) => {
+            if (cambios.size > 0) {
+              try {
+                for (const [jobId, orderId] of cambios) await invoke("order_job_set", { jobId, orderId });
+              } catch (e) {
+                console.error("order_job_set", e);
+                setError(String(e));
+              }
+              await recargarAsignados();
+            }
             if (await guardar(o)) setForm(null);
           }}
         />
@@ -975,18 +1025,35 @@ function TablaTipos({
 function FormPedido({
   inicial,
   productos,
+  trabajos,
+  pedidos,
+  nameOf,
   onCancel,
   onSave,
 }: {
   inicial: ProductionOrder;
   productos: { tid: number; n: string }[];
+  /** Jobs que tocan a este pedido (de su producto, ya asignados a él o que su plan usa). */
+  trabajos: Trabajo[];
+  pedidos: ProductionOrder[];
+  nameOf: (tid: number) => string;
   onCancel: () => void;
-  onSave: (o: ProductionOrder) => void;
+  /** `cambios`: job → pedido (0 = ninguno, null = automático). Solo los que ha tocado. */
+  onSave: (o: ProductionOrder, cambios: Map<number, number | null>) => void;
 }) {
   const [o, setO] = useState<ProductionOrder>(inicial);
   const [q, setQ] = useState(inicial.product_name);
   const [precio, setPrecio] = useState(iskCorto(inicial.price));
   const [anclar, setAnclar] = useState(false);
+  const [cambios, setCambios] = useState<Map<number, number | null>>(new Map());
+  const [pjs, setPjs] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    if (trabajos.length === 0) return;
+    invoke<{ character_id: number; name: string }[]>("list_characters")
+      .then((cs) => setPjs(new Map(cs.map((c) => [c.character_id, c.name]))))
+      .catch(() => setPjs(new Map()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trabajos.length > 0]);
 
   const sugerencias = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -1103,8 +1170,63 @@ function FormPedido({
         {tr("Nota")}
         <input type="text" value={o.note ?? ""} onChange={(e) => setO({ ...o, note: e.target.value || null })} />
       </label>
+      {o.id != null && trabajos.length > 0 && (
+        <div className="ped-form-jobs">
+          <p className="small">
+            <Glifo t={TID.fabricar} /> <b>{tr("Jobs y pedidos")}</b>
+          </p>
+          <p className="muted small">
+            {tr("Koru reparte cada job al pedido activo que antes lo necesita. Si un job era para otro pedido (o para ti), dilo aquí y deja de contar para este.")}
+          </p>
+          <table className="km-table cat-table">
+            <tbody>
+              {trabajos.map((t) => {
+                const actual = cambios.has(t.jobId) ? cambios.get(t.jobId) : t.owner;
+                const val = actual == null ? "auto" : String(actual);
+                const otros = pedidos.filter(
+                  (p) => p.id != null && p.id !== o.id && (p.product_type_id === t.tid || ACTIVE.includes(p.status)),
+                );
+                return (
+                  <tr key={t.jobId}>
+                    <td>
+                      <img className="kind-glyph" src={typeIcon(t.tid, 32)} alt="" /> {nameOf(t.tid)} ×{fmtSp(t.units)}
+                    </td>
+                    <td className="small muted">
+                      {t.entregado ? tr("entregado") : `${tr("acaba")} ${fechaCorta(t.fin)}`}
+                      {pjs.get(t.charId) ? ` · ${pjs.get(t.charId)}` : ""}
+                    </td>
+                    <td>
+                      <select
+                        className="small"
+                        value={val}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          const n = new Map(cambios);
+                          n.set(t.jobId, v === "auto" ? null : Number(v));
+                          setCambios(n);
+                        }}
+                      >
+                        <option value="auto">{tr("Automático")}</option>
+                        <option value={String(o.id)}>{tr("Este pedido")}</option>
+                        {otros.map((p) => (
+                          <option key={p.id!} value={String(p.id)}>
+                            {`${p.product_name} ×${p.qty}${p.client_name ? ` · ${p.client_name}` : ""} (${tr(
+                              STATUS.find((s) => s.k === p.status)?.label ?? "",
+                            )})`}
+                          </option>
+                        ))}
+                        <option value="0">{tr("De ningún pedido")}</option>
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="ped-form-fila">
-        <button className="pp-add" disabled={!valido} onClick={() => onSave({ ...o, price: precioNum })}>
+        <button className="pp-add" disabled={!valido} onClick={() => onSave({ ...o, price: precioNum }, cambios)}>
           💾 {tr("Guardar")}
         </button>
         <button className="pp-add" onClick={onCancel}>

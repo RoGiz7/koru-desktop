@@ -12135,6 +12135,9 @@ button.cz-calor-h:hover,
 }
 .ped-form-nota { margin: 0.35rem 0; }
 .ped-form-nota input { width: 100%; max-width: 40rem; }
+.ped-form-jobs { margin: 0.5rem 0; max-width: 52rem; }
+.ped-form-jobs p { margin: 0.2rem 0; }
+.ped-form-jobs select { max-width: 22rem; }
 .ped-sug {
   display: flex;
   flex-direction: column;
