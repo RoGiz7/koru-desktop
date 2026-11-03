@@ -102,7 +102,7 @@ function edad(ms: number): string {
 /** El «de» del aviso, resuelto a mano y NO con `tr("de")`.
  *
  *  La clave "de" ya está cogida: en assets, pvp y bitácora significa «X de Y» → *of*. Aquí hace
- *  falta *from* («a 5 saltos DE SieteHierros»), y meter las dos acepciones en la misma clave
+ *  falta *from* («a 5 saltos DE Mara Kell»), y meter las dos acepciones en la misma clave
  *  rompería una de las dos. Mismo motivo por el que `edad()` tampoco pasa por `tr`.
  *  (De paso arregla que hasta hoy el overlay en inglés escribía «de» tal cual.) */
 function preposicionDe(): string {

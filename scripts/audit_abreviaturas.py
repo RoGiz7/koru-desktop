@@ -103,7 +103,9 @@ def enmascara(s: str) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(add_help=True)
-    ap.add_argument("--canal", default="fareast.imperium", help="prefijo del nombre del fichero")
+    # Sin valor por defecto A PROPOSITO (2026-11-03): un canal por defecto que no sea el tuyo no
+    # da error, da CERO resultados, que es la clase de fallo que parece "no hay nada que ver".
+    ap.add_argument("--canal", required=True, help="prefijo del nombre del fichero (p. ej. region.coalicion)")
     ap.add_argument("--dias", type=int, default=0, help="solo los ultimos N dias (0 = todo)")
     ap.add_argument("--claro", action="store_true", help="NO enmascarar (solo para tu maquina)")
     ap.add_argument("--logs", default="", help="carpeta de Chatlogs si no es la de documentacion")

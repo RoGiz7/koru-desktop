@@ -169,8 +169,10 @@ impl LocalIndex {
     /// nombre de piloto, lo buscamos en los Local modernos… y ahí hay trampa: un nombre puede apuntar
     /// a DOS personajes (renombrados, o un alt que hereda el nombre). Se elige el charID cuya primera
     /// aparición con ese nombre está más cerca en el tiempo de la sesión que estamos resolviendo.
-    /// Caso real: `SieteHierros` = 152730148 (visto desde 2021-02, 3.499 ficheros) y 2112004119 (dos
-    /// ficheros de mayo de 2024). Los huérfanos son todos de 2019-2021 → el primero, correcto.
+    /// Caso real que lo motivó: un mismo nombre resolvía a DOS charIDs —uno con años de presencia y
+    /// miles de ficheros, y otro con un par de ficheros sueltos de un mes concreto—; los huérfanos
+    /// caían todos en el rango del primero, así que ése es el correcto. Los datos concretos del caso
+    /// (nombre, IDs y fechas) NO se escriben aquí a propósito: identifican al piloto.
     pub fn resolve_char(&self, ident: &str, session: i64) -> Option<i64> {
         if let Ok(id) = ident.parse::<i64>() {
             return Some(id);

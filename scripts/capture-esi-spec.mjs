@@ -104,7 +104,7 @@ async function main() {
   const res = await fetch(SPEC_URL, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Koru-Desktop spec-capture (sietehierros@gmail.com)",
+      "User-Agent": "Koru-Desktop spec-capture (+https://github.com/RoGiz7/koru-desktop)",
     },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} al pedir ${SPEC_URL}`);

@@ -362,8 +362,8 @@ export function IntelSettings({ intel }: { intel: IntelConfig }) {
                   const q = buscaCanal.trim().toLowerCase();
                   const hay = intel.availChannels
                     .filter((c) => !intel.channels.includes(c) && c.toLowerCase().includes(q))
-                    // Primero los que EMPIEZAN por lo escrito: quien teclea «delve» busca
-                    // «delve.imperium», no «xxx-delve-yyy».
+                    // Primero los que EMPIEZAN por lo escrito: quien teclea «region» busca
+                    // «region.coalicion», no «xxx-region-yyy».
                     .sort((a, b) => {
                       const pa = Number(a.toLowerCase().startsWith(q));
                       const pb = Number(b.toLowerCase().startsWith(q));

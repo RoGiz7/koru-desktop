@@ -251,7 +251,7 @@ html.koru-overlay #root {
 }
 
 /* De QUIÉN son esos saltos, pegado al número. Ocupa cero y se lee mejor que en línea aparte:
-   la cifra y el nombre van juntos, que es como se piensa («12 saltos de SieteHierros»). */
+   la cifra y el nombre van juntos, que es como se piensa («12 saltos de Mara Kell»). */
 .ov-de {
   flex: 0 1 auto;
   min-width: 0;

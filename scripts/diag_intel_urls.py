@@ -224,9 +224,10 @@ def main() -> int:
     # fallar entera. Si no reconozco ninguno NO invento una cifra sobre cero lineas: cuento todo y
     # lo digo. Una estadistica con el denominador vacio es peor que no darla.
     hay_pista = any(any(p in os.path.basename(r).lower() for p in PISTAS_INTEL) for r in ficheros)
-    # ★ EL DESGLOSE POR CANAL es lo util de verdad. Sus canales se llaman «fareast.imperium» y
-    # «isk.imperium»: ninguna heuristica de nombre iba a adivinar cual es el de intel, y el que lo
-    # sabe es el. Asi que en vez de clasificar yo, se lo enseño canal por canal.
+    # ★ EL DESGLOSE POR CANAL es lo util de verdad. Un usuario suele tener varios canales con
+    # nombres parecidos («region.coalicion», «isk.coalicion») y ninguna heuristica de nombre iba a
+    # adivinar cual es el de intel; el que lo sabe es el. Asi que en vez de clasificar yo, se lo
+    # enseño canal por canal.
     por_canal = {}
     total = con_tag = 0
     total_i = con_tag_i = 0
@@ -236,7 +237,7 @@ def main() -> int:
     canales = set()
     for ruta in ficheros:
         base = os.path.basename(ruta)
-        # «fareast.imperium_20260907_111237_152730148.txt» -> «fareast.imperium»
+        # «region.coalicion_20260907_111237_90000001.txt» -> «region.coalicion»
         # Dos formatos de nombre: el actual «Canal_FECHA_HORA_charID» y el viejo «Canal_FECHA_HORA».
         # Sin el segundo, cada dia de 2020 salia como un canal distinto y la tabla se fragmentaba en
         # cientos de filas de una sola sesion. (Koru importa por prefijo, asi que a EL no le afecta.)
@@ -304,7 +305,7 @@ def main() -> int:
             que = QUE_ES.get(tid) or ("PERSONAJE" if tid in PERSONAJES else "?")
             print(f"  {tid:>6}  {que:<14} {n:>6}")
         print()
-    print("POR CANAL  (mira el tuyo de intel: fareast/isk.imperium o el que sea)")
+    print("POR CANAL  (mira el tuyo de intel, el que sea)")
     print(f"  {'canal':<24} {'lineas':>8} {'marcado':>8} {'%':>6} {'ids pj':>7} {'en la BD':>11}  {'vivo desde → hasta'}")
     # ⚠️ SIN recortar. Con `[:14]` no salia el canal que buscaba (el de la region anterior), y un
     # canal que no aparece se lee como «no existe» — cuando lo unico que pasaba es que era pequeño.
