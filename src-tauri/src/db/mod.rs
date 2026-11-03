@@ -6130,6 +6130,46 @@ impl Db {
     ///
     /// Reutiliza `RunLootRow` a propósito: es exactamente la misma línea de botín, sale del mismo
     /// `lineasDeBotin()` del frontend y darle un tipo gemelo solo crearía dos verdades que mantener.
+    /// ★ «Revalorar» (2026-10-24): reemplaza las líneas del botín y pone el TOTAL del padre a la
+    /// suma de las líneas, en UNA transacción. Nació de un tester: la consulta de precios falló al
+    /// guardar y la escalación se quedó con todas las líneas en «—» y sin total. Va junto porque
+    /// líneas y total por separado podrían quedar descuadrados si falla la segunda llamada.
+    /// `fuente`: "run" (activity_runs/run_loot) o "exploracion" (exploration_log/exploration_loot).
+    pub fn loot_revalue(&self, fuente: &str, id: i64, items: &[RunLootRow]) -> AppResult<f64> {
+        let (hija, fk, padre) = match fuente {
+            "run" => ("run_loot", "run_id", "activity_runs"),
+            "exploracion" => ("exploration_loot", "log_id", "exploration_log"),
+            _ => return Err(crate::error::AppError::Other(format!("fuente desconocida: {fuente}"))),
+        };
+        let total: f64 = items.iter().filter_map(|i| i.isk).sum();
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(&format!("DELETE FROM {hija} WHERE {fk} = ?1"), rusqlite::params![id])?;
+        {
+            let mut stmt = tx.prepare(&format!(
+                "INSERT INTO {hija} ({fk}, pos, type_id, name, qty, isk, isk_src)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)"
+            ))?;
+            for (pos, it) in items.iter().enumerate() {
+                stmt.execute(rusqlite::params![
+                    id,
+                    pos as i64,
+                    it.type_id,
+                    it.name.trim(),
+                    it.qty,
+                    it.isk,
+                    it.isk_src,
+                ])?;
+            }
+        }
+        tx.execute(
+            &format!("UPDATE {padre} SET loot_isk = ?2 WHERE id = ?1"),
+            rusqlite::params![id, if total > 0.0 { Some(total) } else { None }],
+        )?;
+        tx.commit()?;
+        Ok(total)
+    }
+
     pub fn exploration_loot_set(&self, log_id: i64, items: &[RunLootRow]) -> AppResult<usize> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;

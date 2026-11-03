@@ -27,7 +27,8 @@ import { fmtIsk, typeIcon } from "./format";
 import { parseIskShorthand, type LootIndex } from "./lootPaste";
 import { iskCorto } from "./isk";
 import { LootPasteModal } from "./lootPasteModal";
-import type { RunLootLine } from "./runLoot";
+import { ISK_SRC, revalorarLineas, hayLineasSinPrecio, type RunLootLine } from "./runLoot";
+import { preciosJita } from "./preciosJita";
 import type { ActivityRun, RunChar } from "./types";
 
 /** Lo que la ficha necesita de una run, sea de la actividad que sea. `ActivityRun` lo cumple entero;
@@ -90,15 +91,47 @@ export function BotinDesglose({
   runId,
   hayTotal,
   fuente = "run",
+  onRevalorado,
 }: {
   runId: number | null;
   hayTotal: boolean;
+  /** Se ha revalorado y el total ha cambiado: quien monta la ficha recarga lo suyo. */
+  onRevalorado?: () => void;
   /** De qué tabla se lee. Son dos tablas hijas distintas porque los padres son distintos —
    *  `activity_runs` y `exploration_log`—, pero la LÍNEA es la misma y se pinta igual, así que el
    *  componente es uno. Ver el comentario de `exploration_loot` en `schema.sql`. */
   fuente?: "run" | "exploracion";
 }) {
   const [botin, setBotin] = useState<RunLootLine[] | null>(null);
+  // ★ «Revalorar» (2026-10-24): a un tester se le guardó una escalación con todo en «—» porque la
+  //   consulta de precios falló al guardar. Esto vuelve a pedirlos y corrige líneas y total juntos
+  //   (`loot_revalue`, una transacción).
+  const [revalorando, setRevalorando] = useState(false);
+  const [msgReval, setMsgReval] = useState("");
+  async function revalorar() {
+    if (runId == null || !botin) return;
+    setRevalorando(true);
+    setMsgReval("");
+    try {
+      const ids = botin.filter((l) => l.type_id != null && l.isk_src !== ISK_SRC.bpc).map((l) => l.type_id as number);
+      const r = await preciosJita(ids);
+      const nuevas = revalorarLineas(botin, r.precios);
+      if (r.error && Object.keys(r.precios).length === 0) {
+        setMsgReval(tr("No se pudieron consultar los precios de Jita. Prueba otra vez en un rato."));
+        return;
+      }
+      const total = await invoke<number>("loot_revalue", { fuente, id: runId, items: nuevas });
+      setBotin(nuevas);
+      setMsgReval(
+        `${tr("Revalorado")}: ${fmtIsk(total)} ISK${hayLineasSinPrecio(nuevas) ? ` · ${tr("aún quedan objetos sin precio")}` : ""}`,
+      );
+      onRevalorado?.();
+    } catch (e) {
+      setMsgReval(`${tr("Error")}: ${String(e).slice(0, 140)}`);
+    } finally {
+      setRevalorando(false);
+    }
+  }
   useEffect(() => {
     if (runId == null) return;
     let vivo = true;
@@ -155,17 +188,41 @@ export function BotinDesglose({
                   y no el juego. Sin esta marca, una estimación local se leería como un precio del
                   pegado — el mismo problema que él cazó en una captura cuando el total salía de
                   precios locales y las filas decían «—». Y un BPC dice POR QUÉ no vale nada. */}
-              <td style={{ textAlign: "right" }} className={l.isk_src === "koru" ? "muted" : ""}>
-                {l.isk_src === "bpc"
-                  ? tr("copia de plano")
-                  : l.isk == null
-                    ? "—"
-                    : `${l.isk_src === "koru" ? "~" : ""}${fmtIsk(l.isk)}`}
+              <td
+                style={{ textAlign: "right" }}
+                className={l.isk_src === ISK_SRC.pegado ? "muted" : ""}
+                title={
+                  l.isk_src === ISK_SRC.koru
+                    ? tr("Lo que te pagarían en Jita (mejor orden de compra) cuando se guardó.")
+                    : l.isk_src === ISK_SRC.pegado
+                      ? tr("Precio estimado del juego (media de New Eden).")
+                      : undefined
+                }
+              >
+                {l.isk_src === ISK_SRC.bpc ? (
+                  tr("copia de plano")
+                ) : l.isk == null ? (
+                  "—"
+                ) : (
+                  <>
+                    {fmtIsk(l.isk)}
+                    {l.isk_src === ISK_SRC.pegado ? <> <span className="loot-src">{tr("juego")}</span></> : null}
+                  </>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {hayLineasSinPrecio(botin) && (
+        <div className="small loot-aviso">
+          ⚠ {tr("Hay objetos guardados sin precio (la consulta pudo fallar al guardar).")}{" "}
+          <button className="linklike small" onClick={() => void revalorar()} disabled={revalorando}>
+            {revalorando ? tr("Consultando…") : tr("Revalorar con precios de Jita")}
+          </button>
+        </div>
+      )}
+      {msgReval && <div className="small muted">{msgReval}</div>}
     </div>
   );
 }
@@ -173,7 +230,15 @@ export function BotinDesglose({
 /** Las cifras de una run: duración, botín, entrada, nave perdida, la nota y el desglose.
  *  El `<h5>` lo pone quien la monta: escalaciones tiene además el caso «no se registró ninguna run»,
  *  que aquí no puede darse. */
-export function ComoFue({ run, runId }: { run: RunDet; runId: number | null }) {
+export function ComoFue({
+  run,
+  runId,
+  onRevalorado,
+}: {
+  run: RunDet;
+  runId: number | null;
+  onRevalorado?: () => void;
+}) {
   return (
     <>
       <Dato k={tr("Duración")} v={duracionDeRun(run)} />
@@ -191,7 +256,7 @@ export function ComoFue({ run, runId }: { run: RunDet; runId: number | null }) {
           <div>{run.loot_note}</div>
         </div>
       ) : null}
-      <BotinDesglose runId={runId} hayTotal={run.loot_isk != null} />
+      <BotinDesglose runId={runId} hayTotal={run.loot_isk != null} onRevalorado={onRevalorado} />
     </>
   );
 }
@@ -415,7 +480,7 @@ export function RunDetalle({
           <h5>{tr("Cómo fue")}</h5>
           {!editando ? (
             <>
-              <ComoFue run={run} runId={run.id} />
+              <ComoFue run={run} runId={run.id} onRevalorado={onGuardado} />
               {/* Una run abortada no tiene botín que corregir: si no se puede editar, no se pinta el
                   botón y el motivo va en el hueco. Un botón DESHABILITADO no recibe eventos de ratón
                   en WebView2, así que su `title` no se ve nunca — le pasó a RoGiz7 justo con estas. */}

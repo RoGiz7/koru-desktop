@@ -71,6 +71,7 @@ export function EscalacionDetalle({
   charName,
   shipName,
   onBorrar,
+  onRevalorado,
   onClose,
 }: {
   esc: EscDet;
@@ -90,6 +91,8 @@ export function EscalacionDetalle({
   /** Borrar esta escalación. La ficha solo PIDE la confirmación; el borrado lo hace quien la
    *  monta, que es quien sabe recargar las listas después. */
   onBorrar: () => void;
+  /** Se ha revalorado el botín: quien monta recarga las runs para que el total se vea al día. */
+  onRevalorado?: () => void;
   onClose: () => void;
 }) {
   const vendida = esc.modo === "venta";
@@ -154,7 +157,7 @@ export function EscalacionDetalle({
               {tr("No se registró ninguna run: de esta escalación solo queda lo apuntado arriba.")}
             </p>
           ) : (
-            <ComoFue run={run} runId={runId} />
+            <ComoFue run={run} runId={runId} onRevalorado={onRevalorado} />
           )}
         </div>
 

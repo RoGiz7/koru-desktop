@@ -53,10 +53,12 @@ function kindMeta(kind: string): { icon: string; label: string; tid?: number } {
 function SitioDetalle({
   r,
   wikiUrl,
+  onRevalorado,
   onClose,
 }: {
   r: ExplorationLogRow;
   wikiUrl: string | null;
+  onRevalorado: () => void;
   onClose: () => void;
 }) {
   const meta = kindMeta(r.kind);
@@ -94,7 +96,7 @@ function SitioDetalle({
               <div>{r.loot_note}</div>
             </div>
           ) : null}
-          <BotinDesglose runId={r.id} hayTotal={r.loot_isk != null} fuente="exploracion" />
+          <BotinDesglose runId={r.id} hayTotal={r.loot_isk != null} fuente="exploracion" onRevalorado={onRevalorado} />
         </div>
 
         {r.note ? (
@@ -590,6 +592,7 @@ export function ExplorationLogView({ charId }: Props) {
             <SitioDetalle
               r={r}
               wikiUrl={r.name ? siteWikiUrl(r.name, dungeonIdx) : null}
+              onRevalorado={() => void load()}
               onClose={() => setDetalleId(null)}
             />
           );

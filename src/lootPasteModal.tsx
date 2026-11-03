@@ -1,16 +1,17 @@
 // Modal flotante para meter el BOTÍN al marcar sitios como hechos. Pegas el loot del carguero o de la
-// estación (EVE lo copia con su columna de precio estimado → sumamos ese valor, exacto y como lo ves
-// en el juego), o tecleas el ISK a mano. Si cierras VARIOS sitios a la vez, el total se reparte a
+// estación y Koru valora cada objeto a lo que te pagarían ahora en Jita (desde el 2026-10-24; antes
+// usaba la columna «Precio estimado» del juego cuando venía — ver `lineasDeBotin`), o tecleas el ISK
+// a mano. Si cierras VARIOS sitios a la vez, el total se reparte a
 // partes iguales entre ellos (aproximado a propósito: cuando acumulas loot de varias anomalías no se
 // puede saber exacto, pero el conjunto es fiel). Ver `lootPaste.ts` (parser, validado con pegados
 // reales) y el diseño en documentacion/koru-desktop-EXPLORACION_HISTORICO_diseno.md.
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
 import { tr } from "./i18n";
 import { fmtIsk } from "./format";
 import { parseLootPaste, parseIskShorthand, type LootIndex } from "./lootPaste";
-import { lineasDeBotin, type RunLootLine } from "./runLoot";
+import { lineasDeBotin, sumaDeLineas, ISK_SRC, type RunLootLine } from "./runLoot";
+import { preciosJita } from "./preciosJita";
 import { loadJson } from "./staticJson";
 
 type Props = {
@@ -37,7 +38,6 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
   const [text, setText] = useState("");
   const [override, setOverride] = useState(""); // ISK a mano (prevalece sobre el pegado)
   const [note, setNote] = useState("");
-  const [fallbackIsk, setFallbackIsk] = useState(0); // valor de items sin precio en el pegado
   /** ★★ LOS PRECIOS QUE PONE KORU, POR OBJETO — para poder ENSEÑARLOS (2026-09-09).
    *
    *  Lo cazó él en una captura de Escalaciones: pegó el loot sin la columna «Precio estimado» del
@@ -88,51 +88,71 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
       setText("");
       setOverride("");
       setNote("");
-      setFallbackIsk(0);
+      setPreciosLocales({});
+      setFaltan([]);
+      setErrPrecios(null);
     }
   }, [open]);
 
-  // Red: los items que el pegado NO trajo con precio, pero que reconocimos (typeId), se valoran a
-  // lo que te DARÍAN por ellos ahora: la mejor orden de compra en Jita (`get_hub_buy_prices`), que
-  // cae sola a la media global si no hay órdenes. Antes era la media de todo New Eden, que en botín
-  // de nicho se va por VECES (2026-09-22). El camino normal sigue siendo la columna de EVE.
+  // ★ CRITERIO ÚNICO (2026-10-24, decisión de RoGiz7): TODO lo reconocido se valora a lo que te
+  //   pagarían ahora en Jita, traiga o no el pegado la columna del juego. Antes el mismo botín valía
+  //   142 M o 86 M según copiaras en vista de lista o de iconos. El precio del juego queda solo para
+  //   lo que Jita no sabe valorar. Ver `lineasDeBotin`.
+  //   Y si la consulta falla, SE DICE y se puede reintentar: a un tester se le guardó una escalación
+  //   entera en «—» porque esto se tragaba el error. Ver `preciosJita.ts`.
+  const [cargandoPrecios, setCargandoPrecios] = useState(false);
+  const [faltan, setFaltan] = useState<number[]>([]);
+  const [errPrecios, setErrPrecios] = useState<string | null>(null);
+  const [intento, setIntento] = useState(0);
   useEffect(() => {
     if (!parse) {
-      setFallbackIsk(0);
+      setPreciosLocales({});
+      setFaltan([]);
+      setErrPrecios(null);
       return;
     }
-    const unpriced = parse.items.filter(
-      (i) => i.iskFromPaste == null && i.typeId != null && !esBlueprint(i.typeId),
-    );
-    if (unpriced.length === 0) {
-      setFallbackIsk(0);
+    const ids = parse.items
+      .filter((i) => i.typeId != null && !esBlueprint(i.typeId))
+      .map((i) => i.typeId as number);
+    if (ids.length === 0) {
+      setPreciosLocales({});
+      setFaltan([]);
       return;
     }
-    const ids = [...new Set(unpriced.map((i) => i.typeId as number))];
-    invoke<Record<number, number>>("get_hub_buy_prices", { ids, regionId: null })
-      .then((prices) => {
-        let f = 0;
-        for (const it of unpriced) {
-          const p = prices[it.typeId as number];
-          if (p) f += p * it.qty;
-        }
-        setFallbackIsk(f);
-        // ★ Se guarda el MAPA, no solo la suma: sin él la tabla no puede enseñar de dónde sale el
-        //   total. Ver `preciosLocales`.
-        setPreciosLocales(prices);
+    let vivo = true;
+    setCargandoPrecios(true);
+    preciosJita(ids)
+      .then((r) => {
+        if (!vivo) return;
+        setPreciosLocales(r.precios);
+        setFaltan(r.faltan);
+        setErrPrecios(r.error);
       })
-      .catch(() => {
-        setFallbackIsk(0);
-        setPreciosLocales({});
+      .finally(() => {
+        if (vivo) setCargandoPrecios(false);
       });
-    // `bpSet` entra en las dependencias: hasta que carga no se sabe qué es blueprint, y sin esto
-    // el primer cálculo se haría con la lista vacía y los contaría.
+    return () => {
+      vivo = false;
+    };
+    // `bpSet` entra en las dependencias: hasta que carga no se sabe qué es blueprint.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parse, bpSet]);
+  }, [parse, bpSet, intento]);
+
+  const lineas: RunLootLine[] = useMemo(
+    () => (parse ? lineasDeBotin(parse.items, bpSet, preciosLocales) : []),
+    [parse, bpSet, preciosLocales],
+  );
 
   if (!open) return null;
 
-  const computed = (parse?.totalFromPaste ?? 0) - bpIskDelPegado + fallbackIsk;
+  // El total ES la suma de las líneas que se guardan: una sola cuenta.
+  const computed = sumaDeLineas(lineas);
+  // Lo que el juego decía (columna «Precio estimado»), solo como REFERENCIA: si se ve al lado, el
+  // piloto entiende por qué Koru da otra cifra en vez de pensar que se ha equivocado.
+  const totalJuego = (parse?.totalFromPaste ?? 0) - bpIskDelPegado;
+  const nJita = lineas.filter((l) => l.isk_src === ISK_SRC.koru).length;
+  const nJuego = lineas.filter((l) => l.isk_src === ISK_SRC.pegado).length;
+  const nSin = lineas.filter((l) => l.isk == null && l.isk_src !== ISK_SRC.bpc).length;
   const manual = parseIskShorthand(override);
   const total = override.trim() ? manual : computed > 0 ? computed : null;
   const perSite = total != null && siteCount > 1 ? total / siteCount : total;
@@ -155,7 +175,7 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
 
         <div className="small muted">
           {tr(
-            "Pega el loot del carguero o de la estación (Ctrl+A, Ctrl+C en el inventario). Si tienes la columna «Precio estimado» activa, se suma sola. También puedes teclear el ISK a mano abajo.",
+            "Pega el loot del carguero o de la estación (Ctrl+A, Ctrl+C en el inventario). Koru valora cada objeto a lo que te pagarían ahora en Jita (la mejor orden de compra). También puedes teclear el ISK a mano abajo.",
           )}
         </div>
 
@@ -197,25 +217,30 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
                       {/* Un blueprint se enseña TACHADO con su precio, no sin él: así se ve que
                           Koru lo ha reconocido y ha decidido no contarlo. Un guion a secas
                           parecería que no supo leerlo. */}
-                      {esBlueprint(it.typeId) ? (
-                        <span className="loot-bp" title={tr("Los blueprints no se venden en el mercado: no cuentan al total. Añade su valor a mano si lo vendes por contrato.")}>
-                          {it.iskFromPaste != null ? fmtIsk(it.iskFromPaste) : "—"}
-                        </span>
-                      ) : it.iskFromPaste != null ? (
-                        fmtIsk(it.iskFromPaste)
-                      ) : it.typeId != null && preciosLocales[it.typeId] ? (
-                        /* ★ El precio lo pone Koru porque el pegado no lo traía. Se marca con «~»
-                           y se dice en el título de dónde sale: un guion habría hecho parecer que
-                           esta fila no cuenta, y sí cuenta — está dentro del total. */
-                        <span
-                          className="muted"
-                          title={tr("El pegado no traía precio: este es lo que te darían ahora en Jita (mejor orden de compra). Sí cuenta en el total.")}
-                        >
-                          ~{fmtIsk(preciosLocales[it.typeId] * it.qty)}
-                        </span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
+                      {(() => {
+                        const l = lineas[i];
+                        if (esBlueprint(it.typeId))
+                          return (
+                            <span className="loot-bp" title={tr("Los blueprints no se venden en el mercado: no cuentan al total. Añade su valor a mano si lo vendes por contrato.")}>
+                              {it.iskFromPaste != null ? fmtIsk(it.iskFromPaste) : "—"}
+                            </span>
+                          );
+                        if (l?.isk_src === ISK_SRC.koru)
+                          return (
+                            <span title={tr("Lo que te pagarían ahora en Jita (mejor orden de compra).")}>
+                              {fmtIsk(l.isk as number)}
+                            </span>
+                          );
+                        if (l?.isk_src === ISK_SRC.pegado)
+                          /* Jita no lo sabe valorar: queda el precio del juego, marcado para que se
+                             vea que es OTRO criterio (la media de New Eden). */
+                          return (
+                            <span className="muted" title={tr("Sin precio en Jita: este es el precio estimado del juego (media de New Eden).")}>
+                              {fmtIsk(l.isk as number)} <span className="loot-src">{tr("juego")}</span>
+                            </span>
+                          );
+                        return <span className="muted">{cargandoPrecios ? "…" : "—"}</span>;
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -231,9 +256,38 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
               </div>
             )}
             <div className="small muted" style={{ marginTop: 4 }}>
-              {parse.items.length} {tr("items")} · {parse.pricedLines} {tr("con precio de EVE")}
+              {parse.items.length} {tr("items")}
+              {cargandoPrecios ? (
+                <> · {tr("consultando precios en Jita…")}</>
+              ) : (
+                <>
+                  {" · "}
+                  {nJita} {tr("con precio de Jita")}
+                  {nJuego > 0 ? ` · ${nJuego} ${tr("con precio del juego")}` : ""}
+                  {nSin > 0 ? ` · ${nSin} ${tr("sin precio")}` : ""}
+                </>
+              )}
               {unresolved > 0 ? ` · ${unresolved} ${tr("sin reconocer")}` : ""}
             </div>
+            {/* Lo que el juego estimaba, como referencia: así se entiende por qué Koru da otra
+                cifra. Solo si el pegado traía la columna y la cifra es distinta. */}
+            {!cargandoPrecios && totalJuego > 0 && Math.abs(totalJuego - computed) >= 1 && (
+              <div className="small muted">
+                {tr("El juego lo estimaba en")} {fmtIsk(totalJuego)} ISK {tr("(media de New Eden). Koru usa lo que te pagarían en Jita.")}
+              </div>
+            )}
+            {/* ★ Si la consulta falla, SE DICE. Ver `preciosJita.ts`. */}
+            {!cargandoPrecios && (errPrecios || faltan.length > 0) && (
+              <div className="small loot-aviso">
+                ⚠{" "}
+                {errPrecios
+                  ? tr("No se pudieron consultar los precios de Jita.")
+                  : `${faltan.length} ${faltan.length === 1 ? tr("objeto sin precio en Jita ni media de mercado.") : tr("objetos sin precio en Jita ni media de mercado.")}`}{" "}
+                <button className="linklike small" onClick={() => setIntento((n) => n + 1)}>
+                  {tr("Reintentar")}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -270,14 +324,13 @@ export function LootPasteModal({ open, siteCount, index, onConfirm, onCancel, bu
         <div className="loot-modal-actions">
           <button
             className="pp-add"
-            // Las líneas se construyen con `lineasDeBotin`, que reproduce esta misma cuenta del
-            // total (blueprints sin valorar, precio del pegado tal cual, precio local × qty). Está
-            // fuera del componente para poder comprobar que las dos cuadran — si no, la ficha de
-            // detalle enseñaría un número y el histórico otro sobre el mismo botín.
+            // Se guardan las MISMAS líneas cuya suma es el total de arriba (`lineasDeBotin`).
             onClick={() =>
-              onConfirm(total, note.trim(), parse ? lineasDeBotin(parse.items, bpSet, preciosLocales) : [])
+              onConfirm(total, note.trim(), lineas)
             }
-            disabled={busy}
+            // Mientras se consultan los precios no se guarda: guardar a medias es justo lo que dejó
+            // la escalación del tester en «—».
+            disabled={busy || cargandoPrecios}
           >
             ✓ {confirmLabel ?? `${tr("Marcar hechas")} (${siteCount})`}
           </button>

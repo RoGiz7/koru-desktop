@@ -22,38 +22,40 @@ export type RunLootLine = {
   isk_src: string;
 };
 
-/** De dónde sale el valor de una línea. Se guarda porque el modal YA distingue las dos primeras en
- *  pantalla, y guardar la cifra sin la procedencia convertiría una estimación de Koru en un dato
- *  del juego. */
+/** De dónde sale el valor de una línea. Se guarda para que la ficha diga de dónde salió cada cifra
+ *  y no se lea una estimación como un dato del juego. */
 export const ISK_SRC = {
-  /** La columna «Precio estimado» del pegado del juego. */
+  /** La columna «Precio estimado» del pegado del juego (media de New Eden). Desde el 2026-10-24
+   *  solo se usa para lo que NO tiene precio en Jita: ver `lineasDeBotin`. */
   pegado: "pegado",
-  /** Búsqueda local de Koru (`get_type_prices`), cuando el pegado no trae precios. */
+  /** Precio que busca Koru: lo que te pagarían ahora en Jita (mejor orden de compra,
+   *  `get_hub_buy_prices`; si no hay órdenes, Rust cae a la media de mercado). */
   koru: "koru",
   /** Copia de plano: NO se valora, y por eso lleva marca propia en vez de quedarse en blanco.
    *  Un BPC y su BPO comparten typeID y un BPC no se vende en mercado, así que cualquier precio de
-   *  mercado aplicado a una copia es el precio de OTRA cosa. El modal ya lo descuenta del total;
-   *  esta marca deja escrito POR QUÉ esa línea no vale nada, que si no se lee como un fallo. */
+   *  mercado aplicado a una copia es el precio de OTRA cosa. */
   bpc: "bpc",
-  /** Sin valor: ni el pegado lo traía ni Koru supo resolverlo. */
+  /** Sin valor: ni Jita ni el pegado le dieron precio. */
   ninguno: "",
 } as const;
 
-/** Convierte lo parseado en las líneas que se guardan.
+/** Convierte lo parseado en las líneas que se guardan. **El total del modal ES la suma de estas
+ *  líneas** (`sumaDeLineas`): una sola cuenta, así la ficha y el histórico no pueden discrepar.
  *
- *  ⚠️ EL ORDEN DE LAS REGLAS NO ES CASUAL, y reproduce EXACTAMENTE lo que hace el modal al calcular
- *  su total (`computed = totalFromPaste − bpIskDelPegado + fallbackIsk`):
- *   1. **Blueprint primero**, aunque el pegado le pusiera precio: el modal se lo descuenta del
- *      total, así que valorarlo aquí haría que la suma de las líneas fuera MAYOR que el total que
- *      vio el usuario. Este caso va antes que el del pegado justo por eso.
- *   2. Precio del pegado → tal cual (es el valor de la LÍNEA, no unitario).
- *   3. Precio local de Koru → **por unidad**, así que se multiplica por `qty`. Confundir esto sería
- *      contar una pila de 12.000 tritanios como si fuera uno.
- *   4. Lo que no cae en ninguna: se guarda sin valor. La línea NO se descarta — perder lo que Koru
- *      no supo leer es tirar la única pista para arreglar el troceador.
+ *  ★ CRITERIO ÚNICO (decisión de RoGiz7, 2026-10-24): **todo se valora a lo que te pagarían ahora
+ *  en Jita.** Antes, si el pegado traía «Precio estimado» se usaba ese (la media de New Eden) y si no,
+ *  Jita: el MISMO botín valía 142 M o 86 M según copiaras en vista de lista o de iconos. Ahora el
+ *  total no depende de cómo copies.
  *
- *  `precios` son unitarios, tal y como los devuelve `get_type_prices`. `bpSet` puede ser null (aún
- *  cargando `bp_tree.json`): entonces nada se considera blueprint, igual que en el modal. */
+ *  ⚠️ El orden de las reglas:
+ *   1. **Blueprint primero**, aunque tenga precio: un BPC no se vende en mercado.
+ *   2. **Precio de Jita** → por UNIDAD, así que se multiplica por `qty`.
+ *   3. **Precio del pegado** → solo si Jita no dio nada (objetos sin órdenes ni media). Es el valor
+ *      de la LÍNEA, no unitario.
+ *   4. Nada: la línea se guarda sin valor. NO se descarta — es la pista para arreglar el troceador.
+ *
+ *  `precios` son unitarios. `bpSet` puede ser null (aún cargando `bp_tree.json`): entonces nada se
+ *  considera blueprint. */
 export function lineasDeBotin(
   items: LootItem[],
   bpSet: Set<number> | null,
@@ -65,15 +67,31 @@ export function lineasDeBotin(
     let src: string = ISK_SRC.ninguno;
     if (esBp(it.typeId)) {
       src = ISK_SRC.bpc;
-    } else if (it.iskFromPaste != null) {
-      isk = it.iskFromPaste;
-      src = ISK_SRC.pegado;
     } else if (it.typeId != null && precios[it.typeId]) {
       isk = precios[it.typeId] * it.qty;
       src = ISK_SRC.koru;
+    } else if (it.iskFromPaste != null) {
+      isk = it.iskFromPaste;
+      src = ISK_SRC.pegado;
     }
     return { type_id: it.typeId, name: it.name, qty: it.qty, isk, isk_src: src };
   });
+}
+
+/** Revalora líneas YA GUARDADAS con precios nuevos de Jita («Revalorar», 2026-10-24). Mismo criterio
+ *  que `lineasDeBotin`: los BPC no se tocan; lo que tenga precio de Jita pasa a valer eso; lo que no,
+ *  se queda como estaba (mejor el precio del juego que tenía que dejarlo en blanco). */
+export function revalorarLineas(lineas: RunLootLine[], precios: Record<number, number>): RunLootLine[] {
+  return lineas.map((l) => {
+    if (l.isk_src === ISK_SRC.bpc || l.type_id == null) return l;
+    const p = precios[l.type_id];
+    return p ? { ...l, isk: p * l.qty, isk_src: ISK_SRC.koru } : l;
+  });
+}
+
+/** ¿Hay líneas que Koru reconoce y se quedaron sin precio? Es lo que activa «Revalorar». */
+export function hayLineasSinPrecio(lineas: RunLootLine[]): boolean {
+  return lineas.some((l) => l.type_id != null && l.isk == null && l.isk_src !== ISK_SRC.bpc);
 }
 
 /** La suma de las líneas guardadas. Existe para poder comprobar que cuadra con el total del modal:

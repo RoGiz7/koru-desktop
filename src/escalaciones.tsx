@@ -1099,6 +1099,7 @@ export function EscalacionesView({
               charName={(id) => chars.find((c) => c.character_id === id)?.name ?? `#${id}`}
               shipName={(id) => ships.find((s) => s.i === id)?.n ?? `#${id}`}
               onBorrar={() => void borrar(e.id)}
+              onRevalorado={() => void recargar()}
               onClose={() => setDetalle(null)}
             />
           );

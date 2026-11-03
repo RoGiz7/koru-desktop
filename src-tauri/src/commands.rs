@@ -1730,6 +1730,18 @@ pub fn exploration_loot_set(
     state.db.exploration_loot_set(log_id, &items)
 }
 
+/// «Revalorar»: reemplaza las líneas del botín ya guardado y pone el total a su suma, en una sola
+/// transacción. `fuente` = "run" | "exploracion". Devuelve el total nuevo.
+#[tauri::command]
+pub fn loot_revalue(
+    state: State<'_, AppState>,
+    fuente: String,
+    id: i64,
+    items: Vec<crate::db::RunLootRow>,
+) -> AppResult<f64> {
+    state.db.loot_revalue(&fuente, id, &items)
+}
+
 /// El botín guardado de un sitio de exploración. Se pide SOLO al abrir su ficha.
 #[tauri::command]
 pub fn exploration_loot_list(
@@ -2063,7 +2075,7 @@ struct ShipInfo {
 }
 
 /// ESI devuelve a veces el nombre de la nave como repr de Python (quirk conocido del
-/// endpoint /ship/ con caracteres no-ASCII): `u'C\xe1psula: SieteHierros'`.
+/// endpoint /ship/ con caracteres no-ASCII): `u'C\xe1psula: Mara Kell'`.
 /// Detectamos el envoltorio u'...'/u"..." y decodificamos los escapes \xNN / \uNNNN.
 fn clean_ship_name(s: &str) -> String {
     let t = s.trim();
@@ -7921,8 +7933,8 @@ fn canal_de_fichero(name: &str) -> Option<String> {
 /// ★★ LOS `.txt` DE LA CARPETA **Y DE SUS SUBCARPETAS**.
 ///
 /// EVE archiva solo las sesiones viejas en `old\`, y ahí estaba la mayor parte del histórico: en la
-/// carpeta de RoGiz7, `delve.imperium` con 712.211 líneas desde febrero de 2021, más otros dos
-/// canales de intel de regiones anteriores. Mirando solo el primer nivel, todo eso «no existía» —
+/// carpeta de un usuario real, un canal de intel con cientos de miles de líneas acumuladas en
+/// años, más otros dos canales de regiones anteriores. Mirando solo el primer nivel, todo eso «no existía» —
 /// y una carpeta que no se mira no es una carpeta vacía.
 ///
 /// Un solo nivel de profundidad, a propósito: es lo que hace EVE, y recorrer un árbol entero de
@@ -9513,7 +9525,7 @@ pub async fn intel_import_historico(
         .map_err(|e| AppError::Other(format!("no se pudo leer la carpeta de logs: {e}")))?;
     // El canal sale del NOMBRE del fichero, con las dos convenciones (con y sin charID). Antes se
     // comparaba por prefijo `{canal}_`, que además de no distinguir formatos habría metido
-    // «delve.imperium2» dentro de «delve.imperium».
+    // «region.coalicion2» dentro de «region.coalicion».
     let quiero: std::collections::HashSet<&str> = channels.iter().map(|c| c.as_str()).collect();
     let mut paths: Vec<(String, std::path::PathBuf)> = Vec::new();
     for ruta in ficheros {
