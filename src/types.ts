@@ -26,6 +26,22 @@ export type CharacterCard = {
   scopes: string[];
 };
 
+/** Por qué la capa Ubicación del mapa no sitúa a nadie. Existe porque el cartel NO puede elegir
+ *  una causa sin comprobarla: decir «falta el permiso» cuando el piloto solo estaba desconectado
+ *  costó dos rondas de diagnóstico. Ver koru-ubicacion-vacia-tras-actualizar. */
+export type UbicacionMotivo =
+  /** Hay al menos un personaje situado: no hay nada que explicar. */
+  | "ok"
+  /** Todavía no hay tarjetas: `get_character_cards` es caro y solo corre al arrancar y al loguear. */
+  | "cargando"
+  /** Ninguno tiene `esi-location.read_location.v1`. Es lo ÚNICO que el cartel viejo afirmaba. */
+  | "sin-scope"
+  /** Tienen el permiso, pero EVE dice que no están conectados. `poll_positions` no los sitúa a
+   *  propósito: dibujarlos sería pintar a un piloto dormido en un sistema toda la noche. */
+  | "desconectados"
+  /** Permiso sí, desconexión no, y aún así sin posición: ESI todavía no la ha dado. */
+  | "sin-posicion";
+
 export type NameCount = { id: number; count: number; name: string | null; region: string | null };
 /// Punto de serie semanal por entidad (nave/sistema) para las líneas de "tops" de PvP.
 export type TopSeriesPoint = {

@@ -6,6 +6,18 @@ export type ChangelogEntry = { version: string; date: string; es: string[]; en: 
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
+    // ficheros de versión. Ver el checklist de release.
+    version: "0.56.0",
+    date: "2026-11-03",
+    es: [
+      "📍 El mapa ya dice POR QUÉ no sitúa a tus personajes, en vez de echarle siempre la culpa al permiso. Antes, la capa Ubicación vacía salía siempre con el mismo «inicia sesión con la feature Ubicación», pasara lo que pasara, y casi nunca era eso: ahora distingue las tres causas de verdad —que las tarjetas aún están cargando, que a ninguno le has concedido ese permiso, o —la más frecuente— que tus personajes simplemente no están dentro del juego, porque Koru solo sitúa a quien está conectado—. Un cartel que señala la causa equivocada te manda a arreglar lo que no estaba roto.",
+    ],
+    en: [
+      "📍 The map now tells you WHY it isn't placing your characters, instead of always blaming the permission. Before, an empty Location layer always said the same «log in with the Location feature», whatever the actual reason, and it almost never was that: now it tells the three real causes apart —the cards are still loading, none of your characters has been granted that permission, or —the most common one— your characters simply aren't in game, because Koru only places pilots who are connected—. A notice that points at the wrong cause sends you off to fix what wasn't broken.",
+    ],
+  },
+  {
     version: "0.55.1",
     date: "2026-11-03",
     es: [

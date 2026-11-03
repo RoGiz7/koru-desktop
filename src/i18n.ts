@@ -798,6 +798,16 @@ const EN: Record<string, string> = {
   "Dónde están tus personajes ahora mismo.": "Where your characters are right now.",
   "Ningún personaje con ubicación. Inicia sesión con la feature “Ubicación (sistema actual)” para verlos en el mapa.":
     "No character with location. Log in with the “Location (current system)” feature to see them on the map.",
+  "Cargando tus personajes… Las tarjetas tardan un momento al arrancar.":
+    "Loading your characters… The cards take a moment at startup.",
+  "Ninguno de tus personajes tiene el permiso «Ubicación (sistema actual)». Pulsa «Conceder acceso» y marca esa casilla.":
+    "None of your characters has the “Location (current system)” permission. Hit “Grant access” and tick that box.",
+  "Tus personajes no están conectados a EVE ahora mismo. Koru solo sitúa a quien está dentro del juego.":
+    "Your characters aren’t logged into EVE right now. Koru only places pilots who are in game.",
+  "Tienen el permiso y no constan desconectados, pero EVE aún no ha dado su posición. Se reintenta cada 30 segundos.":
+    "They have the permission and aren’t marked offline, but EVE hasn’t given their position yet. It retries every 30 seconds.",
+  "Ninguno de tus personajes tiene posición ahora mismo.":
+    "None of your characters has a position right now.",
   "Lugares notables de New Eden: hubs comerciales, sistemas históricos y puntos calientes de PvP.":
     "Notable places of New Eden: trade hubs, historic systems and PvP hotspots.",
   "Tu actividad PvP: tamaño = volumen, color = seguridad.":

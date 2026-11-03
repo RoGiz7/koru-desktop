@@ -133,6 +133,7 @@ import type {
   MutedSystem,
   PositionUpdate,
   Note,
+  UbicacionMotivo,
 } from "./types";
 
 // Nave insignia de fondo por pestaña (patrón "carta de la Agencia", ver <SectionArt>). typeIDs
@@ -2355,6 +2356,19 @@ function App() {
   const activeCharObj = isGlobal ? null : characters.find((x) => x.character_id === subject) ?? null;
   const subjectScopes = activeCharObj?.scopes ?? [];
   const subjectId = typeof subject === "number" ? subject : 0;
+  // ★ POR QUÉ la capa Ubicación está vacía, MIRÁNDOLO en vez de suponerlo. El cartel viejo decía
+  //   siempre «falta el permiso» y las otras dos causas se disfrazaban de esa; el tester de Linux
+  //   lo "arregló" reconcediendo acceso, que funcionaba por un motivo distinto (forzar la recarga
+  //   de tarjetas). Ver koru-ubicacion-vacia-tras-actualizar.
+  const ubicacionMotivo: UbicacionMotivo = (() => {
+    const lista = isGlobal ? Object.values(cards) : cards[subjectId] ? [cards[subjectId]] : [];
+    if (lista.some((c) => c.system_id != null)) return "ok";
+    if (lista.length === 0) return "cargando";
+    const conScope = lista.filter((c) => c.scopes?.includes("esi-location.read_location.v1"));
+    if (conScope.length === 0) return "sin-scope";
+    if (conScope.every((c) => c.online === false)) return "desconectados";
+    return "sin-posicion";
+  })();
   const subjectName = isGlobal ? "Global" : activeCharObj?.name ?? `#${subject}`;
 
   // ----- Barra de estado: actividad en curso (log inferior) -----
@@ -3400,6 +3414,7 @@ function App() {
               online: c.online ?? null,
             }))}
           characters={characters}
+          ubicacionMotivo={ubicacionMotivo}
         />
 
         {/* Dock del sujeto: ticker de datos vivos (histórico local, deltas estilo bolsa) */}

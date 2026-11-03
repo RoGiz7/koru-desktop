@@ -44,6 +44,7 @@ import type {
   JumpShip,
   RouteStop,
   Trip,
+  UbicacionMotivo,
 } from "./types";
 
 const MAP_W = 1000;
@@ -320,6 +321,8 @@ export function MapView(props: {
   hereCharId?: number | null;
   charLocations?: CharLoc[];
   characters?: Character[];
+  /** Por qué no hay nadie situado, ya comprobado por App. El cartel lo DICE, no lo adivina. */
+  ubicacionMotivo?: UbicacionMotivo;
   onSystemAssets?: (systemName: string) => void;
   onOpenCazador?: (name?: string) => void;
   onOpenMisiones?: () => void;
@@ -389,6 +392,7 @@ export function MapView(props: {
     hereSystemId,
     hereCharId,
     charLocations,
+    ubicacionMotivo,
     characters = [],
   } = props;
   const [ne, setNe] = useState<NewEden | null>(null);
@@ -2698,11 +2702,24 @@ export function MapView(props: {
   })();
   const liveColor = overlay === "assets" ? "#5fd0c0" : overlay === "mineria" ? "#d8b24a" : null;
 
+  // ★ El cartel de Ubicación nombra la causa REAL (ver UbicacionMotivo en types.ts). Un cartel que
+  //   afirma sin comprobar manda al usuario a arreglar lo que no estaba roto.
+  const legendUbicacion =
+    (charLocations?.length ?? 0) > 0
+      ? "Dónde están tus personajes ahora mismo."
+      : ubicacionMotivo === "cargando"
+      ? "Cargando tus personajes… Las tarjetas tardan un momento al arrancar."
+      : ubicacionMotivo === "sin-scope"
+      ? "Ninguno de tus personajes tiene el permiso «Ubicación (sistema actual)». Pulsa «Conceder acceso» y marca esa casilla."
+      : ubicacionMotivo === "desconectados"
+      ? "Tus personajes no están conectados a EVE ahora mismo. Koru solo sitúa a quien está dentro del juego."
+      : ubicacionMotivo === "sin-posicion"
+      ? "Tienen el permiso y no constan desconectados, pero EVE aún no ha dado su posición. Se reintenta cada 30 segundos."
+      : "Ninguno de tus personajes tiene posición ahora mismo.";
+
   const legend =
     overlay === "ubicacion"
-      ? (charLocations?.length ?? 0) > 0
-        ? "Dónde están tus personajes ahora mismo."
-        : "Ningún personaje con ubicación. Inicia sesión con la feature “Ubicación (sistema actual)” para verlos en el mapa."
+      ? legendUbicacion
       : overlay === "poi"
       ? "Lugares notables de New Eden: hubs comerciales, sistemas históricos y puntos calientes de PvP."
       : overlay === "pvp"
