@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "minimapa",
+  "description": "Permisos de la ventana del MINIMAPA. Son los MISMOS DOS que el overlay y por los mismos motivos, que ya se pagaron caros una vez: `core:default` porque en Tauri v2 las capacidades se conceden POR ETIQUETA DE VENTANA y `capabilities/default.json` solo cubre `main` — sin esto `listen()` no se registra, no llega ningun aviso y la ventana se queda pintando el estado en reposo PARA SIEMPRE, sin una linea de error en consola (sintoma identico al del overlay: 'se veia y pintaba, pero se quedaba en esperando avisos'). Y `core:window:allow-start-dragging` porque `core:default` trae los comandos de ventana de LECTURA (tamano, posicion, escala) pero NO los que actuan, y arrastrar actua. Nada mas: ni dialogos, ni proceso, ni updater, ni notificaciones. El minimapa NO se esconde ni se redimensiona a si mismo —eso lo hace Rust en `minimapa_enable`— precisamente para no tener que pedir `allow-hide` ni `allow-set-size`.",
+  "windows": [
+    "minimapa"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

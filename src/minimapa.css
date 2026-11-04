@@ -1,0 +1,31 @@
+/* Estilo de la VENTANA del minimapa (minimapaVentana.tsx). Hoja PROPIA y no App.css, igual que
+   overlay.css y por el mismo motivo: cuanto menos CSS arrastre una ventana que vive encima del
+   juego, menos puede romperse. */
+
+/* ⚠️ TODO LO GLOBAL VA COLGADO DE `html.koru-minimapa`, Y NO ES OPCIONAL.
+   Este fichero se importa desde `minimapaVentana.tsx`, que `main.tsx` importa de forma ESTÁTICA →
+   Vite lo mete en el MISMO bundle que la app. Y el CSS es global: sin este prefijo, las reglas de
+   abajo se le aplicarían también a la ventana principal. Pasó de verdad con `overlay.css` el
+   2026-08-05: dejó a Koru sin fondo, sin scroll y con el cursor en mano en TODA la app. La clase
+   la pone `main.tsx` solo en esta ventana. */
+html.koru-minimapa,
+html.koru-minimapa body,
+html.koru-minimapa #root {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  /* TODA la superficie arrastra: dentro no hay nada que pulsar, así que un asa sería chrome
+     robándole píxeles al mapa. El cursor es el que lo anuncia. */
+  cursor: move;
+}
+
+/* El lienzo ocupa la ventana entera. El tamaño real en píxeles lo pone el efecto de pintado
+   (multiplicado por devicePixelRatio), no el CSS: así no sale borroso en pantallas escaladas. */
+html.koru-minimapa .mm-lienzo {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

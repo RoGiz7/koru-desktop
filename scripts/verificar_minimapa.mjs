@@ -68,15 +68,31 @@ console.log("\n3) HOSTIL EN TU PROPIO SISTEMA");
   ok("sin aristas ni NaN", p.aristas.length === 0 && finito(p.nodos[0].px) && finito(p.nodos[0].py));
 }
 
-console.log(`\n4) TOPE DE ${TOPE_AVISOS} — recorta los VIEJOS y cuenta los que sobran`);
+console.log(`\n4) TOPE DE ${TOPE_AVISOS} — entran los mas CERCANOS y se cuenta lo que sobra`);
 {
+  // 4a) A IGUALDAD DE SALTOS manda el mas fresco.
   const ocho = aNSaltos(JITA, 3).slice(0, 8);
-  const avisos = ocho.map((s, i) => ({ sys: s, edad: i / 10 })); // 0.0 el mas fresco … 0.7 el mas viejo
+  const avisos = ocho.map((s, i) => ({ sys: s, edad: i / 10, saltos: 3 })); // 0.0 fresco … 0.7 viejo
   const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos, px: PX });
   ok(`solo ${TOPE_AVISOS} calientes`, p.nodos.filter((n) => n.caliente).length === TOPE_AVISOS);
   ok("y dice cuantos quedaron fuera", p.recortados === 3, `recortados=${p.recortados}`);
   const edades = p.nodos.filter((n) => n.caliente).map((n) => n.edad).sort((a, b) => a - b);
-  ok("los que entran son los FRESCOS", Math.max(...edades) <= 0.4 + 1e-9, `max edad ${Math.max(...edades)}`);
+  ok("a igualdad de saltos entran los FRESCOS", Math.max(...edades) <= 0.4 + 1e-9, `max edad ${Math.max(...edades)}`);
+}
+{
+  // 4b) EL CASO DE SU CAPTURA: el mas cercano es tambien el mas VIEJO. No puede caerse.
+  const cerca = aNSaltos(JITA, 1)[0];
+  const lejos = aNSaltos(JITA, 5).slice(0, 6);
+  ok("el escenario se pudo montar", cerca !== undefined && lejos.length === 6);
+  const avisos = [
+    { sys: cerca, edad: 0.95, saltos: 1 },
+    ...lejos.map((s) => ({ sys: s, edad: 0.05, saltos: 5 })),
+  ];
+  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos, px: PX });
+  const calientes = p.nodos.filter((n) => n.caliente);
+  ok(`siguen siendo ${TOPE_AVISOS}`, calientes.length === TOPE_AVISOS, `calientes=${calientes.length}`);
+  ok("el CERCANO y viejo entra", calientes.some((n) => n.id === cerca));
+  ok("y lo que sobra se cuenta", p.recortados === 2, `recortados=${p.recortados}`);
 }
 
 console.log("\n5) TODO DENTRO DEL CUADRO Y SIN NaN (3 frentes)");

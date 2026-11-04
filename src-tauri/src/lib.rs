@@ -128,10 +128,18 @@ pub fn run() {
                 }
 
                 // APAGADO: exactamente lo de siempre, sin un cambio.
-                // 1) Cerrar el overlay a mano. Es la ventana que impedía salir, y destruirla antes
-                //    deja a Tauri sin motivos para seguir vivo.
+                // 1) Cerrar a mano las ventanas SECUNDARIAS (el aviso y el minimapa). Son las que
+                //    impedían salir, y destruirlas antes deja a Tauri sin motivos para seguir vivo.
+                //
+                //    ⚠️ CADA VENTANA NUEVA QUE SE DECLARE EN `tauri.conf.json` HAY QUE AÑADIRLA
+                //    AQUÍ. Si se olvida, vuelve el Koru zombi: el proceso sigue vivo con la app
+                //    «cerrada», el vigilante de intel sigue leyendo y los avisos siguen saltando
+                //    encima del juego. Es el fallo que dio origen a todo este bloque.
                 if let Some(o) = app.get_webview_window("overlay") {
                     let _ = o.close();
+                }
+                if let Some(m) = app.get_webview_window("minimapa") {
+                    let _ = m.close();
                 }
                 // 2) Salida ordenada: deja que Tauri haga su limpieza.
                 app.exit(0);
@@ -307,6 +315,7 @@ pub fn run() {
             commands::overlay_test,
             commands::overlay_debug,
             commands::overlay_open_main,
+            commands::minimapa_enable,
             commands::character_revoke,
             commands::character_purge,
             commands::whoami,

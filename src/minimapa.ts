@@ -18,8 +18,12 @@ export const TOPE_AVISOS = 5;
 
 export type SistemaMini = { x: number; y: number; n: string; s: number };
 /** `edad` normalizada 0..1 — 0 recien cantado, 1 a punto de caducar. La ventana la pone el
- *  INTEL (decision: no tiene la suya, una cosa menos que explicar). */
-export type AvisoMini = { sys: number; edad: number };
+ *  INTEL (decision: no tiene la suya, una cosa menos que explicar).
+ *
+ *  `saltos` es la distancia que ya calculo Rust para ese aviso (desde el ancla, o desde el piloto
+ *  mas cercano si no hay anclas). Solo se usa para DECIDIR QUIEN ENTRA cuando hay mas avisos que
+ *  sitio. Sin el, el corte cae en la edad. */
+export type AvisoMini = { sys: number; edad: number; saltos?: number | null };
 export type NodoMini = {
   id: number; px: number; py: number; nombre: string; sec: number;
   yo: boolean; caliente: boolean; edad: number; saltos: number;
@@ -69,8 +73,24 @@ export function planoAmenaza(o: {
   const margen = o.margen ?? 26;
   if (!sistemas.has(yo)) return { nodos: [], aristas: [], recortados: 0, inalcanzables: 0 };
 
-  // Los mas FRESCOS primero: si hay que recortar, se va lo viejo.
-  const orden = [...o.avisos].filter((a) => a.sys !== undefined).sort((a, b) => a.edad - b.edad);
+  // ★ EL CORTE VA POR CERCANIA, y a igualdad de saltos manda el mas fresco.
+  //
+  //   Antes iba por edad, y la primera prueba en vivo enseno por que esta mal (2026-11-04): con
+  //   seis frentes, el que se quedo fuera fue el de 3 SALTOS —por viejo, de hace 6 minutos—
+  //   mientras entraban dos de 7 y 8. En un minimapa de defensa, lo ultimo que puede esconderse es
+  //   lo que tienes encima.
+  //
+  //   El argumento de fondo: LA EDAD YA LA CUENTA EL COLOR. Si entran los cinco mas cercanos, uno
+  //   viejo se ve gris y el jugador decide si le importa. Si el corte va por edad, el cercano
+  //   desaparece y no hay nada que decidir.
+  const orden = [...o.avisos]
+    .filter((a) => a.sys !== undefined)
+    .sort((a, b) => {
+      const sa = a.saltos ?? Number.POSITIVE_INFINITY;
+      const sb = b.saltos ?? Number.POSITIVE_INFINITY;
+      if (sa !== sb) return sa - sb;
+      return a.edad - b.edad;
+    });
   const dentro = orden.slice(0, TOPE_AVISOS);
   const recortados = orden.length - dentro.length;
 

@@ -6,7 +6,7 @@ import { OverlaySettings, IntelSettings } from "./overlaySettings";
 import { loadNewEden } from "./neweden";
 import { Ticker } from "./ticker";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 // `revealItemInDir` se queda: abre el explorador de archivos, que es otra cosa y sí funciona.
 // Los enlaces web van por `openExternal` (ver ese fichero para el porqué).
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -875,11 +875,16 @@ function App() {
     if (globalAlertTimer.current) window.clearTimeout(globalAlertTimer.current);
     globalAlertTimer.current = window.setTimeout(() => setGlobalAlert(null), 12000);
   }
-  // Al ARRANCAR: crear y colocar el overlay SOLO si el jugador lo dejó encendido. La ventana ya no
-  // se declara en tauri.conf.json —un WebView2 oculto cuesta memoria igual y esto viene apagado de
-  // fábrica—, así que quien no use la función no paga por ella. Y colocarla aquí evita que quien la
-  // dejó encendida ayer se la encuentre hoy donde Tauri decida, que en una ventana sin bordes puede
-  // ser fuera de la pantalla útil.
+  // Al ARRANCAR: colocar el overlay SOLO si el jugador lo dejó encendido. Colocarlo aquí evita
+  // que quien lo dejó encendido ayer se lo encuentre hoy donde Tauri decida, que en una ventana
+  // sin bordes puede ser fuera de la pantalla útil.
+  //
+  // ⚠️ CORREGIDO 2026-11-04: aquí decía «la ventana ya no se declara en tauri.conf.json». Es
+  // FALSO, y lo era desde hace tiempo —`overlay` sigue declarada ahí, y ahora `minimapa`
+  // también—: era un resto del intento de crearla bajo demanda que hubo que abandonar (ver
+  // `overlay_enable`). Un comentario que miente es peor que no tener comentario, porque manda a
+  // buscar la ventana donde no está. Lo que sí sigue siendo verdad es el fondo: un WebView2
+  // oculto cuesta memoria igual, y crear estas ventanas a demanda sigue en el backlog.
   useEffect(() => {
     if (localStorage.getItem("koru-overlay") !== "1") return;
     invoke("overlay_enable", {
@@ -888,6 +893,45 @@ function App() {
       corner: localStorage.getItem("koru-overlay-corner") ?? "tr",
       margin: Number(localStorage.getItem("koru-overlay-margin") ?? 24),
     }).catch(() => {});
+  }, []);
+
+  // ★ PUBLICAR DÓNDE ESTOY, para la ventana del MINIMAPA. Esa ventana no tiene el estado de App,
+  // así que todo lo que necesita tiene que VIAJAR: el evento `koru-yo` para lo vivo, y
+  // `koru-yo-sistema` en localStorage para cuando la ventana abre DESPUÉS (misma webview, mismo
+  // origen, mismo almacén). Los AVISOS no hace falta publicarlos: el minimapa escucha el mismo
+  // `intel-alert` que emite Rust, y en Tauri v2 un `app.emit` llega a TODAS las ventanas.
+  //
+  // Esto es el origen EN REPOSO: el personaje que estás mirando (con «Todos», el primero que
+  // tenga posición). CUANDO HAY AVISOS NO MANDA ESTO: la ventana se centra en el piloto más
+  // cercano al aviso, que es el que trae el propio evento en `pilots[0]` y el que usa el panel de
+  // intel. Se probó al revés el 2026-11-04 y el minimapa decía 21 saltos donde el panel decía 9.
+  // Ver el comentario del origen en `minimapaVentana.tsx`.
+  useEffect(() => {
+    const sys =
+      typeof subject === "number"
+        ? (cards[subject]?.system_id ?? null)
+        : (Object.values(cards).find((c) => c.system_id != null)?.system_id ?? null);
+    if (sys == null) localStorage.removeItem("koru-yo-sistema");
+    else localStorage.setItem("koru-yo-sistema", String(sys));
+    void emit("koru-yo", { sys });
+  }, [cards, subject]);
+
+  // Al ARRANCAR, lo mismo que el overlay: encender el minimapa solo si el jugador lo dejó
+  // encendido, y ponerlo donde lo dejó.
+  useEffect(() => {
+    if (localStorage.getItem("koru-minimapa") !== "1") return;
+    let pos: { x: number; y: number } | null = null;
+    try {
+      pos = JSON.parse(localStorage.getItem("koru-minimapa-pos") ?? "null");
+    } catch {
+      pos = null;
+    }
+    invoke("minimapa_enable", {
+      enabled: true,
+      lado: Number(localStorage.getItem("koru-minimapa-lado") ?? 250),
+      x: pos?.x ?? null,
+      y: pos?.y ?? null,
+    }).catch((e) => console.error("[minimapa] no arrancó:", e));
   }, []);
   // Clic en el aviso FLOTANTE (ventana overlay): Rust ya ha traído esta ventana al frente, y aquí
   // solo queda llevar al jugador donde le interesa — la capa de intel del mapa. El `sys_id` viaja

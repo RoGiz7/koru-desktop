@@ -753,7 +753,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                         );
                     }
                     // ★ N2b: ¿alguien esperaba algo de esto? «Avisarme cuando lleguen Quake M a
-                    // TTP-2B.» Sirve para lo que llega SIN TI —un courier, un deliver que te hace
+                    // Jita.» Sirve para lo que llega SIN TI —un courier, un deliver que te hace
                     // otro piloto de palabra— porque tu propia carga ya sabes cuándo llega.
                     for (loc, tid) in &r.arrivals {
                         // ★ N4 fase 2: PRIMERO las TAREAS de un proyecto que esperaban ese objeto.
@@ -884,7 +884,8 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             // hacerlo por cada extractor sería pagar un candado por línea de texto.
             let en = en_ingles(&state.db);
             // Capitaliza el tipo de planeta ("barren" → "Barren") para distinguir colonias del
-            // mismo sistema (antes salían idénticas: "D-K7NU · D-K7NU · D-K7NU").
+            // mismo sistema: antes, tres colonias en el mismo sitio salían las tres con el nombre
+            // del sistema repetido y no había forma de saber cuál era cuál.
             let cap = |s: &str| -> String {
                 let mut ch = s.chars();
                 match ch.next() {
@@ -8734,7 +8735,7 @@ pub struct PilotProximity {
 ///
 /// Es la pieza que faltaba para que el número nunca salga huérfano. Si no hay ningún piloto tuyo
 /// en el grafo (todos atracados en otra región, desconectados, o en un agujero), la referencia
-/// pasa a ser el ancla — y entonces hay que poder decir «a 4 saltos de 88a-ra» en vez de «4».
+/// pasa a ser el ancla — y entonces hay que poder decir «a 4 saltos de Jita» en vez de «4».
 #[derive(Clone, Debug, Serialize)]
 pub struct AnchorProximity {
     pub name: String,
@@ -13970,6 +13971,83 @@ pub fn overlay_hide(app: tauri::AppHandle) -> AppResult<()> {
     if let Some(w) = app.get_webview_window("overlay") {
         let _ = w.hide();
     }
+    Ok(())
+}
+
+/// Enciende o apaga el MINIMAPA: al encender lo dimensiona, lo coloca donde el jugador lo dejó y
+/// lo enseña; al apagar lo esconde.
+///
+/// ⚠️ AQUÍ TAMPOCO SE CREAN VENTANAS, y por lo mismo que en `overlay_enable`: la ventana se
+/// declara en `tauri.conf.json` y se crea con la app. Crearla bajo demanda con
+/// `WebviewWindowBuilder` dentro de `run_on_main_thread` dejó Koru inservible el 2026-08-05 — el
+/// hilo principal de Tauri ES el bucle de eventos: la interfaz pintaba bien y NINGÚN comando
+/// volvía nunca, con la consola limpia. Costó una hora encontrarlo.
+///
+/// ★ EL TAMAÑO Y LA POSICIÓN LOS PONE RUST, Y NO ES CAPRICHO: así la ventana del minimapa se
+///   queda con `core:default` + `allow-start-dragging` y nada más. Si se redimensionara a sí
+///   misma habría que concederle `core:window:allow-set-size`, y para esconderse `allow-hide`.
+///   Menos permisos en una ventana que vive encima del juego es menos superficie por la que fallar.
+///
+/// `lado` va en LÓGICAS —así el ajuste significa lo mismo al 100% y al 150% de escalado— y la
+/// posición en FÍSICAS, que son las que devuelve `outerPosition()` en la ventana y las mismas que
+/// usa `aplicar_colocacion` para el overlay. Mezclarlas es el fallo silencioso clásico de aquí.
+#[tauri::command]
+pub fn minimapa_enable(
+    app: tauri::AppHandle,
+    enabled: bool,
+    lado: Option<u32>,
+    x: Option<i32>,
+    y: Option<i32>,
+) -> AppResult<()> {
+    let Some(w) = app.get_webview_window("minimapa") else {
+        return Ok(());
+    };
+    if !enabled {
+        let _ = w.hide();
+        return Ok(());
+    }
+    let l = f64::from(lado.unwrap_or(250).clamp(160, 560));
+    let _ = w.set_size(tauri::LogicalSize::new(l, l));
+
+    // ⚠️ LA POSICIÓN GUARDADA PUEDE YA NO EXISTIR, y esta ventana no tiene red.
+    //
+    // Se guarda en coordenadas FÍSICAS de monitor, así que el día que se desconecta la segunda
+    // pantalla apuntan a un sitio que ya no está y la ventana aparece fuera de la vista. El
+    // overlay sobrevive a esto porque tiene esquinas a las que volver; el minimapa NO, y sin esta
+    // comprobación el jugador se quedaría sin la función y sin forma de recuperarla salvo
+    // editando el localStorage a mano. Con autoupdate y veinte usuarios, eso no se envía.
+    //
+    // Se exige que la esquina caiga dentro de algún monitor CON SITIO DE SOBRA: pegada al borde
+    // inferior derecho tampoco se vería. Si no cae, al centro del primero — que es también lo que
+    // se hace la primera vez, cuando aún no hay nada guardado, en vez de dejarla donde Tauri
+    // quiera. (Y en Ajustes hay un «Volver al centro», por si todo esto falla.)
+    let monitores = w.available_monitors().unwrap_or_default();
+    let visible = |px: i32, py: i32| {
+        monitores.iter().any(|m| {
+            let (mx, my) = (m.position().x, m.position().y);
+            let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+            px >= mx && py >= my && px <= mx + mw - 60 && py <= my + mh - 60
+        })
+    };
+    let destino = match (x, y) {
+        (Some(px), Some(py)) if visible(px, py) => Some((px, py)),
+        _ => monitores.first().map(|m| {
+            let (sw, sh) = w
+                .outer_size()
+                .map(|s| (s.width as i32, s.height as i32))
+                .unwrap_or((250, 250));
+            (
+                m.position().x + (m.size().width as i32 - sw) / 2,
+                m.position().y + (m.size().height as i32 - sh) / 2,
+            )
+        }),
+    };
+    if let Some((px, py)) = destino {
+        let _ = w.set_position(tauri::PhysicalPosition::new(px, py));
+    }
+    let _ = w.show();
+    // Reafirmar el «siempre encima»: en Windows una ventana que ha estado oculta puede perderlo.
+    let _ = w.set_always_on_top(true);
     Ok(())
 }
 

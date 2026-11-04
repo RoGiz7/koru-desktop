@@ -632,6 +632,11 @@ export function OverlaySettings() {
    *  arrastre accidental deja los controles de Ajustes muertos para siempre y sin explicación. */
   const [libre, setLibre] = useState(() => localStorage.getItem("koru-overlay-libre"));
   const [on, setOn] = useState(() => localStorage.getItem("koru-overlay") === "1");
+  const [mini, setMini] = useState(() => localStorage.getItem("koru-minimapa") === "1");
+  const [miniLado, setMiniLado] = useState(() => Number(localStorage.getItem("koru-minimapa-lado") ?? 250));
+  /** ¿Lo arrastró a algún sitio? Entonces hay que poder traerlo de vuelta. La posición la escribe
+   *  la OTRA ventana, así que esto es una foto del montaje —igual que `libre` para el overlay. */
+  const [miniPos, setMiniPos] = useState(() => localStorage.getItem("koru-minimapa-pos"));
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [mon, setMon] = useState(() => Number(localStorage.getItem("koru-overlay-mon") ?? 0));
   const [corner, setCorner] = useState(() => localStorage.getItem("koru-overlay-corner") ?? "tr");
@@ -651,10 +656,30 @@ export function OverlaySettings() {
     void invoke("overlay_place", { monitor: m, corner: c, margin: g }).catch(() => {});
   };
 
-  /** Encender CREA la ventana; apagar la DESTRUYE. No basta con esconderla: una webview oculta
-   *  cuesta memoria igual, y esta función viene apagada de fábrica. */
+  /** Encender COLOCA y ENSEÑA la ventana; apagar la ESCONDE. (Decía «crea» y «destruye»: era del
+   *  intento de crearla bajo demanda que hubo que abandonar, ver `overlay_enable`. Corregido el
+   *  2026-11-04 — un comentario que miente manda a buscar la ventana donde no está.) */
   const encender = (v: boolean) =>
     void invoke("overlay_enable", { enabled: v, monitor: mon, corner, margin }).catch(() => {});
+
+  /** Enciende, apaga o recoloca el MINIMAPA. La posición se lee aquí y no del estado porque la
+   *  escribe la OTRA ventana al arrastrarla: una foto tomada al montar estos ajustes estaría
+   *  vieja. Sin `.catch(() => {})` —un catch vacío es lo que escondió durante días que al overlay
+   *  le faltaba una capacidad—. */
+  const aplicarMini = (encendido: boolean, l = miniLado) => {
+    let pos: { x: number; y: number } | null = null;
+    try {
+      pos = JSON.parse(localStorage.getItem("koru-minimapa-pos") ?? "null");
+    } catch {
+      pos = null;
+    }
+    void invoke("minimapa_enable", {
+      enabled: encendido,
+      lado: l,
+      x: pos?.x ?? null,
+      y: pos?.y ?? null,
+    }).catch((err) => console.error("[minimapa] minimapa_enable falló:", err));
+  };
 
   return (
     <>
@@ -709,6 +734,88 @@ export function OverlaySettings() {
           }}
         />
       </label>
+
+      {/* EL MINIMAPA. Ventana APARTE a propósito (decisión de RoGiz7, 2026-11-04): aunque ahora
+          cueste más, así se puede apagar sola si falla sin tocar los avisos, que ya funcionan.
+          Viene APAGADO de fábrica: es la primera versión de algo que vive encima del juego. */}
+      <label className="tb-settings-item" style={{ cursor: "pointer" }}>
+        <span className="tb-si-ic">🧭</span>
+        <span className="tb-si-tx">
+          <strong>{tr("Mostrar el minimapa sobre el juego")}</strong>
+          <span className="small muted">
+            {tr(
+              "Una ventanita cuadrada que dibuja por dónde viene lo que canta el intel: tu sistema, los que están calientes y el camino entre ellos. Se arrastra a donde quieras.",
+            )}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={mini}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setMini(v);
+            localStorage.setItem("koru-minimapa", v ? "1" : "0");
+            aplicarMini(v);
+          }}
+        />
+      </label>
+
+      {mini && (
+        <div className="tb-settings-item">
+          <span className="tb-si-ic">📐</span>
+          <span className="tb-si-tx">
+            <strong>{tr("Tamaño del minimapa")}</strong>
+            <span className="small muted">
+              {tr("Cuanto más grande, más se separan los sistemas y mejor se leen los nombres.")}
+            </span>
+            <div className="ovs-row">
+              <select
+                value={miniLado}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setMiniLado(v);
+                  localStorage.setItem("koru-minimapa-lado", String(v));
+                  aplicarMini(true, v);
+                }}
+              >
+                <option value={190}>{tr("Pequeño")}</option>
+                <option value={250}>{tr("Mediano")}</option>
+                <option value={320}>{tr("Grande")}</option>
+                <option value={400}>{tr("Enorme")}</option>
+              </select>
+            </div>
+          </span>
+        </div>
+      )}
+
+      {/* EL RESCATE. La posición se guarda en coordenadas de monitor, así que al desconectar una
+          pantalla puede apuntar a un sitio que ya no existe. Rust ya lo detecta y centra la
+          ventana, pero este botón es la salida manual: sin él, un arrastre desafortunado dejaría
+          la función inservible sin ninguna explicación. Mismo papel que «Volver a la esquina». */}
+      {mini && miniPos && (
+        <div className="tb-settings-item">
+          <span className="tb-si-ic">✋</span>
+          <span className="tb-si-tx">
+            <strong>{tr("El minimapa está colocado a mano")}</strong>
+            <span className="small muted">
+              {tr("Si lo has perdido de vista —por ejemplo al desconectar una pantalla—, esto lo devuelve al centro.")}
+            </span>
+            <div className="ovs-row">
+              <button
+                onClick={() => {
+                  localStorage.removeItem("koru-minimapa-pos");
+                  setMiniPos(null);
+                  invoke("minimapa_enable", { enabled: true, lado: miniLado, x: null, y: null }).catch(
+                    (err) => console.error("[minimapa] no se pudo centrar:", err),
+                  );
+                }}
+              >
+                {tr("Volver al centro")}
+              </button>
+            </div>
+          </span>
+        </div>
+      )}
 
       {on && (
         <>
