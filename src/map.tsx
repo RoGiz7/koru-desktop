@@ -1,6 +1,7 @@
 import { loadJson } from "./staticJson";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { EVENTO_MINIMAPA, aplicarMinimapa, minimapaEncendido } from "./minimapaControl";
 import { tr, getLang } from "./i18n";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
@@ -1321,6 +1322,16 @@ export function MapView(props: {
   // Pilotos EXCLUIDOS de la proximidad de intel. Petición de RoGiz7: un alt aparcado en Jita
   // convertiría media galaxia en «cerca» y el intel cantaría sin parar. Se guardan los apagados
   // (no los encendidos) para que un personaje NUEVO entre activo por defecto.
+  /** El minimapa, encendido o no. La MISMA casilla existe en Ajustes, y las dos comparten una
+   *  sola verdad a traves de `minimapaControl.ts`: ahi esta explicado por que hace falta un
+   *  evento propio y no basta con escribir el localStorage. */
+  const [miniOn, setMiniOn] = useState(minimapaEncendido);
+  useEffect(() => {
+    const alCambiar = () => setMiniOn(minimapaEncendido());
+    window.addEventListener(EVENTO_MINIMAPA, alCambiar);
+    return () => window.removeEventListener(EVENTO_MINIMAPA, alCambiar);
+  }, []);
+
   const [pilotsOff, setPilotsOff] = useState<Set<number>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem("koru-intel-pilots-off") || "[]") as number[]);
@@ -4610,6 +4621,23 @@ export function MapView(props: {
                     onChange={(e) => intel.onConfig({ onlyRange: e.target.checked })}
                   />
                   {tr("Mostrar solo intel en rango")} (≤ {intel.alertJumps} {tr("saltos")})
+                </label>
+                {/* EL MINIMAPA, aqui y no solo en Ajustes. Idea de RoGiz7 (2026-11-04): este es el
+                    panel donde estas cuando piensas en intel, asi que es donde vas a buscarlo. La
+                    funcion viene apagada de fabrica, y un interruptor escondido en otra pantalla
+                    equivale a una funcion que nadie enciende. Los MANDOS (tamano, region, mapa de
+                    fondo) se quedan en Ajustes: el interruptor donde se usa, la configuracion
+                    donde se configura. */}
+                <label className="intel-chk">
+                  <input
+                    type="checkbox"
+                    checked={miniOn}
+                    onChange={(e) => {
+                      setMiniOn(e.target.checked);
+                      aplicarMinimapa(e.target.checked);
+                    }}
+                  />
+                  {tr("Minimapa sobre el juego")}
                 </label>
                 {/* Qué pilotos cuentan para la proximidad. Apagar uno lo saca de TODO: de los saltos,
                     del aviso flotante y del mapa. El caso que lo motiva: un alt aparcado en Jita

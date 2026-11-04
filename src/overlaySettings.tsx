@@ -19,6 +19,7 @@ import {
 } from "./reconstruirIntel";
 import { tr } from "./i18n";
 import { loadNewEden } from "./neweden";
+import { EVENTO_MINIMAPA, aplicarMinimapa, minimapaEncendido } from "./minimapaControl";
 import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
 import type { IntelConfig, LogDirCandidate } from "./types";
 
@@ -693,24 +694,17 @@ export function OverlaySettings() {
   const encender = (v: boolean) =>
     void invoke("overlay_enable", { enabled: v, monitor: mon, corner, margin }).catch(() => {});
 
-  /** Enciende, apaga o recoloca el MINIMAPA. La posición se lee aquí y no del estado porque la
-   *  escribe la OTRA ventana al arrastrarla: una foto tomada al montar estos ajustes estaría
-   *  vieja. Sin `.catch(() => {})` —un catch vacío es lo que escondió durante días que al overlay
-   *  le faltaba una capacidad—. */
-  const aplicarMini = (encendido: boolean, l = miniLado) => {
-    let pos: { x: number; y: number } | null = null;
-    try {
-      pos = JSON.parse(localStorage.getItem("koru-minimapa-pos") ?? "null");
-    } catch {
-      pos = null;
-    }
-    void invoke("minimapa_enable", {
-      enabled: encendido,
-      lado: l,
-      x: pos?.x ?? null,
-      y: pos?.y ?? null,
-    }).catch((err) => console.error("[minimapa] minimapa_enable falló:", err));
-  };
+  /** Enciende, apaga o recoloca el MINIMAPA. Pasa por `minimapaControl.ts` porque la MISMA
+   *  casilla existe en el panel de intel del mapa y las dos tienen que contar lo mismo: ahi esta
+   *  explicado por que hace falta un evento propio. */
+  const aplicarMini = (encendido: boolean, l = miniLado) => aplicarMinimapa(encendido, l);
+
+  // La otra casilla puede haberlo encendido o apagado con estos ajustes ya montados.
+  useEffect(() => {
+    const alCambiar = () => setMini(minimapaEncendido());
+    window.addEventListener(EVENTO_MINIMAPA, alCambiar);
+    return () => window.removeEventListener(EVENTO_MINIMAPA, alCambiar);
+  }, []);
 
   return (
     <>
@@ -785,8 +779,7 @@ export function OverlaySettings() {
           onChange={(e) => {
             const v = e.target.checked;
             setMini(v);
-            localStorage.setItem("koru-minimapa", v ? "1" : "0");
-            aplicarMini(v);
+            aplicarMini(v); // el ajuste lo guarda `minimapaControl`, unico que lo toca
           }}
         />
       </label>
