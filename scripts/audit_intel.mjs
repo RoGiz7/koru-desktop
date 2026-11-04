@@ -197,7 +197,7 @@ for await (const linea of rl) {
   }
   // ★★ ¿CUÁNTAS VECES UN NÚMERO SUELTO VA JUSTO DELANTE DE UNA NAVE? (2026-09-08)
   //
-  // Salió de una captura suya: `XKH-6O  23 redeemers stiletto`. Koru entiende `+4` y `x4`, pero un
+  // Salió de una captura suya: `Jita  23 redeemers stiletto`. Koru entiende `+4` y `x4`, pero un
   // número a secas lo tira — y en su lista de descartados están `2` 4.544 veces, `1` 4.057, `3`
   // 2.478, `10` 1.024. Si buena parte de eso es «N naves», estamos perdiendo **el tamaño de la
   // banda**, que es justo lo que decide si sales o te escondes.

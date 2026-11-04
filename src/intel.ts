@@ -155,8 +155,8 @@ export function limpiarMarcadoEve(s: string): string {
  *  otra vez, y esta vez dentro de una función de tres líneas. Con una sola puerta no se puede
  *  volver a separar.
  *
- *  Se colapsan los espacios porque el intel viene con tabulaciones y espacios dobles («EFM-C4
- *  Christine  Stormbringer») que cambian según quién copie y pegue: **la misma frase escrita por
+ *  Se colapsan los espacios porque el intel viene con tabulaciones y espacios dobles («Jita
+ *  Nerea  Stormbringer») que cambian según quién copie y pegue: **la misma frase escrita por
  *  dos personas tiene que dar la misma clave**, o la corrección solo valdría para el reporte que
  *  se corrigió y no para el siguiente, que es justo lo que se buscaba. */
 export function claveAlias(mensaje: string): string {
@@ -467,7 +467,7 @@ const JERGA_PARTE_NOMBRE = new Set([
 
 /** ★★ PARTÍCULAS QUE VIVEN DENTRO DE UN NOMBRE: «Lurm **the** Slurm», «Jan **van** Dijk».
  *
- *  Reporte suyo (2026-09-08) con una línea real: `384-IN  Lurm the Slurm svipul` sacaba **DOS
+ *  Reporte suyo (2026-09-08) con una línea real: `Jita  Noa the Peral svipul` sacaba **DOS
  *  hostiles**, «Lurm» y «Slurm», y el aviso cantaba «2 hostiles (posible flota)» cuando era uno.
  *  El motivo: `the` está en la lista de jerga —y con razón, porque en «on the gate» no es nadie— así
  *  que cerraba el nombre por la mitad. «Bedwin Al Ishira» se salvaba solo porque su partícula va en

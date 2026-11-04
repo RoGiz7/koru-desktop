@@ -604,7 +604,7 @@ impl Db {
         //   se puede medir sola?»—: **la trampa está en «medir»**. Una tarea que Koru no puede medir
         //   no necesita medirse, necesita APARECER EN EL MOMENTO CORRECTO. Koru no sabe si hablaste
         //   con el FC, pero sabe que acabas de atracar en Jita (`location_track`), que tu trabajo
-        //   terminó (`industry_job`) o que han llegado 2.000 Quake M a TTP-2B (`asset_event`).
+        //   terminó (`industry_job`) o que han llegado 2.000 Quake M a Jita (`asset_event`).
         //   **El valor no está en el check, está en el disparador** — y por eso las columnas
         //   `trigger_*` nacen aquí aunque N1 las deje vacías: el hueco es la mitad del diseño.
         //
@@ -9096,7 +9096,7 @@ impl Db {
         Ok(due)
     }
 
-    /// ★ N2b: HA LLEGADO ALGO A UN SITIO. «Avisarme cuando lleguen Quake M a TTP-2B.»
+    /// ★ N2b: HA LLEGADO ALGO A UN SITIO. «Avisarme cuando lleguen Quake M a Jita.»
     ///
     /// El tipo va en `trigger_id`; **la ubicación sale del ancla `location` de la nota**, mismo
     /// patrón que el disparador de llegada, donde el sistema era el ancla. Una nota sin ese ancla

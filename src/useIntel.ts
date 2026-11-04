@@ -232,7 +232,7 @@ export function useIntel({
     //
     // Llevaba mal desde siempre y no se veía: el único consumidor era el título de la tarjeta, y
     // `.ov-sys` lo pone en mayúsculas por CSS. Salió a la luz al nombrar el ancla en el aviso
-    // («de ttp-2b») y afecta también al título de la notificación del sistema.
+    // («de jita») y afecta también al título de la notificación del sistema.
     const names: [string, number][] = [...geo.nameIdx.values()].map((s) => [s.n, s.id]);
     const edges: [number, number][] = ne.jumps as [number, number][];
     // La REGIÓN de cada sistema. Se manda aquí porque esta ventana ya tiene New Eden cargado y el
@@ -271,7 +271,7 @@ export function useIntel({
       recencyMinutes: intel.recency,
       origins: intelOrigins,
       // Las anclas van TAMBIÉN sueltas, aunque `origins` ya las lleve dentro: mezcladas no se
-      // pueden nombrar, y el aviso necesita poder decir «de 88a-ra» cuando no hay ningún piloto
+      // pueden nombrar, y el aviso necesita poder decir «de jita» cuando no hay ningún piloto
       // cerca. Antes en ese caso salía un número sin dueño.
       anchors: intel.anchors,
       // Sistemas silenciados. Rust compara `until_ms` con su propio reloj, así que un silencio

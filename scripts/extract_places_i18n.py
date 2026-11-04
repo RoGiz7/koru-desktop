@@ -47,7 +47,7 @@ Las dos primeras son las de `extract_ship_names_i18n.py`; las otras tres saliero
 
    b) **Envenenan el indice de abreviaturas, quitando algo que HOY funciona.** `sistemaAbreviado`
       resuelve por prefijo unico, asi que cada clave nueva puede volver ambiguo un prefijo:
-          `me-pq`             -> `me-`  dejaba de resolver a ME-4IU
+          `me-pq`             -> `me-`  dejaba de resolver a un sistema «ME-…»
           `m-sru`             -> `m-sr` dejaba de resolver a M-SRKS
           `el crisol`         -> `cen`/`cent` dejaban de resolver a Central Point
           `gesegnete vidette` -> `ges`  dejaba de resolver a Gesh

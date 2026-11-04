@@ -2,7 +2,7 @@
 //
 // ★ POR QUÉ ES UNA PELÍCULA Y NO UNA TABLA: el grabador guarda CAMBIOS, no sondeos (quién entró,
 //   quién cambió de nave, quién saltó, quién atracó, quién se fue). Releídos por orden son la
-//   narración de la op — «a las 14:07 kukumiku pasó a Capsule» cuenta una muerte mejor que
+//   narración de la op — «a las 14:07 Mara Kell pasó a Capsule» cuenta una muerte mejor que
 //   cualquier agregado. Los agregados ya viven en «Con quién vuelas»; aquí se cuenta UNA op.
 //
 // ★ LA REGLA DE LA CASA, otra vez: el hueco es CEGUERA, no quietud. Si entre dos eventos pasó

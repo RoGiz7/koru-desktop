@@ -28,7 +28,7 @@ La primera versión decidía por forma: `[A-Z0-9]{1,4}-[A-Z0-9]{2,5}`, más una 
 a mano (`UTF-8`, `SHA-256`…). Tenía los dos fallos de cualquier heurística:
 
 1. **Se dejaba sistemas de verdad.** Exigía 2-5 caracteres tras el guion, así que un nombre como
-   `9PX2-F` —una sola letra al final, y los hay— **no lo veía**. Un agujero en la puerta que se
+   un nombre con UNA SOLA letra tras el guion —y los hay— **no lo veía**. Un agujero en la puerta que se
    pasa antes de CADA release.
 2. **Cantaba falsos** (`EVE-O`, `T2-T3`, `P0-P4`…), y una alarma que se equivoca deja de leerse —
    la misma regla que gobierna los avisos del intel.
@@ -42,7 +42,10 @@ verdad**. Cero falsos positivos y cero huecos, sin lista que mantener. Es la reg
 así que cantarlos sería cantar la solución.
 
 ⚠️ Este fichero va al repo, así que NO puede contener ningún nombre real ni ningún sistema suyo:
-sería exactamente la fuga que viene a evitar. Solo lleva patrones.
+sería exactamente la fuga que viene a evitar. Solo lleva patrones. Los NOMBRES, que no tienen
+patrón, se leen de `documentacion/nombres_privados.txt`, que está bajo candado en .gitignore.
+
+★ 2026-11-04: ahora mira también EL CÓDIGO FUENTE, no solo la prosa. Ver `objetivos_por_defecto`.
 
 USO
 ---
@@ -63,9 +66,23 @@ RAIZ = Path(__file__).resolve().parent.parent
 # TODO lo que va al repo público y lleva prosa. Antes eran tres ficheros sueltos y `docs/` se
 # quedaba fuera — que es justo donde se coló lo que motivó esta versión. Se mira por patrón, no por
 # lista, para que un fichero nuevo entre solo.
+# ★★ 2026-11-04: ANTES SOLO MIRABA PROSA —el changelog y los .md— y eso dejaba fuera el sitio
+#    por el que de verdad se escapan las cosas: LOS COMENTARIOS DEL CÓDIGO. Al extenderlo
+#    aparecieron tres fugas de golpe: un sistema suyo escrito ese mismo día documentando un
+#    arreglo, otro usado como ejemplo en los comentarios de PI, y un nombre de piloto real
+#    contando cómo se lee una op. Los tres llevaban meses o minutos en el repo público y ninguno
+#    habría salido jamás con la versión anterior, porque ninguno vive en un .md.
+#
+#    Explicar por qué se arregló algo es BUENO y hay que seguir haciéndolo; lo que no puede es
+#    llevar el dato real dentro. El ejemplo genérico cuenta lo mismo.
+EXTENSIONES = {".md", ".ts", ".tsx", ".rs", ".py", ".mjs", ".js", ".css", ".html", ".json"}
+
+
 def objetivos_por_defecto() -> list[Path]:
-    fuera = {"node_modules", "dist", "target", ".git", "documentacion"}
-    salida = [RAIZ / "src" / "changelog.ts"]
+    # `public/` queda fuera A PROPÓSITO: ahí vive el catálogo de New Eden, que son los 5.485
+    # sistemas de verdad del juego y no es información de nadie. `gen/` e `icons/` son generados.
+    fuera = {"node_modules", "dist", "target", ".git", "documentacion", "public", "gen", "icons"}
+    salida: list[Path] = []
     # Se PODA al bajar, no se filtra después: `rglob` entraba en node_modules y target enteros
     # antes de descartar (2 min 37 s en el sandbox el 2026-09-22; ahora, segundos).
     pendientes = [RAIZ]
@@ -76,7 +93,7 @@ def objetivos_por_defecto() -> list[Path]:
             if p.is_dir():
                 if p.name not in fuera:
                     pendientes.append(p)
-            elif p.suffix == ".md":
+            elif p.suffix in EXTENSIONES:
                 encontrados.append(p)
     salida.extend(sorted(encontrados))
     return salida
@@ -111,11 +128,38 @@ def catalogo_sistemas() -> set[str] | None:
     return {s["n"].lower() for s in ne.get("systems", []) if CODIGO.match(s["n"].upper())}
 
 
-def revisar(ruta: Path, catalogo: set[str] | None) -> list[tuple[int, str, str]]:
+# ★ LOS NOMBRES NO SE PUEDEN CAZAR POR PATRÓN (un piloto puede llamarse cualquier cosa), así que
+#   se cazan por LISTA. Y la lista NO vive aquí: este fichero va al repo, y escribir en él los
+#   nombres sería exactamente la fuga que viene a evitar. Vive en
+#   `documentacion/nombres_privados.txt` —un nombre por línea, `#` para comentarios—, que está
+#   bajo candado en .gitignore. Si no existe, el script lo dice y sigue: la caza de sistemas no
+#   depende de ella.
+def nombres_privados() -> tuple[list[str], Path | None]:
+    for ruta in (
+        RAIZ / "documentacion" / "nombres_privados.txt",
+        RAIZ.parent / "documentacion" / "nombres_privados.txt",
+    ):
+        if ruta.exists():
+            nombres = [
+                l.strip()
+                for l in ruta.read_text(encoding="utf-8", errors="ignore").splitlines()
+                if l.strip() and not l.strip().startswith("#")
+            ]
+            return nombres, ruta
+    return [], None
+
+
+def revisar(
+    ruta: Path, catalogo: set[str] | None, nombres: list[str]
+) -> list[tuple[int, str, str, str]]:
     if not ruta.exists():
         return []
     hallazgos = []
     for n, linea in enumerate(ruta.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+        bajo = linea.lower()
+        for nombre in nombres:
+            if nombre.lower() in bajo:
+                hallazgos.append((n, "nombre", nombre, linea.strip()[:120]))
         for m in CANDIDATO.findall(linea):
             if m.lower() in PUBLICOS:
                 continue
@@ -126,7 +170,7 @@ def revisar(ruta: Path, catalogo: set[str] | None) -> list[tuple[int, str, str]]
             elif not CODIGO.match(m.upper()):
                 # Sin catálogo (no debería pasar) se cae a la forma, que canta de más. Se avisa abajo.
                 continue
-            hallazgos.append((n, m, linea.strip()[:120]))
+            hallazgos.append((n, "sistema", m, linea.strip()[:120]))
     return hallazgos
 
 
@@ -135,22 +179,28 @@ def main() -> int:
     catalogo = catalogo_sistemas()
     if catalogo is None:
         print("⚠️  No encuentro public/neweden.json: se decide por FORMA y habrá falsos positivos.")
+    nombres, ruta_nombres = nombres_privados()
+    if ruta_nombres is None:
+        print("⚠️  Sin documentacion/nombres_privados.txt: NO se buscan nombres de piloto ni de canal.")
     total = 0
     for f in objetivos:
-        for n, hallazgo, linea in revisar(f, catalogo):
+        for n, tipo, hallazgo, linea in revisar(f, catalogo, nombres):
             total += 1
             try:
                 nombre = f.resolve().relative_to(RAIZ)
             except ValueError:
                 nombre = f.name
-            total_msg = f"⚠️  {nombre}:{n}  «{hallazgo}»  →  {linea}"
-            print(total_msg)
+            print(f"⚠️  [{tipo}] {nombre}:{n}  «{hallazgo}»  →  {linea}")
     if total:
-        print(f"\n{total} sistema(s) REALES en texto público — confirmados contra el catálogo, así")
-        print("que no son falsos positivos. Sustituir por un ejemplo genérico (Jita y compañía).")
+        print(f"\n{total} hallazgo(s) en lo que va al repo. Los sistemas están confirmados contra el")
+        print("catálogo, así que no son falsos positivos. Sustituir por un ejemplo genérico (Jita y")
+        print("compañía) o por una descripción: contar POR QUÉ se arregló algo no exige el dato real.")
         return 1
-    print(f"Sin códigos de sistema en los {len(objetivos)} textos públicos revisados.")
-    print("⚠️  Los nombres de piloto, de corp y de CANAL no se detectan por patrón: leerlos a ojo.")
+    print(f"Limpio: {len(objetivos)} ficheros revisados (prosa y código).")
+    if not nombres:
+        print("⚠️  Sin lista de nombres: los de piloto, corp y CANAL hay que leerlos a ojo.")
+    else:
+        print(f"Incluye {len(nombres)} nombre(s) privados de la lista bajo candado.")
     return 0
 
 

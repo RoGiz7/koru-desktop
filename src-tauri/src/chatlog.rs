@@ -3,7 +3,7 @@
 //! el ratero típico se planta ocho horas sin saltar (validado: 379 bounties, 0 saltos en un día).
 //!
 //! El canal Local escribe una línea en CADA cambio de sistema, incluidos el login y el clon de salto:
-//!   `[ 2026.06.29 08:40:52 ] Sistema EVE > El canal ha cambiado a Local: TTP-2B.`
+//!   `[ 2026.06.29 08:40:52 ] Sistema EVE > El canal ha cambiado a Local: Jita.`
 //!   `[ 2020.06.06 13:49:22 ] EVE System > Channel changed to Local : 1ABC-D.`
 //!
 //! REGLA DE ORO: **no se arrastra el sistema entre sesiones.** Cada fichero de gamelog es una sesión y
@@ -13,7 +13,7 @@
 //!
 //! Cobertura medida sobre los logs reales: los gamelogs CON charID encuentran gemelo único el 100% de
 //! las veces (1.200/1.200); los huérfanos, el 96,6% (596/617), 20 ambiguos y 1 sin Local.
-//! Validado contra verdad conocida: el bruto atribuido a TTP-2B un día coincide al ISK con el sistema
+//! Validado contra verdad conocida: el bruto atribuido a Jita un día coincide al ISK con el sistema
 //! que dice el `Description` de la wallet.
 
 use chrono::{NaiveDate, NaiveDateTime};
