@@ -1,122 +1,171 @@
-/**
- * Verifica la geometria del minimapa del overlay con el mapa DE VERDAD (public/neweden.json).
- * Solo lee. Carga `src/minimapa.ts` TAL CUAL — sin copia de la cuenta, o mediria al auditor.
- *
- *   node scripts/verificar_minimapa.mjs
- *
- * Lo que comprueba, y por que cada uno:
- *   · sin avisos queda TU punto (decision de RoGiz7: el minimapa no se esconde)
- *   · un aviso a N saltos da N+1 nodos y N aristas (el camino, ni mas ni menos)
- *   · el hostil en TU sistema es un solo nodo, y es «yo» Y «caliente» a la vez
- *   · el tope de 5 recorta los VIEJOS y cuenta los que quedan fuera
- *   · nada se sale del margen y NADA es NaN — un minimapa con NaN sale en blanco y parece apagado
- *   · un sistema inalcanzable por puertas (Pochven) no revienta: se cuenta aparte
- */
+// Verificacion de la geometria del minimapa, contra el catalogo DE VERDAD (public/neweden.json).
+//
+// ★ POR QUE EXISTE: `minimapa.ts` es un modulo puro justamente para poder comprobarlo aqui, en
+//   node, sin compilar Rust ni abrir una ventana. Una ventana transparente que no pinta no se
+//   distingue de una que no existe, asi que todo lo que se pueda cazar antes, se caza antes.
+//
+// ★ LOS NOMBRES DE SISTEMA QUE SALEN AQUI son los que elige el propio script del catalogo (Jita y
+//   su region), nunca de los logs de nadie. Ver scripts/check_privacidad.py.
+//
+// Uso:  node scripts/verificar_minimapa.mjs
 import { readFileSync } from "node:fs";
-import { planoAmenaza, caminoMasCorto, TOPE_AVISOS } from "../src/minimapa.ts";
+import { planoRegion, proyectar, caminoMasCorto, TOPE_AVISOS } from "../src/minimapa.ts";
 
 const ne = JSON.parse(readFileSync(new URL("../public/neweden.json", import.meta.url), "utf-8"));
-const sistemas = new Map(ne.systems.map((s) => [s.id, { x: s.x, y: s.y, n: s.n, s: s.s }]));
+const sistemas = new Map();
+for (const s of ne.systems) sistemas.set(s.id, { x: s.x, y: s.y, n: s.n, s: s.s, r: s.r });
 const ady = new Map();
 for (const [a, b] of ne.jumps) {
   if (!ady.has(a)) ady.set(a, []);
   if (!ady.has(b)) ady.set(b, []);
-  ady.get(a).push(b); ady.get(b).push(a);
+  ady.get(a).push(b);
+  ady.get(b).push(a);
 }
+const porNombre = new Map([...sistemas].map(([id, s]) => [s.n, id]));
+const JITA = porNombre.get("Jita");
+const REGION = sistemas.get(JITA).r;
+const PX = 250;
 
 let bien = 0, mal = 0;
-const ok = (t, c, extra = "") => { c ? bien++ : mal++; console.log(`  ${c ? "✓" : "✗"} ${t}${extra ? "  — " + extra : ""}`); };
-const finito = (n) => Number.isFinite(n);
-
-const JITA = 30000142;
-const PX = 300, M = 26;
-const aNSaltos = (o, n) => {
-  const dist = new Map([[o, 0]]); const q = [o]; const out = [];
-  for (let i = 0; i < q.length; i++) {
-    const u = q[i];
-    if (dist.get(u) === n) { out.push(u); continue; }
-    for (const v of ady.get(u) ?? []) if (!dist.has(v)) { dist.set(v, dist.get(u) + 1); q.push(v); }
-  }
-  return out;
+const ok = (titulo, cond, detalle) => {
+  console.log(`  ${cond ? "✓" : "✗"} ${titulo}${detalle !== undefined && !cond ? `  — ${detalle}` : ""}`);
+  cond ? bien++ : mal++;
 };
+/** Sistemas a exactamente n saltos de `desde`. */
+function aNSaltos(desde, n) {
+  let frente = [desde];
+  const visto = new Set([desde]);
+  for (let i = 0; i < n; i++) {
+    const sig = [];
+    for (const u of frente) for (const v of ady.get(u) ?? []) if (!visto.has(v)) { visto.add(v); sig.push(v); }
+    frente = sig;
+  }
+  return frente;
+}
+const base = { sistemas, ady, region: REGION, px: PX };
+const refJita = [{ sys: JITA, nombre: "Jita", tipo: "ancla" }];
+const sanos = (p) =>
+  [...p.refs, ...p.frentes].every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)) &&
+  p.rutas.every((a) => [a.ax, a.ay, a.bx, a.by].every(Number.isFinite)) &&
+  Number.isFinite(p.proy.k);
 
-console.log("\n1) SIN AVISOS — se queda tu punto, no se esconde");
+console.log(`\n1) EL MARCO ES LA REGION (${ne.regions.find((r) => r.id === REGION).n}) MAS SU MARGEN`);
 {
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos: [], px: PX });
-  ok("un solo nodo", p.nodos.length === 1, `${p.nodos.length}`);
-  ok("y es TU", p.nodos[0]?.yo === true && p.nodos[0]?.caliente === false);
-  ok("centrado", Math.abs(p.nodos[0].px - PX / 2) < 0.01 && Math.abs(p.nodos[0].py - PX / 2) < 0.01);
-  ok("sin aristas", p.aristas.length === 0);
+  const p = planoRegion({ ...base, referencias: refJita, avisos: [] });
+  const dela = [...sistemas.values()].filter((s) => s.r === REGION);
+  const caja = Math.max(
+    Math.max(...dela.map((s) => s.x)) - Math.min(...dela.map((s) => s.x)),
+    Math.max(...dela.map((s) => s.y)) - Math.min(...dela.map((s) => s.y)),
+  );
+  ok("el lado del marco es 1,5x la caja de la region", Math.abs(p.proy.lado - caja * 1.5) < 1,
+    `lado=${p.proy.lado} caja=${caja}`);
+  const fuera = dela.filter((s) => {
+    const [x, y] = proyectar(p.proy, s.x, s.y);
+    return x < 0 || x > PX || y < 0 || y > PX;
+  });
+  ok("a zoom 1 NINGUN sistema de la region se sale del lienzo", fuera.length === 0, `${fuera.length} fuera`);
+  ok("y el fondo los trae todos", dela.every((s) => p.fondo.includes([...sistemas].find(([, v]) => v === s)?.[0] ?? -1)) || p.fondo.length >= dela.length,
+    `fondo=${p.fondo.length} region=${dela.length}`);
+  ok("sin NaN", sanos(p));
 }
 
-console.log("\n2) UN AVISO A 4 SALTOS — el camino, ni mas ni menos");
+console.log("\n2) CASOS RAROS DEL MARCO — region de UN sistema y region inexistente");
 {
-  const d = aNSaltos(JITA, 4)[0];
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos: [{ sys: d, edad: 0 }], px: PX });
-  ok("5 nodos (4 saltos + 1)", p.nodos.length === 5, `${p.nodos.length}`);
-  ok("4 aristas", p.aristas.length === 4, `${p.aristas.length}`);
-  ok("solo UNO caliente", p.nodos.filter((n) => n.caliente).length === 1);
-  ok("el caliente esta a 4 saltos", p.nodos.find((n) => n.caliente)?.saltos === 4);
-  ok("los calientes se dibujan los ULTIMOS", p.nodos[p.nodos.length - 1].caliente === true);
+  const unico = ne.regions.map((r) => ({ r, n: [...sistemas.values()].filter((s) => s.r === r.id).length }))
+    .filter((x) => x.n === 1)[0];
+  ok("existe una region de un solo sistema (si no, el caso no se puede probar)", !!unico,
+    "ninguna");
+  if (unico) {
+    const sid = [...sistemas].find(([, s]) => s.r === unico.r.id)[0];
+    const p = planoRegion({ ...base, region: unico.r.id, referencias: [{ sys: sid, nombre: "x", tipo: "ancla" }], avisos: [] });
+    ok("no divide por cero: k finito y mayor que cero", Number.isFinite(p.proy.k) && p.proy.k > 0, `k=${p.proy.k}`);
+    ok("y coloca su unico sistema sin NaN", sanos(p) && p.refs.length === 1);
+  }
+  const p2 = planoRegion({ ...base, region: -999, referencias: refJita, avisos: [] });
+  ok("region desconocida: se cae a tus referencias en vez de reventar", sanos(p2) && p2.refs.length === 1);
 }
 
-console.log("\n3) HOSTIL EN TU PROPIO SISTEMA");
+console.log("\n3) ZOOM — el tope es el marco entero y de ahi solo se acerca");
 {
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos: [{ sys: JITA, edad: 0 }], px: PX });
-  ok("un solo nodo", p.nodos.length === 1);
-  ok("es TU y CALIENTE a la vez", p.nodos[0].yo === true && p.nodos[0].caliente === true);
-  ok("sin aristas ni NaN", p.aristas.length === 0 && finito(p.nodos[0].px) && finito(p.nodos[0].py));
+  const z1 = planoRegion({ ...base, referencias: refJita, avisos: [] });
+  const z3 = planoRegion({ ...base, referencias: refJita, avisos: [], zoom: 3 });
+  ok("la escala crece igual que el zoom", Math.abs(z3.proy.k - z1.proy.k * 3) < 1e-9);
+  const z0 = planoRegion({ ...base, referencias: refJita, avisos: [], zoom: 0.2 });
+  ok("alejarse por debajo del marco NO hace nada", Math.abs(z0.proy.k - z1.proy.k) < 1e-9);
+  const z9 = planoRegion({ ...base, referencias: refJita, avisos: [], zoom: 99 });
+  const z4 = planoRegion({ ...base, referencias: refJita, avisos: [], zoom: 4 });
+  ok("y acercar de mas se queda en 4x", Math.abs(z9.proy.k - z4.proy.k) < 1e-9);
+  ok("al acercar, el fondo trae MENOS sistemas", z3.fondo.length < z1.fondo.length,
+    `z1=${z1.fondo.length} z3=${z3.fondo.length}`);
 }
 
-console.log(`\n4) TOPE DE ${TOPE_AVISOS} — entran los mas CERCANOS y se cuenta lo que sobra`);
+console.log("\n4) DESPLAZAMIENTO — a zoom 1 no se puede, acercando si");
 {
-  // 4a) A IGUALDAD DE SALTOS manda el mas fresco.
-  const ocho = aNSaltos(JITA, 3).slice(0, 8);
-  const avisos = ocho.map((s, i) => ({ sys: s, edad: i / 10, saltos: 3 })); // 0.0 fresco … 0.7 viejo
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos, px: PX });
-  ok(`solo ${TOPE_AVISOS} calientes`, p.nodos.filter((n) => n.caliente).length === TOPE_AVISOS);
-  ok("y dice cuantos quedaron fuera", p.recortados === 3, `recortados=${p.recortados}`);
-  const edades = p.nodos.filter((n) => n.caliente).map((n) => n.edad).sort((a, b) => a - b);
-  ok("a igualdad de saltos entran los FRESCOS", Math.max(...edades) <= 0.4 + 1e-9, `max edad ${Math.max(...edades)}`);
+  const z1 = planoRegion({ ...base, referencias: refJita, avisos: [], pan: { x: 9999, y: -9999 } });
+  ok("a zoom 1 el desplazamiento se queda en CERO pase lo que pase",
+    z1.proy.panX === 0 && z1.proy.panY === 0, `pan=${z1.proy.panX},${z1.proy.panY}`);
+  const z3 = planoRegion({ ...base, referencias: refJita, avisos: [], zoom: 3, pan: { x: 9999, y: 0 } });
+  ok("acercando si hay sitio, y se recorta al borde del marco",
+    z3.proy.panX > 0 && Number.isFinite(z3.proy.panX), `panX=${z3.proy.panX}`);
+  const z3b = planoRegion({ ...base, referencias: refJita, avisos: [], zoom: 3, pan: { x: 5, y: 5 } });
+  ok("un desplazamiento pequeno se respeta tal cual", z3b.proy.panX === 5 && z3b.proy.panY === 5);
 }
+
+console.log("\n5) REFERENCIAS — anclas y pilotos, todos, sin elegir uno");
 {
-  // 4b) EL CASO DE SU CAPTURA: el mas cercano es tambien el mas VIEJO. No puede caerse.
-  const cerca = aNSaltos(JITA, 1)[0];
-  const lejos = aNSaltos(JITA, 5).slice(0, 6);
-  ok("el escenario se pudo montar", cerca !== undefined && lejos.length === 6);
-  const avisos = [
-    { sys: cerca, edad: 0.95, saltos: 1 },
-    ...lejos.map((s) => ({ sys: s, edad: 0.05, saltos: 5 })),
+  const lejos = [...sistemas].find(([, s]) => s.r !== REGION)[0];
+  const refs = [
+    { sys: JITA, nombre: "Ancla", tipo: "ancla" },
+    { sys: aNSaltos(JITA, 1)[0], nombre: "Piloto", tipo: "piloto" },
+    { sys: lejos, nombre: "Lejos", tipo: "piloto" },
   ];
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos, px: PX });
-  const calientes = p.nodos.filter((n) => n.caliente);
-  ok(`siguen siendo ${TOPE_AVISOS}`, calientes.length === TOPE_AVISOS, `calientes=${calientes.length}`);
-  ok("el CERCANO y viejo entra", calientes.some((n) => n.id === cerca));
-  ok("y lo que sobra se cuenta", p.recortados === 2, `recortados=${p.recortados}`);
+  const p = planoRegion({ ...base, referencias: refs, avisos: [] });
+  ok("se dibujan TODAS, no una", p.refs.length === 3, `${p.refs.length}`);
+  ok("y conservan su tipo", p.refs.filter((r) => r.tipo === "ancla").length === 1);
+  ok("la de otra region queda marcada como fuera", p.refs.find((r) => r.nombre === "Lejos").fuera);
+  ok("y la de casa, dentro", !p.refs.find((r) => r.nombre === "Ancla").fuera);
 }
 
-console.log("\n5) TODO DENTRO DEL CUADRO Y SIN NaN (3 frentes)");
+console.log(`\n6) FRENTES — tope de ${TOPE_AVISOS}, corte por CERCANIA`);
 {
-  const a = [aNSaltos(JITA, 2)[0], aNSaltos(JITA, 4)[0], aNSaltos(JITA, 5)[0]];
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos: a.map((s, i) => ({ sys: s, edad: i * 0.4 })), px: PX, margen: M });
-  ok("ningun NaN", p.nodos.every((n) => finito(n.px) && finito(n.py)));
-  const fuera = p.nodos.filter((n) => n.px < M - 0.5 || n.px > PX - M + 0.5 || n.py < M - 0.5 || n.py > PX - M + 0.5);
-  ok("nada fuera del margen", fuera.length === 0, fuera.map((n) => n.nombre).join(",") || "ok");
-  ok("aristas sin NaN", p.aristas.every((e) => finito(e.ax) && finito(e.ay) && finito(e.bx) && finito(e.by)));
-  console.log(`     (${p.nodos.length} nodos, ${p.aristas.length} aristas — legible: el prototipo dio 6)`);
+  const cerca = aNSaltos(JITA, 1)[0];
+  const lejos = aNSaltos(JITA, 4).slice(0, 6);
+  const avisos = [
+    { sys: cerca, edad: 0.95, saltos: 1, desde: JITA },          // el mas cercano y el mas VIEJO
+    ...lejos.map((s) => ({ sys: s, edad: 0.05, saltos: 4, desde: JITA })),
+  ];
+  const p = planoRegion({ ...base, referencias: refJita, avisos });
+  ok(`entran ${TOPE_AVISOS}`, p.frentes.length === TOPE_AVISOS, `${p.frentes.length}`);
+  ok("el CERCANO y viejo entra", p.frentes.some((f) => f.id === cerca));
+  ok("y lo que sobra se cuenta", p.recortados === avisos.length - TOPE_AVISOS, `${p.recortados}`);
+  ok("los saltos son los de Rust, no recalculados", p.frentes.find((f) => f.id === cerca).saltos === 1);
+  const malo = planoRegion({ ...base, referencias: refJita, avisos: [{ sys: 999999, edad: 0, saltos: 2, desde: JITA }] });
+  ok("un sistema que no esta en el catalogo se cuenta, no revienta",
+    malo.inalcanzables === 1 && malo.frentes.length === 0);
 }
 
-console.log("\n6) SISTEMA QUE NO CONECTA POR PUERTAS — no revienta, se cuenta");
+console.log("\n7) RUTAS — hasta SU referencia, y sin inventar ninguna");
 {
-  // Pochven: sus sistemas no tienen puertas normales hacia k-space.
-  const poch = ne.systems.find((s) => s.r === 10000070);
-  const p = planoAmenaza({ sistemas, ady, yo: JITA, avisos: [{ sys: poch ? poch.id : 999999, edad: 0 }], px: PX });
-  ok("no revienta", Array.isArray(p.nodos));
-  ok("lo cuenta como inalcanzable", p.inalcanzables === 1, `inalcanzables=${p.inalcanzables}`);
-  ok("y deja tu punto", p.nodos.length === 1 && p.nodos[0].yo);
+  const destino = aNSaltos(JITA, 3)[0];
+  const con = planoRegion({ ...base, referencias: refJita, avisos: [{ sys: destino, edad: 0, saltos: 3, desde: JITA }] });
+  ok("con referencia, hay ruta", con.rutas.length === 3, `${con.rutas.length} aristas`);
+  const sin = planoRegion({ ...base, referencias: refJita, avisos: [{ sys: destino, edad: 0, saltos: 3, desde: null }] });
+  ok("sin referencia, NO se inventa una", sin.rutas.length === 0 && sin.frentes.length === 1);
+  ok("sin NaN", sanos(con));
 }
 
-console.log("\n7) CAMINO sin ruta posible devuelve vacio, no cuelga");
+console.log("\n8) LA PROYECCION DEVUELTA ES LA MISMA QUE USA EL PLANO");
+{
+  const destino = aNSaltos(JITA, 2)[0];
+  const p = planoRegion({ ...base, referencias: refJita, avisos: [{ sys: destino, edad: 0, saltos: 2, desde: JITA }], zoom: 2, pan: { x: 7, y: -3 } });
+  const s = sistemas.get(destino);
+  const [x, y] = proyectar(p.proy, s.x, s.y);
+  const f = p.frentes[0];
+  ok("el dibujante puede colocar cualquier sistema igual que el plano",
+    Math.abs(f.x - x) < 1e-9 && Math.abs(f.y - y) < 1e-9);
+}
+
+console.log("\n9) CAMINO sin ruta posible devuelve vacio, no cuelga");
 ok("[] cuando no hay camino", caminoMasCorto(ady, JITA, 999999).length === 0);
 
 console.log("\n" + "─".repeat(58));

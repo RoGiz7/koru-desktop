@@ -18,6 +18,7 @@ import {
   reconstruirAvistamientos,
 } from "./reconstruirIntel";
 import { tr } from "./i18n";
+import { loadNewEden } from "./neweden";
 import { ALERT_SOUNDS, playAlertChoice, beep } from "./sound";
 import type { IntelConfig, LogDirCandidate } from "./types";
 
@@ -634,6 +635,36 @@ export function OverlaySettings() {
   const [on, setOn] = useState(() => localStorage.getItem("koru-overlay") === "1");
   const [mini, setMini] = useState(() => localStorage.getItem("koru-minimapa") === "1");
   const [miniLado, setMiniLado] = useState(() => Number(localStorage.getItem("koru-minimapa-lado") ?? 250));
+  const [miniFondo, setMiniFondo] = useState(() => localStorage.getItem("koru-minimapa-fondo") !== "0");
+  /** La region que hace de MARCO del minimapa. "auto" sigue a tu primera ancla. */
+  const [miniRegion, setMiniRegion] = useState(() => localStorage.getItem("koru-minimapa-region") ?? "auto");
+  /** Solo las regiones donde de verdad tienes algo. Un ancla ya significa «este sitio me
+   *  importa», asi que la lista sale sola de lo que ya has declarado — nada de ofrecer las 70. */
+  const [miniRegiones, setMiniRegiones] = useState<{ id: number; nombre: string }[]>([]);
+  useEffect(() => {
+    if (!mini) return;
+    void loadNewEden().then((ne) => {
+      const porSistema = new Map(ne.systems.map((x) => [x.id, x]));
+      const nombres = new Map(ne.regions.map((r) => [r.id, r.n]));
+      const mios = new Set<number>();
+      try {
+        for (const a of JSON.parse(localStorage.getItem("koru-intel-anchors") || "[]") as number[]) mios.add(a);
+      } catch {
+        /* sin anclas */
+      }
+      try {
+        for (const p of JSON.parse(localStorage.getItem("koru-pilotos") || "[]") as { sys: number }[]) mios.add(p.sys);
+      } catch {
+        /* sin pilotos */
+      }
+      const regs = new Map<number, string>();
+      for (const sys of mios) {
+        const x = porSistema.get(sys);
+        if (x) regs.set(x.r, nombres.get(x.r) ?? String(x.r));
+      }
+      setMiniRegiones([...regs].map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre)));
+    });
+  }, [mini]);
   /** ¿Lo arrastró a algún sitio? Entonces hay que poder traerlo de vuelta. La posición la escribe
    *  la OTRA ventana, así que esto es una foto del montaje —igual que `libre` para el overlay. */
   const [miniPos, setMiniPos] = useState(() => localStorage.getItem("koru-minimapa-pos"));
@@ -786,6 +817,71 @@ export function OverlaySettings() {
             </div>
           </span>
         </div>
+      )}
+
+      {/* LA REGIóN DEL MARCO. Decisión de RoGiz7 (2026-11-04) y es la correcta: un ajuste
+          explícito en vez de una regla automática que acabaría adivinando mal. Con los personajes
+          repartidos por regiones distintas no hay forma de deducir cuál te importa AHORA, y un
+          marco que cambia solo es justo lo que este modelo viene a quitar.
+          Fijarla tiene además una ventaja que no es efecto secundario: te vas de viaje y el
+          minimapa sigue vigilando casa. */}
+      {mini && (
+        <div className="tb-settings-item">
+          <span className="tb-si-ic">🧿</span>
+          <span className="tb-si-tx">
+            <strong>{tr("Región del minimapa")}</strong>
+            <span className="small muted">
+              {tr(
+                "El minimapa dibuja una región entera con un margen alrededor, y ese marco no se mueve nunca. Lo que caiga fuera se marca con una flecha en el borde. En las regiones más densas conviene un tamaño Grande.",
+              )}
+            </span>
+            <div className="ovs-row">
+              <select
+                value={miniRegion}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setMiniRegion(v);
+                  localStorage.setItem("koru-minimapa-region", v);
+                }}
+              >
+                <option value="auto">{tr("Automática (la de tu ancla)")}</option>
+                {miniRegiones.map((r) => (
+                  <option key={r.id} value={String(r.id)}>
+                    {r.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </span>
+        </div>
+      )}
+
+      {/* EL MAPA DE FONDO. Idea suya: un grafo de amenaza suelto no dice DONDE estas. Se midio
+          antes de hacerlo — a la distancia de sus frentes caben 381 sistemas, que en la ventana
+          pequena son una mancha—, asi que va muy tenue y se puede apagar. Con la rueda acercando,
+          que es lo que baja la densidad de verdad, se lee bien hasta en 250 px. */}
+      {mini && (
+        <label className="tb-settings-item" style={{ cursor: "pointer" }}>
+          <span className="tb-si-ic">🗺️</span>
+          <span className="tb-si-tx">
+            <strong>{tr("Dibujar el mapa de fondo")}</strong>
+            <span className="small muted">
+              {tr(
+                "Los sistemas de alrededor y sus puertas, muy tenues, para reconocer tu zona. Usa la rueda del ratón sobre el minimapa para acercar: cuanto más cerca, menos sistemas y mejor se lee. No se puede alejar más allá de donde caben todos los avisos, y lo que se sale al acercar se marca en el borde.",
+              )}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={miniFondo}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setMiniFondo(v);
+              localStorage.setItem("koru-minimapa-fondo", v ? "1" : "0");
+              // La ventana del minimapa lo relee en cada pintado, asi que no hay que avisarla.
+            }}
+          />
+        </label>
       )}
 
       {/* EL RESCATE. La posición se guarda en coordenadas de monitor, así que al desconectar una

@@ -29,3 +29,30 @@ html.koru-minimapa .mm-lienzo {
   width: 100%;
   height: 100%;
 }
+
+/* EL ASA (✋), la misma idea que la del aviso flotante: mueve la VENTANA.
+   Existe porque con el zoom el interior pasa a desplazar la vista, y las dos cosas no pueden
+   compartir el mismo gesto. Va SIEMPRE visible aunque apagada: si solo apareciera al pasar por
+   encima, quien acercara sin querer pensaría que el minimapa ya no se puede mover.
+   A zoom 1 la superficie entera sigue moviendo la ventana, así que entonces el asa es redundante
+   — y aun así se queda, porque un control que aparece y desaparece no se aprende nunca. */
+html.koru-minimapa .mm-asa {
+  position: fixed;
+  right: 3px;
+  bottom: 2px;
+  z-index: 2;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: rgba(225, 238, 250, 0.33);
+  font-size: 12px;
+  line-height: 1;
+  cursor: grab;
+  /* El cursor del asa manda sobre el `move` global del documento. */
+}
+html.koru-minimapa .mm-asa:hover {
+  color: rgba(235, 245, 255, 0.9);
+}
+html.koru-minimapa .mm-asa:active {
+  cursor: grabbing;
+}

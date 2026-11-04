@@ -895,26 +895,32 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  // ★ PUBLICAR DÓNDE ESTOY, para la ventana del MINIMAPA. Esa ventana no tiene el estado de App,
-  // así que todo lo que necesita tiene que VIAJAR: el evento `koru-yo` para lo vivo, y
-  // `koru-yo-sistema` en localStorage para cuando la ventana abre DESPUÉS (misma webview, mismo
-  // origen, mismo almacén). Los AVISOS no hace falta publicarlos: el minimapa escucha el mismo
-  // `intel-alert` que emite Rust, y en Tauri v2 un `app.emit` llega a TODAS las ventanas.
+  // ★ PUBLICAR TUS PILOTOS, para la ventana del MINIMAPA. Esa ventana no tiene el estado de
+  // App, así que lo que necesita tiene que VIAJAR: el evento para lo vivo y localStorage para
+  // cuando la ventana abre DESPUÉS (misma webview, mismo origen, mismo almacén).
   //
-  // Esto es el origen EN REPOSO: el personaje que estás mirando (con «Todos», el primero que
-  // tenga posición). CUANDO HAY AVISOS NO MANDA ESTO: la ventana se centra en el piloto más
-  // cercano al aviso, que es el que trae el propio evento en `pilots[0]` y el que usa el panel de
-  // intel. Se probó al revés el 2026-11-04 y el minimapa decía 21 saltos donde el panel decía 9.
-  // Ver el comentario del origen en `minimapaVentana.tsx`.
+  // Lo demás NO se publica, a propósito: las ANCLAS ya viven en `koru-intel-anchors` y la
+  // ventana las lee sola, y los AVISOS llegan por el mismo `intel-alert` que emite Rust, que en
+  // Tauri v2 alcanza a todas las ventanas. Cuantos menos canales, menos cosas que desincronizar.
+  //
+  // ★★ QUIÉN CUENTA ES LA REGLA DEL INTEL, copiada de `map.tsx` y no inventada aquí: encendido
+  //    en «Pilotos que cuentan para la proximidad» y no desconectado. Si ahí no cuenta, en el
+  //    minimapa tampoco — un ajuste, no dos. Y lo de «conectado» no es un adorno: ESI devuelve la
+  //    última posición conocida aunque el piloto lleve horas fuera, así que sin ese filtro el
+  //    minimapa pintaría un fantasma donde no hay nadie.
   useEffect(() => {
-    const sys =
-      typeof subject === "number"
-        ? (cards[subject]?.system_id ?? null)
-        : (Object.values(cards).find((c) => c.system_id != null)?.system_id ?? null);
-    if (sys == null) localStorage.removeItem("koru-yo-sistema");
-    else localStorage.setItem("koru-yo-sistema", String(sys));
-    void emit("koru-yo", { sys });
-  }, [cards, subject]);
+    let apagados = new Set<number>();
+    try {
+      apagados = new Set(JSON.parse(localStorage.getItem("koru-intel-pilots-off") || "[]") as number[]);
+    } catch {
+      apagados = new Set();
+    }
+    const pilotos = Object.values(cards)
+      .filter((c) => c.system_id != null && c.online !== false && !apagados.has(c.character_id))
+      .map((c) => ({ sys: c.system_id as number, nombre: c.name }));
+    localStorage.setItem("koru-pilotos", JSON.stringify(pilotos));
+    void emit("koru-pilotos", pilotos);
+  }, [cards]);
 
   // Al ARRANCAR, lo mismo que el overlay: encender el minimapa solo si el jugador lo dejó
   // encendido, y ponerlo donde lo dejó.
