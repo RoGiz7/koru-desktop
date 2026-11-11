@@ -2238,6 +2238,31 @@ const EN: Record<string, string> = {
   "Retirándose": "Withdrawing",
   Siguiendo: "Following",
   "Dejar de seguir": "Stop following",
+  // Minimapa del intel (salió en la 0.56.0 sin traducir: la puerta de i18n no se pasó en esa
+  // release y 17 cadenas llegaron en español a los clientes en inglés).
+  "Mostrar el minimapa sobre el juego": "Show the minimap over the game",
+  "Minimapa sobre el juego": "Minimap over the game",
+  "Una ventanita cuadrada que dibuja por dónde viene lo que canta el intel: tu sistema, los que están calientes y el camino entre ellos. Se arrastra a donde quieras.":
+    "A small square window that draws where the intel calls are coming from: your system, the hot ones, and the route between them. Drag it wherever you like.",
+  "Tamaño del minimapa": "Minimap size",
+  "Cuanto más grande, más se separan los sistemas y mejor se leen los nombres.":
+    "The bigger it is, the further apart the systems sit and the easier their names are to read.",
+  "Pequeño": "Small",
+  "Mediano": "Medium",
+  "Grande": "Large",
+  "Enorme": "Huge",
+  "Región del minimapa": "Minimap region",
+  "El minimapa dibuja una región entera con un margen alrededor, y ese marco no se mueve nunca. Lo que caiga fuera se marca con una flecha en el borde. En las regiones más densas conviene un tamaño Grande.":
+    "The minimap draws a whole region with a margin around it, and that frame never moves. Anything that falls outside is marked with an arrow on the edge. In the densest regions a Large size works better.",
+  "Automática (la de tu ancla)": "Automatic (your anchor’s)",
+  "Dibujar el mapa de fondo": "Draw the background map",
+  "Los sistemas de alrededor y sus puertas, muy tenues, para reconocer tu zona. Usa la rueda del ratón sobre el minimapa para acercar: cuanto más cerca, menos sistemas y mejor se lee. No se puede alejar más allá de donde caben todos los avisos, y lo que se sale al acercar se marca en el borde.":
+    "The surrounding systems and their gates, very faint, so you can recognise your area. Use the mouse wheel over the minimap to zoom in: the closer you get, the fewer systems and the better it reads. You cannot zoom out past the point where every alert fits, and whatever leaves the view as you zoom in is marked on the edge.",
+  "El minimapa está colocado a mano": "The minimap has been placed by hand",
+  "Si lo has perdido de vista —por ejemplo al desconectar una pantalla—, esto lo devuelve al centro.":
+    "If you have lost sight of it — after unplugging a monitor, for instance — this brings it back to the centre.",
+  "Volver al centro": "Back to centre",
+
   "Dejar de seguir al piloto": "Stop following the pilot",
   "Seguir al piloto: la cámara irá detrás cuando cambie de sistema":
     "Follow the pilot: the camera will track them when they change system",
