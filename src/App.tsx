@@ -1441,20 +1441,55 @@ function App() {
     }
   }
 
+  // ★★ EL ARRANQUE ES UNA CARRERA Y LA PERDÍAMOS EN SILENCIO (2026-11-11).
+  //
+  // El `setup()` de Rust muda la carpeta si toca, abre la BD, lee el sello y prepara el cliente
+  // HTTP ANTES de registrar el AppState. La webview ya está viva mientras tanto y llamando. Si una
+  // llamada llega antes del `manage()`, Tauri contesta «state not managed» — y esto hacía
+  // `setError` y se acababa ahí: la lista de personajes se quedaba VACÍA PARA SIEMPRE, porque
+  // nadie vuelve a llamar a `refresh()` por su cuenta.
+  //
+  // Lo que el usuario ve entonces es Koru sin sus personajes. Y lo que hace es pulsar «Conceder
+  // acceso», que es de lo poco que vuelve a pasar por aquí — con lo que los personajes reaparecen
+  // y concluye que ha tenido que volver a loguear. Su token estaba intacto todo el rato. Es casi
+  // seguro el origen de los avisos de «al abrir Koru tengo que loguear otra vez», y encaja con que
+  // pase sobre todo tras una autoactualización: ese es el arranque más frío posible —ejecutable
+  // recién escrito, caché de disco vacía y el antivirus mirándolo— o sea el `setup()` más lento.
+  //
+  // Ya nos mordió en agosto con el tester de Linux y lo dejamos a medias: entonces se arregló el
+  // MENSAJE del cartel de Ubicación, no la causa.
+  //
+  // ➡️ Que el backend tarde un momento en estar listo NO es un error, es un arranque. Se reintenta
+  // con espera creciente (~7,75 s en total) y el cartel solo sale si después de todo sigue sin ir.
+  const REINTENTOS_ARRANQUE = 6;
+
   async function refresh() {
-    try {
-      const list = await invoke<Character[]>("list_characters");
-      setCharacters(list);
-      invoke<CharacterCard[]>("get_character_cards")
-        .then((cs) => {
-          const m: Record<number, CharacterCard> = {};
-          for (const c of cs) m[c.character_id] = c;
-          setCards(m);
-        })
-        .catch(() => {});
-    } catch (e) {
-      setError(String(e));
+    let ultimo: unknown = null;
+    for (let intento = 0; intento < REINTENTOS_ARRANQUE; intento++) {
+      try {
+        const list = await invoke<Character[]>("list_characters");
+        setCharacters(list);
+        // Salió bien: el backend está en pie, así que un cartel de hace un momento ya no describe
+        // nada. Se limpia — dejarlo puesto fue justo lo que nos hizo dudar de un Koru que
+        // funcionaba.
+        setError(null);
+        invoke<CharacterCard[]>("get_character_cards")
+          .then((cs) => {
+            const m: Record<number, CharacterCard> = {};
+            for (const c of cs) m[c.character_id] = c;
+            setCards(m);
+          })
+          .catch(() => {});
+        return;
+      } catch (e) {
+        ultimo = e;
+        if (intento === REINTENTOS_ARRANQUE - 1) break;
+        // 250, 500, 1000, 2000, 4000 ms. Corto al principio para que un arranque normal no se note
+        // y largo al final para no rendirse en una máquina lenta.
+        await new Promise((r) => setTimeout(r, 250 * 2 ** intento));
+      }
     }
+    setError(String(ultimo));
   }
 
   function resetData() {
