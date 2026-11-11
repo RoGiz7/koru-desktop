@@ -2001,11 +2001,6 @@ pub async fn login(
         let _ = app2.emit("sso-login-url", url.to_string());
     })
     .await?;
-    // ⚠️ TIRAR EL ACCESS TOKEN GUARDADO DE ESTE PERSONAJE. Si ya tenía uno vivo en la caché, es de
-    // ANTES de este login y lleva los scopes viejos: sin esto, conceder un permiso nuevo no haría
-    // efecto hasta 20 minutos después. Y «volver a conceder acceso» es justo lo que hace la gente
-    // cuando algo le falla, así que sería el peor sitio posible para una espera invisible.
-    state.tokens.invalidar(outcome.character_id);
     state.db.upsert_character(
         outcome.character_id,
         &outcome.character_name,
@@ -2734,9 +2729,6 @@ pub struct FilasBorradas {
 #[tauri::command]
 pub fn character_revoke(character_id: i64, state: State<'_, AppState>) -> AppResult<()> {
     sso::store::delete_refresh_token(character_id)?;
-    // Y el access token que tuviéramos guardado en memoria: sin esto seguiría valiendo hasta 20
-    // minutos después de retirarle el acceso.
-    state.tokens.invalidar(character_id);
     state.db.character_revoke(character_id)?;
     Ok(())
 }
@@ -2757,7 +2749,6 @@ pub fn character_purge(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<FilasBorradas>> {
     let _ = sso::store::delete_refresh_token(character_id);
-    state.tokens.invalidar(character_id);
     let informe = state.db.character_purge(character_id)?;
     Ok(informe
         .into_iter()

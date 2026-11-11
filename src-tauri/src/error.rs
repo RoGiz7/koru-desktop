@@ -22,13 +22,6 @@ pub enum AppError {
     #[error("OAuth: {0}")]
     OAuth(String),
 
-    /// El refresh token esta MUERTO (invalid_grant): no hay vuelta atras, toca reconceder acceso.
-    /// Va aparte para no reintentarlo NUNCA. Insistir en lo que siempre va a fallar es justo lo que
-    /// dispara el rate-limiter del SSO, y CCP avisa de que por ahi puede bloquear la aplicacion
-    /// ENTERA -- o sea a todos los usuarios, no solo al del token roto.
-    #[error("OAuth: la sesión de este personaje ha caducado; hay que volver a concederle acceso ({0})")]
-    OAuthCaducado(String),
-
     #[error("No encontrado (404)")]
     NotFound,
 
