@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 use url::Url;
 
@@ -204,12 +204,39 @@ pub struct ValidToken {
     pub claims: jwt::EveClaims,
 }
 
+/// Margen de seguridad antes de dar por caducado un access token. CCP los da con ~20 minutos de
+/// vida; con 60 s de colchón nunca se usa uno que caduque a mitad de una petición.
+const MARGEN_CADUCIDAD: Duration = Duration::from_secs(60);
+
+/// Un access token todavía vivo, guardado para no volver a pedirlo.
+struct TokenVivo {
+    access_token: String,
+    claims: jwt::EveClaims,
+    caduca: Instant,
+}
+
 /// Gestor de refresco con un mutex POR PERSONAJE para evitar refrescos concurrentes
 /// (la race condition que ya nos mordió en corptools). Guarda siempre el último
 /// refresh_token devuelto (rotación de CCP).
+///
+/// ★★ Y GUARDA EL ACCESS TOKEN HASTA QUE CADUCA (2026-11-11). Antes no: el comentario de
+/// `access_token` decía «refrescando si hace falta» y el código NO comprobaba nada — cargaba el
+/// refresh token, llamaba al SSO y rotaba, SIEMPRE. `expires_in` se parseaba y no se usaba en
+/// ningún sitio. Con 32 sitios llamando a `access_token`, eso significaba un refresco completo del
+/// SSO por cada petición autenticada a ESI, y una rotación del refresh token en cada uno.
+///
+/// Dos daños, y el segundo es el que se veía desde fuera:
+///  1. Avalancha de peticiones a login.eveonline.com, que es exactamente lo que el rate-limiter
+///     del SSO castiga (y CCP avisa de que puede bloquear la aplicación entera por client_id).
+///  2. ROTAR ES UNA VENTANA: entre que CCP invalida el token viejo y Koru guarda el nuevo hay un
+///     instante en el que cerrar la app, un cuelgue o un fallo del keyring deja al personaje sin
+///     token válido → «al abrir Koru tengo que volver a loguear». Con una rotación cada 20 minutos
+///     esa ventana casi no existe; con decenas por minuto, y la ráfaga más gorda justo al arrancar,
+///     acaba tocando.
 #[derive(Default)]
 pub struct TokenManager {
     locks: Mutex<HashMap<i64, std::sync::Arc<AsyncMutex<()>>>>,
+    vivos: Mutex<HashMap<i64, TokenVivo>>,
 }
 
 impl TokenManager {
@@ -224,7 +251,49 @@ impl TokenManager {
             .clone()
     }
 
-    /// Obtiene un access token fresco para el personaje, refrescando si hace falta.
+    /// Devuelve el access token guardado si sigue vivo. El `MutexGuard` muere dentro de la
+    /// función: nunca se cruza un `await` con él en la mano.
+    fn vivo(&self, character_id: i64) -> Option<ValidToken> {
+        let mapa = self.vivos.lock().unwrap();
+        let t = mapa.get(&character_id)?;
+        if Instant::now() >= t.caduca {
+            return None;
+        }
+        Some(ValidToken {
+            access_token: t.access_token.clone(),
+            claims: t.claims.clone(),
+        })
+    }
+
+    fn guardar_vivo(&self, character_id: i64, tok: &ValidToken, expires_in: i64) {
+        // `expires_in` llega con `#[serde(default)]`: si CCP no lo manda viene a 0. Sin vida
+        // declarada no se cachea — mejor pedirlo de más que servir uno caducado.
+        if expires_in <= 0 {
+            return;
+        }
+        let vida = Duration::from_secs(expires_in as u64);
+        let util = match vida.checked_sub(MARGEN_CADUCIDAD) {
+            Some(d) if !d.is_zero() => d,
+            _ => return, // vida más corta que el margen: no merece la pena guardarlo
+        };
+        self.vivos.lock().unwrap().insert(
+            character_id,
+            TokenVivo {
+                access_token: tok.access_token.clone(),
+                claims: tok.claims.clone(),
+                caduca: Instant::now() + util,
+            },
+        );
+    }
+
+    /// Tira el access token guardado de un personaje.
+    /// ⚠️ OBLIGATORIO al retirarle el acceso o al borrarlo: si no, Koru seguiría usando su token
+    /// hasta 20 minutos después de que el usuario haya dicho basta, y el botón habría mentido.
+    pub fn invalidar(&self, character_id: i64) {
+        self.vivos.lock().unwrap().remove(&character_id);
+    }
+
+    /// Obtiene un access token válido para el personaje, refrescando SOLO si hace falta.
     /// Un solo refresco en vuelo por personaje.
     pub async fn access_token(
         &self,
@@ -233,6 +302,13 @@ impl TokenManager {
     ) -> AppResult<ValidToken> {
         let lock = self.lock_for(character_id);
         let _guard = lock.lock().await;
+
+        // Dentro del lock a propósito: si dos peticiones del mismo personaje llegan a la vez, la
+        // segunda espera y encuentra ya guardado el token que trajo la primera, en vez de pedir
+        // otro. Comprobar fuera del lock devolvería las dos al SSO.
+        if let Some(t) = self.vivo(character_id) {
+            return Ok(t);
+        }
 
         let refresh_token = store::load_refresh_token(character_id)?
             .ok_or_else(|| AppError::OAuth(format!("sin refresh token para {character_id}")))?;
@@ -246,9 +322,11 @@ impl TokenManager {
         }
 
         let claims = jwt::validate(client, &meta, &tokens.access_token).await?;
-        Ok(ValidToken {
+        let valido = ValidToken {
             access_token: tokens.access_token,
             claims,
-        })
+        };
+        self.guardar_vivo(character_id, &valido, tokens.expires_in);
+        Ok(valido)
     }
 }
