@@ -830,6 +830,16 @@ const EN: Record<string, string> = {
     "Where you've mined (mining ledger, last 90 days).",
   "Dónde tienes assets (estaciones, estructuras y en el espacio).":
     "Where you have assets (stations, structures and in space).",
+  "Por dónde han pasado tus personajes, deducido de su posición: una línea por piloto. Arranca en las últimas 6 horas y el desplegable amplía la ventana.":
+    "Where your characters have been, inferred from their position: one line per pilot. Starts at the last 6 hours and the dropdown widens the window.",
+  "Tus standings con las facciones NPC llevados al mapa: cada sistema se pinta según cómo te trata la facción que lo controla. Necesita tus contactos sincronizados; sin ellos no hay nada que pintar.":
+    "Your NPC faction standings on the map: each system is painted by how the faction controlling it treats you. Needs your contacts synced; without them there is nothing to paint.",
+  "Sistemas donde tienes agentes, por el nivel del mejor de cada uno (gris L1 · teal L2 · azul L3 · ámbar L4 · rojo L5).":
+    "Systems where you have agents, by the level of the best one in each (grey L1 · teal L2 · blue L3 · amber L4 · red L5).",
+  "Corporaciones NPC donde tienes puntos de lealtad: cuanto más intenso el ámbar, más corps tuyas hay en ese sistema.":
+    "NPC corporations where you hold loyalty points: the deeper the amber, the more of your corps are in that system.",
+  "Lo que están cantando tus canales de intel, sistema a sistema: en rojo los avisos, con los saltos que te separan de cada uno.":
+    "What your intel channels are calling, system by system: alerts in red, with how many jumps separate you from each.",
 
   // KPIs contextuales del mapa
   "Dueños distintos": "Distinct owners",

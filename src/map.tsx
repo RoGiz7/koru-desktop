@@ -2728,6 +2728,10 @@ export function MapView(props: {
       ? "Tienen el permiso y no constan desconectados, pero EVE aún no ha dado su posición. Se reintenta cada 30 segundos."
       : "Ninguno de tus personajes tiene posición ahora mismo.";
 
+  // ★ OJO al cerrar esta cadena: el `else` final NO puede ser la descripcion de una capa concreta.
+  //   Lo fue (la de assets) y cinco capas sin rama propia —recorrido, standings, agentes, corps_npc
+  //   e intel— llevaban meses ensenando el texto de assets sin que saltara nada. Una capa nueva sin
+  //   descripcion ahora sale en blanco, que se ve; antes afirmaba algo falso, que no se ve.
   const legend =
     overlay === "ubicacion"
       ? legendUbicacion
@@ -2757,7 +2761,19 @@ export function MapView(props: {
       ? "Dónde has minado (mining ledger, últimos 90 días)."
       : overlay === "pi"
       ? "Salud de tus colonias de PI por sistema: verde = sano · ámbar <24h · rojo parado · gris sin extractor. Tamaño = nº de colonias."
-      : "Dónde tienes assets (estaciones, estructuras y en el espacio).";
+      : overlay === "recorrido"
+      ? "Por dónde han pasado tus personajes, deducido de su posición: una línea por piloto. Arranca en las últimas 6 horas y el desplegable amplía la ventana."
+      : overlay === "standings"
+      ? "Tus standings con las facciones NPC llevados al mapa: cada sistema se pinta según cómo te trata la facción que lo controla. Necesita tus contactos sincronizados; sin ellos no hay nada que pintar."
+      : overlay === "agentes"
+      ? "Sistemas donde tienes agentes, por el nivel del mejor de cada uno (gris L1 · teal L2 · azul L3 · ámbar L4 · rojo L5)."
+      : overlay === "corps_npc"
+      ? "Corporaciones NPC donde tienes puntos de lealtad: cuanto más intenso el ámbar, más corps tuyas hay en ese sistema."
+      : overlay === "intel"
+      ? "Lo que están cantando tus canales de intel, sistema a sistema: en rojo los avisos, con los saltos que te separan de cada uno."
+      : overlay === "assets"
+      ? "Dónde tienes assets (estaciones, estructuras y en el espacio)."
+      : "";
 
   // Capa activa + KPI contextual para el panel de la derecha
   const activeOverlay = OVERLAYS.find((o) => o.key === overlay) ?? OVERLAYS[0];
