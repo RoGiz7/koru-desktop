@@ -3777,6 +3777,13 @@ h4 {
   border: 1px solid #3a4654;
 }
 
+/* Seguir al piloto: encendido se distingue por COLOR y por el propio glifo (◎ vacío / ◉ lleno).
+   Dos señales y no una, porque un botón de 30 px tintado se pierde sobre el mapa. */
+.map-zoom button.map-seguir.on {
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+}
+
 .tip-hot {
   color: #ff7676;
 }

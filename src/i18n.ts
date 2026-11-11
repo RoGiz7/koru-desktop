@@ -2238,6 +2238,9 @@ const EN: Record<string, string> = {
   "Retirándose": "Withdrawing",
   Siguiendo: "Following",
   "Dejar de seguir": "Stop following",
+  "Dejar de seguir al piloto": "Stop following the pilot",
+  "Seguir al piloto: la cámara irá detrás cuando cambie de sistema":
+    "Follow the pilot: the camera will track them when they change system",
   "Dejar de seguir a todos": "Stop following everyone",
   "Poner este sistema como destino de la ruta": "Set this system as the route destination",
   Habituales: "Regulars",

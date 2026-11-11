@@ -406,6 +406,16 @@ export function MapView(props: {
   const [liveJumps, setLiveJumps] = useState<Map<number, number> | null>(null);
   const [liveBusy, setLiveBusy] = useState(false);
   const [view, setView] = useState({ z: 1, x: 0, y: 0 });
+  // ★ SEGUIR AL PILOTO (idea de RoGiz7, 2026-11-11). Cuando eliges un personaje en vez de Global,
+  //   la camara puede ir detras de el: cada vez que cambia de sistema, se centra.
+  //   NO se enciende solo al elegir personaje, A PROPOSITO: muchas veces cambias de personaje para
+  //   mirarle la cartera, no el mapa, y la regla 4 de focusSystem dice que nada mueve la camara sin
+  //   que lo pidas. Pulsar "seguir" ES esa peticion.
+  //   Se APAGA (no se pausa) en cuanto la camara se mueva por cualquier otra via: asi el boton
+  //   siempre dice la verdad sobre lo que esta pasando.
+  //   ⚠️ El apagado NO se puede enganchar en setView: la animacion de focusSystem tambien pasa por
+  //   ahi y el seguimiento se apagaria solo a los 280 ms. Va gesto a gesto, a mano.
+  const [siguiendo, setSiguiendo] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [hover, setHover] = useState<{ sid: number; sx: number; sy: number } | null>(null);
   // Disposición del mapa: sistemas (los ~5.000) o REGIONES (los ~70 centroides). No es zoom, es
@@ -652,6 +662,7 @@ export function MapView(props: {
       const armed = insideSince.current > 0 && performance.now() - insideSince.current >= DWELL_MS;
       if (!armed) return;
       e.preventDefault();
+      setSiguiendo(false);
       const vb = clientToVB(e.clientX, e.clientY);
       if (!vb) return;
       setView((v) => {
@@ -685,6 +696,7 @@ export function MapView(props: {
       if (Math.abs(dx) + Math.abs(dy) > 2) {
         drag.current.moved = true;
         movedRef.current = true;
+        setSiguiendo(false);
       }
       drag.current.x = e.clientX;
       drag.current.y = e.clientY;
@@ -729,6 +741,7 @@ export function MapView(props: {
   }
   // Zoom con botones manteniendo fijo el centro del viewport actual.
   function zoomBy(factor: number) {
+    setSiguiendo(false);
     setView((v) => {
       const nz = Math.min(Math.max(v.z * factor, 1), 24);
       const cx = MAP_W / 2;
@@ -739,6 +752,7 @@ export function MapView(props: {
     });
   }
   function onDoubleClick(e: React.MouseEvent<SVGSVGElement>) {
+    setSiguiendo(false);
     if (clickTimer.current) {
       window.clearTimeout(clickTimer.current); // cancela la selección pendiente
       clickTimer.current = null;
@@ -933,6 +947,7 @@ export function MapView(props: {
   // Centra la vista en un punto del mundo con el zoom dado. El transform es `mundo * z + offset`,
   // así que para dejar (wx,wy) en el centro: offset = centro − mundo*z.
   function focusOn(wx: number, wy: number, z: number) {
+    setSiguiendo(false);
     const nz = Math.min(Math.max(z, 1), 24);
     setView({ z: nz, x: MAP_W / 2 - wx * nz, y: MAP_H / 2 - wy * nz });
   }
@@ -955,10 +970,13 @@ export function MapView(props: {
   const focusRaf = useRef<number | null>(null);
   const [focusPulse, setFocusPulse] = useState<{ sid: number; k: number } | null>(null);
   const focusSystem = useCallback(
-    (sid: number | null | undefined) => {
+    (sid: number | null | undefined, porSeguimiento = false) => {
       if (sid == null || !geo) return;
       const s = geo.idx.get(sid);
       if (!s) return;
+      // Centrar en otra cosa (un aviso, una parada de ruta, un buscador) es decir "quiero mirar
+      // AQUI": el seguimiento sobra y se apaga. Solo el propio seguimiento se libra.
+      if (!porSeguimiento) setSiguiendo(false);
       // En la vista de regiones, el sistema no existe en pantalla si su región está plegada:
       // centrar ahí sería mover la cámara hacia nada. Se despliega su región primero.
       if (layout === "regions") {
@@ -990,6 +1008,20 @@ export function MapView(props: {
     },
     [geo, layout],
   );
+
+  // El seguimiento va DETRAS del piloto: cada vez que cambia de sistema, se centra. Al encenderlo
+  // tambien dispara (hereSystemId ya tiene valor), asi que centra de inmediato sin codigo aparte.
+  // ⚠️ La cadencia la manda `poll_positions`, que son 30 s: esto NO es tiempo real y la camara
+  // puede tardar medio minuto en enterarse de un salto. Prometer otra cosa decepciona.
+  useEffect(() => {
+    if (!siguiendo || hereSystemId == null) return;
+    focusSystem(hereSystemId, true);
+  }, [siguiendo, hereSystemId, focusSystem]);
+
+  // Cambiar de personaje (o volver a Global) deja al seguimiento sin sujeto: se apaga.
+  useEffect(() => {
+    setSiguiendo(false);
+  }, [hereCharId]);
 
   // Petición de centrado desde OTRA sección (fase 2 del centrado: inventario, naves, assets…).
   // ⚠️ La guarda de `geo` importa: si vienes de otra pestaña el mapa puede estar recién montado y
@@ -4469,9 +4501,33 @@ export function MapView(props: {
         />
 
         <div className="map-zoom">
+          {/* Solo existe si hay UN personaje elegido y Koru sabe donde esta: en Global no hay a
+              quien seguir, y sin posicion el boton no podria hacer nada al pulsarlo. */}
+          {hereCharId != null && hereSystemId != null && (
+            <button
+              className={siguiendo ? "map-seguir on" : "map-seguir"}
+              aria-pressed={siguiendo}
+              onClick={() => setSiguiendo((v) => !v)}
+              title={
+                siguiendo
+                  ? tr("Dejar de seguir al piloto")
+                  : tr("Seguir al piloto: la cámara irá detrás cuando cambie de sistema")
+              }
+            >
+              {siguiendo ? "◉" : "◎"}
+            </button>
+          )}
           <button onClick={() => zoomBy(1.3)}>+</button>
           <button onClick={() => zoomBy(1 / 1.3)}>−</button>
-          <button onClick={() => setView({ z: 1, x: 0, y: 0 })} title="Reset">⟲</button>
+          <button
+            onClick={() => {
+              setSiguiendo(false);
+              setView({ z: 1, x: 0, y: 0 });
+            }}
+            title="Reset"
+          >
+            ⟲
+          </button>
         </div>
 
         {/* EL NARRADOR del reproductor (izquierda): lo sucedido hasta T, lo último arriba.
