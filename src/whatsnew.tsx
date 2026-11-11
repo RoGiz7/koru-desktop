@@ -1,12 +1,30 @@
 // Modal "Novedades": al actualizar, muestra los cambios entre la versión vista y la actual.
 // 100% frontend: guarda la última versión vista en localStorage (persiste en el webview de Tauri).
 // Primer arranque con la feature: muestra la versión actual una vez y sella; luego, solo al actualizar.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { tr } from "./i18n";
 import { entriesSince, entryFor, bullets, type ChangelogEntry } from "./changelog";
 
 const KEY = "koru_last_seen_version";
+
+/** Convierte `**negrita**` en <strong>, que es lo único que usa el changelog.
+ *
+ *  POR QUÉ EXISTE (2026-11-11): el modal pintaba cada viñeta como texto plano, así que los `**`
+ *  salían LITERALES en pantalla. Llevaba así desde que se escribió —la 0.55.0 y la 0.55.1 también
+ *  los usan—, y nadie lo dijo nunca: es lo primero que ve un piloto al actualizar, y lo veía con
+ *  asteriscos. Lo cazó RoGiz7 mirando una captura del modal de la 0.57.0.
+ *
+ *  Sin dependencias y SIN dangerouslySetInnerHTML a propósito: hoy el changelog es texto nuestro,
+ *  pero pasarlo por innerHTML dejaría la puerta abierta a que mañana no lo sea.
+ *
+ *  Un `**` sin cerrar (número par de trozos) devuelve el texto tal cual en vez de inventarse dónde
+ *  acaba la negrita: ante una marca a medias, lo menos sorprendente es no tocar nada. */
+function conNegritas(texto: string): ReactNode[] {
+  const trozos = texto.split("**");
+  if (trozos.length % 2 === 0) return [texto];
+  return trozos.map((x, i) => (i % 2 === 1 ? <strong key={i}>{x}</strong> : x));
+}
 
 /** Versión de la app visible en la topbar (p.ej. «v0.34.0»). Autocontenido: lee getVersion() una vez.
  *  Motivo: cuando alguien reporta un problema, saber QUÉ versión corre sin pedirle nada raro. */
@@ -60,7 +78,7 @@ export function WhatsNew() {
         </div>
         <ul className="wn-list">
           {bullets(e).map((b, i) => (
-            <li key={i}>{b}</li>
+            <li key={i}>{conNegritas(b)}</li>
           ))}
         </ul>
         <div className="wn-foot">
