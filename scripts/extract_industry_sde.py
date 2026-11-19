@@ -86,10 +86,10 @@ def main() -> int:
                     entry["max"] = row["maxProductionLimit"]
                 # Solo blueprints con alguna actividad útil (los hay vacíos/legacy).
                 if entry:
-                    if published and row["blueprintTypeID"] not in published:
+                    if published and row["_key"] not in published:
                         entry["np"] = 1  # no publicado: no debe entrar en los índices del árbol
                         n_np += 1
-                    bps[str(row["blueprintTypeID"])] = entry
+                    bps[str(row["_key"])] = entry
         with z.open("planetSchematics.jsonl") as f:
             for line in f:
                 row = json.loads(line)
