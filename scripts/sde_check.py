@@ -7,6 +7,9 @@
 #   python scripts/sde_check.py --guardar-base    → DESPUÉS de integrar y probar: fija la base
 #   python scripts/sde_check.py --indice i.json --changelog c.jsonl   → sin red (pruebas)
 #
+# Códigos: 0 nada que hacer · 1 hay datos que regenerar · 2 hace falta una persona ·
+#          3 no pude mirar (red o fichero), que NO es lo mismo que «no hay cambios».
+#
 # POR QUÉ EXISTE: hasta la 0.57.0, auditar un SDE era que alguien leyera una web a mano. El 19-11
 # eso ya había fallado sin que nos enterásemos: el build 3693310 borró `blueprints.blueprintTypeID`
 # y `extract_industry_sde.py` habría muerto con KeyError a mitad de una regeneración de 22 scripts.
@@ -62,7 +65,20 @@ def baja(url: str) -> bytes:
 
 
 def lee(origen: str | None, url: str) -> bytes:
-    return Path(origen).read_bytes() if origen else baja(url)
+    """Un fallo de red es una condición PREVISIBLE, no un error de programa: sale con un mensaje
+    de una línea y código 3, no con un traceback de treinta que esconde la causa."""
+    if origen:
+        return Path(origen).read_bytes()
+    try:
+        return baja(url)
+    except Exception as e:
+        print(f"ERROR: no pude leer {url}", file=sys.stderr)
+        print(f"  {type(e).__name__}: {e}", file=sys.stderr)
+        print("  Hace falta salida a sde.evetech.net. Sin red, pasa --indice y --changelog con",
+              file=sys.stderr)
+        print("  ficheros locales (el índice de una release y su _schemaChangelog.jsonl).",
+              file=sys.stderr)
+        raise SystemExit(3)
 
 
 def mapa_extractores() -> dict[str, dict[str, set]]:
