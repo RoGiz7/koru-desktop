@@ -15,6 +15,16 @@ on:
 
 jobs:
   release:
+    # ⏱️ Tope por job. GitHub corta a las SEIS HORAS por defecto, así que un paso colgado parece
+    # progreso toda la mañana: el 11-11 el job de Linux estuvo 65 minutos atascado en
+    # `apt-get update` contra un mirror que no respondía, escupiendo líneas `Ign:` —que en apt son
+    # fetches FALLIDOS, no progreso— y hubo que cancelarlo a mano.
+    #
+    # ⚠️ NO poner 30. Medidas las 15 últimas releases: Windows va de 9,2 a 12,0 minutos y Linux de
+    # 7,8 a 10,2... salvo el relanzamiento de ese mismo día, que tardó 32,2 y SALIÓ BIEN. Un tope
+    # de 30 habría matado justo la única ejecución que funcionó. 45 no puede matar nada que hayamos
+    # visto terminar, y aun así convierte un cuelgue de seis horas en cuarenta y cinco minutos.
+    timeout-minutes: 45
     permissions:
       contents: write
     strategy:
