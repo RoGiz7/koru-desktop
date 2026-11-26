@@ -156,9 +156,9 @@ la ventana principal—, nunca por número.
 2. **Los huérfanos de `public/`: NINGUNO desde el 26-11.** Los siete tienen ya su
    `extract_<fichero>.py` (`jumpships`, `ores`, `skill_names`, `npc_corp_systems`, `module_slots`,
    `skill_reqs`, `agents`), cada uno con su vara en la cabecera y un `--medir` para repetirla.
-   ⏳ **Pendiente: `python scripts/sde_check.py --guardar-base`**, cuando se dé por revisada la
-   regeneración: hoy el guardián avisa de cuatro tablas sin versión en la base (`agentsInSpace`,
-   `npcCharacters`, `npcCorporations`, `npcStations`), que se leen por primera vez.
+   ✅ Base del guardián fijada (26-11, `sde_check.py --guardar-base`, SDE 3749835) tras revisar la
+   regeneración: entran `agentsInSpace`, `npcCharacters`, `npcCorporations` y `npcStations`, y el
+   guardián deja de avisar de tablas sin versión.
    ✅ **Tercer tiempo hecho, SIN VER EN PANTALLA** (brief `documentacion/brief-skillcheck-desconocido.md`):
    el skill-check distingue «no lo conozco» de «no pide nada». `skill_reqs.json` lleva `[]` para
    lo que se fitea y no pide nada (1.632 tipos); la regla está en `src/skillCheck.ts`, probada con

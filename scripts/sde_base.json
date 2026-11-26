@@ -6,6 +6,7 @@
   "nota": "Versiones por tabla del SDE del que salieron los ficheros de public/. Se actualiza SOLO tras integrar y pasar las pruebas de cada extractor.",
   "tablas": {
     "accountingEntryTypes": "8f9c11785ab31cc28f3e0ff4a0aa682d42b127bff02587004180565dd19b9af1",
+    "agentsInSpace": "b3312c8a4cf942ebe6e0fd48cca441a60ca996c11e883482dbc77489a0d96adf",
     "blueprints": "cb15f95c63521cd3226716044514417a72dadf9fbca266f6eee328840a4ca3af",
     "categories": "d18645f30d42450d55a25d8e8cd1c9f57e16fd491c97b00f2233d5daec10fa43",
     "characterTitles": "6f738c642a4264f674dec56b9cd1b8f7300a41a9319408f41120a342f8a11867",
@@ -25,6 +26,9 @@
     "marketGroups": "69a38fee7f8abbc314607eaab6ece957ea6fbda8a1e6fbe5515e5a7218c195bc",
     "militaryCampaignObjectives": "c2fd1fb8cf3bdc26629c07efa3ad876fae5e6763703e0709bec9856326faac44",
     "militaryCampaigns": "fe66cdfbee15968096d4a3292ba6f3c9cf3ffb05d23c68977ce49479bdd4f0dd",
+    "npcCharacters": "d2d0b4f59cfe9ecae6b98aa5db64882a99a01282353b1e41e54939e1de024f26",
+    "npcCorporations": "956621d263a66c5213700fc073c7e3e3e97217409da60ea7e7b092f19f403c48",
+    "npcStations": "87ba95d01f5360240eda1d10bc5f9bc382a8f21b7dbb1440899a1b052c2b7c5d",
     "planetSchematics": "2e8d59756c096721e49a2f8e19bdf5a387551824f0ce900b4e554e0935e96d43",
     "typeBonus": "d88063c66e37d6ef8beb507881e148065397049e22edccfb855f14b3cb40d41f",
     "typeDogma": "23d7c048ba35fdcad13669b8578ab54fab512432dbe86fccc2b1ec0b025384d8",
