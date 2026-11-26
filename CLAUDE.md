@@ -72,6 +72,7 @@ python scripts/audit_i18n.py             # si tocaste textos: 0 cadenas sin ingl
 python scripts/check_privacidad.py       # siempre antes de publicar
 node scripts/verificar_plan.mjs          # si tocaste src/plan.ts
 node scripts/verificar_salud_intel.mjs   # si tocaste src/saludIntel.ts
+node scripts/verificar_lista_personajes.mjs  # si tocaste src/listaPersonajes.ts
 ```
 
 - ⚠️ **`Finished` sin `Compiling` NO es un build verde.** Si cargo no recompiló, no probaste nada.

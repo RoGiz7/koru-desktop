@@ -1,7 +1,8 @@
 import { loadJson } from "./staticJson";
 import { PlanEstudiosView } from "./planEstudios";
 import { NotasVista } from "./notasVista";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { agrupar, conectado, filtrar, repartir, UMBRAL_RECOGER } from "./listaPersonajes";
 import { OverlaySettings, IntelSettings } from "./overlaySettings";
 import { loadNewEden } from "./neweden";
 import { Ticker } from "./ticker";
@@ -269,6 +270,13 @@ function App() {
   }, [guiaAbierta]);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
+  // La lista entera de personajes, tras el «+N» de la barra (con más de UMBRAL_RECOGER). Se abre y
+  // se cierra con el MISMO mecanismo que Ajustes (clic fuera y Esc): ver el efecto de `settingsOpen`.
+  const [pjlOpen, setPjlOpen] = useState(false);
+  const [pjlQ, setPjlQ] = useState("");
+  const pjlBtnRef = useRef<HTMLButtonElement>(null);
+  const pjlPanelRef = useRef<HTMLDivElement>(null);
+  const pjlInputRef = useRef<HTMLInputElement>(null);
   // Importador de histórico CSV (corptools) — vive en ⚙️ Ajustes para no tenerlo siempre a mano.
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -578,6 +586,25 @@ function App() {
       document.removeEventListener("keydown", onEsc);
     };
   }, [settingsOpen]);
+
+  // La lista de personajes: igual que Ajustes, se cierra al pulsar fuera o con Esc.
+  useEffect(() => {
+    if (!pjlOpen) return;
+    // Al abrir, el foco al buscador: con veinte personajes se busca, no se recorre.
+    pjlInputRef.current?.focus();
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (pjlPanelRef.current?.contains(t) || pjlBtnRef.current?.contains(t)) return;
+      setPjlOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && setPjlOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [pjlOpen]);
 
   // --- Copia de seguridad / restauración del histórico local ---
   // Exporta la BD (un único .sqlite3) o la restaura desde un backup. Todo el histórico vive
@@ -1424,6 +1451,20 @@ function App() {
   const [autoBusy, setAutoBusy] = useState(false);
 
   const isGlobal = subject === "global";
+  // ★ Qué personajes van en la fila de arriba y cuáles tras el «+N». La regla es pura y está probada
+  //   aparte (`listaPersonajes.ts` + `scripts/verificar_lista_personajes.mjs`).
+  const pjlReparto = repartir(
+    characters,
+    (id) => cards[id],
+    isGlobal ? null : subject,
+    (id) => {
+      const c = characters.find((x) => x.character_id === id);
+      return !!c && CAPS.some((cap) => !c.scopes.includes(cap.scope));
+    },
+    UMBRAL_RECOGER,
+  );
+  const pjlFila = new Set(pjlReparto.fila);
+  const pjlRecoge = pjlReparto.recogidos.length > 0;
 
   async function loadKillmails(subj: number | "global", kind: "all" | "kill" | "loss", offset: number) {
     try {
@@ -2594,13 +2635,13 @@ function App() {
 
         <div className="tb-chars">
           {characters.length === 0 && <span className="muted small">{tr("Aún no hay personajes.")}</span>}
-          {characters.map((c) => {
+          {characters.filter((c) => pjlFila.has(c.character_id)).map((c) => {
             const card = cards[c.character_id];
             const sel = subject === c.character_id;
             const missing = CAPS.filter((cap) => !c.scopes.includes(cap.scope));
             return (
+              <Fragment key={c.character_id}>
               <div
-                key={c.character_id}
                 className={`pj-chip ${sel ? "selected" : ""}`}
                 onClick={() => changeSubject(c.character_id)}
                 title={missing.length ? `${c.name} · falta acceso: ${missing.map((m) => m.label).join(", ")}` : c.name}
@@ -2611,6 +2652,9 @@ function App() {
                   alt={c.name}
                 />
                 {missing.length > 0 && <span className="pj-warn" title={tr("Falta acceso a alguna sección")}>!</span>}
+                {/* Punto verde SOLO con `online === true` y solo cuando la fila está recogida: ahí
+                    es lo que explica por qué está en la fila. `null` (no se sabe) no lleva punto. */}
+                {pjlRecoge && conectado(card) && <span className="pjl-punto" title={tr("Conectado")} />}
                 {/* nave actual (N1-b): mini-render en la esquina del chip */}
                 {card?.ship_type_id != null && (
                   <img
@@ -2747,8 +2791,116 @@ function App() {
                   </div>
                 </div>
               </div>
+              {/* El nombre del elegido, SIEMPRE a la vista: con veinte retratos redondos no se
+                  sabía cuál estaba elegido. Largo, se corta con «…» y el completo va en el title. */}
+              {sel && (
+                <span className="pjl-nombre" title={c.name}>
+                  {c.name}
+                </span>
+              )}
+              </Fragment>
             );
           })}
+          {pjlRecoge && (
+            <div className="pjl-wrap">
+              <button
+                ref={pjlBtnRef}
+                className={`pjl-mas ${pjlOpen ? "active" : ""}`}
+                onClick={() => {
+                  setPjlQ("");
+                  setPjlOpen((v) => !v);
+                }}
+                title={
+                  pjlReparto.avisoRecogidos
+                    ? tr("Ver todos los personajes. A alguno de los recogidos le falta acceso a alguna sección.")
+                    : tr("Ver todos los personajes")
+                }
+              >
+                +{pjlReparto.recogidos.length}
+                {/* Recoger no puede tapar un aviso: si un recogido tiene el «!», lo lleva el botón. */}
+                {pjlReparto.avisoRecogidos && <span className="pj-warn pjl-warn">!</span>}
+              </button>
+              {pjlOpen && (
+                <div className="pjl-panel" ref={pjlPanelRef}>
+                  <input
+                    ref={pjlInputRef}
+                    className="pjl-buscar"
+                    value={pjlQ}
+                    placeholder={tr("Buscar por nombre, corporación, sistema o nave…")}
+                    onChange={(e) => setPjlQ(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter elige el PRIMERO de lo que se ve: los conectados van arriba.
+                      if (e.key !== "Enter") return;
+                      const g = agrupar(filtrar(characters, (id) => cards[id], pjlQ), (id) => cards[id]);
+                      const primero = g.conectados[0] ?? g.resto[0];
+                      if (primero) {
+                        changeSubject(primero.character_id);
+                        setPjlOpen(false);
+                      }
+                    }}
+                  />
+                  {(() => {
+                    const g = agrupar(filtrar(characters, (id) => cards[id], pjlQ), (id) => cards[id]);
+                    if (g.conectados.length === 0 && g.resto.length === 0) {
+                      return <div className="muted small pjl-vacio">{tr("Ningún personaje coincide.")}</div>;
+                    }
+                    const fila = (c: (typeof characters)[number]) => {
+                      const card = cards[c.character_id];
+                      const falta = CAPS.some((cap) => !c.scopes.includes(cap.scope));
+                      return (
+                        <div
+                          key={c.character_id}
+                          className={`pjl-fila ${subject === c.character_id ? "selected" : ""}`}
+                          onClick={() => {
+                            changeSubject(c.character_id);
+                            setPjlOpen(false);
+                          }}
+                        >
+                          <span className="pjl-retrato">
+                            <img src={`https://images.evetech.net/characters/${c.character_id}/portrait?size=64`} alt="" />
+                            {conectado(card) && <span className="pjl-punto" />}
+                          </span>
+                          <span className="pjl-datos">
+                            <span className="pjl-fila-nombre">
+                              {c.name}
+                              {falta && (
+                                <span className="pjl-fila-warn" title={tr("Falta acceso a alguna sección")}>
+                                  {" "}!
+                                </span>
+                              )}
+                            </span>
+                            <span className="muted small">
+                              {[card?.system_name, card?.ship_type_name].filter(Boolean).join(" · ")}
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    };
+                    return (
+                      <>
+                        {g.conectados.length > 0 && (
+                          <>
+                            <div className="pjl-grupo">
+                              {tr("Conectados")} · {g.conectados.length}
+                            </div>
+                            {g.conectados.map(fila)}
+                          </>
+                        )}
+                        {g.resto.length > 0 && (
+                          <>
+                            <div className="pjl-grupo">
+                              {tr("Resto")} · {g.resto.length}
+                            </div>
+                            {g.resto.map(fila)}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="tb-spacer" />

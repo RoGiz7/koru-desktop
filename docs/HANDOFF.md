@@ -170,11 +170,18 @@ la ventana principal—, nunca por número.
    decorativas: ninguna release las ha llevado nunca.
 5. **Las notas de la release 0.57.0 en GitHub** siguen con la frase falsa; se editan a mano.
 6. **Reintento en `apt-get update`** del workflow: el tope de 45 min es el tope, no la cura.
-7. **Cuatro ideas llegadas de usuarios**, tres sin tocar y aplazadas varias veces el 26-11:
-   clonar el perfil de interfaz de un personaje a los demás · la lista de personajes de arriba se
-   hace ilegible pasados ~10 · un planificador industrial web como referencia (es una app JS, hace
-   falta navegador para verla) · ★ **rutas de salto encadenando escalaciones**: EN CURSO, ver
-   «el plan de escalaciones» arriba (fases 1 y 2 hechas, la 3a con brief).
+7. **Cuatro ideas llegadas de usuarios**:
+   - clonar el perfil de interfaz de un personaje a los demás — sin tocar;
+   - un planificador industrial web como referencia (es una app JS, hace falta navegador para
+     verla) — sin tocar;
+   - ★ **rutas de salto encadenando escalaciones** — EN CURSO, ver «el plan de escalaciones»
+     arriba (fases 1, 2 y 3a hechas);
+   - **la lista de personajes de arriba, ilegible pasados ~10** — **HECHA, SIN VER EN PANTALLA**
+     (26-11, brief `documentacion/brief-lista-personajes.md`). El nombre del elegido siempre a la
+     vista; con más de `UMBRAL_RECOGER` (10) la fila lleva solo los conectados y el elegido, y el
+     resto va tras un «+N» con buscador. `online: null` no cuenta como conectado; el «!» de un
+     recogido lo lleva el botón. Regla pura en `src/listaPersonajes.ts`, probada con
+     `scripts/verificar_lista_personajes.mjs`. Para el changelog de la próxima release.
 
 ## Mapa del terreno
 

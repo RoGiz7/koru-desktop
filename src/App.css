@@ -5505,6 +5505,114 @@ h4 {
   align-self: flex-start;
 }
 
+/* ---- La lista de personajes con más de diez (src/listaPersonajes.ts). Prefijo propio «pjl-»: un
+   selector global ya tumbó la app entera una vez. ---- */
+.pjl-nombre {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  margin-left: -0.1rem;
+  margin-right: 0.25rem;
+}
+.pjl-punto {
+  position: absolute;
+  bottom: -1px;
+  left: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3ec46d;
+  border: 1.5px solid var(--bg-surface-2);
+  pointer-events: none;
+}
+.pjl-wrap {
+  position: relative;
+}
+.pjl-mas {
+  position: relative;
+  min-width: 38px;
+  height: 38px;
+  border-radius: 19px;
+  padding: 0 0.55rem;
+  font-weight: 600;
+}
+.pjl-mas.active {
+  border-color: var(--accent-border);
+}
+.pjl-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  width: 290px;
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 30;
+  background: rgba(20, 26, 36, 0.97);
+  border: 1px solid var(--border-accent-2);
+  border-radius: var(--radius-md);
+  padding: 0.45rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.pjl-buscar {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.35rem;
+}
+.pjl-grupo {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  margin: 0.35rem 0.2rem 0.15rem;
+}
+.pjl-fila {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.3rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.pjl-fila:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.pjl-fila.selected {
+  border-color: var(--accent-border);
+}
+.pjl-retrato {
+  position: relative;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+.pjl-retrato img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+}
+.pjl-datos {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pjl-fila-nombre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pjl-fila-warn {
+  color: var(--danger);
+  font-weight: 700;
+}
+.pjl-vacio {
+  padding: 0.3rem;
+}
+
 .pj-warn {
   position: absolute;
   top: -2px;
