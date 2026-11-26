@@ -16,7 +16,7 @@
 - **SDE**: base en `3720952`. Hay uno nuevo sin integrar, el **3744011**
   (`20261125T110706Z`): **cero cambios de esquema** y **10 de 24 tablas con datos nuevos**.
 
-## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, SIN arreglar)
+## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, niveles 1 y 2 hechos, falta la raíz)
 
 **Síntoma**, reproducido por el autor y reportado por usuarios: el mapa grande sigue perfecto —el
 feed entra— pero **el minimapa flotante no marca nada y el aviso flotante no se abre ni suena**.
@@ -44,6 +44,21 @@ Cerrar y volver a abrir Koru lo arregla a veces.
    **«no hay intel» de «estoy rota»**. Hoy no pueden, y por eso costó cuatro mensajes acotarlo.
 3. Raíz: que el `setup()` de Rust registre el estado de la app **antes** del trabajo pesado. Eso
    cierra la familia entera, no este caso.
+
+**Hecho (`d7443aa`, sin release, sin probar en el `.exe` de release):** niveles 1 y 2. Además
+`set_intel_graph` ya no devuelve `Ok` sin guardar el grafo si el mutex está envenenado, y un grafo
+vacío (fallback de `loadJson` si `neweden.json` no carga) acaba en el mismo badge rojo «sin mapa de
+sistemas».
+
+**Nivel 3, PARADO a propósito: no es mover una línea.** Todo lo que lleva `AppState` sale del
+trabajo pesado: `db` necesita la mudanza de carpeta, la restauración pendiente y `Db::open`, y
+`esi` el cliente HTTP. Registrarlo antes obliga a rediseñar: o un estado que se rellena después y
+que cada comando tiene que esperar, o sacar a un `manage()` propio, y temprano, lo que no dependa
+de la BD (`intel`, `tokens`, `cancel`). Es decisión de diseño, no un arreglo.
+
+**Los 12 `.catch(() => {})` vacíos del arranque** (misma familia, fuera de `d7443aa` a propósito):
+`App.tsx` 316, 319, 895, 988, 1001 · `map.tsx` 620, 633, 640, 1508, 1511 · `whatsnew.tsx` 34, 59.
+En todo `src/` hay 77.
 
 ## 📋 Pendientes
 
