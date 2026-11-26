@@ -153,9 +153,9 @@ la ventana principal—, nunca por número.
 1. **Las 16 llamadas a `/universe` de ESI** → al catálogo local. Es la sesión grande y **la que
    abre SKINR**: coger SKINR obliga a subir la fecha de compatibilidad, y eso retira esas rutas.
    **Migrar primero, subir la fecha después. Nunca al revés.**
-2. **Los huérfanos de `public/`, en curso (26-11)**: quedan 3 sin generador: `agents`,
-   `module_slots`, `skill_reqs`. Ya salieron `jumpships` (`extract_jumpships.py`), `ores`,
-   `skill_names` y `npc_corp_systems` (cada uno con su `extract_<fichero>.py`). Briefs en `documentacion/`
+2. **Los huérfanos de `public/`, en curso (26-11)**: quedan 2 sin generador: `agents` y
+   `skill_reqs`. Ya salieron `jumpships` (`extract_jumpships.py`), `ores`, `skill_names`,
+   `npc_corp_systems` y `module_slots` (cada uno con su `extract_<fichero>.py`). Briefs en `documentacion/`
    (`brief-huerfanos-public.md` y `…-decisiones.md`, manda el segundo).
    **Para el changelog de la próxima release** (lo que el piloto nota al regenerar, contado):
    - Encargos de minería, filtro «Mineral»: 8 menas nuevas que antes no se encontraban (las
@@ -164,6 +164,8 @@ la ventana principal—, nunca por número.
      (Synchronization Rigging y Hybrid Drone Specialization).
    - Mapa, capa «Mis corps NPC»: el Starkmanir Council, que faltaba, ya pinta su sistema si tienes
      LP con él.
+   - Fiteos, visor de fits: 96 módulos que se pintaban en «extra» vuelven a su anillo, y el
+     Countermeasure Launcher I pasa de la ranura alta a la media.
 3. **Mensaje a testers** — el de la 0.57.0 nunca se envió, así que ahora acumula dos versiones.
    Titulares: *tu sesión nunca se perdió* (0.57.0) y *el intel vuelve a avisar* (0.58.0).
 4. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son
@@ -190,5 +192,5 @@ la ventana principal—, nunca por número.
   `src/intel.ts` (troceo) · `src/map.tsx`, `src/overlay.tsx`, `src/minimapaVentana.tsx` (pintan).
 - **Ventanas**: tres, con etiquetas `main`, `overlay` y `minimapa`. En Tauri v2 **las capacidades
   van POR VENTANA**.
-- **Datos del SDE**: 26 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
+- **Datos del SDE**: 27 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
   embebidos en el binario. El SDE entra SOLO por esos scripts: nada se pide en caliente.
