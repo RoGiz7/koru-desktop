@@ -6,9 +6,11 @@
 
 ## Estado
 
-- **`main` = `d1eb4f6`, seis commits por encima del tag `v0.58.0` (`a3b330a`), SIN PUBLICAR y sin
-  push.** Ni versión, ni changelog, ni release: el plan no se anuncia todavía.
-  `a294cf0` es este fichero tras la release; los otros cinco son el plan de escalaciones (abajo).
+- **`main` lleva TRECE commits por encima del tag `v0.58.0` (`a3b330a`), el último este fichero.
+  SIN PUBLICAR y sin push.** Ni versión, ni changelog, ni release: el plan no se anuncia todavía.
+  `a294cf0` y `dd8b5c5` son este fichero; los demás, el plan de escalaciones y lo que arrastró
+  (abajo): fases 1 y 2 (`a07d7f6`…`d1eb4f6`), los guiones al repo (`866f77d`), `FaltaScope`
+  (`0981590`), el salto (`dff63d9`) y la fase 3a (`337afb5`, `56aa788`).
 - **Publicado: v0.58.0** (2026-11-26) = tag `v0.58.0` = **`a3b330a`**.
   Verificado desde fuera, no por un «listo»: `releases/latest/download/latest.json` dice
   `version: 0.58.0` con **7 plataformas y las 7 firmadas**, y la release esta publicada
@@ -60,12 +62,25 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
     deja de decir «en la última hora».
   - ⏳ Sin ver: la cadena en vivo (hostil en el camino → notificación, sonido, aviso flotante),
     cómo se ven los recuadros, y el fallo real de `plan_intel_set` en la pastilla.
-- **Fase 3a** (saltar: ficha de «forma de viajar», papeles salta/cyno, los dos relojes): brief en
-  `documentacion/brief-cadena-fase3a.md` (la de DENTRO), **sin empezar**.
-- ⚠️ **Los guiones de TypeScript del cálculo NO están en el repo.** Los mensajes de commit los
-  citan («11 comprobaciones», «18», «8 de la pastilla»), pero se escribieron en el directorio
-  temporal de la sesión. Los tests de Rust sí están (`db/plan.rs`, `plan_intel.rs`). Tienen que
-  entrar como `scripts/verificar_plan.mjs` antes de tocar `plan.ts` otra vez.
+- **Fase 3a** (`337afb5`, `56aa788`) — **sin ver en pantalla y sin un salto real.** Briefs en
+  `documentacion/brief-cadena-fase3a.md` y `…-fase3a-decisiones.md` (la de DENTRO; manda el
+  segundo).
+  - La «forma de viajar» (tabla `forma_viaje`, `plan.forma_id`; vacía = a puertas como antes) y los
+    papeles quién salta / quién pone el cyno (`plan_papeles`). Sin selector de «ojos» a propósito.
+  - UN solo `evaluar`: la forma va como argumento opcional (`formaPuertas` / `formaSalto`). Con
+    `formaSalto`, cada pata sale cuando acaba el sitio, el cooldown y llega el cyno, y dice cuál
+    mandó. El `path` de una pata de salto es la ruta a puertas del CYNO, y de ahí comen las muertes,
+    «ir seguro» y el intel (que avisa «en el camino de X a …»).
+  - `llega()` en `plan.ts` es el ÚNICO predicado de «tu forma llega», con `switch` exhaustivo: un
+    estado nuevo no compila hasta decidirlo.
+  - En el mapa: la línea amarilla sale de donde está el cyno y los saltos van en violeta discontinuo.
+  - 🚨 **Fórmulas del salto según lo PUBLICADO, no validadas.** El autor va a hacer un salto con la
+    Black Ops y traer los años luz y los dos timers: entra como una fila más en
+    `scripts/verificar_plan.mjs` («Salto — cooldown y fatiga»).
+  - **Fase 3b** (proponer el salto intermedio): cuando la 3a esté vista en pantalla. La pata ya es
+    una lista de saltos para eso.
+- **Los guiones del cálculo están en el repo** (`866f77d`): `scripts/verificar_plan.mjs` y
+  `scripts/verificar_salud_intel.mjs`, puerta en `CLAUDE.md` si se tocan `plan.ts` o `saludIntel.ts`.
 
 ## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, niveles 1 y 2 hechos, falta la raíz)
 
@@ -128,6 +143,13 @@ la ventana principal—, nunca por número.
 
 ## 📋 Pendientes
 
+0. **La ronda de `FaltaScope` por los demás paneles.** Desde `0981590` el permiso que falta es un
+   error propio (`AppError::FaltaScope`, texto «Falta permiso: …», ayudante `esFaltaPermiso` en
+   `src/errores.ts`), pero SOLO lo distinguen el panel de fatiga y el plan. El resto sigue
+   enseñándolo crudo o tratando cualquier error igual. Comandos que lo devuelven: los 24 que pasan
+   por `token_with_scope` (wallet, skills, assets, industria, mercado, PI, standings, contactos,
+   factional, abyssals, minería, fittings, blueprints, perfil de salto…) y `sync_killmails`. Crudo
+   se ve sobre todo en el cartel general de `App.tsx` (`tb-error`) y en importar fittings.
 1. **Las 16 llamadas a `/universe` de ESI** → al catálogo local. Es la sesión grande y **la que
    abre SKINR**: coger SKINR obliga a subir la fecha de compatibilidad, y eso retira esas rutas.
    **Migrar primero, subir la fecha después. Nunca al revés.**
