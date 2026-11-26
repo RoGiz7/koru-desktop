@@ -87,20 +87,26 @@ python scripts/check_privacidad.py       # siempre antes de publicar
 python scripts/sde_check.py      # ¿nos importa esta release? qué tablas y qué extractores
 ```
 
-1. **Comprueba el NOMBRE del zip.** 19 de los 22 extractores hacen
-   `sorted(glob("documentacion/sde-source/*jsonl.zip"))[-1]`. Un zip bajado como
-   `...-jsonl (1).zip` **no encaja en el glob** y usarán el viejo EN SILENCIO.
-2. **Orden de regeneración** (no hay lanzador, se lanzan a mano):
+1. 🚨 **LOS ZIPS DEL SDE VIVEN EN LA CARPETA HERMANA**, no en la de dentro:
+   **`../documentacion/sde-source/`** visto desde la raíz del repo. Los 19 extractores sin
+   argumentos hacen `sorted(glob(RAIZ/".."/"documentacion"/"sde-source"/"*jsonl.zip"))[-1]`.
+   Bajar el zip a `documentacion/sde-source/` (la de dentro) lo deja donde NADIE lo lee, y —peor—
+   una comprobación escrita con esa misma ruta relativa **imprime el zip nuevo en verde mientras
+   los extractores usan el viejo**. Pasó el 26-11 y lo cazó quien ejecutaba, no quien lo escribió.
+2. **Comprueba el NOMBRE del zip**, con la ruta de los extractores. Un zip bajado como
+   `...-jsonl (1).zip` **no encaja en el glob** y usarán el viejo EN SILENCIO. Mejor aún: leer el
+   `buildNumber` de dentro del propio zip, que no depende de cómo se llame el fichero.
+3. **Orden de regeneración** (no hay lanzador, se lanzan a mano):
    `extract_ships` → `extract_neweden` → `extract_industry_sde` → `extract_bp_tree` →
    `extract_industry_rigs` → `extract_rig_targets` → `extract_places_i18n` /
    `extract_ship_names_i18n` / `extract_ship_cargo` → el resto.
    Solo `bp_tree`, `industry_rigs` e `industry_sde` reciben `<zip> <public>`; los demás, nada.
-3. **LA PRUEBA DE ORO para cualquier cambio en un generador**: ejecútalo con el SDE **ANTERIOR** y
+4. **LA PRUEBA DE ORO para cualquier cambio en un generador**: ejecútalo con el SDE **ANTERIOR** y
    exige que reproduzca **byte a byte** el fichero que ya existía. Si no lo reproduce, el que está
    mal es el generador.
-4. **Revisa el diff CLAVE POR CLAVE, no por líneas**: casi todos esos JSON son una sola línea
+5. **Revisa el diff CLAVE POR CLAVE, no por líneas**: casi todos esos JSON son una sola línea
    minificada y `git diff` no dice nada útil de ellos.
-5. **`sde_check.py --guardar-base` solo AL FINAL**, con la regeneración ya revisada.
+6. **`sde_check.py --guardar-base` solo AL FINAL**, con la regeneración ya revisada.
 
 ## 🏷️ RELEASE
 
