@@ -1,4 +1,4 @@
-# Dónde estamos — actualizado 2026-11-26 (release v0.58.0 publicada)
+# Dónde estamos — actualizado 2026-11-26 (v0.58.0 publicada; el plan de escalaciones, sin publicar)
 
 > Léelo ANTES de empezar nada. Y **actualízalo al terminar**: este fichero existe para que una
 > sesión nueva arranque sin que nadie le recuente la historia. Si miente, hace más daño que bien.
@@ -6,7 +6,10 @@
 
 ## Estado
 
-- **Publicado: v0.58.0** (2026-11-26). `main` = tag `v0.58.0` = **`a3b330a`**, arbol limpio.
+- **`main` = `d1eb4f6`, seis commits por encima del tag `v0.58.0` (`a3b330a`), SIN PUBLICAR y sin
+  push.** Ni versión, ni changelog, ni release: el plan no se anuncia todavía.
+  `a294cf0` es este fichero tras la release; los otros cinco son el plan de escalaciones (abajo).
+- **Publicado: v0.58.0** (2026-11-26) = tag `v0.58.0` = **`a3b330a`**.
   Verificado desde fuera, no por un «listo»: `releases/latest/download/latest.json` dice
   `version: 0.58.0` con **7 plataformas y las 7 firmadas**, y la release esta publicada
   (`draft=false`, marcada *latest*) con **11 assets**.
@@ -28,6 +31,41 @@
   ⚠️ El guardián **avisa de más**: compara un hash de versión de la API, y en la 3749835 marcó cinco
   tablas idénticas byte a byte (`mapSolarSystems` entre ellas). Una tabla marcada no prueba nada:
   se mira el diff.
+
+## 🧭 EN CURSO: el plan de escalaciones («rutas encadenando escalaciones», idea de usuario)
+
+Varias escalaciones a la vez, ordenadas para salvar las que se puedan. Vive en el panel del plan,
+dentro de Navegación del mapa (`src/planNav.tsx`); el cálculo es puro y está en `src/plan.ts`, el
+almacén en `src-tauri/src/db/plan.rs` (tablas `plan` y `plan_stop`; las paradas por `kind`, hoy
+solo `escalacion`, y nada se copia de la escalación a la parada).
+
+- **Fase 1** (`a07d7f6`, `ad011c1`) — **probada en pantalla.** Orden propuesto por fuerza bruta
+  hasta 8 paradas (por caducidad por encima, y lo dice), margen por parada, el orden manual
+  comparado con el propuesto. Una parada que no se salva ni yendo directo sale del recorrido a
+  una lista aparte; una perdida por TU orden se queda dentro. A puertas: saltos × «Minutos por
+  salto», con el mismo buscador y filtros que la línea amarilla.
+- **Fase 2** (`598c0bb`, `9f3035b`, `d1eb4f6`) — **nadie la ha visto avisar en vivo.**
+  - Por tramo: sistemas con muertes en la última hora y el peor; la misma ruta por la segura y
+    qué escalaciones te cuesta ir seguro («No hay ruta por alta seguridad» si la segura aún cruza
+    baja o nula: `findRoute` en modo seguro nunca sale vacío).
+  - El intel mira el camino: los tramos que faltan son orígenes de un BFS APARTE
+    (`src-tauri/src/plan_intel.rs`), nunca de `cfg.origins`. Se marcan todos; solo AVISA el
+    empezado («▶ Voy» con la run abierta), y el silencio se dice.
+  - La vigilancia depende de la RUN ABIERTA, no del panel: con el panel cerrado el mapa (siempre
+    montado) manda las paradas empezadas de cualquier plan (`plan_paradas_empezadas`). Solo
+    paradas de un plan: una escalación suelta NO enciende nada (decidido el 26-11).
+  - Si el vigilante no recibe el camino, la pastilla de Intel en vivo dice «Camino: fallo»
+    (`src/saludIntel.ts`).
+  - Las muertes se refrescan cada 5 min con el plan abierto; si el dato pasa de 75 min la frase
+    deja de decir «en la última hora».
+  - ⏳ Sin ver: la cadena en vivo (hostil en el camino → notificación, sonido, aviso flotante),
+    cómo se ven los recuadros, y el fallo real de `plan_intel_set` en la pastilla.
+- **Fase 3a** (saltar: ficha de «forma de viajar», papeles salta/cyno, los dos relojes): brief en
+  `documentacion/brief-cadena-fase3a.md` (la de DENTRO), **sin empezar**.
+- ⚠️ **Los guiones de TypeScript del cálculo NO están en el repo.** Los mensajes de commit los
+  citan («11 comprobaciones», «18», «8 de la pastilla»), pero se escribieron en el directorio
+  temporal de la sesión. Los tests de Rust sí están (`db/plan.rs`, `plan_intel.rs`). Tienen que
+  entrar como `scripts/verificar_plan.mjs` antes de tocar `plan.ts` otra vez.
 
 ## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, niveles 1 y 2 hechos, falta la raíz)
 
@@ -81,6 +119,9 @@ firmas que partir el estado en dos.
 
 **Los 12 `.catch(() => {})` vacíos del arranque** (misma familia, fuera de `d7443aa` a propósito):
 **5 en `App.tsx`, 5 en `map.tsx` y 2 en `whatsnew.tsx`**; en todo `src/` hay **77**.
+⚠️ Esas cuentas son de antes del plan y no sé reproducirlas: contando líneas con
+`grep -c ".catch(() => {})"` sobre `src/` salen **84 en el tag y 82 en `d1eb4f6`**. Las dos que se
+fueron son las de `get_system_kills` en `map.tsx` (fase 2), y una corría al montar el mapa.
 ⚠️ **Sin números de línea a propósito**: `3b87551` ya movió los de `map.tsx` unas 55 líneas el mismo
 día en que se apuntaron. Se buscan por contenido —`.catch(() => {})` en efectos que corren al montar
 la ventana principal—, nunca por número.
@@ -98,12 +139,11 @@ la ventana principal—, nunca por número.
    decorativas: ninguna release las ha llevado nunca.
 5. **Las notas de la release 0.57.0 en GitHub** siguen con la frase falsa; se editan a mano.
 6. **Reintento en `apt-get update`** del workflow: el tope de 45 min es el tope, no la cura.
-7. **Cuatro ideas llegadas de usuarios**, sin tocar y aplazadas varias veces el 26-11:
+7. **Cuatro ideas llegadas de usuarios**, tres sin tocar y aplazadas varias veces el 26-11:
    clonar el perfil de interfaz de un personaje a los demás · la lista de personajes de arriba se
    hace ilegible pasados ~10 · un planificador industrial web como referencia (es una app JS, hace
-   falta navegador para verla) · ★ **rutas de salto encadenando escalaciones**: varios destinos
-   arrastrables, con el cálculo de isótopos que YA existe y teniendo en cuenta el tiempo que le
-   queda a cada escalación. La última junta dos secciones ya hechas; es la más redonda.
+   falta navegador para verla) · ★ **rutas de salto encadenando escalaciones**: EN CURSO, ver
+   «el plan de escalaciones» arriba (fases 1 y 2 hechas, la 3a con brief).
 
 ## Mapa del terreno
 
