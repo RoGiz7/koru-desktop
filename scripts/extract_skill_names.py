@@ -15,9 +15,12 @@ Formato: JSON compacto `{type_id: nombre}`, claves en orden numérico, sin salto
 
 LA VARA DE MEDIR (2026-11-26), contra el fichero hecho a mano:
   · SDE 3749835: faltan 2, sobran 0, cambian 0.
-  · SDE 3607705 (el más viejo que hay): solo falta Hybrid Drone Specialization (97263). NO PROBADA,
-    NO HAY SDE DE JUNIO: el zip más viejo es de octubre. Comprobado a mano contra el registro crudo
-    del SDE de hoy: es una skill (grupo de la categoría 16), publicada, y sale con su nombre.
+  · SDE 3607705 (el más viejo que hay), con la vara de tres cajas:
+    - nacidas después del fichero: 1, Hybrid Drone Specialization (97263). Su id es mayor que el
+      más alto del fichero (93983): si hubiera existido en junio, el máximo sería ella.
+    - no probadas: ninguna.
+    Comprobado a mano contra el registro crudo del SDE de hoy: es una skill (grupo de la categoría
+    16), publicada, y sale con su nombre.
 
 Uso: python scripts/extract_skill_names.py [<zip del SDE>]
      python scripts/extract_skill_names.py --medir [<zip>]   → cuenta la vara sin escribir nada
