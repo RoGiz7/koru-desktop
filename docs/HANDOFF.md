@@ -153,13 +153,15 @@ la ventana principal—, nunca por número.
 1. **Las 16 llamadas a `/universe` de ESI** → al catálogo local. Es la sesión grande y **la que
    abre SKINR**: coger SKINR obliga a subir la fecha de compatibilidad, y eso retira esas rutas.
    **Migrar primero, subir la fecha después. Nunca al revés.**
-2. **Los huérfanos de `public/`, en curso (26-11)**: quedan 5 sin generador: `agents`,
-   `module_slots`, `npc_corp_systems`, `skill_names`, `skill_reqs`. Ya salieron `jumpships`
-   (`extract_jumpships.py`) y `ores` (`extract_ores.py`). Briefs en `documentacion/`
+2. **Los huérfanos de `public/`, en curso (26-11)**: quedan 4 sin generador: `agents`,
+   `module_slots`, `npc_corp_systems`, `skill_reqs`. Ya salieron `jumpships`
+   (`extract_jumpships.py`), `ores` (`extract_ores.py`) y `skill_names` (`extract_skill_names.py`). Briefs en `documentacion/`
    (`brief-huerfanos-public.md` y `…-decisiones.md`, manda el segundo).
    **Para el changelog de la próxima release** (lo que el piloto nota al regenerar, contado):
    - Encargos de minería, filtro «Mineral»: 8 menas nuevas que antes no se encontraban (las
      Z-Grade), y 5 con su nombre de hoy («Flawed Raspite» y compañía, antes «X-Grade»).
+   - Fiteos, assets y plan de estudios: 2 skills que salían como un número ahora tienen nombre
+     (Synchronization Rigging y Hybrid Drone Specialization).
 3. **Mensaje a testers** — el de la 0.57.0 nunca se envió, así que ahora acumula dos versiones.
    Titulares: *tu sesión nunca se perdió* (0.57.0) y *el intel vuelve a avisar* (0.58.0).
 4. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son
@@ -179,5 +181,5 @@ la ventana principal—, nunca por número.
   `src/intel.ts` (troceo) · `src/map.tsx`, `src/overlay.tsx`, `src/minimapaVentana.tsx` (pintan).
 - **Ventanas**: tres, con etiquetas `main`, `overlay` y `minimapa`. En Tauri v2 **las capacidades
   van POR VENTANA**.
-- **Datos del SDE**: 24 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
+- **Datos del SDE**: 25 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
   embebidos en el binario. El SDE entra SOLO por esos scripts: nada se pide en caliente.
