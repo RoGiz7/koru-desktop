@@ -1,4 +1,4 @@
-# Dónde estamos — actualizado 2026-11-26
+# Dónde estamos — actualizado 2026-11-26 (release v0.58.0 publicada)
 
 > Léelo ANTES de empezar nada. Y **actualízalo al terminar**: este fichero existe para que una
 > sesión nueva arranque sin que nadie le recuente la historia. Si miente, hace más daño que bien.
@@ -6,18 +6,20 @@
 
 ## Estado
 
-- **Publicado: v0.57.0** (2026-11-11).
-- **`main` va TRECE commits por delante de la v0.57.0 y no hay release cortada.** Lo que lleva sin llegar a nadie:
-  - `fdd5ed6` corrige una frase falsa del changelog de la 0.57.0.
-  - `5376b5c` `extract_industry_sde` deja de leer un campo que el SDE borró.
-  - `fea20d7` `release.yml`: tope de 45 minutos por job.
-  - `440784b` + `9b9acef` **`scripts/sde_check.py`**, el guardián del SDE.
-  - `cc33845` al día con el SDE **3720952** y base del guardián fijada.
-  - `d7443aa` + `3b87551` **el intel deja de quedarse mudo en silencio**: el grafo se reintenta, y
-    sin grafo la pastilla dice «⚠ No avisa» en rojo en vez de «Activo» en verde.
-  - `3e665bd` al día con el SDE **3749835**: 16 SKIN nuevas, un módulo renombrado en inglés
-    (98168) y el Pacifier renombrado en chino. Nada en el mapa.
-  - El resto son `CLAUDE.md` y este fichero.
+- **Publicado: v0.58.0** (2026-11-26). `main` = tag `v0.58.0` = **`a3b330a`**, arbol limpio.
+  Verificado desde fuera, no por un «listo»: `releases/latest/download/latest.json` dice
+  `version: 0.58.0` con **7 plataformas y las 7 firmadas**, y la release esta publicada
+  (`draft=false`, marcada *latest*) con **11 assets**.
+- **Quince commits** entraron en ella. Las cinco viñetas del changelog: el intel vuelve a avisar ·
+  y si no puede avisar, lo dice · al dia con el juego dos veces (SDE 3720952 y 3749835) · nueve
+  naves cambian de nombre en chino · la correccion de la 0.57.0. **Fuera a proposito**: el guardian
+  del SDE, `CLAUDE.md`, este fichero, el tope del CI y el arreglo del extractor — fontaneria que al
+  piloto no le dice nada.
+  ⏳ **El arreglo del intel sigue sin probarse en el `.exe` de release**; se comprobo en dev.
+  ⚠️ La app en ingles cambio una palabra: la pastilla dice **«Not alerting»**, no «No alerts»
+  (`src/i18n.ts:328`). «No alerts» se leia como «ahora no hay avisos», que es la lectura benigna
+  que esa release venia a quitar.
+
 - **SDE**: base en **`3749835`** (26-11), integrado y con el guardián en código 0. El 3744011 se
   saltó a propósito: el guardián da el acumulado contra la base.
   ⚠️ El zip va a la `documentacion/` **HERMANA** (`../documentacion/sde-source/`), que es la que leen
@@ -90,11 +92,18 @@ la ventana principal—, nunca por número.
    **Migrar primero, subir la fecha después. Nunca al revés.**
 2. **Auditar los 7 huérfanos de `public/`**: `agents`, `jumpships`, `module_slots`,
    `npc_corp_systems`, `ores`, `skill_names`, `skill_reqs`. Siguen sin generador.
-3. **Mensaje a testers de la 0.57.0** — nunca se envió.
+3. **Mensaje a testers** — el de la 0.57.0 nunca se envió, así que ahora acumula dos versiones.
+   Titulares: *tu sesión nunca se perdió* (0.57.0) y *el intel vuelve a avisar* (0.58.0).
 4. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son
    decorativas: ninguna release las ha llevado nunca.
 5. **Las notas de la release 0.57.0 en GitHub** siguen con la frase falsa; se editan a mano.
 6. **Reintento en `apt-get update`** del workflow: el tope de 45 min es el tope, no la cura.
+7. **Cuatro ideas llegadas de usuarios**, sin tocar y aplazadas varias veces el 26-11:
+   clonar el perfil de interfaz de un personaje a los demás · la lista de personajes de arriba se
+   hace ilegible pasados ~10 · un planificador industrial web como referencia (es una app JS, hace
+   falta navegador para verla) · ★ **rutas de salto encadenando escalaciones**: varios destinos
+   arrastrables, con el cálculo de isótopos que YA existe y teniendo en cuenta el tiempo que le
+   queda a cada escalación. La última junta dos secciones ya hechas; es la más redonda.
 
 ## Mapa del terreno
 
