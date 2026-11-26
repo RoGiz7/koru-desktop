@@ -5,9 +5,28 @@ import { getLang } from "./i18n";
 export type ChangelogEntry = { version: string; date: string; es: string[]; en: string[] };
 
 export const CHANGELOG: ChangelogEntry[] = [
+  // ⚠️ La entrada de la versión en curso va AQUÍ ARRIBA, con versión y fecha provisionales:
+  // se corrigen al cortar la release, junto con los otros ficheros de versión. Ver el checklist
+  // de release.
   {
-    // ⚠️ VERSIÓN Y FECHA PROVISIONALES: se corrigen al cortar la release, junto con los otros
-    // ficheros de versión. Ver el checklist de release.
+    version: "0.58.0",
+    date: "2026-11-26",
+    es: [
+      "🔑 El intel vuelve a avisar. Varios pilotos contaban lo mismo: el mapa de Koru perfecto, con sus líneas entrando, y a la vez ni el aviso flotante ni el minimapa saltando jamás. Cerrar y abrir lo arreglaba… a veces. Las dos ventanas que flotan sobre el juego dependen del **mismo aviso**, y ese aviso solo sale si Koru ha podido entregarle al vigilante el mapa de sistemas. Esa entrega se hacía **una sola vez** al arrancar, y si llegaba antes de que el programa estuviera listo por dentro, fallaba **en silencio** y no se reintentaba nunca. El mapa grande seguía bien porque su información va por otro camino — de ahí que pareciera que no pasaba nada. Ahora se reintenta durante unos segundos, que es lo que debió hacer desde el principio. Cuanto más lento el arranque, más fácil era perder esa carrera, y el arranque más lento de todos es el que viene tras una actualización automática: encaja con lo que contaban los pilotos, aunque no hemos sabido provocarla a voluntad para demostrarlo.",
+      "📟 Y si no puede avisar, ahora te lo dice. Mientras pasaba lo de arriba, el panel de Intel en vivo ponía **«Activo» en verde**. Ahora sale en rojo con **«No avisa»** y el motivo al pasar el ratón; el verde solo aparece cuando el vigilante puede hacer su trabajo de verdad. La palabra tiene que ser cierta ella sola, sin que haya que leer nada más al lado.",
+      "🧭 Al día con el juego, dos veces. Los títulos de personaje pasan de **119 a 148**, y uno estrena español: «Teacher's Pet» ahora es **Ojito derecho del profe**. Entra la **Red ralentizadora de la Armada Imperial** con su plano. Y **dieciséis objetos pasan a ocupar la décima parte**: las cuatro menas aberrantes y los doce objetos de entrega de campaña — eso cambia los m³ de Pedidos y del transporte, **a tu favor**. Más **31 tipos nuevos** en el catálogo de mercado.",
+      "🇨🇳 Nueve naves cambian de nombre en chino. FC les ha añadido el sufijo 级 («clase»): 安抚者 pasa a 安抚者级, y ocho más. Koru reconoce la forma nueva cuando alguien las canta en los canales de intel. Si alguien usa la antigua, para eso está la corrección a mano.",
+      "✍️ Y una corrección de la versión anterior. La entrada de la 0.57.0 decía que retirar el acceso a un personaje o concederle un permiso nuevo «ahora son inmediatos». Era al revés: **ya lo eran antes**. Está corregido ahí abajo.",
+    ],
+    en: [
+      "🔑 Live intel is alerting again. Several pilots reported the same thing: Koru's map working perfectly, with its lines coming in, and at the same time neither the floating alert nor the minimap ever going off. Closing and reopening fixed it… sometimes. The two windows that float over the game both hang on the **same alert**, and that alert is only sent if Koru managed to hand the watcher its map of systems. That handover happened **once** at startup, and if it arrived before the program was ready inside, it failed **silently** and was never retried. The big map kept working because its information travels another way — which is why nothing looked wrong. It now retries for a few seconds, which is what it should have done all along. The slower the startup, the easier that race was to lose, and the slowest startup of all is the one after an automatic update: it fits what pilots were reporting, though we have not managed to trigger the race on demand to prove it.",
+      "📟 And if it cannot alert, it now tells you. While the above was happening, the live intel panel said **«Active» in green**. It now shows **«Not alerting»** in red, with the reason on hover; green only appears when the watcher can really do its job. The word has to be true on its own, without needing to read anything beside it.",
+      "🧭 Up to date with the game, twice over. Character titles go from **119 to 148** (and one of them finally has a Spanish name). The **Imperial Navy Stasis Webifier** arrives with its blueprint. And **sixteen items now take up a tenth of the space**: the four aberrant ores and the twelve campaign turn-in items — that changes the m³ in Orders and in transport, **in your favour**. Plus **31 new types** in the market catalogue.",
+      "🇨🇳 Nine ships change their Chinese name. FC has added the 级 («class») suffix: 安抚者 becomes 安抚者级, and eight more. Koru recognises the new form when someone calls them out in the intel channels. If anyone uses the old one, that is what the manual correction is for.",
+      "✍️ And a correction to the previous version. The 0.57.0 entry said that revoking a character's access or granting a new permission «are now immediate». It was the other way round: **they already were**. It is fixed below.",
+    ],
+  },
+  {
     version: "0.57.0",
     date: "2026-11-11",
     es: [
