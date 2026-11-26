@@ -2,8 +2,15 @@
 """Genera public/skill_reqs.json: qué skills (y a qué nivel) pide cada tipo para usarlo.
 
 Lo lee el skill-check de Fiteos y de assets (`src/fit.tsx`, `src/assets.tsx`): «¿puedes volarlo?».
-⚠️ Un tipo que NO está aquí cuenta hoy como «no pide nada» y la pantalla dice que puedes usarlo.
-   Regenerar lo tapa para este SDE, no lo arregla: ver el tercer tiempo en el HANDOFF.
+
+★ «NO PIDE NADA» Y «NO LO CONOZCO» SON DOS RESPUESTAS (26-11, tercer tiempo de los huérfanos).
+  Antes, un tipo que no estaba aquí contaba como «no pide nada» y la pantalla decía «puedes
+  volarlo»: el próximo SDE con módulos nuevos habría vuelto a mentir. Ahora:
+    · `"id": [[skill, nivel], …]` → pide eso;
+    · `"id": []`                  → Koru lo conoce y NO pide nada;
+    · que falte la clave          → Koru NO lo conoce.
+  Las entradas `[]` solo se escriben para lo que se fitea o se vuela (`UNIVERSO_SIN_REQUISITOS`):
+  meter todo el SDE triplicaría el fichero por tipos que nunca pasan por el skill-check.
 
 POR QUÉ EXISTE (2026-11-26): se hizo a mano en junio. Contra el SDE 3749835 le faltaban 259 tipos
 (entre ellos 7 naves publicadas, 23 módulos y 66 implantes) y 11 drones T2 no llevaban la skill
@@ -50,6 +57,22 @@ OUT = os.path.join(ROOT, "public", "skill_reqs.json")
 # (atributo de la skill requerida, atributo de su nivel), en el orden en que se listan.
 PARES = [(182, 277), (183, 278), (184, 279), (1285, 1286), (1289, 1287), (1290, 1288)]
 
+# Categorías de lo que se fitea o se vuela: de estas, los tipos PUBLICADOS que no piden nada se
+# escriben como `[]` («lo conozco y no pide nada»). Medido en 3749835: 1.632 tipos, +17,8 KB.
+# Un tipo fuera de esta lista y sin requisitos se queda sin clave, y el skill-check lo dirá como
+# «no lo conozco»: equivocarse hacia «no sé» es el lado bueno.
+UNIVERSO_SIN_REQUISITOS = {
+    6: "Ship",
+    7: "Module",
+    8: "Charge",
+    18: "Drone",
+    20: "Implant",
+    22: "Deployable",
+    32: "Subsystem",
+    66: "Structure Module",
+    87: "Fighter",
+}
+
 
 def zip_sde(args):
     if args:
@@ -60,7 +83,9 @@ def zip_sde(args):
     return zips[-1]
 
 
-def generar(z) -> dict:
+def requisitos(z) -> dict:
+    """Solo los tipos que PIDEN algo: el fichero tal como era antes del tercer tiempo. La vara de
+    medir contra el fichero hecho a mano se pasa sobre esto."""
     out = {}
     with z.open("typeDogma.jsonl") as f:
         for line in f:
@@ -78,9 +103,40 @@ def generar(z) -> dict:
     return {str(k): out[k] for k in sorted(out)}
 
 
+def sin_requisitos(z, con_requisitos: dict) -> list:
+    """Los tipos publicados de `UNIVERSO_SIN_REQUISITOS` que no piden nada."""
+    def filas(n):
+        with z.open(n) as f:
+            for line in f:
+                yield json.loads(line)
+
+    cat_de_grupo = {d["_key"]: d.get("categoryID") for d in filas("groups.jsonl")}
+    return sorted(
+        d["_key"]
+        for d in filas("types.jsonl")
+        if d.get("published")
+        and cat_de_grupo.get(d.get("groupID")) in UNIVERSO_SIN_REQUISITOS
+        and str(d["_key"]) not in con_requisitos
+    )
+
+
+def generar(z) -> dict:
+    req = requisitos(z)
+    todo = {int(k): v for k, v in req.items()}
+    for t in sin_requisitos(z, req):
+        todo[t] = []
+    return {str(k): todo[k] for k in sorted(todo)}
+
+
 def medir(nuevo: dict) -> None:
+    """La vara, SOBRE LOS QUE PIDEN ALGO (sin las entradas `[]` de los dos lados), y aparte cuántas
+    entradas `[]` hay: así se ve que añadirlas no movió ni una de las otras."""
     with open(OUT, encoding="utf-8") as f:
         actual = json.load(f)
+    vacios = sum(1 for v in nuevo.values() if v == [])
+    print(f"entradas [] («lo conozco y no pide nada»): {vacios}")
+    nuevo = {k: v for k, v in nuevo.items() if v}
+    actual = {k: v for k, v in actual.items() if v}
     faltan = sorted(set(nuevo) - set(actual), key=int)
     sobran = sorted(set(actual) - set(nuevo), key=int)
     cambian = sorted((k for k in set(nuevo) & set(actual) if nuevo[k] != actual[k]), key=int)
@@ -112,7 +168,9 @@ def main() -> int:
     # Guardas contra el juego: NO publicar si alguna falla. Veldspar (1230) pide Mining 1.
     assert nuevo.get("1230") == [[3386, 1]], nuevo.get("1230")
     assert max(len(v) for v in nuevo.values()) <= len(PARES)
-    print("Guardas: Veldspar pide Mining 1 ✓")
+    vacios = [k for k, v in nuevo.items() if v == []]
+    assert vacios, "ninguna entrada []: el skill-check volvería a no distinguir «no pide nada»"
+    print(f"Guardas: Veldspar pide Mining 1, y {len(vacios)} tipos «no pide nada» ✓")
     return 0
 
 
