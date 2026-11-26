@@ -4625,6 +4625,16 @@ h4 {
   background: #2a1717;
   border-color: #6a2b2b;
 }
+/* «No se sabe»: ni el verde de «puedes» ni el rojo de «te faltan». Ámbar y con borde discontinuo:
+   no es un fallo tuyo, es que Koru no conoce algo del fit. */
+.fitw-skills.nose {
+  background: #2a2312;
+  border: 1px dashed #8a6a24;
+}
+/* La línea de lo que no se ha mirado en drones y bodega: discreta a propósito (ver skillCheck.ts). */
+.fitw-sincomprobar {
+  margin-top: 0.35rem;
+}
 .fitw-skills-h {
   font-weight: 600;
   margin-bottom: 0.3rem;

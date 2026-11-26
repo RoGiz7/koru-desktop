@@ -159,8 +159,16 @@ la ventana principal—, nunca por número.
    ⏳ **Pendiente: `python scripts/sde_check.py --guardar-base`**, cuando se dé por revisada la
    regeneración: hoy el guardián avisa de cuatro tablas sin versión en la base (`agentsInSpace`,
    `npcCharacters`, `npcCorporations`, `npcStations`), que se leen por primera vez.
-   ⏳ **Tercer tiempo propuesto, sin hacer**: que el skill-check distinga «no conozco este tipo» de
-   «no pide nada» (hoy cuentan igual y dice «puedes volarlo»). Briefs en `documentacion/`
+   ✅ **Tercer tiempo hecho, SIN VER EN PANTALLA** (brief `documentacion/brief-skillcheck-desconocido.md`):
+   el skill-check distingue «no lo conozco» de «no pide nada». `skill_reqs.json` lleva `[]` para
+   lo que se fitea y no pide nada (1.632 tipos); la regla está en `src/skillCheck.ts`, probada con
+   `scripts/verificar_skillcheck.mjs`. Solo lo MONTADO (nave y ranuras) deja el veredicto en «no se
+   sabe»; lo que no se conoce en drones y bodega va en una línea discreta, sin ⚠ (decidido con
+   RoGiz7: la bodega lleva mineral, combustible, PLEX…). Fiteos y Assets pasan por el mismo
+   componente, y es el único sitio que lee `skill_reqs.json`.
+   ⏳ **El requisito de nivel 0, por decidir**: hoy una skill que no tienes cuenta como nivel 0, así
+   que un requisito de nivel 0 nunca sale. En el SDE 3749835 hay 73 en 56 tipos, y de esos solo UNO
+   publicado (Citizen Miner); el resto son los «Academy» sin publicar. Briefs en `documentacion/`
    (`brief-huerfanos-public.md` y `…-decisiones.md`, manda el segundo).
    **Para el changelog de la próxima release** (lo que el piloto nota al regenerar, contado):
    - Encargos de minería, filtro «Mineral»: 8 menas nuevas que antes no se encontraban (las
@@ -174,6 +182,9 @@ la ventana principal—, nunca por número.
    - Fiteos y assets, «¿puedes volarlo?»: el skill-check mira ahora 259 tipos que antes no conocía
      (y que contaba como «no pide nada»), entre ellos 7 naves, 23 módulos y 66 implantes
      publicados, y 11 drones T2 piden la skill nueva que les faltaba.
+   - Fiteos y assets: si el fit lleva algo montado que Koru no conoce, ya no dice «puedes
+     pilotarlo»: dice cuántas cosas no conoce y cuáles. Y mientras carga el catálogo, no dice nada
+     (antes decía «puedes pilotarlo» con el catálogo aún vacío).
 3. **Mensaje a testers** — el de la 0.57.0 nunca se envió, así que ahora acumula dos versiones.
    Titulares: *tu sesión nunca se perdió* (0.57.0) y *el intel vuelve a avisar* (0.58.0).
 4. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son

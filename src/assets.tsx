@@ -54,7 +54,8 @@ export function AssetsView(props: {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // "" = Todos
   // Datos para el skill-check del fit al abrir una nave.
-  const [reqs, setReqs] = useState<Record<string, [number, number][]>>({});
+  // `null` hasta que llega (ver `FitsView` en fit.tsx): cargando no es vacío.
+  const [reqs, setReqs] = useState<Record<string, [number, number][]> | null>(null);
   const [skillNames, setSkillNames] = useState<Record<string, string>>({});
   const [charSkills, setCharSkills] = useState<Record<number, number> | null>(null);
   useEffect(() => {

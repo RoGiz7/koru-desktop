@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { fmtSp, typeIcon, typeRender } from "./format";
-import { tr } from "./i18n";
+import { getLang, tr } from "./i18n";
+import { comprobarSkills, type Catalogo, type Informe } from "./skillCheck";
 import type { Fit, AssetDetail } from "./types";
 import { loadJson } from "./staticJson";
 
 // ---- Visor de fit circular (estilo ventana de fitting del juego) ----
-type WheelMod = { type_id: number; name: string; qty: number; fam: string };
+/** `montado`: va en una ranura (o es la nave). Solo lo montado puede dejar el skill-check en «no se
+ *  sabe»: ver `skillCheck.ts`. No sale de `fam`, a propósito: un módulo montado que aún no está en
+ *  `module_slots.json` cae en «extra», y no por eso deja de estar montado. */
+type WheelMod = { type_id: number; name: string; qty: number; fam: string; montado: boolean };
 const RING_FAMS = ["high", "mid", "low", "rig", "sub"];
 const FAM_LABEL: Record<string, string> = {
   high: "Slot alto",
@@ -31,28 +35,22 @@ function FitWheel({
   shipName: string;
   mods: WheelMod[];
   charSkills?: Record<number, number> | null;
-  reqs?: Record<string, [number, number][]>;
+  reqs?: Catalogo | null;
   skillNames?: Record<string, string>;
 }) {
   const [hover, setHover] = useState<WheelMod | null>(null);
   // Skill-check: ¿puede el personaje activo pilotar este fit? ¿qué le falta?
-  const skillReport = useMemo(() => {
-    if (!charSkills || !reqs) return null;
-    const need = new Map<number, number>(); // skill_id → nivel máximo requerido
-    for (const t of [shipTypeId, ...mods.map((m) => m.type_id)]) {
-      const rs = reqs[String(t)];
-      if (!rs) continue;
-      for (const [sid, lvl] of rs) need.set(sid, Math.max(need.get(sid) ?? 0, lvl));
-    }
-    const missing: { name: string; have: number; need: number }[] = [];
-    for (const [sid, lvl] of need) {
-      const have = charSkills[sid] ?? 0;
-      if (have < lvl)
-        missing.push({ name: skillNames?.[String(sid)] ?? `#${sid}`, have, need: lvl });
-    }
-    missing.sort((a, b) => a.name.localeCompare(b.name));
-    return { canFly: missing.length === 0, missing };
-  }, [charSkills, reqs, skillNames, shipTypeId, mods]);
+  // La regla vive en `skillCheck.ts` y la prueba `scripts/verificar_skillcheck.mjs`.
+  const skillReport: Informe | null = useMemo(
+    () =>
+      comprobarSkills(
+        [{ type_id: shipTypeId, name: shipName, montado: true }, ...mods.map((m) => ({ type_id: m.type_id, name: m.name, montado: m.montado }))],
+        reqs,
+        charSkills,
+        (sid) => skillNames?.[String(sid)] ?? `#${sid}`,
+      ),
+    [charSkills, reqs, skillNames, shipTypeId, shipName, mods],
+  );
   const ring = mods
     .filter((m) => RING_FAMS.includes(m.fam))
     .sort((a, b) => RING_FAMS.indexOf(a.fam) - RING_FAMS.indexOf(b.fam));
@@ -116,25 +114,7 @@ function FitWheel({
             <span className="small muted">{tr("Pasa el ratón por un módulo para ver su info.")}</span>
           )}
         </div>
-        {skillReport && (
-          <div className={`fitw-skills ${skillReport.canFly ? "ok" : "no"}`}>
-            {skillReport.canFly ? (
-              <span>✅ {tr("Puedes pilotar este fit con tus skills.")}</span>
-            ) : (
-              <>
-                <div className="fitw-skills-h">⚠ {tr("Te faltan")} {skillReport.missing.length} skills:</div>
-                {skillReport.missing.map((s, i) => (
-                  <div className="fitw-skill" key={i}>
-                    <span>{s.name}</span>
-                    <span className="muted small">
-                      {s.have} → {s.need}
-                    </span>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
+        {skillReport && <InformeSkills r={skillReport} />}
         {extra.length > 0 && (
           <div className="fitw-extra">
             <div className="fit-group-h">{tr("Drones / Carga")}</div>
@@ -152,6 +132,86 @@ function FitWheel({
   );
 }
 
+/** El veredicto del skill-check, con un `switch` exhaustivo: un veredicto nuevo no compila hasta
+ *  tener su pantalla. Lo que no se sabe NUNCA sale como «puedes pilotarlo». */
+function InformeSkills({ r }: { r: Informe }) {
+  const en = getLang() === "en";
+  const listaFaltan = r.faltan.map((s) => (
+    <div className="fitw-skill" key={s.skill}>
+      <span>{s.name}</span>
+      <span className="muted small">
+        {s.have} → {s.need}
+      </span>
+    </div>
+  ));
+  let cuerpo: ReactNode;
+  let cls: string;
+  switch (r.veredicto) {
+    case "puede":
+      cls = "ok";
+      cuerpo = <span>✅ {tr("Puedes pilotar este fit con tus skills.")}</span>;
+      break;
+    case "faltan":
+      cls = "no";
+      cuerpo = (
+        <>
+          <div className="fitw-skills-h">⚠ {tr("Te faltan")} {r.faltan.length} skills:</div>
+          {listaFaltan}
+        </>
+      );
+      break;
+    case "no_se_sabe": {
+      cls = "nose";
+      const n = r.desconocidos.length;
+      cuerpo = (
+        <>
+          <div className="fitw-skills-h">
+            ❓{" "}
+            {en
+              ? `Koru doesn't know the requirements of ${n} ${n === 1 ? "item" : "items"} in this fit, so it can't say whether you can fly it:`
+              : `Koru no conoce los requisitos de ${n} ${n === 1 ? "cosa" : "cosas"} de este fit, así que no puede decir si puedes pilotarlo:`}
+          </div>
+          {r.desconocidos.map((d) => (
+            <div className="fitw-skill" key={d.type_id}>
+              <span>{d.name}</span>
+            </div>
+          ))}
+          {r.faltan.length > 0 && (
+            <>
+              <div className="fitw-skills-h">
+                {en
+                  ? `And of what it does know, you're missing ${r.faltan.length} ${r.faltan.length === 1 ? "skill" : "skills"}:`
+                  : `Y de lo que sí conoce, te ${r.faltan.length === 1 ? "falta 1 skill" : `faltan ${r.faltan.length} skills`}:`}
+              </div>
+              {listaFaltan}
+            </>
+          )}
+        </>
+      );
+      break;
+    }
+    default: {
+      const nunca: never = r.veredicto;
+      return nunca;
+    }
+  }
+  const n = r.sinComprobar.length;
+  return (
+    <div className={`fitw-skills ${cls}`}>
+      {cuerpo}
+      {/* DISCRETA a propósito, sin ⚠: sale en casi cualquier nave con carga (mineral, combustible,
+          PLEX…), y el aviso fuerte se reserva para lo que cambia el veredicto. */}
+      {n > 0 && (
+        <div className="muted small fitw-sincomprobar" title={r.sinComprobar.map((x) => x.name).join(", ")}>
+          {en
+            ? `${n} ${n === 1 ? "item" : "items"} in the drone bay or cargo ${n === 1 ? "isn't" : "aren't"} in the requirements catalogue and ${n === 1 ? "wasn't" : "weren't"} checked.`
+            : `${n} ${n === 1 ? "cosa" : "cosas"} de los drones o la bodega no ${n === 1 ? "está" : "están"} en el catálogo de requisitos y no se ${n === 1 ? "ha" : "han"} mirado.`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Visor de un fit guardado (Fiteos): slot de cada módulo vía module_slots.json.
 function FitDisplay({
   fit,
@@ -163,7 +223,7 @@ function FitDisplay({
   fit: Fit;
   slots: Record<string, string>;
   charSkills?: Record<number, number> | null;
-  reqs?: Record<string, [number, number][]>;
+  reqs?: Catalogo | null;
   skillNames?: Record<string, string>;
 }) {
   const mods: WheelMod[] = fit.modules.map((m) => ({
@@ -171,6 +231,7 @@ function FitDisplay({
     name: m.name,
     qty: m.qty,
     fam: m.fitted ? slots[String(m.type_id)] ?? "extra" : "extra",
+    montado: m.fitted,
   }));
   return (
     <FitWheel
@@ -196,7 +257,9 @@ const cacheSkills = new Map<string, Record<number, number>>();
 export function FitsView({ charId, charName }: { charId: number | null; charName: string | null }) {
   const [fits, setFits] = useState<Fit[]>([]);
   const [slots, setSlots] = useState<Record<string, string>>({});
-  const [reqs, setReqs] = useState<Record<string, [number, number][]>>({});
+  // `null` hasta que llega: un catálogo CARGANDO no es un catálogo vacío. Con `{}` el visor decía
+  // «puedes pilotarlo» mientras bajaba el fichero.
+  const [reqs, setReqs] = useState<Catalogo | null>(null);
   const [skillNames, setSkillNames] = useState<Record<string, string>>({});
   const [charSkills, setCharSkills] = useState<Record<number, number> | null>(null);
   const [eft, setEft] = useState("");
@@ -367,7 +430,7 @@ export function ShipFit(props: {
   typeId: number;
   name: string;
   charSkills?: Record<number, number> | null;
-  reqs?: Record<string, [number, number][]>;
+  reqs?: Catalogo | null;
   skillNames?: Record<string, string>;
 }) {
   const { rows, typeId, name, charSkills, reqs, skillNames } = props;
@@ -376,6 +439,7 @@ export function ShipFit(props: {
     name: r.type_name ?? `#${r.type_id}`,
     qty: r.quantity,
     fam: flagFamily(r.slot),
+    montado: FIT_SLOTS_RE.test(r.slot),
   }));
   return (
     <FitWheel
