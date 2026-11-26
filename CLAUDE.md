@@ -30,8 +30,11 @@ Encontrar algo ahí dentro **no significa** que pertenezca a koru-desktop.
 ## 🔒 PRIVACIDAD — lo primero, y no se negocia
 
 1. **Nunca el nombre real del autor.** En nada que vaya al repo. El alias es RoGiz7.
-2. **`documentacion/` NUNCA sube.** Está gitignorada y contiene datos de juego personales. Es una
-   carpeta HERMANA de este repo, no está dentro.
+2. **`documentacion/` NUNCA sube.** Contiene datos de juego personales. ⚠️ **HAY DOS**, y el mismo
+   candado (`.gitignore`) tapa las dos: una DENTRO de la copia de trabajo (notas de release,
+   `nombres_privados.txt`) y otra HERMANA, al lado del repo (Chatlogs, Gamelogs, los zip del SDE).
+   `check_privacidad.py` busca `nombres_privados.txt` en las dos, en ese orden. El comentario del
+   `.gitignore` solo menciona la hermana: está incompleto.
 3. **Nada de los logs reales en texto público**: ni sistemas, ni nombres de piloto, ni
    corporaciones, ni canales de intel, ni fechas de actividad. Vale para código, comentarios,
    changelog, notas de release y mensajes de commit. Para ejemplos, usa sistemas genéricos (Jita).

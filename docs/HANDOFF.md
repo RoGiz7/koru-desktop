@@ -13,8 +13,11 @@
   - `fea20d7` `release.yml`: tope de 45 minutos por job.
   - `440784b` + `9b9acef` **`scripts/sde_check.py`**, el guardián del SDE.
   - `cc33845` al día con el SDE **3720952** y base del guardián fijada.
-- **SDE**: base en `3720952`. Hay uno nuevo sin integrar, el **3744011**
-  (`20261125T110706Z`): **cero cambios de esquema** y **10 de 24 tablas con datos nuevos**.
+- **SDE**: base en `3720952`. **DOS sin integrar**: el **3744011** (`20261125T110706Z`, cero
+  cambios de esquema y **10 de 24 tablas** con datos nuevos) y el **3749835** (26-11, sin mirar).
+  Son tres SDE en una semana: es la cadencia nueva de FC, no un acontecimiento.
+  `python scripts/sde_check.py` da el **acumulado** contra la base, así que se integra el más nuevo
+  y punto. ⚠️ Comprobar el NOMBRE del zip antes de lanzar los extractores.
 
 ## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, niveles 1 y 2 hechos, falta la raíz)
 
@@ -56,9 +59,21 @@ trabajo pesado: `db` necesita la mudanza de carpeta, la restauración pendiente 
 que cada comando tiene que esperar, o sacar a un `manage()` propio, y temprano, lo que no dependa
 de la BD (`intel`, `tokens`, `cancel`). Es decisión de diseño, no un arreglo.
 
+**DECIDIDO el 26-11: no se hace todavía, y el motivo es concreto — no sabemos provocar la carrera a
+voluntad.** Cualquier rediseño del arranque sería imposible de demostrar, y es un cambio que llega a
+todos los usuarios solo, por autoactualización.
+➡️ **Lo que va ANTES: un retardo artificial en `setup()` detrás de una bandera de depuración**, para
+poder provocar la carrera cuando queramos. Con eso se podría demostrar el arreglo de `d7443aa` —que
+hoy tampoco está probado en campo— y cualquier rediseño futuro.
+📌 Y hay una tercera opción además de las dos de arriba: **un solo `AppState` con la BD perezosa**,
+de modo que `manage()` ocurra al instante y solo esperen los comandos que tocan BD. Toca menos
+firmas que partir el estado en dos.
+
 **Los 12 `.catch(() => {})` vacíos del arranque** (misma familia, fuera de `d7443aa` a propósito):
-`App.tsx` 316, 319, 895, 988, 1001 · `map.tsx` 620, 633, 640, 1508, 1511 · `whatsnew.tsx` 34, 59.
-En todo `src/` hay 77.
+**5 en `App.tsx`, 5 en `map.tsx` y 2 en `whatsnew.tsx`**; en todo `src/` hay **77**.
+⚠️ **Sin números de línea a propósito**: `3b87551` ya movió los de `map.tsx` unas 55 líneas el mismo
+día en que se apuntaron. Se buscan por contenido —`.catch(() => {})` en efectos que corren al montar
+la ventana principal—, nunca por número.
 
 ## 📋 Pendientes
 
