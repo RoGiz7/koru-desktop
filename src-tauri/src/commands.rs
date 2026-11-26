@@ -8402,6 +8402,11 @@ pub struct IntelStatus {
     pub files: i64,
     /// Última pasada (ms epoch). Si esto no avanza, el hilo está muerto.
     pub last_tick_ms: i64,
+    /// Sistemas que conoce el grafo del vigilante. **0 = las alertas son IMPOSIBLES**: sin grafo
+    /// el matching se salta entero. Antes esto no se publicaba y el badge decía «leyendo» en verde
+    /// con el aviso flotante y el minimapa mudos — el feed del mapa no pasa por el grafo, así que
+    /// el mapa parecía sano. Ver `set_intel_graph`.
+    pub graph_systems: i64,
 }
 
 #[derive(Default)]
@@ -8925,9 +8930,15 @@ pub fn set_intel_graph(
         g.adj.entry(a).or_default().push(b);
         g.adj.entry(b).or_default().push(a);
     }
-    if let Ok(mut slot) = state.intel.graph.lock() {
-        *slot = g;
-    }
+    // ⚠️ NADA de `if let Ok(..)` aquí. Así estaba escrito, y con el mutex envenenado devolvía
+    //    `Ok(())` SIN guardar el grafo: el frontend lo daba por enviado, el vigilante se quedaba
+    //    sin sistemas y no volvía a avisar. Si no se puede guardar, que el que llama se entere.
+    let mut slot = state
+        .intel
+        .graph
+        .lock()
+        .map_err(|_| AppError::Other("el grafo del intel está envenenado (un pánico lo dejó a medias)".into()))?;
+    *slot = g;
     Ok(())
 }
 
@@ -9040,13 +9051,29 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                     continue;
                 }
             };
+            // ★ ¿HAY GRAFO? Se mira en cada vuelta porque es la única condición que deja el feed
+            //   vivo y las alertas muertas a la vez: `intel-lines` se emite antes y aparte del
+            //   matching. Un mutex envenenado cuenta como «sin grafo» y lo dice: el matching de
+            //   abajo tampoco podría cogerlo, así que callarlo sería volver al badge que mentía.
+            let (graph_systems, sin_grafo) = match watch.graph.lock() {
+                Ok(g) if !g.name_to_id.is_empty() => (g.name_to_id.len() as i64, None),
+                Ok(_) => (
+                    0,
+                    Some("sin grafo de sistemas: no se puede reconocer ningún sistema ni avisar".to_string()),
+                ),
+                Err(_) => (
+                    0,
+                    Some("grafo de sistemas envenenado: no se puede reconocer ningún sistema ni avisar".to_string()),
+                ),
+            };
             set_status(IntelStatus {
                 collecting: true,
-                idle_reason: None,
+                idle_reason: sin_grafo,
                 last_error: None,
                 lines: lines.len() as i64,
                 files: files as i64,
                 last_tick_ms: now_ms,
+                graph_systems,
             });
 
             // Firma barata de las líneas y de la config relevante para alertas.

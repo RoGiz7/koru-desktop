@@ -25,6 +25,11 @@ export type IntelDetail = {
 
 type IntelReports = { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } | null;
 
+/** Intentos para mandar el grafo a Rust. Mismo número que `REINTENTOS_ARRANQUE` de App.tsx: 250,
+ *  500, 1000, 2000 y 4000 ms de espera, ~7,75 s en total. Si se cambia uno, se cambian los dos:
+ *  es la misma carrera de arranque. */
+const REINTENTOS_ARRANQUE = 6;
+
 export function useIntel({
   geo,
   ne,
@@ -244,7 +249,41 @@ export function useIntel({
       const n = reg.get(s.r);
       return n ? ([[s.id, n]] as [number, string][]) : [];
     });
-    invoke("set_intel_graph", { names, edges, regions }).catch(() => {});
+    // ★★ CON REINTENTO Y SIN CATCH VACÍO (2026-11-26). Esto se manda UNA sola vez —`geo` y `ne` no
+    //   vuelven a cambiar— y antes llevaba `.catch(() => {})`. Si perdía la carrera de arranque
+    //   (el backend aún sin registrar su estado: ver `refresh()` en App.tsx), el grafo de Rust se
+    //   quedaba vacío, el vigilante se saltaba el matching y NO volvía a avisar hasta reiniciar
+    //   Koru, con el mapa perfecto porque su feed no pasa por aquí. `start_intel_watch` sobrevivía
+    //   a la misma carrera solo porque se relanza con cada cambio de sus dependencias.
+    //   Mismo patrón que `refresh()`: 6 intentos, 250 ms doblando.
+    //
+    // ⚠️ Un `names` vacío (el fallback de `loadJson` si `neweden.json` no carga) SE MANDA igual: el
+    //   grafo vacío es la verdad, y así el vigilante publica «sin grafo» y el badge lo enseña. La
+    //   consola es para quien desarrolla; a quien usa Koru solo le llega el badge.
+    if (names.length === 0) {
+      console.error("[intel] el mapa de sistemas llegó vacío: el vigilante no podrá avisar");
+    }
+    let vivo = true;
+    (async () => {
+      let ultimo: unknown = null;
+      for (let intento = 0; intento < REINTENTOS_ARRANQUE; intento++) {
+        if (!vivo) return;
+        try {
+          await invoke("set_intel_graph", { names, edges, regions });
+          return;
+        } catch (e) {
+          ultimo = e;
+          if (intento === REINTENTOS_ARRANQUE - 1) break;
+          await new Promise((r) => setTimeout(r, 250 * 2 ** intento));
+        }
+      }
+      // Agotado: el badge ya dice «sin grafo» porque lo publica Rust; esto es la causa, para quien
+      // abra la consola.
+      console.error("[intel] set_intel_graph falló tras todos los reintentos:", ultimo);
+    })();
+    return () => {
+      vivo = false;
+    };
   }, [geo, ne]);
 
   // Interruptor del aviso flotante. Se guarda en localStorage (es preferencia de UI, no dato), pero

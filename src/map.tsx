@@ -4650,7 +4650,18 @@ export function MapView(props: {
                     ? ["bad", `⚠ ${tr("error leyendo logs")}`, s.last_error]
                     : !s.collecting
                       ? ["bad", `⚠ ${tr("parado")}: ${s.idle_reason ?? "?"}`, s.idle_reason ?? ""]
-                      : s.files === 0
+                      : // ★ SIN GRAFO va antes que «sin logs» y en rojo: es el único estado en que el
+                        //   feed entra y el mapa se ve perfecto mientras el aviso flotante y el
+                        //   minimapa no pueden saltar NUNCA. Aquí salía «leyendo» en verde.
+                        //   `!s.graph_systems` y no `=== 0`: un backend sin el campo también es
+                        //   un backend que no sabemos si tiene grafo.
+                        !s.graph_systems
+                        ? [
+                            "bad",
+                            `⚠ ${tr("sin mapa de sistemas: no puede avisar")}`,
+                            tr("El vigilante lee el canal, pero no tiene el mapa de sistemas: no reconoce ninguno y ni el aviso flotante ni el minimapa pueden saltar. Si no se arregla solo, reinicia Koru."),
+                          ]
+                        : s.files === 0
                         ? [
                             "warn",
                             `⚠ ${tr("sin logs de ese canal")}`,

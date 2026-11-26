@@ -523,6 +523,8 @@ export type IntelStatus = {
   lines: number;
   files: number;
   last_tick_ms: number;
+  /** Sistemas en el grafo del vigilante. 0 = las alertas son imposibles aunque el feed entre. */
+  graph_systems: number;
 };
 /** Un blueprint tuyo con sus ME/TE REALES (F1a, scope read_blueprints).
  *  `quantity`: -1 = BPO · -2 = BPC · >0 = pila de BPCs. `runs`: -1 = BPO (infinitas). */

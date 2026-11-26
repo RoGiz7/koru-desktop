@@ -11,6 +11,20 @@ los mensajes de commit. El proyecto entero está en español. (Los commits, sin 
 ESTILO al final.) La app es bilingüe ES/EN de cara al usuario, pero eso es otra cosa: son las
 cadenas de `src/i18n.ts`, no la forma de trabajar.
 
+
+## 📍 ALCANCE — este repo es SOLO la app de escritorio
+
+En la carpeta de al lado conviven **otros proyectos distintos que comparten nombre y nada de
+código**: un módulo en Python/Django para Alliance Auth (estadísticas de corporación, lunas,
+impuestos, auditor), la web de la corporación, y unos flujos de automatización con n8n y Baserow
+para los tickets.
+
+➡️ **Nada de eso se toca desde aquí.** Si una tarea habla de tickets, del auditor, de lunas, de
+PAPs o del servidor de Alliance Auth, **no es de este repo**: dilo y pregunta antes de tocar nada.
+
+⚠️ Y ojo con `documentacion/`: es una carpeta compartida con material de todos esos proyectos.
+Encontrar algo ahí dentro **no significa** que pertenezca a koru-desktop.
+
 ---
 
 ## 🔒 PRIVACIDAD — lo primero, y no se negocia

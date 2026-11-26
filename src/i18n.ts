@@ -322,6 +322,9 @@ const EN: Record<string, string> = {
   "error leyendo logs": "error reading logs",
   "vigilante sin responder": "watcher not responding",
   "sin logs de ese canal": "no logs for that channel",
+  "sin mapa de sistemas: no puede avisar": "no system map: cannot alert",
+  "El vigilante lee el canal, pero no tiene el mapa de sistemas: no reconoce ninguno y ni el aviso flotante ni el minimapa pueden saltar. Si no se arregla solo, reinicia Koru.":
+    "The watcher is reading the channel, but it has no system map: it recognises no systems, so neither the floating alert nor the minimap can go off. If it does not fix itself, restart Koru.",
   "El hilo del intel no responde": "The intel thread is not responding",
   "El vigilante está leyendo de verdad": "The watcher really is reading",
   "No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?":
