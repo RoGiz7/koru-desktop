@@ -1,6 +1,6 @@
 // Salud del vigilante de intel: la línea de salud y la PALABRA de la pastilla de «Intel en vivo».
 // Vive aparte de map.tsx para poder probarla sin montar el mapa.
-import { tr } from "./i18n";
+import { tr } from "./i18n.ts";
 import type { IntelStatus } from "./types";
 
 /** Salud REAL del vigilante de intel: [clase, texto, tooltip, palabra de la pastilla]. La leen el

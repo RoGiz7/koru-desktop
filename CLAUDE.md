@@ -70,6 +70,8 @@ npx tsc --noEmit -p tsconfig.json        # siempre
 cargo check                              # si tocaste Rust
 python scripts/audit_i18n.py             # si tocaste textos: 0 cadenas sin inglés
 python scripts/check_privacidad.py       # siempre antes de publicar
+node scripts/verificar_plan.mjs          # si tocaste src/plan.ts
+node scripts/verificar_salud_intel.mjs   # si tocaste src/saludIntel.ts
 ```
 
 - ⚠️ **`Finished` sin `Compiling` NO es un build verde.** Si cargo no recompiló, no probaste nada.
