@@ -6,6 +6,11 @@ release mala llega a todas las máquinas sola**: las puertas de abajo son lo ún
 
 El autor público del repo es **RoGiz7**. Úsalo en código, comentarios, documentación y commits.
 
+**Habla y escribe en castellano**: con el autor, en los comentarios, en la documentación y en
+los mensajes de commit. El proyecto entero está en español. (Los commits, sin acentos — ver
+ESTILO al final.) La app es bilingüe ES/EN de cara al usuario, pero eso es otra cosa: son las
+cadenas de `src/i18n.ts`, no la forma de trabajar.
+
 ---
 
 ## 🔒 PRIVACIDAD — lo primero, y no se negocia
