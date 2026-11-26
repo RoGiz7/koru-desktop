@@ -19,6 +19,7 @@ import {
   duracion,
   evaluar,
   muertesTramo,
+  muertesViejas,
   posponer,
   proponer,
   type Evaluacion,
@@ -94,6 +95,15 @@ export function PlanNav(props: {
   routeMode: RouteMode;
   /** Muertes de la última hora por sistema (`get_system_kills`, ship + pod). `null` = sin datos. */
   kills: Map<number, number> | null;
+  /** Cuándo llegó `kills` (ms) y el error del último refresco, si falló. */
+  killsAt: number | null;
+  killsErr: string;
+  /** Los tramos que tiene que mirar el vigilante mientras este panel está abierto; `null` al cerrarlo
+   *  (el mapa pasa entonces a vigilar solo las paradas empezadas). Quien llama a `plan_intel_set` es
+   *  el mapa, que está siempre montado: ver «QUÉ CAMINO MIRA EL VIGILANTE» en map.tsx. */
+  onTramosIntel: (t: PlanTramoIntel[] | null) => void;
+  /** Si el vigilante no recibió los tramos o no se pudieron leer las empezadas. */
+  intelError: string;
   /** Pinta las paradas en el planificador del mapa: [origen, parada1, parada2…]. */
   onPintar: (stops: number[]) => void;
   /** Las paradas que tiene AHORA el planificador, para saber si la línea sigue siendo la del plan. */
@@ -103,7 +113,7 @@ export function PlanNav(props: {
   focusSystem: (sid: number) => void;
   onCerrar: () => void;
 }) {
-  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
+  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
   const [cargado, setCargado] = useState<PlanCargado | null>(null);
   const [error, setError] = useState("");
   const [minSalto, setMinSalto] = useState(() => leerNum(MIN_SALTO_KEY, DEF_MIN_SALTO));
@@ -231,18 +241,13 @@ export function PlanNav(props: {
   }, [actual, calc, hereSystemId, calcTramo, nameOf, ahora]);
   const tramosIntelKey = JSON.stringify(tramosIntel);
   useEffect(() => {
-    invoke("plan_intel_set", { tramos: tramosIntel }).catch((e) => {
-      // Si no llega, el vigilante no mira el camino: se DICE aquí, no se deja el panel en calma.
-      setError(`${tr("El intel no recibió los tramos del plan")}: ${String(e)}`);
-    });
+    onTramosIntel(tramosIntel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tramosIntelKey]);
-  // Al cerrar el plan, el camino deja de mirarse. Un fallo aquí no tiene pantalla donde decirse (el
-  // panel ya no está): va a consola, que es lo que queda.
+  // Al cerrar el panel NO se deja de vigilar: el mapa vuelve a las paradas con la run abierta.
   useEffect(
-    () => () => {
-      invoke("plan_intel_set", { tramos: [] }).catch((e) => console.error("[plan] no se pudo dejar de vigilar el camino:", e));
-    },
+    () => () => onTramosIntel(null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
   const [marcas, setMarcas] = useState<PlanMarca[]>([]);
@@ -419,7 +424,17 @@ export function PlanNav(props: {
   function lineaMuertes(r: ResultadoParada) {
     const mk = muertesTramo(r.path, kills);
     // «Sin datos» no es «limpio»: se dice cuál de las dos es.
-    if (!mk) return `☠ ${tr("sin datos de muertes")}`;
+    if (!mk) return `☠ ${tr("sin datos de muertes")}${killsErr ? ` (${killsErr})` : ""}`;
+    // Un dato viejo NO puede decir «en la última hora»: la frase cambia, no se le pega una nota.
+    const viejo = muertesViejas(killsAt, ahora);
+    if (viejo != null) {
+      const d = duracion(viejo);
+      const de = getLang() === "en" ? `data from ${d} ago` : `dato de hace ${d}`;
+      const fallo = killsErr ? `, ${tr("no se pudo refrescar")}` : "";
+      return mk.peor
+        ? `☠ ${de}${fallo}: ${mk.sistemas} ${tr("sistemas con muertes en esa hora; el peor,")} ${nameOf(mk.peor.systemId)} (${mk.peor.kills})`
+        : `☠ ${de}${fallo}: ${tr("ningún sistema con muertes en esa hora")}`;
+    }
     if (!mk.peor) return `☠ ${tr("ningún sistema con muertes en la última hora")}`;
     return `☠ ${mk.sistemas} ${tr("sistemas con muertes en la última hora; el peor,")} ${nameOf(mk.peor.systemId)} (${mk.peor.kills})`;
   }
@@ -592,7 +607,7 @@ export function PlanNav(props: {
                   <div className="small muted">
                     👁 {tr("El intel mira")} {tramosIntel.length} {tr("tramos")} ·{" "}
                     {empezados.length > 0
-                      ? `${tr("suena el de")} ${empezados.map((t) => t.destino).join(", ")}`
+                      ? `${tr("suena el de")} ${empezados.map((t) => t.destino).join(", ")} (${tr("también con el plan cerrado")})`
                       : tr("ninguno empezado: marca sin sonar")}{" "}
                     ·{" "}
                     {marcasPlan.length > 0
@@ -600,6 +615,7 @@ export function PlanNav(props: {
                       : tr("nada cantado en el camino")}
                   </div>
                 ))}
+              {intelError && <div className="small route-scope-warn">⚠ {intelError}</div>}
 
               <ol
                 className={`plan-nav-lista${arrastre ? " arrastrando" : ""}`}

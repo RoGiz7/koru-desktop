@@ -373,6 +373,7 @@ pub fn run() {
             commands::get_planet_detail,
             commands::get_intel_status,
             commands::plan_intel_set,
+            commands::plan_paradas_empezadas,
             commands::plan_intel_marcas,
             commands::get_blueprints,
             commands::get_blueprints_global,

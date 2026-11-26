@@ -160,6 +160,20 @@ pub struct PlanCargado {
     pub paradas: Vec<ParadaCargada>,
 }
 
+/// Una parada a la que YA has salido («▶ Voy» con la run abierta), de cualquier plan guardado.
+///
+/// ★ Es lo que el vigilante mira con el plan CERRADO. Cuando vuelas de verdad estás en EVE, no en
+///   el mapa de Koru: atar la vigilancia al panel abierto la apagaba justo cuando hace falta. Y
+///   vigilar todos los planes guardados para siempre sería ruido; la run abierta es la condición
+///   buena: «Empezar» la enciende, terminar o abandonar la apaga.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ParadaEmpezada {
+    pub stop_id: i64,
+    pub system_id: i64,
+    pub system_name: String,
+    pub caduca_at: String,
+}
+
 impl Db {
     /// Borra el objeto `ref_id` de tipo `kind` **y sus paradas en todos los planes**, en una sola
     /// transacción. Es la ÚNICA puerta de borrado de algo que puede estar en un plan: así la
@@ -257,6 +271,34 @@ impl Db {
             paradas.push(ParadaCargada { id, orden, kind, ref_id, resuelta, fallo });
         }
         Ok(PlanCargado { plan, paradas })
+    }
+
+    /// Las paradas empezadas de TODOS los planes (ver `ParadaEmpezada`). Pasa por el mismo
+    /// `resolver` que el cargador, para que «empezada» signifique lo mismo en el panel y fuera de
+    /// él. Una escalación que está en dos planes sale UNA vez: dos tramos iguales serían dos
+    /// marcas del mismo hostil. Las que no saben su sistema no se pueden rutar y no salen.
+    pub fn plan_paradas_empezadas(&self) -> AppResult<Vec<ParadaEmpezada>> {
+        let conn = self.conn.lock().unwrap();
+        let filas: Vec<(i64, String, i64)> = {
+            let mut st = conn.prepare("SELECT id, kind, ref_id FROM plan_stop ORDER BY plan_id, orden, id")?;
+            let v = st
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            v
+        };
+        let mut vistas = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for (stop_id, kind, ref_id) in filas {
+            // Un kind que este Koru no conoce no puede estar empezado por este Koru: lo canta el
+            // cargador, aquí solo no se vigila.
+            let Some(k) = PlanKind::de_clave(&kind) else { continue };
+            let Some(r) = k.resolver(&conn, ref_id)? else { continue };
+            let Some(sid) = r.system_id else { continue };
+            if r.empezada && vistas.insert((kind.clone(), ref_id)) {
+                out.push(ParadaEmpezada { stop_id, system_id: sid, system_name: r.system_name, caduca_at: r.caduca_at });
+            }
+        }
+        Ok(out)
     }
 
     /// Añade una parada al final. Comprueba que el tipo exista y que el objeto exista HOY: dejar
@@ -377,12 +419,21 @@ mod tests {
         // 1b) «▶ Voy» la marca como empezada mientras la run está ABIERTA; al cerrarla, deja de
         //     estarlo aunque el estado siga «pendiente» (el caso de la segunda llamada que falla).
         assert!(!c.paradas[0].resuelta.as_ref().unwrap().empezada, "sin Voy no está empezada");
+        // La misma escalación en OTRO plan: con el plan cerrado tiene que vigilarse UNA vez.
+        let otro = db.plan_crear("otro").unwrap();
+        assert!(db.plan_anadir(otro, "escalacion", b).unwrap());
+        assert!(db.plan_paradas_empezadas().unwrap().is_empty(), "sin Voy, nada que vigilar");
         let run = db.escalacion_run_start(b, None, None, None).unwrap();
         let c = db.plan_cargar(plan).unwrap();
         assert!(c.paradas[0].resuelta.as_ref().unwrap().empezada, "con Voy, empezada");
+        let e = db.plan_paradas_empezadas().unwrap();
+        assert_eq!(e.len(), 1, "empezada en dos planes: un solo tramo vigilado");
+        assert_eq!((e[0].stop_id, e[0].system_id), (c.paradas[0].id, 30002187));
         db.run_end(run, "done", None, None, None, None, None).unwrap();
         let c = db.plan_cargar(plan).unwrap();
         assert!(!c.paradas[0].resuelta.as_ref().unwrap().empezada, "run cerrada: ya no suena");
+        assert!(db.plan_paradas_empezadas().unwrap().is_empty(), "run cerrada: se deja de vigilar");
+        assert!(db.plan_borrar(otro).unwrap());
 
         // 2) Un borrado por otra puerta deja la parada colgando: el cargador la CANTA.
         db.conn.lock().unwrap().execute("DELETE FROM escalaciones WHERE id = ?1", [b]).unwrap();

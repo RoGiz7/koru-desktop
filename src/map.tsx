@@ -29,7 +29,7 @@ import type { MapOverlay, Tab } from "./constants";
 import { openExternal } from "./openExternal";
 import { NotasAncla } from "./notas";
 import { PlanNav } from "./planNav";
-import type { Tramo } from "./plan";
+import { PLAN_CAMBIADO, tramosEmpezados, type ParadaEmpezada, type PlanTramoIntel, type Tramo } from "./plan";
 import type {
   IntelConfig,
   IntelStatus,
@@ -462,6 +462,27 @@ export function MapView(props: {
   const [sitiosLocales, setSitiosLocales] = useState<SitiosLocales | null>(null);
   const [factionMap, setFactionMap] = useState<Record<string, number> | null>(null);
   const [liveKills, setLiveKills] = useState<Map<number, number> | null>(null);
+  /** Cuándo llegó `liveKills` y si el último intento falló. El plan dice «en la última hora» con
+   *  este dato: sin saber de cuándo es, esa frase podía ser falsa a las seis horas sin que nada lo
+   *  dijera. Ver `muertesViejas` en plan.ts. */
+  const [killsAt, setKillsAt] = useState<number | null>(null);
+  const [killsErr, setKillsErr] = useState("");
+  const cargarKills = useCallback(
+    () =>
+      invoke<SystemKills[]>("get_system_kills")
+        .then((rows) => {
+          const m = new Map<number, number>();
+          for (const r of rows) m.set(r.system_id, r.ship_kills + r.pod_kills);
+          setLiveKills(m);
+          setKillsAt(Date.now());
+          setKillsErr("");
+        })
+        .catch((e) => {
+          console.error("[mapa] no se pudieron leer las muertes (get_system_kills):", e);
+          setKillsErr(String(e));
+        }),
+    [],
+  );
   const [liveJumps, setLiveJumps] = useState<Map<number, number> | null>(null);
   const [liveBusy, setLiveBusy] = useState(false);
   const [view, setView] = useState({ z: 1, x: 0, y: 0 });
@@ -683,13 +704,7 @@ export function MapView(props: {
     // Facción NPC por sistema (del SDE) para la capa de standings.
     loadJson<Record<string, number>>("/system-factions.json", {}).then(setFactionMap);
     // Actividad en vivo (1h) para tooltips, siempre disponible.
-    invoke<SystemKills[]>("get_system_kills")
-      .then((rows) => {
-        const m = new Map<number, number>();
-        for (const r of rows) m.set(r.system_id, r.ship_kills + r.pod_kills);
-        setLiveKills(m);
-      })
-      .catch(() => {});
+    void cargarKills();
     invoke<SystemJumps[]>("get_system_jumps")
       .then((rows) => {
         const m = new Map<number, number>();
@@ -870,14 +885,7 @@ export function MapView(props: {
   useEffect(() => {
     if ((overlay === "kills" || routeActive) && !liveKills) {
       setLiveBusy(true);
-      invoke<SystemKills[]>("get_system_kills")
-        .then((rows) => {
-          const m = new Map<number, number>();
-          for (const r of rows) m.set(r.system_id, r.ship_kills + r.pod_kills);
-          setLiveKills(m);
-        })
-        .catch(() => {})
-        .finally(() => setLiveBusy(false));
+      void cargarKills().finally(() => setLiveBusy(false));
     }
     if (overlay === "jumps" && !liveJumps) {
       setLiveBusy(true);
@@ -890,7 +898,7 @@ export function MapView(props: {
         .catch(() => {})
         .finally(() => setLiveBusy(false));
     }
-  }, [overlay, routeActive, liveKills, liveJumps]);
+  }, [overlay, routeActive, liveKills, liveJumps, cargarKills]);
 
   // Proyección + backdrop (líneas) + centroides de región, memorizado por el dataset.
   const geo = useMemo(() => {
@@ -1126,6 +1134,16 @@ export function MapView(props: {
    *  «Trazar la ruta hasta ahí» de una escalación suelta NO pasa por aquí y sigue igual. */
   const [planAbierto, setPlanAbierto] = useState<{ planId: number; nonce: number } | null>(null);
   const planReqDone = useRef(0);
+  // ★ Con el plan abierto, las muertes se refrescan solas: su panel dice «en la última hora». Pedirlas
+  //   cada 5 min es gratis mientras dure el `Expires` de ESI (`get_cached` ni sale de casa), así que
+  //   cuesta UNA llamada por hora de ESI. Con el plan cerrado no se pide nada: nadie lee la frase.
+  const planVisible = planAbierto != null;
+  useEffect(() => {
+    if (!planVisible) return;
+    void cargarKills();
+    const t = window.setInterval(() => void cargarKills(), 5 * 60_000);
+    return () => window.clearInterval(t);
+  }, [planVisible, cargarKills]);
   useEffect(() => {
     if (!planReq || planReq.nonce === planReqDone.current) return;
     planReqDone.current = planReq.nonce;
@@ -2544,6 +2562,59 @@ export function MapView(props: {
     },
     [geo, routeAdj, routeMode, avoid, wh, sigWh],
   );
+
+  // ==== ★ QUÉ CAMINO MIRA EL VIGILANTE (plan, fase 2) ====
+  // Vive AQUÍ y no en el panel del plan, porque el mapa está siempre montado y el panel no. Cuando
+  // vuelas de verdad estás en EVE, no mirando este mapa: si la vigilancia dependiera del panel
+  // abierto, se apagaría justo entonces (fue la primera versión). La condición es la RUN ABIERTA:
+  //   · panel abierto → manda él: todos los tramos que faltan, marcados, y suena el empezado;
+  //   · panel cerrado → las paradas con «▶ Voy» y la run abierta, de cualquier plan.
+  // Terminar o abandonar la run la saca de `plan_paradas_empezadas`, y con eso deja de mirarse.
+  const [tramosPanel, setTramosPanel] = useState<PlanTramoIntel[] | null>(null);
+  const [empezadas, setEmpezadas] = useState<ParadaEmpezada[]>([]);
+  const [empezadasErr, setEmpezadasErr] = useState("");
+  const [planIntelErr, setPlanIntelErr] = useState("");
+  useEffect(() => {
+    let vivo = true;
+    const leer = () =>
+      invoke<ParadaEmpezada[]>("plan_paradas_empezadas")
+        .then((v) => {
+          if (!vivo) return;
+          setEmpezadas(v);
+          setEmpezadasErr("");
+        })
+        .catch((e) => {
+          console.error("[plan] no se pudieron leer las paradas empezadas:", e);
+          if (vivo) setEmpezadasErr(`${tr("No se pudieron leer las paradas empezadas")}: ${String(e)}`);
+        });
+    void leer();
+    // «Voy», «Hecha», «Paso» en Escalaciones lo avisan; el latido cubre la run cerrada por otra
+    // puerta (y la caducidad, que `plan_paradas_empezadas` marca antes de leer).
+    window.addEventListener(PLAN_CAMBIADO, leer);
+    const t = window.setInterval(leer, 30_000);
+    return () => {
+      vivo = false;
+      window.removeEventListener(PLAN_CAMBIADO, leer);
+      window.clearInterval(t);
+    };
+  }, []);
+  const tramosVigilados = useMemo(
+    () => tramosPanel ?? tramosEmpezados(empezadas, hereSystemId ?? null, calcTramo, nameOf, Date.now()),
+    // `nameOf` cambia en cada render; el nombre sale del mismo `ne` que `calcTramo`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tramosPanel, empezadas, hereSystemId, calcTramo],
+  );
+  const tramosVigiladosKey = JSON.stringify(tramosVigilados);
+  useEffect(() => {
+    invoke("plan_intel_set", { tramos: tramosVigilados })
+      .then(() => setPlanIntelErr(""))
+      .catch((e) => {
+        // Con el panel cerrado no hay dónde pintarlo: consola, y el panel lo dice al abrirse.
+        console.error("[plan] el intel no recibió los tramos del plan:", e);
+        setPlanIntelErr(`${tr("El intel no recibió los tramos del plan")}: ${String(e)}`);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tramosVigiladosKey]);
 
   // ---- ¿HAY AVISOS DE INTEL EN LA RUTA QUE ACABAS DE TRAZAR? (idea de RoGiz7, 2026-08-12) ----
   //
@@ -6270,6 +6341,10 @@ export function MapView(props: {
               calcTramo={calcTramo}
               routeMode={routeMode}
               kills={liveKills}
+              killsAt={killsAt}
+              killsErr={killsErr}
+              onTramosIntel={setTramosPanel}
+              intelError={planIntelErr || empezadasErr}
               intercepting={intercepting}
               onPintar={(stops) => setRouteStops(stops)}
               rutaActual={routeStops}

@@ -1178,6 +1178,14 @@ pub fn plan_cargar(state: State<'_, AppState>, plan_id: i64) -> AppResult<crate:
     state.db.plan_cargar(plan_id)
 }
 
+/// Las paradas con «▶ Voy» y la run abierta, de cualquier plan: lo que el vigilante mira con el plan
+/// cerrado. Marca antes las caducadas, como `plan_cargar`: una escalación caducada sale del camino.
+#[tauri::command]
+pub fn plan_paradas_empezadas(state: State<'_, AppState>) -> AppResult<Vec<crate::db::plan::ParadaEmpezada>> {
+    state.db.escalaciones_caducar()?;
+    state.db.plan_paradas_empezadas()
+}
+
 #[tauri::command]
 pub fn plan_anadir(state: State<'_, AppState>, plan_id: i64, kind: String, ref_id: i64) -> AppResult<bool> {
     state.db.plan_anadir(plan_id, &kind, ref_id)

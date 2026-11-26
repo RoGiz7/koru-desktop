@@ -350,6 +350,52 @@ export type PlanMarca = {
 /** Lo que se manda al vigilante: un tramo del plan, con los sistemas de su ruta. */
 export type PlanTramoIntel = { stop_id: number; destino: string; sistemas: number[]; empezado: boolean };
 
+/** `plan_paradas_empezadas`: paradas con «▶ Voy» y la run abierta, de cualquier plan. */
+export type ParadaEmpezada = { stop_id: number; system_id: number; system_name: string; caduca_at: string };
+
+/** ★ FASE 2 · LO QUE SE VIGILA CON EL PLAN CERRADO. Cuando vuelas estás en EVE, no en el mapa de
+ *  Koru: la vigilancia no puede depender de que el panel esté abierto. Con el panel cerrado no hay
+ *  orden ni tramos sin empezar que enseñar, así que solo se mira lo que AVISA: el camino desde
+ *  donde estás hasta cada parada empezada, con el mismo buscador que la línea amarilla.
+ *
+ *  ⚠️ Sin ubicación o sin ruta, el tramo se queda en el DESTINO solo y no se tira: un hostil en el
+ *     sistema de la escalación sigue sonando. Tirarlo apagaría la vigilancia en silencio justo
+ *     cuando ESI tarda en decir dónde estás. Una caducada sale (B2) aunque la run siga abierta. */
+export function tramosEmpezados(
+  empezadas: ParadaEmpezada[],
+  aqui: number | null,
+  calc: (desde: number, hasta: number) => Tramo,
+  nameOf: (sid: number) => string,
+  ahoraMs: number,
+): PlanTramoIntel[] {
+  const out: PlanTramoIntel[] = [];
+  for (const e of empezadas) {
+    const caduca = Date.parse(e.caduca_at);
+    if (!(caduca > ahoraMs)) continue;
+    const t = aqui != null ? calc(aqui, e.system_id) : null;
+    out.push({
+      stop_id: e.stop_id,
+      destino: nameOf(e.system_id) || e.system_name,
+      sistemas: t ? t.path : [e.system_id],
+      empezado: true,
+    });
+  }
+  return out;
+}
+
+/** ESI rehace `system_kills` cada hora; con el refresco del mapa (cada pocos minutos mientras el plan
+ *  está abierto) un dato bueno nunca pasa de ~1 h. Si pasa de esto es que el refresco FALLA. */
+export const MUERTES_VIEJAS_MIN = 75;
+
+/** ¿Puede la frase seguir diciendo «en la última hora»? `null` = sí; si no, los minutos que tiene el
+ *  dato. A las seis horas «en la última hora» es falso EN LA PROPIA FRASE: la pantalla tiene que
+ *  cambiarla, no solo añadir una nota. */
+export function muertesViejas(cargadoMs: number | null, ahoraMs: number): number | null {
+  if (cargadoMs == null) return null;
+  const min = Math.floor((ahoraMs - cargadoMs) / 60000);
+  return min > MUERTES_VIEJAS_MIN ? min : null;
+}
+
 /** Caché de tramos: cada par se calcula UNA vez con `calc` (el buscador de rutas del mapa).
  *  Con 8 paradas son como mucho 72 búsquedas, y arrastrar no repite ninguna. */
 export function cacheTramos(
