@@ -6,7 +6,8 @@
 "group": "Black Ops",
 "range": 4.0,
 "fuelPerLy": 700,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 0.25
 },
 {
 "id": 22440,
@@ -14,7 +15,8 @@
 "group": "Black Ops",
 "range": 4.0,
 "fuelPerLy": 700,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 0.25
 },
 {
 "id": 85236,
@@ -22,7 +24,8 @@
 "group": "Black Ops",
 "range": 4.0,
 "fuelPerLy": 700,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 0.25
 },
 {
 "id": 22428,
@@ -30,7 +33,8 @@
 "group": "Black Ops",
 "range": 4.0,
 "fuelPerLy": 700,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 0.25
 },
 {
 "id": 22430,
@@ -38,7 +42,8 @@
 "group": "Black Ops",
 "range": 4.0,
 "fuelPerLy": 700,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 0.25
 },
 {
 "id": 22436,
@@ -46,7 +51,8 @@
 "group": "Black Ops",
 "range": 4.0,
 "fuelPerLy": 700,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 0.25
 },
 {
 "id": 28352,
@@ -54,7 +60,8 @@
 "group": "Capital Industrial Ship",
 "range": 5.0,
 "fuelPerLy": 4000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 0.1
 },
 {
 "id": 23757,
@@ -62,7 +69,8 @@
 "group": "Carrier",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 23915,
@@ -70,7 +78,8 @@
 "group": "Carrier",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 24483,
@@ -78,7 +87,8 @@
 "group": "Carrier",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 23911,
@@ -86,7 +96,8 @@
 "group": "Carrier",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 92824,
@@ -94,7 +105,8 @@
 "group": "Command Carrier",
 "range": 3.75,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 92822,
@@ -102,7 +114,8 @@
 "group": "Command Carrier",
 "range": 3.75,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 92823,
@@ -110,7 +123,8 @@
 "group": "Command Carrier",
 "range": 3.75,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 92825,
@@ -118,7 +132,8 @@
 "group": "Command Carrier",
 "range": 3.75,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 45647,
@@ -126,7 +141,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 42243,
@@ -134,7 +150,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 19724,
@@ -142,7 +159,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 73792,
@@ -150,7 +168,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 19722,
@@ -158,7 +177,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 73787,
@@ -166,7 +186,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 19726,
@@ -174,7 +195,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 73793,
@@ -182,7 +204,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 19720,
@@ -190,7 +213,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 73790,
@@ -198,7 +222,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 87381,
@@ -206,7 +231,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 42124,
@@ -214,7 +240,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 52907,
@@ -222,7 +249,8 @@
 "group": "Dreadnought",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 37604,
@@ -230,7 +258,8 @@
 "group": "Force Auxiliary",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 42242,
@@ -238,7 +267,8 @@
 "group": "Force Auxiliary",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 37606,
@@ -246,7 +276,8 @@
 "group": "Force Auxiliary",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 45645,
@@ -254,7 +285,8 @@
 "group": "Force Auxiliary",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 37605,
@@ -262,7 +294,8 @@
 "group": "Force Auxiliary",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 37607,
@@ -270,7 +303,8 @@
 "group": "Force Auxiliary",
 "range": 3.5,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 28848,
@@ -278,7 +312,8 @@
 "group": "Jump Freighter",
 "range": 5.0,
 "fuelPerLy": 9400,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 0.1
 },
 {
 "id": 28850,
@@ -286,7 +321,8 @@
 "group": "Jump Freighter",
 "range": 5.0,
 "fuelPerLy": 8800,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 0.1
 },
 {
 "id": 28846,
@@ -294,7 +330,8 @@
 "group": "Jump Freighter",
 "range": 5.0,
 "fuelPerLy": 8200,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 0.1
 },
 {
 "id": 28844,
@@ -302,7 +339,8 @@
 "group": "Jump Freighter",
 "range": 5.0,
 "fuelPerLy": 10000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 0.1
 },
 {
 "id": 77283,
@@ -310,7 +348,8 @@
 "group": "Lancer Dreadnought",
 "range": 4.0,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 77281,
@@ -318,7 +357,8 @@
 "group": "Lancer Dreadnought",
 "range": 4.0,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 77284,
@@ -326,7 +366,8 @@
 "group": "Lancer Dreadnought",
 "range": 4.0,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 77288,
@@ -334,7 +375,8 @@
 "group": "Lancer Dreadnought",
 "range": 4.0,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 23919,
@@ -342,7 +384,8 @@
 "group": "Supercarrier",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 22852,
@@ -350,7 +393,8 @@
 "group": "Supercarrier",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 23913,
@@ -358,7 +402,8 @@
 "group": "Supercarrier",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 3514,
@@ -366,7 +411,8 @@
 "group": "Supercarrier",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 42125,
@@ -374,7 +420,8 @@
 "group": "Supercarrier",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 23917,
@@ -382,7 +429,8 @@
 "group": "Supercarrier",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 11567,
@@ -390,7 +438,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 78576,
@@ -398,7 +447,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 671,
@@ -406,7 +456,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
 },
 {
 "id": 45649,
@@ -414,7 +465,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 3764,
@@ -422,7 +474,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Nitrogen Isotopes"
+"isotope": "Nitrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 42241,
@@ -430,7 +483,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Helium Isotopes"
+"isotope": "Helium Isotopes",
+"fatMult": 1
 },
 {
 "id": 23773,
@@ -438,7 +492,8 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Hydrogen Isotopes"
+"isotope": "Hydrogen Isotopes",
+"fatMult": 1
 },
 {
 "id": 42126,
@@ -446,7 +501,25 @@
 "group": "Titan",
 "range": 3.0,
 "fuelPerLy": 3000,
-"isotope": "Oxygen Isotopes"
+"isotope": "Oxygen Isotopes",
+"fatMult": 1
+}
+],
+"cynos": [
+{
+"id": 21096,
+"name": "Cynosural Field Generator I",
+"cycleMin": 10
+},
+{
+"id": 28646,
+"name": "Covert Cynosural Field Generator I",
+"cycleMin": 1
+},
+{
+"id": 52694,
+"name": "Industrial Cynosural Field Generator",
+"cycleMin": 10
 }
 ]
 }

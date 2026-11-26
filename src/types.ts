@@ -272,6 +272,9 @@ export type JumpShip = {
   range: number; // rango base en LY (skill 0)
   fuelPerLy: number; // isótopos por LY
   isotope: string; // nombre del isótopo (combustible)
+  /** Atributo 1971 del SDE: multiplica la distancia antes del cooldown y la fatiga. 1 = sin rebaja;
+   *  Black Ops 0,25; Jump Freighter y Rorqual 0,1. Lo pone `extract_jumpships.py`, siempre. */
+  fatMult: number;
 };
 export type AttrView = {
   charisma: number;

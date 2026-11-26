@@ -7,6 +7,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { JumpShip } from "./types";
+import { esFaltaPermiso } from "./errores";
 import { loadJson } from "./staticJson";
 
 export function useJumpPlanner() {
@@ -23,6 +24,9 @@ export function useJumpPlanner() {
   const [jumpOwned, setJumpOwned] = useState<Set<number>>(new Set()); // type_ids de naves propias
   const [jumpFatigue, setJumpFatigue] = useState<{ expire: string | null } | null>(null);
   const [jumpFatMissing, setJumpFatMissing] = useState(false); // falta el scope de fatiga
+  // Cualquier OTRO fallo al leer la fatiga (ESI 502, red…). Antes caía en `jumpFatMissing` y la
+  // pantalla mandaba a reloguear ante un 502.
+  const [jumpFatError, setJumpFatError] = useState("");
   const [fatNow, setFatNow] = useState(Date.now()); // tick para el contador de fatiga
 
   // Catálogo de naves de salto (rango/fuel/isótopo) extraído del SDE.
@@ -36,6 +40,7 @@ export function useJumpPlanner() {
       setJumpOwned(new Set());
       setJumpFatigue(null);
       setJumpFatMissing(false);
+      setJumpFatError("");
       return;
     }
     invoke<{ jdc: number; jfc: number; owned: number[] }>("get_jump_profile", {
@@ -51,10 +56,14 @@ export function useJumpPlanner() {
       .then((f) => {
         setJumpFatigue({ expire: f.jump_fatigue_expire_date });
         setJumpFatMissing(false);
+        setJumpFatError("");
       })
-      .catch(() => {
+      .catch((e) => {
         setJumpFatigue(null);
-        setJumpFatMissing(true);
+        // «Falta el acceso» SOLO cuando falta el acceso: lo dice `AppError::FaltaScope`.
+        const falta = esFaltaPermiso(e);
+        setJumpFatMissing(falta);
+        setJumpFatError(falta ? "" : String(e));
       });
   }, [jumpChar]);
 
@@ -104,6 +113,7 @@ export function useJumpPlanner() {
     setJumpChar,
     jumpOwned,
     jumpFatMissing,
+    jumpFatError,
     selShip,
     curFatMin,
   };

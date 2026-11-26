@@ -131,8 +131,9 @@ la ventana principal—, nunca por número.
 1. **Las 16 llamadas a `/universe` de ESI** → al catálogo local. Es la sesión grande y **la que
    abre SKINR**: coger SKINR obliga a subir la fecha de compatibilidad, y eso retira esas rutas.
    **Migrar primero, subir la fecha después. Nunca al revés.**
-2. **Auditar los 7 huérfanos de `public/`**: `agents`, `jumpships`, `module_slots`,
-   `npc_corp_systems`, `ores`, `skill_names`, `skill_reqs`. Siguen sin generador.
+2. **Auditar los 6 huérfanos de `public/`**: `agents`, `module_slots`, `npc_corp_systems`,
+   `ores`, `skill_names`, `skill_reqs`. Siguen sin generador. (`jumpships` salió de la lista el
+   26-11: `extract_jumpships.py`, con prueba de oro byte a byte.)
 3. **Mensaje a testers** — el de la 0.57.0 nunca se envió, así que ahora acumula dos versiones.
    Titulares: *tu sesión nunca se perdió* (0.57.0) y *el intel vuelve a avisar* (0.58.0).
 4. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son
@@ -152,5 +153,5 @@ la ventana principal—, nunca por número.
   `src/intel.ts` (troceo) · `src/map.tsx`, `src/overlay.tsx`, `src/minimapaVentana.tsx` (pintan).
 - **Ventanas**: tres, con etiquetas `main`, `overlay` y `minimapa`. En Tauri v2 **las capacidades
   van POR VENTANA**.
-- **Datos del SDE**: 22 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
+- **Datos del SDE**: 23 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
   embebidos en el binario. El SDE entra SOLO por esos scripts: nada se pide en caliente.

@@ -28,7 +28,7 @@
 # script), nunca se escribe a mano. Un mapa a mano se queda viejo y miente justo el día que importa,
 # que es exactamente cómo se nos colaron las naves que faltaban en su momento.
 #
-# ⚠️ NO se deriva qué FICHERO de public/ produce cada extractor, y es a propósito: de los 22
+# ⚠️ NO se deriva qué FICHERO de public/ produce cada extractor, y es a propósito: de los 23
 # scripts solo 3 usan el idioma `public / "x.json"`; el resto escriben con constantes propias
 # (OUT, SALIDA, out_asm) y tres dialectos distintos, y un grep de literales `"x.json"` confunde
 # ENTRADAS con salidas (extract_places_i18n *lee* neweden.json, no lo escribe). Una lista

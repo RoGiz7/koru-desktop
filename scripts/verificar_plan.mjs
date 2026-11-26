@@ -16,6 +16,7 @@
  *    ni quitado ninguna, algo se perdió.
  */
 import { proponer, evaluar, cacheTramos, posponer, muertesTramo, bajaNula, cuestaIrSeguro, mejor, tramosEmpezados, muertesViejas } from "../src/plan.ts";
+import { saltoFatiga } from "../src/jumpCalc.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -180,5 +181,30 @@ console.log("Fase 2 — el riesgo del camino");
 }
 const fase2 = cuenta - fase1;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2})`);
+console.log("Salto — cooldown y fatiga de UN salto (saltoFatiga)");
+{
+  // 🚨 Las filas «publicada» están calculadas A MANO con la fórmula publicada, no medidas en el
+  //    juego. Cuando llegue un salto real (años luz y los dos timers), entra como una fila más con
+  //    `fuente: "salto real"`, y si no cuadra, la que está mal es la fórmula.
+  const FILAS = [
+    // nave, fatMult, al, fatiga antes, cooldown, fatiga después
+    { nave: "Carrier", fatMult: 1, ly: 7, antes: 0, cd: 8, despues: 80, fuente: "publicada" },
+    { nave: "Carrier", fatMult: 1, ly: 7, antes: 80, cd: 8, despues: 300, fuente: "publicada" },
+    { nave: "Black Ops", fatMult: 0.25, ly: 8, antes: 0, cd: 3, despues: 30, fuente: "publicada" },
+    { nave: "Black Ops", fatMult: 0.25, ly: 8, antes: 30, cd: 3, despues: 90, fuente: "publicada" },
+    { nave: "Black Ops", fatMult: 0.25, ly: 8, antes: 90, cd: 9, despues: 270, fuente: "publicada" },
+    { nave: "Black Ops", fatMult: 0.25, ly: 8, antes: 270, cd: 27, despues: 300, fuente: "publicada" },
+    { nave: "Black Ops", fatMult: 0.25, ly: 8, antes: 300, cd: 30, despues: 300, fuente: "publicada" },
+    { nave: "Jump Freighter", fatMult: 0.1, ly: 10, antes: 0, cd: 2, despues: 20, fuente: "publicada" },
+  ];
+  const cerca = (a, b) => Math.abs(a - b) < 1e-9;
+  for (const f of FILAS) {
+    const r = saltoFatiga(f.ly, f.fatMult, f.antes);
+    ok(cerca(r.cooldown, f.cd) && cerca(r.fatiga, f.despues),
+      `${f.nave}, ${f.ly} al con ${f.antes} de fatiga → cooldown ${f.cd}, fatiga ${f.despues} (${f.fuente}; sale ${r.cooldown}/${r.fatiga})`);
+  }
+}
+const salto = cuenta - fase1 - fase2;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto})`);
 process.exit(fallos ? 1 : 0);

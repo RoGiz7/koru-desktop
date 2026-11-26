@@ -1079,7 +1079,10 @@ const EN: Record<string, string> = {
   ninguna: "none",
   "tras saltar → cooldown": "after jump → cooldown",
   fatiga: "fatigue",
-  "(máx; tu nave reduce fatiga)": "(max; your ship reduces fatigue)",
+  distancia: "distance",
+  "por el casco": "from the hull",
+  "Fatiga: no se pudo leer": "Fatigue: could not be read",
+  "El cálculo supone cero.": "The estimate assumes zero.",
   "Elige tu nave (rango y fuel salen del SDE) y tus skills; el rango se calcula solo. Click en el mapa: 1º fija el origen, 2º el destino. Resalta en morado los low/null alcanzables.":
     "Choose your ship (range and fuel come from the SDE) and your skills; range is computed automatically. Click on the map: 1st sets the origin, 2nd the destination. Reachable low/null highlighted in purple.",
 

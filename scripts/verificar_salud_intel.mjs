@@ -11,6 +11,7 @@
  * Entró al repo el 26-11 con sus 8 comprobaciones (venía de un temporal de sesión).
  */
 import { saludVigilante } from "../src/saludIntel.ts";
+import { esFaltaPermiso } from "../src/errores.ts";
 let fallos = 0;
 let cuenta = 0;
 const ok = (c, m) => {
@@ -38,5 +39,16 @@ ok(d[0] === "bad" && d[3] === "No avisa", "sin grafo gana: no avisa nada, tampoc
 const e = saludVigilante({ ...sano, last_tick_ms: Date.now() - 60000 }, err);
 ok(e[3] === "No avisa", "hilo mudo gana");
 ok(saludVigilante(sano)[3] === "Activo", "sin segundo argumento, como antes");
-console.log(`\n${cuenta - fallos}/${cuenta} bien`);
+const pastilla = cuenta;
+
+// «Falta el acceso» SOLO cuando falta el acceso (AppError::FaltaScope). Los textos son los que
+// devuelve el backend hoy: el de token_with_scope, un 502 de ESI y el OAuth que sigue existiendo.
+console.log("Errores — ¿falta el permiso, o ha fallado otra cosa?");
+ok(esFaltaPermiso("Falta permiso: este personaje no concedió el scope necesario. Inicia sesión con la feature 'Fatiga de salto'."),
+  "el error del scope que falta: sí");
+ok(!esFaltaPermiso("ESI 502 Bad Gateway en /characters/1/fatigue/: "), "un 502 de ESI: no");
+ok(!esFaltaPermiso("OAuth: sin refresh token para 1"), "otro error de OAuth: no");
+ok(!esFaltaPermiso("HTTP: error sending request"), "la red: no");
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (pastilla: ${pastilla}, errores: ${cuenta - pastilla})`);
 process.exit(fallos ? 1 : 0);

@@ -5,7 +5,8 @@ import type { Geo } from "./mapOverlays";
 import type { JumpShip } from "./types";
 
 export type JumpFuel = { dist: number; fuel: number; isotope: string; inRange: boolean };
-export type JumpFatEst = { cooldown: number; newFat: number; reduced: boolean };
+/** `fatMult` < 1 = el casco rebaja la distancia efectiva (Black Ops, Jump Freighter, Rorqual). */
+export type JumpFatEst = { cooldown: number; newFat: number; fatMult: number };
 
 // Combustible (isótopos) y distancia al destino elegido.
 // fuel = dist(LY) × fuelPerLy × (1 − 10%·Jump Fuel Conservation).
@@ -26,22 +27,37 @@ export function computeJumpFuel(
   return { dist, fuel, isotope: selShip.isotope, inRange: dist <= jumpRange + 1e-6 };
 }
 
-// Estimación del salto: cooldown de activación y fatiga resultante (fórmula EVE Uni).
-// cooldown = max(1+LY, fatigaPre/10) [máx 30 min]; fatiga nueva = max(10·(1+LY), fatigaPre·(1+LY))
-// [máx 5 h]. Las JF/Rorqual reducen mucho la fatiga (bono de rol −90% sobre la distancia efectiva).
+/** ★ UN SALTO: cooldown (timer rojo) y fatiga (timer azul) que deja, en minutos.
+ *
+ *  Según lo PUBLICADO (el devblog que introdujo la mecánica), con `e` = distancia EFECTIVA y `F` =
+ *  fatiga antes del salto:  cooldown = min(30, max(1 + e, F/10)) ·
+ *                           fatiga   = min(300, max(10, F) × (1 + e)).
+ *  La distancia efectiva es `años luz × fatMult` del casco (atributo 1971 del SDE, en
+ *  `jumpships.json`), y vale para LAS DOS fórmulas.
+ *
+ *  ⚠️ Esto estuvo mal dos veces a la vez hasta el 26-11: la rebaja se decidía por NOMBRE DE GRUPO
+ *     (solo Jump Freighter y Capital Industrial Ship: a una Black Ops no le rebajaba nada, 8 al
+ *     salían 9 min y 90 de fatiga en vez de 3 y 30), y el cooldown usaba la distancia CRUDA incluso
+ *     para las que sí rebajaba.
+ *  🚨 NO VALIDADO CONTRA UN SALTO REAL. El 0,25 sale del SDE; que rebaje también el cooldown, del
+ *     devblog. Hasta que se compare con un salto de verdad, en pantalla todo esto lleva «~». */
+export function saltoFatiga(ly: number, fatMult: number, fatigaAntesMin: number): { cooldown: number; fatiga: number } {
+  const e = ly * fatMult;
+  return {
+    cooldown: Math.min(30, Math.max(1 + e, fatigaAntesMin / 10)),
+    fatiga: Math.min(300, Math.max(10, fatigaAntesMin) * (1 + e)),
+  };
+}
+
+// Estimación del salto al destino elegido en el planificador de salto del mapa. Ver `saltoFatiga`.
 export function computeJumpFatEst(
   selShip: JumpShip | null,
   jumpFuel: JumpFuel | null,
   curFatMin: number,
 ): JumpFatEst | null {
   if (!selShip || !jumpFuel) return null;
-  const ly = jumpFuel.dist;
-  const reduced =
-    selShip.group === "Jump Freighter" || selShip.group === "Capital Industrial Ship";
-  const effLy = reduced ? ly * 0.1 : ly;
-  const cooldown = Math.min(30, Math.max(1 + ly, curFatMin / 10));
-  const newFat = Math.min(300, Math.max(10 * (1 + effLy), curFatMin * (1 + effLy)));
-  return { cooldown, newFat, reduced };
+  const s = saltoFatiga(jumpFuel.dist, selShip.fatMult, curFatMin);
+  return { cooldown: s.cooldown, newFat: s.fatiga, fatMult: selShip.fatMult };
 }
 
 // Sistemas alcanzables por salto (low/null dentro del rango LY; sin high-sec ni Pochven).

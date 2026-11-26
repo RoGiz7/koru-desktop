@@ -600,6 +600,7 @@ export function MapView(props: {
     setJumpChar,
     jumpOwned,
     jumpFatMissing,
+    jumpFatError,
     selShip,
     curFatMin,
   } = useJumpPlanner();
@@ -2405,10 +2406,8 @@ export function MapView(props: {
     [geo, selShip, jumpOrigin, jumpDest, jfcLevel, jumpRange],
   );
 
-  // Estimación del salto al destino: cooldown de activación y fatiga resultante.
-  // Fórmula EVE (EVE Uni): cooldown = max(1+LY, fatigaPre/10) [máx 30 min];
-  // fatiga nueva = max(10·(1+LY), fatigaPre·(1+LY)) [máx 5 h]. Las JF/Rorqual reducen
-  // mucho la fatiga (bono de rol −90% sobre la distancia efectiva): mostramos el máximo.
+  // Estimación del salto al destino: cooldown de activación y fatiga resultante. La fórmula y por
+  // qué estuvo mal: `saltoFatiga` en jumpCalc.ts.
   const jumpFatEst = useMemo(
     () => computeJumpFatEst(selShip, jumpFuel, curFatMin),
     [selShip, jumpFuel, curFatMin],
@@ -3449,14 +3448,27 @@ export function MapView(props: {
                 </span>
               ) : (
                 <>
-                  <span className="small">
-                    ⏳ {tr("Fatiga actual")}: <b>{curFatMin >= 1 ? fmtMin(curFatMin) : tr("ninguna")}</b>
-                  </span>
+                  {/* Un 502 no es «falta el acceso» ni es «ninguna»: se dice que no se pudo leer, y
+                      que lo de abajo supone cero. */}
+                  {jumpFatError ? (
+                    <span className="small route-scope-warn">
+                      ⏳ {tr("Fatiga: no se pudo leer")} ({jumpFatError}). {tr("El cálculo supone cero.")}
+                    </span>
+                  ) : (
+                    <span className="small">
+                      ⏳ {tr("Fatiga actual")}: <b>{curFatMin >= 1 ? fmtMin(curFatMin) : tr("ninguna")}</b>
+                    </span>
+                  )}
                   {jumpFatEst && jumpFuel && (
                     <span className="small muted">
                       {tr("tras saltar → cooldown")} ~{fmtMin(jumpFatEst.cooldown)} · {tr("fatiga")} ~
                       {fmtMin(jumpFatEst.newFat)}
-                      {jumpFatEst.reduced ? ` ${tr("(máx; tu nave reduce fatiga)")}` : ""}
+                      {/* Antes decía «(máx; tu nave reduce fatiga)»: el cooldown no aplicaba la
+                          rebaja y el número era una cota. Ya la aplica, así que «máx» sería falso;
+                          lo que queda por decir es de dónde sale la rebaja. */}
+                      {jumpFatEst.fatMult !== 1
+                        ? ` (${tr("distancia")} ×${String(jumpFatEst.fatMult).replace(".", getLang() === "en" ? "." : ",")} ${tr("por el casco")})`
+                        : ""}
                     </span>
                   )}
                 </>
