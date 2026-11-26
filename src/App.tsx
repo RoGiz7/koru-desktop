@@ -765,6 +765,7 @@ function App() {
   const [mapFocusReq, setMapFocusReq] = useState<{ sysId: number; nonce: number } | null>(null);
   // Hermano del anterior, para pedir RUTA en vez de foco. Ver `irARuta`.
   const [mapRutaReq, setMapRutaReq] = useState<{ sysId: number; nonce: number } | null>(null);
+  const [mapPlanReq, setMapPlanReq] = useState<{ planId: number; nonce: number } | null>(null);
   // E4: el reproductor de una op sobre el mapa. El payload lo arma el visor con lo ya cargado.
   const [opPlayback, setOpPlayback] = useState<OpPlayback | null>(null);
   /** Aviso que hay que abrir en la ficha del mapa, pedido desde el overlay. El `nonce` es lo que
@@ -2059,6 +2060,17 @@ function App() {
   function irARuta(sysId: number) {
     changeTab("mapa");
     setMapRutaReq({ sysId, nonce: Date.now() });
+    window.setTimeout(
+      () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60,
+    );
+  }
+
+  /** «Ver el plan en el mapa» desde Escalaciones: el mismo salto que `irARuta`, pero abre el plan
+   *  entero en Navegación (orden, márgenes, arrastre). Ver `planReq` en map.tsx. */
+  function irAPlan(planId: number) {
+    changeTab("mapa");
+    setMapPlanReq({ planId, nonce: Date.now() });
     window.setTimeout(
       () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
       60,
@@ -3451,6 +3463,7 @@ function App() {
           theraConns={theraConns}
           focusReq={mapFocusReq}
           rutaReq={mapRutaReq}
+          planReq={mapPlanReq}
           fleetRoster={fleetRoster}
           playback={opPlayback}
           onPlaybackClose={() => setOpPlayback(null)}
@@ -3717,7 +3730,7 @@ function App() {
             />
           )}
           {tab === "batallas" && <BattlesView data={battlesData} busy={sectionBusy} />}
-          {tab === "escalaciones" && <EscalacionesView onRuta={irARuta} />}
+          {tab === "escalaciones" && <EscalacionesView onRuta={irARuta} onPlan={irAPlan} />}
           {tab === "cazador" && (
             <CazadorView
               initialPilot={cazadorPilot}

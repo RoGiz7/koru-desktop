@@ -2,6 +2,7 @@
 //! una app de escritorio de un solo usuario; si crece, pasar a un pool).
 
 pub mod bitacora;
+pub mod plan;
 
 use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
@@ -7585,20 +7586,13 @@ impl Db {
     ///
     /// Devuelve si se borró algo: `false` significa que ese id ya no estaba, y el llamante puede
     /// decirlo en vez de fingir que hizo algo.
+    ///
+    /// ★ Y SE LLEVA SUS PARADAS DE LOS PLANES, en la misma transacción. Por eso el cuerpo vive en
+    ///   `PlanKind::Escalacion.borrar_origen` (db/plan.rs) y aquí solo se pasa por
+    ///   `plan_borrar_ref`, la única puerta de borrado de algo que puede estar en un plan: una
+    ///   parada que se queda apuntando a una escalación borrada seguiría contando en el plan.
     pub fn escalacion_delete(&self, id: i64) -> AppResult<bool> {
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
-        // Se lee el `run_id` ANTES de borrar la fila: después ya no hay dónde preguntarlo.
-        let run_id: Option<i64> = tx
-            .query_row("SELECT run_id FROM escalaciones WHERE id = ?1", [id], |r| r.get(0))
-            .optional()?
-            .flatten();
-        let n = tx.execute("DELETE FROM escalaciones WHERE id = ?1", [id])?;
-        if let Some(rid) = run_id {
-            tx.execute("DELETE FROM activity_runs WHERE id = ?1", [rid])?;
-        }
-        tx.commit()?;
-        Ok(n > 0)
+        self.plan_borrar_ref(plan::PlanKind::Escalacion, id)
     }
 
     /// Las vivas, **ordenadas por lo que caduca antes**, que es el único orden útil aquí.

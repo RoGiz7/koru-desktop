@@ -877,6 +877,53 @@ CREATE INDEX IF NOT EXISTS idx_esc_vivas  ON escalaciones(estado, caduca_at);
 CREATE INDEX IF NOT EXISTS idx_esc_cadena ON escalaciones(cadena_id, parte);
 CREATE INDEX IF NOT EXISTS idx_esc_char   ON escalaciones(character_id);
 
+-- ★★ EL PLAN: una tanda de sitios a los que ir, ordenada para salvar los que se puedan.
+--
+-- ⚠️ SE LLAMA «PLAN» Y NO «CADENA» A PROPÓSITO: `cadena_id` de arriba ya es la expedición de
+--    hasta cuatro partes. Dos «cadenas» distintas en la misma sección serían dos cosas que se
+--    confunden al leer el código y al leer la pantalla.
+--
+-- 🚨 ES DE LA OPERACIÓN, NO DE UN PERSONAJE: aquí no hay `character_id` dueño, y no debe haberlo.
+--    Los tres papeles (quién salta, quién pone el cyno, quién mira) se guardan desde ya aunque la
+--    fase 1 no los use: en la fase 3 la fatiga es de quien salta y el casco que entra es de otro,
+--    y colgar el plan de un personaje obligaría entonces a reescribirlo.
+CREATE TABLE IF NOT EXISTS plan (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre              TEXT NOT NULL DEFAULT '',
+    creado_at           TEXT NOT NULL,
+    -- Desde dónde se cuenta. NULL = el sistema del personaje activo, que es lo normal; se fija a
+    -- mano cuando la operación sale de otro sitio (el plan no es de un personaje, ver arriba).
+    origen_system_id    INTEGER,
+    -- 0 = Koru ordena (el orden propuesto manda). 1 = el usuario arrastró y SU orden manda, que es
+    -- a propósito: si le cantan un hostil reordena según lo que pasa en el juego. Koru sigue
+    -- diciendo si el propuesto salvaría más: se calla la imposición, nunca el dato.
+    orden_manual        INTEGER NOT NULL DEFAULT 0,
+    salta_character_id  INTEGER,
+    cyno_character_id   INTEGER,
+    ojos_character_id   INTEGER
+);
+
+-- Una parada del plan. `kind` + `ref_id` y NUNCA `escalacion_id`: los contratos de courier o las
+-- firmas de exploración serán un `kind` nuevo, no una reescritura (hoy solo existe 'escalacion').
+--
+-- 🚨 NO COPIA NADA DE LO QUE APUNTA: ni sistema, ni plazo, ni título, ni un «hecha». Se resuelven
+--    por `kind` al cargar (`PlanKind::resolver`). Una copia de `caduca_at` sería segura HOY —nada
+--    lo cambia tras crearla—, pero el día que alguien añada «alargar el reloj» se quedaría vieja
+--    SIN dar error. Y un `hecha` propio discreparía del `estado` de la escalación, que es el bueno.
+--
+-- ⚠️ `ref_id` no puede ser clave ajena (apunta a una tabla distinta según `kind`), así que ningún
+--    `ON DELETE CASCADE` la limpia. Por eso cada kind se borra a través de `PlanKind::borrar`, que
+--    se lleva sus paradas en la misma transacción, y por eso el cargador CANTA la que no resuelve.
+CREATE TABLE IF NOT EXISTS plan_stop (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id  INTEGER NOT NULL REFERENCES plan(id) ON DELETE CASCADE,
+    orden    INTEGER NOT NULL,
+    kind     TEXT NOT NULL,
+    ref_id   INTEGER NOT NULL,
+    UNIQUE (plan_id, kind, ref_id)
+);
+CREATE INDEX IF NOT EXISTS idx_plan_stop_ref ON plan_stop(kind, ref_id);
+
 CREATE TABLE IF NOT EXISTS activity_run_chars (
     run_id       INTEGER NOT NULL REFERENCES activity_runs(id) ON DELETE CASCADE,
     character_id INTEGER NOT NULL,

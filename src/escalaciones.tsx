@@ -30,6 +30,7 @@ import { loadNewEden } from "./neweden";
 import { loadJson } from "./staticJson";
 import { PilotoNombre } from "./fichaPiloto";
 import type { NeSystem } from "./types";
+import type { PlanCargado, PlanResumen } from "./plan";
 
 type Escalacion = {
   id: number;
@@ -181,8 +182,11 @@ export function EscalacionesView({
   /** «Trázame la ruta hasta ahí»: salta al mapa con el planificador abierto y el destino puesto.
    *  Opcional — sin él el botón no se pinta y la sección funciona igual. */
   onRuta,
+  /** «Ver el plan en el mapa»: abre el plan entero en Navegación. Opcional, como `onRuta`. */
+  onPlan,
 }: {
   onRuta?: (sysId: number) => void;
+  onPlan?: (planId: number) => void;
 } = {}) {
   const [vivas, setVivas] = useState<Escalacion[] | null>(null);
   const [hist, setHist] = useState<Escalacion[]>([]);
@@ -228,6 +232,80 @@ export function EscalacionesView({
     loadNewEden().then((ne) => setSystems(ne.systems)).catch(() => {});
     loadDed().then(setDed).catch(() => {});
   }, []);
+
+  // ---- ★★ EL PLAN: qué escalaciones entran en la tanda ----
+  //
+  // Aquí se decide QUÉ entra; el orden y los márgenes se miran en el mapa (Navegación), porque
+  // salen del mismo grafo que pinta la ruta. Se recuerda el plan elegido entre sesiones.
+  const [planes, setPlanes] = useState<PlanResumen[]>([]);
+  const [planSel, setPlanSel] = useState<number | null>(() => {
+    const v = Number(localStorage.getItem("koru.esc.plan") ?? "");
+    return Number.isFinite(v) && v > 0 ? v : null;
+  });
+  const [planCargado, setPlanCargado] = useState<PlanCargado | null>(null);
+  const [planNombre, setPlanNombre] = useState("");
+  function elegirPlan(id: number | null) {
+    setPlanSel(id);
+    if (id) localStorage.setItem("koru.esc.plan", String(id));
+    else localStorage.removeItem("koru.esc.plan");
+  }
+  async function recargarPlanes(sel: number | null = planSel) {
+    try {
+      const ps = await invoke<PlanResumen[]>("plan_listar");
+      setPlanes(ps);
+      // Un plan recordado que ya no existe (borrado en otra sesión) se suelta en vez de cargarlo
+      // para que falle: no es un error, es que ya no está.
+      if (sel != null && !ps.some((p) => p.id === sel)) {
+        elegirPlan(null);
+        setPlanCargado(null);
+        return;
+      }
+      setPlanCargado(sel != null ? await invoke<PlanCargado>("plan_cargar", { planId: sel }) : null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  useEffect(() => {
+    void recargarPlanes(planSel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planSel]);
+  /** Escalación → id de su parada en el plan elegido. */
+  const enPlan = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const p of planCargado?.paradas ?? []) if (p.kind === "escalacion") m.set(p.ref_id, p.id);
+    return m;
+  }, [planCargado]);
+  async function crearPlan() {
+    try {
+      const id = await invoke<number>("plan_crear", { nombre: planNombre.trim() });
+      setPlanNombre("");
+      elegirPlan(id);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function borrarPlan(id: number) {
+    // Borrar el plan no toca ninguna escalación, pero sí se pierde el orden que hubieras puesto.
+    if (!window.confirm(tr("¿Borrar este plan? Las escalaciones no se tocan."))) return;
+    try {
+      await invoke<boolean>("plan_borrar", { planId: id });
+      elegirPlan(null);
+      await recargarPlanes(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function alternarEnPlan(e: Escalacion) {
+    if (planSel == null) return;
+    try {
+      const stop = enPlan.get(e.id);
+      if (stop != null) await invoke<boolean>("plan_quitar", { stopId: stop });
+      else await invoke<boolean>("plan_anadir", { planId: planSel, kind: "escalacion", refId: e.id });
+      await recargarPlanes();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
 
   // ---- el formulario ----
   const [titulo, setTitulo] = useState("");
@@ -519,6 +597,9 @@ export function EscalacionesView({
       await invoke<boolean>("escalacion_delete", { id });
       setDetalle(null);
       await recargar();
+      // El borrado se lleva sus paradas de los planes (`plan_borrar_ref`): el plan de aquí arriba
+      // tiene que enterarse, o seguiría marcando como dentro una escalación que ya no existe.
+      await recargarPlanes();
     } catch (err) {
       setError(String(err));
     }
@@ -692,6 +773,40 @@ export function EscalacionesView({
         </p>
       </div>
 
+      {/* ---- el plan ---- */}
+      <div className="esc-plan">
+        <span className="esc-plan-tit">🗂 {tr("Plan")}</span>
+        <select value={planSel ?? ""} onChange={(ev) => elegirPlan(ev.target.value ? +ev.target.value : null)}>
+          <option value="">{tr("— ninguno —")}</option>
+          {planes.map((p) => (
+            <option key={p.id} value={p.id}>
+              {(p.nombre || `${tr("Plan")} #${p.id}`) + ` (${p.paradas})`}
+            </option>
+          ))}
+        </select>
+        {planSel != null && onPlan && (
+          <button onClick={() => onPlan(planSel)} title={tr("Abrir el plan en el mapa: orden propuesto, margen de cada parada y arrastre")}>
+            🧭 {tr("Ver el plan en el mapa")}
+          </button>
+        )}
+        {planSel != null && (
+          <button className="esc-plan-borrar" onClick={() => void borrarPlan(planSel)}>
+            {tr("Borrar plan")}
+          </button>
+        )}
+        <input
+          value={planNombre}
+          onChange={(ev) => setPlanNombre(ev.target.value)}
+          placeholder={tr("Nombre del plan nuevo")}
+        />
+        <button onClick={() => void crearPlan()}>＋ {tr("Nuevo plan")}</button>
+        {planSel != null && (
+          <span className="muted small">
+            {tr("Marca con ＋ las escalaciones que entran; el orden y los márgenes se ven en el mapa.")}
+          </span>
+        )}
+      </div>
+
       {/* ---- las vivas ---- */}
       {vivas == null ? (
         <p className="muted small">{tr("Cargando…")}</p>
@@ -747,6 +862,17 @@ export function EscalacionesView({
                   onClick={() => onRuta(e.system_id as number)}
                 >
                   🧭
+                </button>
+              )}
+              {/* ★ Al plan. Solo las tuyas pendientes y con sistema: una vendida la corre el
+                  comprador y sin sistema no hay ruta que contar. */}
+              {planSel != null && e.modo === "propia" && e.estado === "pendiente" && e.system_id != null && (
+                <button
+                  className={`esc-plan-btn${enPlan.has(e.id) ? " dentro" : ""}`}
+                  title={enPlan.has(e.id) ? tr("Está en el plan: pulsa para sacarla") : tr("Añadir al plan")}
+                  onClick={() => void alternarEnPlan(e)}
+                >
+                  {enPlan.has(e.id) ? "✓" : "＋"} {tr("plan")}
                 </button>
               )}
               <div className="esc-acciones">

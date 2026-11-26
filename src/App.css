@@ -12205,3 +12205,72 @@ button.cz-calor-h:hover,
 /* Pedidos: iconos de EVE alineados con el texto (cabeceras, insignias y resumen). */
 .ped-glifo { vertical-align: -3px; margin-right: 0.1rem; }
 h4 .ped-glifo, h5 .ped-glifo { vertical-align: -4px; }
+
+/* ★★ EL PLAN — barra en Escalaciones y panel en Navegación (ver planNav.tsx).
+   Lo que se lee de reojo es el color del borde: verde llegas, rojo no. El texto lo repite con
+   palabras, para que no dependa de distinguir colores. */
+.esc-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.6rem;
+}
+.esc-plan-tit { font-weight: 600; }
+.esc-plan input { width: 12rem; }
+.esc-plan-btn {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+.esc-plan-btn.dentro {
+  opacity: 1;
+  border-color: var(--ok) !important;
+  color: var(--ok);
+}
+.plan-nav {
+  margin: 0.2rem 0 0.8rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.plan-nav-head { display: flex; align-items: center; gap: 0.4rem; margin-top: 0; }
+.plan-nav-head .route-stop-del { margin-left: auto; }
+.plan-nav-ajustes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+}
+.plan-nav-resumen { margin: 0.3rem 0; }
+.plan-nav-lista, .plan-nav-fuera {
+  list-style: none;
+  margin: 0.3rem 0;
+  padding: 0;
+}
+.plan-nav-lista.arrastrando { cursor: grabbing; user-select: none; }
+.plan-parada {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.3rem;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+}
+.plan-parada.plan-ok { border-left-color: var(--ok); }
+.plan-parada.plan-perdida { border-left-color: var(--danger); background: rgba(255, 90, 90, 0.07); }
+.plan-parada.plan-perdida b { color: var(--danger-text); }
+.plan-parada.plan-sinruta { border-left-color: #ffb24a; }
+.plan-parada.cogida { opacity: 0.5; }
+.plan-parada.hueco-arriba { box-shadow: 0 -3px 0 0 #58a6ff; }
+.plan-parada.hueco-abajo { box-shadow: 0 3px 0 0 #58a6ff; }
+.plan-asa { cursor: grab; padding: 0 0.2rem; opacity: 0.6; touch-action: none; }
+.plan-asa:hover { opacity: 1; }
+.plan-num { font-weight: 600; min-width: 1.2rem; text-align: right; }
+.plan-cuerpo { flex: 1 1 auto; min-width: 0; }
+.plan-sys { cursor: pointer; }
+.plan-wh { color: #3ad6e0; }

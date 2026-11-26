@@ -1155,6 +1155,59 @@ pub fn escalacion_venta(
         .escalacion_venta(id, comprador.as_deref(), precio, lista_acceso.as_deref())
 }
 
+// ---- EL PLAN: varias paradas ordenadas para salvar las que se puedan --------------------------
+//
+// Solo almacén: el orden y los márgenes los calcula el mapa con su propio grafo de rutas (ver
+// `db/plan.rs` y `src/plan.ts`). Aquí no hay ESI ni cálculo.
+
+#[tauri::command]
+pub fn plan_crear(state: State<'_, AppState>, nombre: String) -> AppResult<i64> {
+    state.db.plan_crear(nombre.trim())
+}
+
+#[tauri::command]
+pub fn plan_listar(state: State<'_, AppState>) -> AppResult<Vec<crate::db::plan::PlanResumen>> {
+    state.db.plan_listar()
+}
+
+/// Carga un plan con sus paradas resueltas. Antes marca las escalaciones caducadas, por lo mismo
+/// que `escalaciones_vivas`: que el estado no mienta si Koru llevaba rato sin mirar.
+#[tauri::command]
+pub fn plan_cargar(state: State<'_, AppState>, plan_id: i64) -> AppResult<crate::db::plan::PlanCargado> {
+    state.db.escalaciones_caducar()?;
+    state.db.plan_cargar(plan_id)
+}
+
+#[tauri::command]
+pub fn plan_anadir(state: State<'_, AppState>, plan_id: i64, kind: String, ref_id: i64) -> AppResult<bool> {
+    state.db.plan_anadir(plan_id, &kind, ref_id)
+}
+
+#[tauri::command]
+pub fn plan_quitar(state: State<'_, AppState>, stop_id: i64) -> AppResult<bool> {
+    state.db.plan_quitar(stop_id)
+}
+
+#[tauri::command]
+pub fn plan_reordenar(state: State<'_, AppState>, plan_id: i64, stop_ids: Vec<i64>) -> AppResult<()> {
+    state.db.plan_reordenar(plan_id, &stop_ids)
+}
+
+#[tauri::command]
+pub fn plan_orden_propuesto(state: State<'_, AppState>, plan_id: i64) -> AppResult<()> {
+    state.db.plan_orden_propuesto(plan_id)
+}
+
+#[tauri::command]
+pub fn plan_origen(state: State<'_, AppState>, plan_id: i64, system_id: Option<i64>) -> AppResult<()> {
+    state.db.plan_origen(plan_id, system_id)
+}
+
+#[tauri::command]
+pub fn plan_borrar(state: State<'_, AppState>, plan_id: i64) -> AppResult<bool> {
+    state.db.plan_borrar(plan_id)
+}
+
 /// Ranura de acceso ocupada: qué lista, con quién dentro y por qué escalación.
 #[derive(Debug, serde::Serialize)]
 pub struct RanuraAcceso {

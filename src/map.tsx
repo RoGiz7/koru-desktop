@@ -28,6 +28,8 @@ import { OVERLAYS, OVERLAY_CATS, SUBFILTERS, FW_FACTIONS, POIS } from "./constan
 import type { MapOverlay, Tab } from "./constants";
 import { openExternal } from "./openExternal";
 import { NotasAncla } from "./notas";
+import { PlanNav } from "./planNav";
+import type { Tramo } from "./plan";
 import type {
   IntelConfig,
   IntelStatus,
@@ -391,6 +393,8 @@ export function MapView(props: {
   focusReq?: { sysId: number; nonce: number } | null;
   /** «Traza la ruta hasta este sistema», desde otra sección. Ver el efecto que lo consume. */
   rutaReq?: { sysId: number; nonce: number } | null;
+  /** «Abre este plan en Navegación», desde Escalaciones. Mismo patrón de `nonce` que `rutaReq`. */
+  planReq?: { planId: number; nonce: number } | null;
   /** La op EN VIVO del grabador, entera. null = no hay op. Con ella el mapa pinta los anillos
    *  verdes de flota SOBRE cualquier capa (no es una capa: es una presencia, como la ruta) y
    *  llena la pestaña «Flota» de la tarjeta derecha — el roster junto al feed de intel. */
@@ -426,6 +430,7 @@ export function MapView(props: {
     openTrack,
     focusReq,
     rutaReq,
+    planReq,
     fleetRoster,
     playback,
     onPlaybackClose,
@@ -1115,6 +1120,32 @@ export function MapView(props: {
     setRouteActive(true);
     focusSystem(rutaReq.sysId);
   }, [rutaReq, geo, hereSystemId, setRouteStops, setRouteActive, focusSystem]);
+
+  /** ★ EL PLAN ABIERTO EN NAVEGACIÓN. Mientras está abierto, las paradas del planificador las
+   *  pone el plan (como la interceptación pone las suyas); al cerrarlo se limpian. El botón
+   *  «Trazar la ruta hasta ahí» de una escalación suelta NO pasa por aquí y sigue igual. */
+  const [planAbierto, setPlanAbierto] = useState<{ planId: number; nonce: number } | null>(null);
+  const planReqDone = useRef(0);
+  useEffect(() => {
+    if (!planReq || planReq.nonce === planReqDone.current) return;
+    planReqDone.current = planReq.nonce;
+    setPlanAbierto(planReq);
+    setJumpActive(false);
+    setRouteActive(true);
+  }, [planReq, setRouteActive, setJumpActive]);
+  // «Trazar la ruta hasta ahí» de UNA escalación cierra el plan: es la vía rápida y tiene que
+  // comportarse igual que antes de que existieran los planes, sin un panel que hable de otra ruta.
+  useEffect(() => {
+    if (rutaReq) setPlanAbierto(null);
+  }, [rutaReq]);
+  // Apagar la Ruta cierra el plan: su panel vive en Navegación y sin ella no se ve.
+  // ⚠️ Solo en la TRANSICIÓN encendida → apagada, con un ref: mirando solo `!routeActive`, un
+  //    montaje con `planReq` ya puesto cerraría en el mismo ciclo el plan que se acaba de abrir.
+  const rutaEstabaActiva = useRef(routeActive);
+  useEffect(() => {
+    if (rutaEstabaActiva.current && !routeActive) setPlanAbierto(null);
+    rutaEstabaActiva.current = routeActive;
+  }, [routeActive]);
 
   // El NARRADOR (pedido de RoGiz7 al estrenar el reproductor): lo sucedido hasta T, lo último
   // arriba — el feed de la izquierda contando la op mientras el mapa la mueve.
@@ -2492,6 +2523,25 @@ export function MapView(props: {
     }
     return full;
   }, [geo, routeAdj, routeStops, routeMode, avoid]);
+
+  /** Un tramo del plan con el MISMO buscador, grafo, modo y evitados que `routePath`: si los
+   *  márgenes contaran otra ruta, el panel mentiría respecto a la línea amarilla de al lado.
+   *  Marca si cruza un wormhole (eve-scout o tuyo): no se bloquea, pero esa pata es más frágil. */
+  const calcTramo = useCallback(
+    (desde: number, hasta: number): Tramo => {
+      if (!geo || !routeAdj) return null;
+      const path = findRoute(routeAdj, geo.idx, desde, hasta, routeMode, avoid);
+      if (!path) return null;
+      let wormhole = false;
+      for (let i = 1; i < path.length; i++) {
+        const k = edgeKey(path[i - 1], path[i]);
+        const esGate = (geo.adj.get(path[i - 1]) ?? []).includes(path[i]);
+        if (!esGate && ((wh?.keys.has(k) ?? false) || (sigWh?.keys.has(k) ?? false))) wormhole = true;
+      }
+      return { saltos: path.length - 1, path, wormhole };
+    },
+    [geo, routeAdj, routeMode, avoid, wh, sigWh],
+  );
 
   // ---- ¿HAY AVISOS DE INTEL EN LA RUTA QUE ACABAS DE TRAZAR? (idea de RoGiz7, 2026-08-12) ----
   //
@@ -6207,6 +6257,25 @@ export function MapView(props: {
               </span>
             )}
           </h3>
+
+          {planAbierto && (
+            <PlanNav
+              planId={planAbierto.planId}
+              nonce={planAbierto.nonce}
+              systems={ne.systems}
+              hereSystemId={hereSystemId ?? null}
+              nameOf={nameOf}
+              calcTramo={calcTramo}
+              intercepting={intercepting}
+              onPintar={(stops) => setRouteStops(stops)}
+              rutaActual={routeStops}
+              focusSystem={focusSystem}
+              onCerrar={() => {
+                setPlanAbierto(null);
+                setRouteStops([null]);
+              }}
+            />
+          )}
 
           <div className="nav-grid">
             {/* ---- Columna 1: paradas + opciones ---- */}
