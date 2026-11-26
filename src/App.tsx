@@ -172,7 +172,7 @@ function DowntimeBadge() {
   if (utcMins >= dtStart && utcMins < dtStart + 15) {
     return (
       <span className="sb-badge" title={tr("Downtime diario de Tranquility (11:00 UTC)")}>
-        ⏻ {tr("Downtime en curso")}
+        {tr("Downtime en curso")}
       </span>
     );
   }
@@ -181,7 +181,7 @@ function DowntimeBadge() {
   const m = minsTo % 60;
   return (
     <span className="sb-badge" title={tr("Cuenta atrás para el downtime diario (11:00 UTC)")}>
-      ⏻ DT {h > 0 ? `${h}h ${m}m` : `${m}m`}
+      DT {h > 0 ? `${h}h ${m}m` : `${m}m`}
     </span>
   );
 }
