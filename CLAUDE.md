@@ -90,7 +90,7 @@ python scripts/sde_check.py      # ¿nos importa esta release? qué tablas y qu�
 ```
 
 1. 🚨 **LOS ZIPS DEL SDE VIVEN EN LA CARPETA HERMANA**, no en la de dentro:
-   **`../documentacion/sde-source/`** visto desde la raíz del repo. Los 22 extractores sin
+   **`../documentacion/sde-source/`** visto desde la raíz del repo. Los 23 extractores sin
    argumentos hacen `sorted(glob(RAIZ/".."/"documentacion"/"sde-source"/"*jsonl.zip"))[-1]`.
    Bajar el zip a `documentacion/sde-source/` (la de dentro) lo deja donde NADIE lo lee, y —peor—
    una comprobación escrita con esa misma ruta relativa **imprime el zip nuevo en verde mientras
