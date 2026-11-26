@@ -1463,7 +1463,6 @@ function App() {
     },
     UMBRAL_RECOGER,
   );
-  const pjlFila = new Set(pjlReparto.fila);
   const pjlRecoge = pjlReparto.recogidos.length > 0;
 
   async function loadKillmails(subj: number | "global", kind: "all" | "kill" | "loss", offset: number) {
@@ -2635,7 +2634,8 @@ function App() {
 
         <div className="tb-chars">
           {characters.length === 0 && <span className="muted small">{tr("Aún no hay personajes.")}</span>}
-          {characters.filter((c) => pjlFila.has(c.character_id)).map((c) => {
+          {/* En el orden de `repartir` (alfabético sin mayúsculas), no en el de llegada. */}
+          {pjlReparto.fila.map((id) => characters.find((c) => c.character_id === id)!).map((c) => {
             const card = cards[c.character_id];
             const sel = subject === c.character_id;
             const missing = CAPS.filter((cap) => !c.scopes.includes(cap.scope));
@@ -2826,7 +2826,7 @@ function App() {
                     ref={pjlInputRef}
                     className="pjl-buscar"
                     value={pjlQ}
-                    placeholder={tr("Buscar por nombre, corporación, sistema o nave…")}
+                    placeholder={tr("Nombre, corp., sistema o nave")}
                     onChange={(e) => setPjlQ(e.target.value)}
                     onKeyDown={(e) => {
                       // Enter elige el PRIMERO de lo que se ve: los conectados van arriba.
@@ -2888,8 +2888,9 @@ function App() {
                         )}
                         {g.resto.length > 0 && (
                           <>
+                            {/* Sin nadie en «Conectados», el único grupo no es un «resto» de nada. */}
                             <div className="pjl-grupo">
-                              {tr("Resto")} · {g.resto.length}
+                              {g.conectados.length > 0 ? tr("Resto") : tr("Todos")} · {g.resto.length}
                             </div>
                             {g.resto.map(fila)}
                           </>

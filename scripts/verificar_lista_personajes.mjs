@@ -10,7 +10,7 @@
  *  1. `online: null` es «no se sabe»: ni punto verde ni fila de conectados.
  *  2. El «!» de un recogido no puede esconderse: lo lleva el botón.
  */
-import { repartir, filtrar, agrupar, conectado, UMBRAL_RECOGER } from "../src/listaPersonajes.ts";
+import { repartir, filtrar, agrupar, conectado, ordenar, UMBRAL_RECOGER } from "../src/listaPersonajes.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -81,6 +81,27 @@ console.log(`Umbral: ${UMBRAL_RECOGER}`);
   ok(g.conectados.length === 5 && g.resto.length === 19 && g.resto[0].character_id === 1005, "grupos «Conectados · 5» y «Resto · 19», en orden alfabético");
   const gNull = agrupar(todos, vivoDe(() => null));
   ok(gNull.conectados.length === 0 && gNull.resto.length === 24, "con todo null, nadie en «Conectados»");
+}
+
+// ---- el orden, sin distinguir mayúsculas ----
+{
+  // Llegan como del ORDER BY de SQLite (byte a byte): las minúsculas, detrás de la Z.
+  const llegan = [
+    { character_id: 1, name: "Bruno Kestrel" },
+    { character_id: 2, name: "Zoe Atron" },
+    { character_id: 3, name: "ana Minúscula" },
+    { character_id: 4, name: "carla vexor" },
+  ];
+  ok(ordenar(llegan).map((p) => p.name).join() === "ana Minúscula,Bruno Kestrel,carla vexor,Zoe Atron",
+    "un nombre que empieza por minúscula va en su sitio, no detrás de la Z");
+  ok(repartir(llegan, () => ({ online: false }), 2, () => false).fila.join() === "3,1,4,2", "la fila (10 o menos), en ese orden");
+  const muchos = [...pjs(12), { character_id: 2000, name: "aaron minúscula" }];
+  const rm = repartir(muchos, (id) => ({ online: id === 2000 || id === 1005 }), null, () => false);
+  ok(rm.fila.join() === "2000,1005", "la fila recogida, también: la minúscula delante");
+  const gm = agrupar(muchos, () => ({ online: false }));
+  ok(gm.resto[0].character_id === 2000, "y la lista desplegable, también");
+  ok(ordenar([{ character_id: 9, name: "Alba" }, { character_id: 5, name: "alba" }]).map((p) => p.character_id).join() === "5,9",
+    "a igualdad sin mayúsculas, por id: siempre el mismo orden");
 }
 
 console.log(`\n${cuenta - fallos}/${cuenta} bien`);

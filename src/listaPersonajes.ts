@@ -19,10 +19,20 @@ export type PjVivo = {
   ship_type_name?: string | null;
 };
 
+/** ★ Orden alfabético SIN DISTINGUIR MAYÚSCULAS, para la fila y para la lista.
+ *  Los personajes llegan con el `ORDER BY name` de SQLite, que compara byte a byte: un nombre que
+ *  empieza por minúscula salía detrás de la Z. Se ordena aquí y no en la consulta porque esa es de
+ *  la carga de personajes, que no se toca. A igualdad («alba» / «Alba»), por id: siempre el mismo. */
+export function ordenar<T extends PjBarra>(personajes: T[]): T[] {
+  return [...personajes].sort(
+    (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "accent" }) || a.character_id - b.character_id,
+  );
+}
+
 export type Reparto = {
-  /** Ids en la fila, en el orden de entrada (alfabético). */
+  /** Ids en la fila, en orden alfabético sin distinguir mayúsculas (`ordenar`). */
   fila: number[];
-  /** Ids recogidos tras el botón, en el orden de entrada. Vacío = no hay botón. */
+  /** Ids recogidos tras el botón, en el mismo orden. Vacío = no hay botón. */
   recogidos: number[];
   /** ¿Alguno de los recogidos tiene accesos sin conceder? Entonces el BOTÓN lleva la marca: recoger
    *  no puede tapar un aviso que antes se veía porque todos los retratos estaban a la vista. */
@@ -41,12 +51,13 @@ export function repartir(
   faltaAcceso: (id: number) => boolean,
   umbral: number = UMBRAL_RECOGER,
 ): Reparto {
-  if (personajes.length <= umbral) {
-    return { fila: personajes.map((p) => p.character_id), recogidos: [], avisoRecogidos: false };
+  const orden = ordenar(personajes);
+  if (orden.length <= umbral) {
+    return { fila: orden.map((p) => p.character_id), recogidos: [], avisoRecogidos: false };
   }
   const fila: number[] = [];
   const recogidos: number[] = [];
-  for (const p of personajes) {
+  for (const p of orden) {
     const id = p.character_id;
     if (id === elegido || vivo(id)?.online === true) fila.push(id);
     else recogidos.push(id);
@@ -72,11 +83,12 @@ export function filtrar<T extends PjBarra>(personajes: T[], vivo: (id: number) =
   });
 }
 
-/** Los dos grupos del desplegable, «Conectados» y «Resto», cada uno en el orden de entrada. Enter
- *  elige el PRIMERO de `[...conectados, ...resto]`, que es el que se ve arriba. */
+/** Los dos grupos del desplegable, «Conectados» y «Resto» (o «Todos», si no hay conectados), cada
+ *  uno en orden alfabético sin distinguir mayúsculas. Enter elige el PRIMERO de
+ *  `[...conectados, ...resto]`, que es el que se ve arriba. */
 export function agrupar<T extends PjBarra>(personajes: T[], vivo: (id: number) => PjVivo | undefined): { conectados: T[]; resto: T[] } {
   const conectados: T[] = [];
   const resto: T[] = [];
-  for (const p of personajes) (conectado(vivo(p.character_id)) ? conectados : resto).push(p);
+  for (const p of ordenar(personajes)) (conectado(vivo(p.character_id)) ? conectados : resto).push(p);
   return { conectados, resto };
 }

@@ -3978,7 +3978,7 @@ const EN: Record<string, string> = {
   "Resto": "Others",
   "Ver todos los personajes": "Show all characters",
   "Ver todos los personajes. A alguno de los recogidos le falta acceso a alguna sección.": "Show all characters. One of the hidden ones is missing access to some section.",
-  "Buscar por nombre, corporación, sistema o nave…": "Search by name, corporation, system or ship…",
+  "Nombre, corp., sistema o nave": "Name, corp, system or ship",
   "Ningún personaje coincide.": "No character matches.",
   "A alta seguridad no se salta.": "You can't jump into high-sec.",
   "A puertas (sin ficha)": "By gates (no sheet)",
