@@ -153,9 +153,14 @@ la ventana principal—, nunca por número.
 1. **Las 16 llamadas a `/universe` de ESI** → al catálogo local. Es la sesión grande y **la que
    abre SKINR**: coger SKINR obliga a subir la fecha de compatibilidad, y eso retira esas rutas.
    **Migrar primero, subir la fecha después. Nunca al revés.**
-2. **Los huérfanos de `public/`, en curso (26-11)**: queda 1 sin generador: `agents`. Ya
-   salieron `jumpships` (`extract_jumpships.py`), `ores`, `skill_names`, `npc_corp_systems`,
-   `module_slots` y `skill_reqs` (cada uno con su `extract_<fichero>.py`). Briefs en `documentacion/`
+2. **Los huérfanos de `public/`: NINGUNO desde el 26-11.** Los siete tienen ya su
+   `extract_<fichero>.py` (`jumpships`, `ores`, `skill_names`, `npc_corp_systems`, `module_slots`,
+   `skill_reqs`, `agents`), cada uno con su vara en la cabecera y un `--medir` para repetirla.
+   ⏳ **Pendiente: `python scripts/sde_check.py --guardar-base`**, cuando se dé por revisada la
+   regeneración: hoy el guardián avisa de cuatro tablas sin versión en la base (`agentsInSpace`,
+   `npcCharacters`, `npcCorporations`, `npcStations`), que se leen por primera vez.
+   ⏳ **Tercer tiempo propuesto, sin hacer**: que el skill-check distinga «no conozco este tipo» de
+   «no pide nada» (hoy cuentan igual y dice «puedes volarlo»). Briefs en `documentacion/`
    (`brief-huerfanos-public.md` y `…-decisiones.md`, manda el segundo).
    **Para el changelog de la próxima release** (lo que el piloto nota al regenerar, contado):
    - Encargos de minería, filtro «Mineral»: 8 menas nuevas que antes no se encontraban (las
@@ -195,5 +200,5 @@ la ventana principal—, nunca por número.
   `src/intel.ts` (troceo) · `src/map.tsx`, `src/overlay.tsx`, `src/minimapaVentana.tsx` (pintan).
 - **Ventanas**: tres, con etiquetas `main`, `overlay` y `minimapa`. En Tauri v2 **las capacidades
   van POR VENTANA**.
-- **Datos del SDE**: 28 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
+- **Datos del SDE**: 29 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
   embebidos en el binario. El SDE entra SOLO por esos scripts: nada se pide en caliente.
