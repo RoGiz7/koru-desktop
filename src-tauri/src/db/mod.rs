@@ -921,6 +921,9 @@ impl Db {
         // N4: cuántas unidades pide una tarea. Las que ya existían piden 0 = «con una vale», que es
         // exactamente como se comportaban antes de haber columna.
         let _ = conn.execute("ALTER TABLE note_step ADD COLUMN qty INTEGER NOT NULL DEFAULT 0", []);
+        // Plan, fase 3a: la forma de viajar. La tabla `plan` no ha salido en ninguna release, pero
+        // las BD de desarrollo ya la tienen sin esta columna. NULL = a puertas, como antes.
+        let _ = conn.execute("ALTER TABLE plan ADD COLUMN forma_id INTEGER REFERENCES forma_viaje(id)", []);
         // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
         // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó

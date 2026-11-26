@@ -877,6 +877,29 @@ CREATE INDEX IF NOT EXISTS idx_esc_vivas  ON escalaciones(estado, caduca_at);
 CREATE INDEX IF NOT EXISTS idx_esc_cadena ON escalaciones(cadena_id, parte);
 CREATE INDEX IF NOT EXISTS idx_esc_char   ON escalaciones(character_id);
 
+-- ★ LA FORMA DE VIAJAR (fase 3a del plan): una MANERA de moverse, con nombre y reutilizable —
+--   «blops con cyno covert», «carrier», «a puertas». No es «elegir nave»: la declara el piloto, no se
+--   deduce (el patrón de las fichas de instalación).
+--
+-- 🚨 NO SE COPIA NADA DEL CATÁLOGO: alcance, isótopo, consumo y rebaja de fatiga se resuelven por
+--    `casco_type_id` en `public/jumpships.json` al calcular. Misma regla que `plan_stop`, y por lo
+--    mismo: una copia se queda vieja el día que cambia el SDE y nadie lo ve.
+--    Lo que SÍ se guarda es lo que se DECLARA: el ciclo del cyno (hay cascos que lo acortan y Koru
+--    no los modela) y los minutos por salto a puertas.
+--
+-- `min_por_salto`: de quien va POR PUERTAS en esta forma. En `puertas`, el propio casco; en
+-- `salto`, el CYNO, que va delante parada a parada. Con ficha, este número manda y el del panel no:
+-- un número que decide si llegas no puede tener dos dueños.
+CREATE TABLE IF NOT EXISTS forma_viaje (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre          TEXT NOT NULL,
+    modo            TEXT NOT NULL CHECK (modo IN ('puertas', 'salto')),
+    casco_type_id   INTEGER,                       -- el que SALTA; NULL en `puertas`
+    ciclo_cyno_min  REAL NOT NULL DEFAULT 10,
+    min_por_salto   REAL NOT NULL DEFAULT 1,
+    creado_at       TEXT NOT NULL
+);
+
 -- ★★ EL PLAN: una tanda de sitios a los que ir, ordenada para salvar los que se puedan.
 --
 -- ⚠️ SE LLAMA «PLAN» Y NO «CADENA» A PROPÓSITO: `cadena_id` de arriba ya es la expedición de
@@ -900,7 +923,10 @@ CREATE TABLE IF NOT EXISTS plan (
     orden_manual        INTEGER NOT NULL DEFAULT 0,
     salta_character_id  INTEGER,
     cyno_character_id   INTEGER,
-    ojos_character_id   INTEGER
+    ojos_character_id   INTEGER,
+    -- La forma de viajar. NULL = a puertas con el número del panel, EXACTAMENTE como en las fases
+    -- 1 y 2: ningún plan existente cambia de resultado. (En BD ya creadas la añade `Db::open`.)
+    forma_id            INTEGER REFERENCES forma_viaje(id)
 );
 
 -- Una parada del plan. `kind` + `ref_id` y NUNCA `escalacion_id`: los contratos de courier o las

@@ -16,7 +16,8 @@
  *    ni quitado ninguna, algo se perdió.
  */
 import { proponer, evaluar, cacheTramos, posponer, muertesTramo, bajaNula, cuestaIrSeguro, mejor, tramosEmpezados, muertesViejas } from "../src/plan.ts";
-import { saltoFatiga } from "../src/jumpCalc.ts";
+import { saltoFatiga, destinoSaltable } from "../src/jumpCalc.ts";
+import { llega, formaPuertas, formaSalto, fatigaInicial, separarImposibles } from "../src/plan.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -206,5 +207,132 @@ console.log("Salto — cooldown y fatiga de UN salto (saltoFatiga)");
 }
 const salto = cuenta - fase1 - fase2;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto})`);
+console.log("Fase 3a — la forma de viajar y los dos relojes");
+{
+  const H = 3600e3, M = 60e3, ahora = 0;
+  const key = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+  const casi = (a, b) => Math.abs(a - b) < 1e-6;
+
+  // ---- el predicado único, estado por estado ----
+  const LLEGA = { salvada: true, perdida: true, sin_ruta: false, fuera_alcance: false, alta_sec: false, cyno_sin_ruta: false };
+  for (const [e, v] of Object.entries(LLEGA)) ok(llega(e) === v, `llega("${e}") = ${v}`);
+
+  // ---- regresión: «a puertas» explícita = sin forma, número a número ----
+  const D = { "1-2": 10, "1-3": 30, "1-4": 5, "2-3": 25, "2-4": 12, "3-4": 28 };
+  const calc = (a, b) => (a === b ? { saltos: 0, path: [a], wormhole: false } : { saltos: D[key(a, b)], path: [a, b], wormhole: false });
+  const P = [
+    { stopId: 11, systemId: 2, caducaMs: 2 * H },
+    { stopId: 12, systemId: 3, caducaMs: 1 * H },
+    { stopId: 13, systemId: 4, caducaMs: 10 * H },
+  ];
+  const t = cacheTramos([1, 2, 3, 4], calc);
+  const sin = proponer(P, t, ahora, 1, 45);
+  const con = proponer(P, t, ahora, 1, 45, formaPuertas(t, 1));
+  ok(JSON.stringify(sin) === JSON.stringify(con), "ficha «a puertas» con los mismos minutos: idéntico a sin ficha");
+
+  // ---- la receta de la fase 1, saltando: Jita; Amarr, Dodixie y Rens; una Black Ops ----
+  // Los cuatro son alta seguridad (sec públicas): ahí no se salta.
+  const JITA = 30000142, AMARR = 30002187, DODIXIE = 30002659, RENS = 30002510;
+  const sec = { [JITA]: 0.95, [AMARR]: 1.0, [DODIXIE]: 0.87, [RENS]: 0.9 };
+  const blops = { fatMult: 0.25, fuelPerLy: 700, isotope: "Helium Isotopes" };
+  const params = (puntos, extra) => ({
+    puntos, ly: () => 3, saltable: (s) => destinoSaltable(sec[s] ?? -1, 0), rutaCyno: (a, b) => ({ saltos: 5, path: [a, b], wormhole: false }),
+    cynoDesde: puntos[0], alcanceLy: 8, casco: blops, jfc: 5, cicloCynoMin: 1, cynoMinPorSalto: 1,
+    fatigaMin: 0, cooldownHastaMs: ahora, ahoraMs: ahora, ...extra,
+  });
+  const receta = [
+    { stopId: 1, systemId: AMARR, caducaMs: 3 * H },
+    { stopId: 2, systemId: DODIXIE, caducaMs: 1 * H },
+    { stopId: 3, systemId: RENS, caducaMs: 9 * 60e3 },
+  ];
+  const fr = formaSalto(params([JITA, AMARR, DODIXIE, RENS]));
+  const er = proponer(receta, cacheTramos([JITA, AMARR, DODIXIE, RENS], calc), ahora, 1, 45, fr).mejor;
+  ok(er.resultados.length === 3 && er.resultados.every((r) => r.estado === "alta_sec") && er.imposibles.length === 0,
+    "receta en alta seguridad: las tres «a alta seguridad no se salta», ninguna perdida ni imposible");
+
+  // ---- los dos relojes, con distancias inyectadas ----
+  // Black Ops alcance 8, fatMult 0,25. Cyno: ciclo 1 min, 1 min por salto. 45 min en cada sitio.
+  // O = 1, A = 2, B = 3. A a 6 al y 10 saltos de O; B a 8 al y 60 saltos de A.
+  const LY = { "1-2": 6, "2-3": 8, "1-3": 7 };
+  const SALTOS = { "1-2": 10, "2-3": 60, "1-3": 70 };
+  const p2 = (extra) => params([1, 2, 3], {
+    ly: (a, b) => LY[key(a, b)], saltable: () => true,
+    rutaCyno: (a, b) => ({ saltos: SALTOS[key(a, b)], path: [a, ...Array(SALTOS[key(a, b)] - 1).fill(99), b], wormhole: false }),
+    ...extra,
+  });
+  const AB = [
+    { stopId: 21, systemId: 2, caducaMs: 10 * H },
+    { stopId: 22, systemId: 3, caducaMs: 10 * H },
+  ];
+  const tr2 = cacheTramos([1, 2, 3], calc);
+  const ev = evaluar([0, 1], AB, tr2, ahora, 1, 45, formaSalto(p2({})));
+  const [rA, rB] = ev.resultados;
+  const sA = rA.salto?.saltos[0], sB = rB.salto?.saltos[0];
+  console.log("  O→A:", rA.llegadaMs / M, rA.salto?.espera, sA?.cooldownMin, sA?.fatigaMin, "· A→B:", rB.llegadaMs / M, rB.salto?.espera, sB?.cooldownMin, sB?.fatigaMin);
+  ok(casi(rA.llegadaMs, 10 * M) && rA.salto.espera?.quien === "cyno" && casi(rA.salto.espera.min, 10),
+    "O → A sale en t = 10: manda el cyno (10 saltos, sin ciclo pendiente)");
+  ok(casi(sA.cooldownMin, 2.5) && casi(sA.fatigaMin, 25), "O → A: cooldown 2,5 y fatiga 25");
+  ok(casi(rB.llegadaMs, 71 * M) && rB.salto.espera?.quien === "cyno" && casi(rB.salto.espera.min, 16),
+    "A → B sale en t = 71: el cyno, libre en 11, más 60 saltos; el sitio acabó en 55 → esperas 16 m");
+  ok(casi(sB.cooldownMin, 3) && casi(sB.fatigaMin, 30), "A → B: cooldown 3 y fatiga 30");
+  ok(rA.path.length === 11 && rB.path[0] === 2 && rB.path.at(-1) === 3, "el camino de una pata de salto es la ruta a puertas del CYNO");
+  ok(casi(ev.recorridoMin, 10 + 16), "el recorrido es el reloj entre paradas, esperas incluidas, sin los sitios");
+
+  // El caso en que manda el cooldown: A sin tiempo en el sitio, B a 1 salto de A. Se prueba en la
+  // PATA, desde el estado tras A: por `evaluar`, una A ya caducada al llegar yendo directo es una
+  // IMPOSIBLE y sale del recorrido (lo comprueba la siguiente), así que no puede ser la del medio.
+  const f3 = formaSalto(p2({ rutaCyno: (a, b) => ({ saltos: key(a, b) === "2-3" ? 1 : SALTOS[key(a, b)], path: [a, b], wormhole: false }) }));
+  const tras = f3.pata(f3.inicial, 0, 1, 0);
+  const pb = f3.pata(tras.despues, 1, 2, 10 * M);
+  console.log("  cooldown:", pb.llega && pb.viajeMin, pb.llega && pb.salto.espera, pb.llega && pb.salto.saltos[0].cooldownMin, pb.llega && pb.salto.saltos[0].fatigaMin);
+  ok(pb.llega && pb.salto.espera?.quien === "cooldown" && casi(pb.salto.espera.min, 2.5) && casi(pb.salto.saltos[0].salidaMs, 12.5 * M),
+    "cyno en B en t = 12, cooldown hasta 12,5: saltas en 12,5, esperas 2,5 m de cooldown");
+  ok(pb.llega && casi(pb.salto.saltos[0].cooldownMin, 3) && casi(pb.salto.saltos[0].fatigaMin, 67.5),
+    "llegas con 22,5 de fatiga: cooldown 3, fatiga 67,5");
+  const caducada = [{ stopId: 21, systemId: 2, caducaMs: 5 * M }, AB[1]];
+  ok(separarImposibles(caducada, tr2, ahora, 1, f3).has(0), "A caducada antes de t = 10 yendo directo: imposible, fuera del recorrido");
+
+  // ---- los motivos nuevos: no llega, no se pierde, no mueve la partida ----
+  const lejos = formaSalto(p2({ ly: (a, b) => (key(a, b) === "1-2" ? 11.2 : LY[key(a, b)]) }));
+  const el = evaluar([0, 1], AB, tr2, ahora, 1, 45, lejos);
+  ok(el.resultados[0].estado === "fuera_alcance" && casi(el.resultados[0].noLlega.ly, 11.2) && el.resultados[0].noLlega.alcance === 8,
+    "fuera de alcance, con los dos números: 11,2 al y llegas a 8");
+  ok(el.imposibles.length === 0 && el.resultados[1].salto.saltos[0].desde === 1,
+    "fuera de alcance no es imposible, y la siguiente sale del origen (no mueve la partida)");
+  const sinCyno = formaSalto(p2({ rutaCyno: () => null }));
+  ok(evaluar([0], AB, tr2, ahora, 1, 45, sinCyno).resultados[0].estado === "cyno_sin_ruta", "el cyno sin ruta a puertas: se dice que es él");
+
+  // ---- el estado inicial: el timer rojo es una COTA ----
+  const iso = (ms) => new Date(ms).toISOString();
+  const fi0 = fatigaInicial(null, null, ahora);
+  ok(fi0.fatigaMin === 0 && fi0.cooldownHastaMs === ahora && !fi0.cotaRoja, "sin datos de fatiga: cero (la pantalla dice por qué)");
+  const fi1 = fatigaInicial(iso(60 * M), iso(-2 * M), ahora);
+  ok(casi(fi1.fatigaMin, 60) && casi(fi1.cooldownHastaMs, 4.2 * M) && fi1.cotaRoja,
+    "saltó hace 2 min con 62 de azul: puede saltar como muy tarde en 6,2 min tras el salto (cota)");
+  const fi2 = fatigaInicial(iso(60 * M), iso(-10 * M), ahora);
+  ok(fi2.cooldownHastaMs === ahora && !fi2.cotaRoja, "si la cota ya pasó, nada que esperar");
+
+  // ---- la costura con la fase 2: saltando, el camino vigilado es el del CYNO ----
+  const empSalto = [{ stop_id: 41, system_id: 3, system_name: "Amarr", caduca_at: new Date(10 * H).toISOString(), salto: true, cyno_character_id: 8 }];
+  const nom3 = (s) => ({ 1: "Jita", 2: "Dodixie", 3: "Amarr" })[s] ?? "";
+  const viaCalc = (a, b) => ({ saltos: 1, path: [a, b], wormhole: false });
+  const conCyno = tramosEmpezados(empSalto, 1, viaCalc, nom3, ahora, () => ({ desde: 2, quien: "Cyno Alt" }));
+  ok(conCyno[0].sistemas[0] === 2 && conCyno[0].quien === "Cyno Alt", "saltando: el tramo empezado sale de donde está el cyno, y dice de quién es");
+  const sinSaber = tramosEmpezados(empSalto, 1, viaCalc, nom3, ahora, () => ({ desde: null, quien: "Cyno Alt" }));
+  ok(sinSaber[0].sistemas[0] === 1, "sin saber dónde está el cyno: se supone que sale de donde estás tú");
+  ok(tramosEmpezados(empSalto, 1, viaCalc, nom3, ahora)[0].quien === undefined, "sin el sexto argumento, como en la fase 2: tu camino");
+
+  // ---- lo que tarda la fuerza bruta con 8 paradas, saltando ----
+  const pts = [1, ...Array.from({ length: 8 }, (_, i) => 100 + i)];
+  const ocho = pts.slice(1).map((s, i) => ({ stopId: 300 + i, systemId: s, caducaMs: (3 + i) * H }));
+  const f8 = formaSalto(params(pts, { ly: (a, b) => 1 + ((a * 7 + b * 13) % 6), saltable: () => true,
+    rutaCyno: (a, b) => ({ saltos: 1 + ((a + b) % 9), path: [a, b], wormhole: false }) }));
+  const t0 = performance.now();
+  const e8 = proponer(ocho, cacheTramos(pts, calc), ahora, 1, 45, f8);
+  console.log(`  8 paradas saltando: ${Math.round(performance.now() - t0)} ms, método ${e8.metodo}`);
+  ok(e8.metodo === "optimo", "con 8 paradas saltando, todavía óptimo");
+}
+const fase3 = cuenta - fase1 - fase2 - salto;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3})`);
 process.exit(fallos ? 1 : 0);

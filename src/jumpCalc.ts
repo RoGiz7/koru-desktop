@@ -8,8 +8,20 @@ export type JumpFuel = { dist: number; fuel: number; isotope: string; inRange: b
 /** `fatMult` < 1 = el casco rebaja la distancia efectiva (Black Ops, Jump Freighter, Rorqual). */
 export type JumpFatEst = { cooldown: number; newFat: number; fatMult: number };
 
-// Combustible (isótopos) y distancia al destino elegido.
-// fuel = dist(LY) × fuelPerLy × (1 − 10%·Jump Fuel Conservation).
+/** Isótopos de UN salto: años luz × consumo por año luz × (1 − 10 %·Jump Fuel Conservation),
+ *  redondeado hacia arriba. Lo usan el planificador de salto del mapa y el plan: UNA fórmula. */
+export function isotoposSalto(ly: number, fuelPerLy: number, jfcLevel: number): number {
+  return Math.ceil(ly * fuelPerLy * (1 - 0.1 * jfcLevel));
+}
+
+/** ¿Se puede saltar A este sistema? No a alta seguridad (sec ≥ 0,45) ni a Pochven. El MISMO corte
+ *  para el planificador de salto del mapa y para el plan. */
+export const POCHVEN = 10000070;
+export function destinoSaltable(sec: number, regionId: number): boolean {
+  return sec < 0.45 && regionId !== POCHVEN;
+}
+
+// Combustible (isótopos) y distancia al destino elegido. Ver `isotoposSalto`.
 export function computeJumpFuel(
   geo: Geo | null,
   selShip: JumpShip | null,
@@ -23,7 +35,7 @@ export function computeJumpFuel(
   const d = geo.idx.get(jumpDest);
   if (!o || !d) return null;
   const dist = Math.hypot(d.gx - o.gx, d.gy - o.gy, d.gz - o.gz);
-  const fuel = Math.ceil(dist * selShip.fuelPerLy * (1 - 0.1 * jfcLevel));
+  const fuel = isotoposSalto(dist, selShip.fuelPerLy, jfcLevel);
   return { dist, fuel, isotope: selShip.isotope, inRange: dist <= jumpRange + 1e-6 };
 }
 
@@ -72,8 +84,7 @@ export function computeJumpReach(
   const out = new Map<number, number>();
   for (const s of geo.idx.values()) {
     if (s.id === o.id) continue;
-    if (s.s >= 0.45) continue; // no se puede saltar a high-sec
-    if (s.r === 10000070) continue; // Pochven
+    if (!destinoSaltable(s.s, s.r)) continue; // ni high-sec ni Pochven
     const d = Math.hypot(s.gx - o.gx, s.gy - o.gy, s.gz - o.gz);
     if (d <= jumpRange) out.set(s.id, d);
   }

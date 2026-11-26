@@ -129,6 +129,24 @@ pub struct Plan {
     pub salta_character_id: Option<i64>,
     pub cyno_character_id: Option<i64>,
     pub ojos_character_id: Option<i64>,
+    /// La forma de viajar (`forma_viaje`). `None` = a puertas con el número del panel, como antes.
+    pub forma_id: Option<i64>,
+}
+
+/// Una manera de moverse, con nombre (ver la tabla `forma_viaje` en `schema.sql`). Solo lo que se
+/// DECLARA: lo del casco se resuelve por `casco_type_id` en el catálogo al calcular.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FormaViaje {
+    pub id: i64,
+    pub nombre: String,
+    /// `puertas` | `salto`.
+    pub modo: String,
+    pub casco_type_id: Option<i64>,
+    pub ciclo_cyno_min: f64,
+    pub min_por_salto: f64,
+    /// Los planes que la usan, por nombre: una ficha en uso no se borra, y se dice por quién.
+    #[serde(default)]
+    pub planes: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -172,6 +190,11 @@ pub struct ParadaEmpezada {
     pub system_id: i64,
     pub system_name: String,
     pub caduca_at: String,
+    /// ¿Su plan va SALTANDO? Entonces quien cruza los sistemas del camino es el CYNO, no el que
+    /// salta, y el tramo vigilado se cuenta desde donde está el cyno (fase 3a).
+    pub salto: bool,
+    /// El cyno de su plan, si la forma es `salto` y está puesto.
+    pub cyno_character_id: Option<i64>,
 }
 
 impl Db {
@@ -231,7 +254,7 @@ impl Db {
         let plan = conn
             .query_row(
                 "SELECT id, nombre, creado_at, origen_system_id, orden_manual, \
-                 salta_character_id, cyno_character_id, ojos_character_id FROM plan WHERE id = ?1",
+                 salta_character_id, cyno_character_id, ojos_character_id, forma_id FROM plan WHERE id = ?1",
                 [plan_id],
                 |r| {
                     Ok(Plan {
@@ -243,6 +266,7 @@ impl Db {
                         salta_character_id: r.get(5)?,
                         cyno_character_id: r.get(6)?,
                         ojos_character_id: r.get(7)?,
+                        forma_id: r.get(8)?,
                     })
                 },
             )
@@ -279,26 +303,142 @@ impl Db {
     /// marcas del mismo hostil. Las que no saben su sistema no se pueden rutar y no salen.
     pub fn plan_paradas_empezadas(&self) -> AppResult<Vec<ParadaEmpezada>> {
         let conn = self.conn.lock().unwrap();
-        let filas: Vec<(i64, String, i64)> = {
-            let mut st = conn.prepare("SELECT id, kind, ref_id FROM plan_stop ORDER BY plan_id, orden, id")?;
+        let filas: Vec<(i64, String, i64, bool, Option<i64>)> = {
+            let mut st = conn.prepare(
+                "SELECT s.id, s.kind, s.ref_id, COALESCE(f.modo = 'salto', 0), p.cyno_character_id \
+                 FROM plan_stop s JOIN plan p ON p.id = s.plan_id \
+                 LEFT JOIN forma_viaje f ON f.id = p.forma_id \
+                 ORDER BY s.plan_id, s.orden, s.id",
+            )?;
             let v = st
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
                 .collect::<Result<Vec<_>, _>>()?;
             v
         };
         let mut vistas = std::collections::HashSet::new();
         let mut out = Vec::new();
-        for (stop_id, kind, ref_id) in filas {
+        for (stop_id, kind, ref_id, salto, cyno) in filas {
             // Un kind que este Koru no conoce no puede estar empezado por este Koru: lo canta el
             // cargador, aquí solo no se vigila.
             let Some(k) = PlanKind::de_clave(&kind) else { continue };
             let Some(r) = k.resolver(&conn, ref_id)? else { continue };
             let Some(sid) = r.system_id else { continue };
             if r.empezada && vistas.insert((kind.clone(), ref_id)) {
-                out.push(ParadaEmpezada { stop_id, system_id: sid, system_name: r.system_name, caduca_at: r.caduca_at });
+                out.push(ParadaEmpezada {
+                    stop_id,
+                    system_id: sid,
+                    system_name: r.system_name,
+                    caduca_at: r.caduca_at,
+                    salto,
+                    cyno_character_id: if salto { cyno } else { None },
+                });
             }
         }
         Ok(out)
+    }
+
+    /// Las formas de viajar, cada una con los planes que la usan.
+    pub fn forma_listar(&self) -> AppResult<Vec<FormaViaje>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT id, nombre, modo, casco_type_id, ciclo_cyno_min, min_por_salto FROM forma_viaje ORDER BY nombre, id",
+        )?;
+        let mut v = st
+            .query_map([], |r| {
+                Ok(FormaViaje {
+                    id: r.get(0)?,
+                    nombre: r.get(1)?,
+                    modo: r.get(2)?,
+                    casco_type_id: r.get(3)?,
+                    ciclo_cyno_min: r.get(4)?,
+                    min_por_salto: r.get(5)?,
+                    planes: Vec::new(),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        for f in &mut v {
+            f.planes = planes_de_forma(&conn, f.id)?;
+        }
+        Ok(v)
+    }
+
+    /// Crea (`id` = None) o cambia una forma de viajar. Devuelve su id.
+    ///
+    /// La validación está AQUÍ y no solo en la pantalla: una forma `salto` sin casco no se puede
+    /// calcular, y una a puertas con casco tendría un dato que nadie lee y que parecería que cuenta.
+    pub fn forma_guardar(&self, f: &FormaViaje) -> AppResult<i64> {
+        let nombre = f.nombre.trim();
+        if nombre.is_empty() {
+            return Err(AppError::Other("la forma de viajar necesita un nombre".into()));
+        }
+        let casco = match f.modo.as_str() {
+            "puertas" => None,
+            "salto" => Some(f.casco_type_id.ok_or_else(|| {
+                AppError::Other("una forma «salto» necesita el casco que salta".into())
+            })?),
+            otro => return Err(AppError::Other(format!("modo de viaje desconocido «{otro}»"))),
+        };
+        // `!(x > 0)` y no `x <= 0`: un NaN tiene que caer aquí, no colarse como número.
+        if !(f.min_por_salto > 0.0) || !(f.ciclo_cyno_min > 0.0) {
+            return Err(AppError::Other("los minutos por salto y el ciclo del cyno tienen que ser mayores que 0".into()));
+        }
+        let conn = self.conn.lock().unwrap();
+        if f.id > 0 {
+            let n = conn.execute(
+                "UPDATE forma_viaje SET nombre = ?2, modo = ?3, casco_type_id = ?4, ciclo_cyno_min = ?5, \
+                 min_por_salto = ?6 WHERE id = ?1",
+                rusqlite::params![f.id, nombre, f.modo, casco, f.ciclo_cyno_min, f.min_por_salto],
+            )?;
+            if n == 0 {
+                return Err(AppError::Other(format!("la forma de viajar #{} ya no existe", f.id)));
+            }
+            Ok(f.id)
+        } else {
+            conn.execute(
+                "INSERT INTO forma_viaje (nombre, modo, casco_type_id, ciclo_cyno_min, min_por_salto, creado_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![nombre, f.modo, casco, f.ciclo_cyno_min, f.min_por_salto, chrono::Utc::now().to_rfc3339()],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }
+    }
+
+    /// Borra una forma de viajar. ⚠️ Si algún plan la usa, NO se borra y el error dice cuáles:
+    /// volver esos planes «a puertas» en silencio cambiaría sus márgenes sin que nadie lo pidiera.
+    pub fn forma_borrar(&self, id: i64) -> AppResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let planes = planes_de_forma(&conn, id)?;
+        if !planes.is_empty() {
+            return Err(AppError::Other(format!(
+                "la usan estos planes: {}. Cámbiales antes la forma de viajar.",
+                planes.join(", ")
+            )));
+        }
+        Ok(conn.execute("DELETE FROM forma_viaje WHERE id = ?1", [id])? > 0)
+    }
+
+    /// Pone (o quita, con `None`) la forma de viajar de un plan.
+    pub fn plan_forma(&self, plan_id: i64, forma_id: Option<i64>) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute("UPDATE plan SET forma_id = ?2 WHERE id = ?1", rusqlite::params![plan_id, forma_id])?;
+        if n == 0 {
+            return Err(AppError::Other(format!("el plan #{plan_id} ya no existe")));
+        }
+        Ok(())
+    }
+
+    /// Fija quién SALTA y quién pone el CYNO. `ojos` no se toca aquí a propósito: no hay selector
+    /// porque todavía no hace nada, y un control que no hace nada miente.
+    pub fn plan_papeles(&self, plan_id: i64, salta: Option<i64>, cyno: Option<i64>) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE plan SET salta_character_id = ?2, cyno_character_id = ?3 WHERE id = ?1",
+            rusqlite::params![plan_id, salta, cyno],
+        )?;
+        if n == 0 {
+            return Err(AppError::Other(format!("el plan #{plan_id} ya no existe")));
+        }
+        Ok(())
     }
 
     /// Añade una parada al final. Comprueba que el tipo exista y que el objeto exista HOY: dejar
@@ -381,6 +521,12 @@ impl Db {
     }
 }
 
+fn planes_de_forma(conn: &Connection, forma_id: i64) -> AppResult<Vec<String>> {
+    let mut st = conn.prepare("SELECT nombre FROM plan WHERE forma_id = ?1 ORDER BY nombre, id")?;
+    let v = st.query_map([forma_id], |r| r.get(0))?.collect::<Result<Vec<String>, _>>()?;
+    Ok(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,6 +604,46 @@ mod tests {
         let c = db.plan_cargar(plan).unwrap();
         assert!(c.plan.orden_manual);
         assert_eq!(c.paradas[0].id, ids[1]);
+
+        // 4b) La forma de viajar y los papeles. Sin ficha, el plan sigue «a puertas» (None).
+        assert_eq!(c.plan.forma_id, None, "un plan nuevo no tiene forma: a puertas, como antes");
+        let ficha = |modo: &str, casco: Option<i64>| FormaViaje {
+            id: 0,
+            nombre: "blops con cyno covert".into(),
+            modo: modo.into(),
+            casco_type_id: casco,
+            ciclo_cyno_min: 1.0,
+            min_por_salto: 1.0,
+            planes: vec![],
+        };
+        assert!(db.forma_guardar(&ficha("salto", None)).is_err(), "salto sin casco: no entra");
+        assert!(db.forma_guardar(&ficha("volar", None)).is_err(), "modo desconocido: no entra");
+        assert!(db.forma_guardar(&FormaViaje { min_por_salto: f64::NAN, ..ficha("puertas", None) }).is_err(), "NaN: no entra");
+        let fid = db.forma_guardar(&ficha("salto", Some(22430))).unwrap();
+        let pid_a_puertas = db.forma_guardar(&ficha("puertas", Some(22430))).unwrap();
+        let formas = db.forma_listar().unwrap();
+        assert_eq!(formas.iter().find(|f| f.id == pid_a_puertas).unwrap().casco_type_id, None, "a puertas no guarda casco");
+        db.plan_forma(plan, Some(fid)).unwrap();
+        db.plan_papeles(plan, Some(7), Some(8)).unwrap();
+        let c2 = db.plan_cargar(plan).unwrap();
+        assert_eq!((c2.plan.forma_id, c2.plan.salta_character_id, c2.plan.cyno_character_id), (Some(fid), Some(7), Some(8)));
+        let err = db.forma_borrar(fid).unwrap_err().to_string();
+        assert!(err.contains("prueba"), "una ficha en uso no se borra, y dice qué plan la usa: {err}");
+        assert_eq!(db.forma_listar().unwrap().iter().find(|f| f.id == fid).unwrap().planes, vec!["prueba".to_string()]);
+        // La costura con la fase 2: saltando, el camino vigilado es el del CYNO, y se dice cuál es.
+        let d = db
+            .escalacion_abrir(None, "D", None, None, Some(30002659), "Dodixie", 600, "propia", None)
+            .unwrap();
+        assert!(db.plan_anadir(plan, "escalacion", d).unwrap());
+        let run_d = db.escalacion_run_start(d, None, None, None).unwrap();
+        let e = db.plan_paradas_empezadas().unwrap();
+        assert_eq!((e.len(), e[0].salto, e[0].cyno_character_id), (1, true, Some(8)), "saltando: el camino es del cyno");
+        db.plan_forma(plan, None).unwrap();
+        let e = db.plan_paradas_empezadas().unwrap();
+        assert_eq!((e[0].salto, e[0].cyno_character_id), (false, None), "a puertas: tu camino, como en la fase 2");
+        db.run_end(run_d, "done", None, None, None, None, None).unwrap();
+        assert!(db.forma_borrar(fid).unwrap(), "sin planes, se borra");
+        assert!(db.forma_borrar(pid_a_puertas).unwrap());
 
         // 5) Borrar el plan se lleva sus paradas por la clave ajena.
         assert!(db.plan_borrar(plan).unwrap());

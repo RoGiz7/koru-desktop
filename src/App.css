@@ -12277,6 +12277,10 @@ h4 .ped-glifo, h5 .ped-glifo { vertical-align: -4px; }
 /* Fase 2. «▶ en camino»: el tramo que AVISA del intel. */
 .plan-empezada { color: var(--ok); font-size: 0.85em; }
 .plan-seguro { margin: 0.3rem 0; padding: 0.3rem 0.5rem; border-left: 2px solid #4a90d9; }
+/* Fase 3a: la línea de cada salto (al, isótopos, espera y con qué quedas) y el editor de la forma. */
+.plan-salto { color: #8fb8e8; }
+.plan-forma-editor { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.3rem 0; padding: 0.35rem 0.5rem; border: 1px solid #3a4a5c; border-radius: 4px; }
+.plan-forma-editor input:not([type="number"]) { width: 14rem; }
 /* Intel en un tramo. Los dos estados se distinguen a propósito: el que suena va en rojo lleno y el
    marcado en silencio con borde DISCONTINUO — tiene que verse marcado, no parecer limpio. */
 .plan-intel { margin-top: 0.25rem; padding: 0.25rem 0.45rem; border-radius: 4px; font-size: 0.85em; }

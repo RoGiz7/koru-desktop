@@ -2543,10 +2543,18 @@ export function MapView(props: {
     };
   }, []);
   const tramosVigilados = useMemo(
-    () => tramosPanel ?? tramosEmpezados(empezadas, hereSystemId ?? null, calcTramo, nameOf, Date.now()),
+    () =>
+      tramosPanel ??
+      tramosEmpezados(empezadas, hereSystemId ?? null, calcTramo, nameOf, Date.now(), (e) => {
+        // Fase 3a: si su plan va saltando, el camino es el del CYNO, desde donde esté él.
+        if (!e.salto) return undefined;
+        const loc = e.cyno_character_id != null ? (charLocations ?? []).find((c) => c.id === e.cyno_character_id) : undefined;
+        const nombre = e.cyno_character_id != null ? characters.find((c) => c.character_id === e.cyno_character_id)?.name : undefined;
+        return { desde: loc?.system_id ?? null, quien: nombre ?? loc?.name ?? tr("el cyno") };
+      }),
     // `nameOf` cambia en cada render; el nombre sale del mismo `ne` que `calcTramo`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tramosPanel, empezadas, hereSystemId, calcTramo],
+    [tramosPanel, empezadas, hereSystemId, calcTramo, charLocations, characters],
   );
   const tramosVigiladosKey = JSON.stringify(tramosVigilados);
   useEffect(() => {
@@ -6307,6 +6315,8 @@ export function MapView(props: {
               killsAt={killsAt}
               killsErr={killsErr}
               onTramosIntel={setTramosPanel}
+              characters={characters}
+              charLocations={charLocations ?? []}
               intelError={planIntelErr || empezadasErr}
               intercepting={intercepting}
               onPintar={(stops) => setRouteStops(stops)}

@@ -76,7 +76,7 @@ type IntelAlert = {
   /** Región del sistema del aviso. `undefined` = el grafo no la sabe. */
   region?: string | null;
   /** Solo en un aviso del PLAN (fase 2): el hostil está en tu CAMINO, no cerca de ti. */
-  camino?: { destino: string; cerca_de: string; system_id: number; jumps: number };
+  camino?: { destino: string; cerca_de: string; system_id: number; jumps: number; quien?: string };
 };
 
 /** Un aviso en la pila: el evento + su identidad propia y cuándo le toca irse. */
@@ -142,7 +142,14 @@ function referencia(a: IntelAlert): { texto: string; titulo: string } | null {
   if (a.camino) {
     const en = getLang() === "en";
     return {
-      texto: en ? `on your way to ${a.camino.destino}` : `en tu camino a ${a.camino.destino}`,
+      // Saltando (fase 3a) el camino es del cyno: se dice de quién.
+      texto: a.camino.quien
+        ? en
+          ? `on ${a.camino.quien}'s way to ${a.camino.destino}`
+          : `en el camino de ${a.camino.quien} a ${a.camino.destino}`
+        : en
+          ? `on your way to ${a.camino.destino}`
+          : `en tu camino a ${a.camino.destino}`,
       titulo: en
         ? `${a.camino.jumps} jump(s) off the route, near ${a.camino.cerca_de}`
         : `${a.camino.jumps} salto(s) del camino, junto a ${a.camino.cerca_de}`,

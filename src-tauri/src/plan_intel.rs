@@ -30,6 +30,10 @@ pub struct PlanTramoIntel {
     pub sistemas: Vec<i64>,
     /// «▶ Voy» pulsado en esta parada (run abierta). El ÚNICO que avisa.
     pub empezado: bool,
+    /// De QUIÉN es el camino cuando no es el tuyo: saltando (fase 3a), quien cruza estos sistemas es
+    /// el cyno. Solo cambia el TEXTO del aviso («en el camino de X a Amarr»), no cuándo suena.
+    #[serde(default)]
+    pub quien: Option<String>,
 }
 
 /// Un hostil cantado cerca de un tramo del plan.
@@ -165,8 +169,8 @@ mod tests {
 
     fn tramos() -> Vec<PlanTramoIntel> {
         vec![
-            PlanTramoIntel { stop_id: 100, destino: "S5".into(), sistemas: vec![1, 2, 3, 4, 5], empezado: true },
-            PlanTramoIntel { stop_id: 200, destino: "S15".into(), sistemas: (5..=15).collect(), empezado: false },
+            PlanTramoIntel { stop_id: 100, destino: "S5".into(), sistemas: vec![1, 2, 3, 4, 5], empezado: true, quien: None },
+            PlanTramoIntel { stop_id: 200, destino: "S15".into(), sistemas: (5..=15).collect(), empezado: false, quien: None },
         ]
     }
 

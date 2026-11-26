@@ -9,7 +9,10 @@ import { listen } from "@tauri-apps/api/event";
 import { getLang, tr } from "./i18n";
 import { SystemSearch } from "./map";
 import type { RouteMode } from "./mapRoute";
-import type { IntelStatus, NeSystem } from "./types";
+import type { CharLoc, Character, IntelStatus, JumpShip, NeSystem } from "./types";
+import { destinoSaltable } from "./jumpCalc";
+import { esFaltaPermiso } from "./errores";
+import { loadJson } from "./staticJson";
 import {
   MAX_PERMUTAR,
   PLAN_CAMBIADO,
@@ -20,6 +23,13 @@ import {
   evaluar,
   muertesTramo,
   muertesViejas,
+  llega,
+  formaSalto,
+  fatigaInicial,
+  type FormaViaje,
+  type FormaCalc,
+  type EstadoSalto,
+  type SaltoHecho,
   posponer,
   proponer,
   type Evaluacion,
@@ -50,6 +60,18 @@ function textoAviso(a: PlanMarca["aviso"]): string {
 
 /** «hace 3 min» / «3 min ago». Sin `tr()` porque el ORDEN cambia de un idioma a otro: mismo
  *  motivo que `edad()` en overlay.tsx. */
+/** El catálogo de naves de salto y generadores de cyno (`extract_jumpships.py`). */
+type Catalogo = { ships: JumpShip[]; cynos: { id: number; name: string; cycleMin: number }[] };
+
+/** Un decimal con la coma o el punto del idioma: «11,2 al». */
+function unDecimal(n: number): string {
+  return Number.isFinite(n) ? n.toLocaleString(getLang(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "∞";
+}
+/** Minutos cortos con su decimal cuando importa: un cooldown de 2,5 m no puede salir «3 m». */
+function minutos(m: number): string {
+  return m < 10 ? `${unDecimal(m)} m` : duracion(m);
+}
+
 function haceMin(ts: number, ahora: number): string {
   const m = Math.max(0, Math.round((ahora - ts) / 60000));
   return getLang() === "en" ? `${m} min ago` : `hace ${m} min`;
@@ -104,6 +126,10 @@ export function PlanNav(props: {
   onTramosIntel: (t: PlanTramoIntel[] | null) => void;
   /** Si el vigilante no recibió los tramos o no se pudieron leer las empezadas. */
   intelError: string;
+  /** Tus personajes, para los papeles (quién salta, quién pone el cyno). */
+  characters: Character[];
+  /** Dónde están: de aquí sale dónde está el cyno. */
+  charLocations: CharLoc[];
   /** Pinta las paradas en el planificador del mapa: [origen, parada1, parada2…]. */
   onPintar: (stops: number[]) => void;
   /** Las paradas que tiene AHORA el planificador, para saber si la línea sigue siendo la del plan. */
@@ -113,7 +139,7 @@ export function PlanNav(props: {
   focusSystem: (sid: number) => void;
   onCerrar: () => void;
 }) {
-  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
+  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, charLocations, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
   const [cargado, setCargado] = useState<PlanCargado | null>(null);
   const [error, setError] = useState("");
   const [minSalto, setMinSalto] = useState(() => leerNum(MIN_SALTO_KEY, DEF_MIN_SALTO));
@@ -155,6 +181,56 @@ export function PlanNav(props: {
   const plan = cargado?.plan ?? null;
   const origen = plan?.origen_system_id ?? hereSystemId;
 
+  // ==== FASE 3a · LA FORMA DE VIAJAR Y LOS PAPELES ====
+  const [formas, setFormas] = useState<FormaViaje[]>([]);
+  const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
+  async function recargarFormas() {
+    try {
+      setFormas(await invoke<FormaViaje[]>("forma_listar"));
+    } catch (e) {
+      setError(`${tr("No se pudieron leer las formas de viajar")}: ${String(e)}`);
+    }
+  }
+  useEffect(() => {
+    void recargarFormas();
+    void loadJson<Catalogo>("/jumpships.json", { ships: [], cynos: [] }).then(setCatalogo);
+  }, []);
+  const forma = plan?.forma_id != null ? formas.find((f) => f.id === plan.forma_id) ?? null : null;
+  const saltando = forma?.modo === "salto";
+  // Sin casco en el catálogo no hay alcance ni consumo: se cuenta a puertas Y SE DICE (abajo).
+  const casco = saltando && catalogo ? catalogo.ships.find((s) => s.id === forma!.casco_type_id) ?? null : null;
+  // ⚠️ LOS MINUTOS POR SALTO TIENEN UN SOLO DUEÑO. Sin ficha, el número del panel, como siempre. Con
+  //    ficha, el de la ficha, y el panel enseña ESE (no deja editar el suyo): un número que decide si
+  //    llegas no puede estar duplicado ni escondido.
+  const minSaltoEf = forma ? forma.min_por_salto : minSalto;
+  const salta = plan?.salta_character_id ?? null;
+  const cyno = plan?.cyno_character_id ?? null;
+  const nombrePj = (id: number) => characters.find((c) => c.character_id === id)?.name ?? `#${id}`;
+  const cynoLoc = cyno != null ? charLocations.find((c) => c.id === cyno)?.system_id ?? null : null;
+  const saltaLoc = salta != null ? charLocations.find((c) => c.id === salta)?.system_id ?? null : null;
+  // Del que salta: sus niveles y su fatiga. Cada fallo dice cuál fue (sin permiso ≠ ESI caído).
+  const [perfil, setPerfil] = useState<{ jdc: number; jfc: number } | null>(null);
+  const [perfilErr, setPerfilErr] = useState("");
+  const [fatiga, setFatiga] = useState<{ expire: string | null; last: string | null } | null>(null);
+  const [fatigaErr, setFatigaErr] = useState<{ permiso: boolean; msg: string } | null>(null);
+  useEffect(() => {
+    setPerfil(null);
+    setPerfilErr("");
+    setFatiga(null);
+    setFatigaErr(null);
+    if (!saltando || salta == null) return;
+    let vivo = true;
+    invoke<{ jdc: number; jfc: number }>("get_jump_profile", { characterId: salta })
+      .then((p) => vivo && setPerfil({ jdc: p.jdc, jfc: p.jfc }))
+      .catch((e) => vivo && setPerfilErr(String(e)));
+    invoke<{ jump_fatigue_expire_date: string | null; last_jump_date: string | null }>("get_fatigue", { characterId: salta })
+      .then((f) => vivo && setFatiga({ expire: f.jump_fatigue_expire_date, last: f.last_jump_date }))
+      .catch((e) => vivo && setFatigaErr({ permiso: esFaltaPermiso(e), msg: String(e) }));
+    return () => {
+      vivo = false;
+    };
+  }, [saltando, salta]);
+
   // Las que entran en el cálculo, en el orden guardado; el resto se enseña aparte con su motivo.
   const { calc, fuera } = useMemo(() => {
     const calc: { p: ParadaCargada; c: ParadaCalc }[] = [];
@@ -178,13 +254,50 @@ export function PlanNav(props: {
     [puntosKey, calcTramo],
   );
 
+  // La forma `salto` para el cálculo. Sin ficha `salto` (o sin casco en el catálogo): `undefined`, y
+  // `evaluar` cuenta a puertas con `minSaltoEf`, que es exactamente lo de las fases 1 y 2.
+  const sysIdx = useMemo(() => new Map(systems.map((x) => [x.id, x] as const)), [systems]);
+  const ini = fatigaInicial(fatiga?.expire ?? null, fatiga?.last ?? null, ahora);
+  // Sin «quién salta», o sin poder leer sus skills, se suponen a V: se dice en `supuestos`.
+  const jdc = perfil?.jdc ?? 5;
+  const jfc = perfil?.jfc ?? 5;
+  const alcance = casco ? casco.range * (1 + 0.2 * jdc) : 0;
+  const formaDe = (modo?: RouteMode): FormaCalc<EstadoSalto> | undefined => {
+    if (!saltando || !casco || origen == null) return undefined;
+    return formaSalto({
+      puntos: [origen, ...paradas.map((p) => p.systemId)],
+      ly: (a, b) => {
+        const A = sysIdx.get(a);
+        const B = sysIdx.get(b);
+        return A && B ? Math.hypot(B.gx - A.gx, B.gy - A.gy, B.gz - A.gz) : Infinity;
+      },
+      saltable: (s) => {
+        const x = sysIdx.get(s);
+        return !!x && destinoSaltable(x.s, x.r);
+      },
+      rutaCyno: (a, b) => calcTramo(a, b, modo),
+      // Sin saber dónde está el cyno, se supone que sale de donde el que salta: se dice.
+      cynoDesde: cynoLoc ?? origen,
+      alcanceLy: alcance,
+      casco: { fatMult: casco.fatMult, fuelPerLy: casco.fuelPerLy, isotope: casco.isotope },
+      jfc,
+      cicloCynoMin: forma!.ciclo_cyno_min,
+      cynoMinPorSalto: forma!.min_por_salto,
+      fatigaMin: ini.fatigaMin,
+      cooldownHastaMs: ini.cooldownHastaMs,
+      ahoraMs: ahora,
+    });
+  };
+  const formaKey = JSON.stringify([forma, casco?.id, cynoLoc, jdc, jfc, fatiga, ahora, puntosKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const formaCalc = useMemo(() => formaDe(), [formaKey, calcTramo, sysIdx]);
   const propuesta = useMemo(
-    () => (tramos ? proponer(paradas, tramos, ahora, minSalto, minSitio) : null),
-    [tramos, paradas, ahora, minSalto, minSitio],
+    () => (tramos ? proponer(paradas, tramos, ahora, minSaltoEf, minSitio, formaCalc) : null),
+    [tramos, paradas, ahora, minSaltoEf, minSitio, formaCalc],
   );
   const manual = useMemo(
-    () => (tramos ? evaluar(paradas.map((_, i) => i), paradas, tramos, ahora, minSalto, minSitio) : null),
-    [tramos, paradas, ahora, minSalto, minSitio],
+    () => (tramos ? evaluar(paradas.map((_, i) => i), paradas, tramos, ahora, minSaltoEf, minSitio, formaCalc) : null),
+    [tramos, paradas, ahora, minSaltoEf, minSitio, formaCalc],
   );
   // ★ El orden manual MANDA cuando existe. El propuesto se sigue calculando para decir si salvaría
   //   más: se calla la imposición, nunca el dato (misma regla que silenciar un sistema en el intel).
@@ -204,15 +317,20 @@ export function PlanNav(props: {
   const tramosCorta = useMemo(() => tramosModo("shortest"), [puntosKey, calcTramo]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const tramosSegura = useMemo(() => tramosModo("safer"), [puntosKey, calcTramo]);
+  // Saltando, «corta / segura» es la ruta del CYNO: es él quien cruza los sistemas.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const formaCorta = useMemo(() => formaDe("shortest"), [formaKey, calcTramo, sysIdx]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const formaSegura = useMemo(() => formaDe("safer"), [formaKey, calcTramo, sysIdx]);
   const seguro = useMemo(() => {
     if (!ordenEnUso || !tramosCorta || !tramosSegura || paradas.length === 0) return null;
-    const corta = evaluar(ordenEnUso, paradas, tramosCorta, ahora, minSalto, minSitio);
-    const segura = evaluar(ordenEnUso, paradas, tramosSegura, ahora, minSalto, minSitio);
+    const corta = evaluar(ordenEnUso, paradas, tramosCorta, ahora, minSaltoEf, minSitio, formaCorta);
+    const segura = evaluar(ordenEnUso, paradas, tramosSegura, ahora, minSaltoEf, minSitio, formaSegura);
     // Por si con la segura OTRO orden salvara más que el tuyo: entonces parte de lo que «cuesta» es
     // el orden y no la ruta, y hay que decirlo.
-    const mejorSegura = proponer(paradas, tramosSegura, ahora, minSalto, minSitio).mejor;
+    const mejorSegura = proponer(paradas, tramosSegura, ahora, minSaltoEf, minSitio, formaSegura).mejor;
     return { corta, segura, mejorSegura };
-  }, [ordenEnUso, tramosCorta, tramosSegura, paradas, ahora, minSalto, minSitio]);
+  }, [ordenEnUso, tramosCorta, tramosSegura, paradas, ahora, minSaltoEf, minSitio, formaCorta, formaSegura]);
   const secDe = useMemo(() => {
     const m = new Map(systems.map((x) => [x.id, x.s] as const));
     return (sid: number) => m.get(sid);
@@ -225,20 +343,30 @@ export function PlanNav(props: {
     if (!actual) return [];
     const out: PlanTramoIntel[] = [];
     for (const r of actual.resultados) {
-      if (r.estado === "sin_ruta") continue;
+      if (!llega(r.estado)) continue;
       const p = calc.find((x) => x.p.id === r.stopId)!;
       // Caducada mientras el panel estaba abierto (aún no se ha recargado): ya no es camino.
       if (p.c.caducaMs <= ahora) continue;
       const res = p.p.resuelta!;
       let sistemas = r.path;
-      if (res.empezada && hereSystemId != null) {
-        const desdeAqui = calcTramo(hereSystemId, p.c.systemId);
+      // El empezado se cuenta desde donde está quien CRUZA el camino: tú a puertas; saltando, el
+      // cyno (y si no se sabe dónde está, se supone que donde el que salta).
+      const desde = saltando ? cynoLoc ?? saltaLoc ?? hereSystemId : hereSystemId;
+      if (res.empezada && desde != null) {
+        const desdeAqui = calcTramo(desde, p.c.systemId);
         if (desdeAqui) sistemas = desdeAqui.path;
       }
-      out.push({ stop_id: r.stopId, destino: nameOf(p.c.systemId) || res.system_name, sistemas, empezado: res.empezada });
+      out.push({
+        stop_id: r.stopId,
+        destino: nameOf(p.c.systemId) || res.system_name,
+        sistemas,
+        empezado: res.empezada,
+        ...(saltando ? { quien: cyno != null ? nombrePj(cyno) : tr("el cyno") } : {}),
+      });
     }
     return out;
-  }, [actual, calc, hereSystemId, calcTramo, nameOf, ahora]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actual, calc, hereSystemId, calcTramo, nameOf, ahora, saltando, cynoLoc, saltaLoc, cyno]);
   const tramosIntelKey = JSON.stringify(tramosIntel);
   useEffect(() => {
     onTramosIntel(tramosIntel);
@@ -280,10 +408,10 @@ export function PlanNav(props: {
   // ---- pintar en el mapa ----
   // Sin ninguna parada en el recorrido (todas imposibles) no hay línea del plan: "" y no se vigila.
   const pintarKey =
-    actual && origen != null && !intercepting && actual.resultados.some((r) => r.estado !== "sin_ruta")
+    actual && origen != null && !intercepting && actual.resultados.some((r) => llega(r.estado))
       ? [
           origen,
-          ...actual.resultados.filter((r) => r.estado !== "sin_ruta").map((r) => paradas.find((p) => p.stopId === r.stopId)!.systemId),
+          ...actual.resultados.filter((r) => llega(r.estado)).map((r) => paradas.find((p) => p.stopId === r.stopId)!.systemId),
         ].join(",")
       : "";
   useEffect(() => {
@@ -414,7 +542,7 @@ export function PlanNav(props: {
       return otra.imposibles.some((i) => i.stopId === r.stopId) ? `${etiquetaOtra}: ${tr("no llegas ni yendo directo")}` : null;
     }
     if (o.path.join(",") === r.path.join(",")) return null;
-    if (o.estado === "sin_ruta") return `${etiquetaOtra}: ${tr("sin ruta con los filtros actuales")}`;
+    if (!llega(o.estado)) return `${etiquetaOtra}: ${textoNoLlega(o)}`;
     const d = o.saltos - r.saltos;
     const saltos = `${d > 0 ? "+" : ""}${d} ${tr("saltos")}`;
     return o.estado === "salvada"
@@ -439,6 +567,125 @@ export function PlanNav(props: {
     return `☠ ${mk.sistemas} ${tr("sistemas con muertes en la última hora; el peor,")} ${nameOf(mk.peor.systemId)} (${mk.peor.kills})`;
   }
   const empezados = tramosIntel.filter((t) => t.empezado);
+
+  // ---- fase 3a: textos del salto ----
+  /** Por qué tu forma no llega, con los números. Un `switch` exhaustivo como `llega`: un motivo nuevo
+   *  no compila hasta que tenga su frase. */
+  function textoNoLlega(r: ResultadoParada): string {
+    switch (r.estado) {
+      case "sin_ruta":
+        return tr("Sin ruta con los filtros actuales: no se puede contar.");
+      case "fuera_alcance":
+        return `${tr("Fuera de alcance")}: ${unDecimal(r.noLlega?.ly ?? NaN)} ${tr("al, y llegas a")} ${unDecimal(r.noLlega?.alcance ?? NaN)}.`;
+      case "alta_sec":
+        return tr("A alta seguridad no se salta.");
+      case "cyno_sin_ruta":
+        return tr("El cyno no tiene ruta a puertas hasta aquí con los filtros actuales.");
+      case "salvada":
+      case "perdida":
+        return "";
+      default: {
+        const nunca: never = r.estado;
+        return nunca;
+      }
+    }
+  }
+  function lineaSalto(s: SaltoHecho, espera: { quien: "cyno" | "cooldown"; min: number } | null): string {
+    const e = !espera
+      ? tr("sales nada más acabar")
+      : espera.quien === "cyno"
+        ? `${tr("esperas")} ${minutos(espera.min)} ${tr("al cyno")}`
+        : `${tr("esperas")} ${minutos(espera.min)} ${tr("de cooldown")}`;
+    return `⤴ ${unDecimal(s.ly)} ${tr("al")} · ⛽ ${s.isotopos.toLocaleString(getLang())} ${s.isotopo} · ${e} · ${tr("quedas con")} ~${minutos(s.cooldownMin)} ${tr("de cooldown y")} ~${minutos(s.fatigaMin)} ${tr("de fatiga")}`;
+  }
+  // Al final del recorrido: isótopos por tipo y con qué fatiga acabas.
+  const totalSalto = (() => {
+    if (!actual) return null;
+    const iso = new Map<string, number>();
+    let ultimo: SaltoHecho | null = null;
+    for (const r of actual.resultados) {
+      for (const s of r.salto?.saltos ?? []) {
+        iso.set(s.isotopo, (iso.get(s.isotopo) ?? 0) + s.isotopos);
+        ultimo = s;
+      }
+    }
+    return ultimo ? { iso, ultimo } : null;
+  })();
+  /** Lo que el cálculo SUPONE porque no lo sabe. Nunca un cero callado. */
+  const supuestos: string[] = [];
+  if (saltando) {
+    if (catalogo && !casco) supuestos.push(tr("El casco de la ficha no está en el catálogo de naves de salto: se cuenta A PUERTAS con los minutos de la ficha."));
+    if (salta == null) {
+      supuestos.push(tr("Sin «quién salta»: se suponen Jump Drive Calibration y Jump Fuel Conservation a V, y sin fatiga."));
+    } else {
+      if (perfilErr) supuestos.push(`${tr("No se pudieron leer las skills de salto de")} ${nombrePj(salta)} (${perfilErr}): ${tr("se suponen a V.")}`);
+      if (fatigaErr) {
+        supuestos.push(
+          fatigaErr.permiso
+            ? `${tr("Fatiga de")} ${nombrePj(salta)}: ${tr("falta el permiso de lectura; se calcula con cero.")}`
+            : `${tr("Fatiga de")} ${nombrePj(salta)}: ${tr("ESI no la dio")} (${fatigaErr.msg}); ${tr("se calcula con cero.")}`,
+        );
+      }
+    }
+    if (ini.cotaRoja) {
+      supuestos.push(
+        `${tr("Cooldown: ESI no lo da. Por su último salto, puede saltar como muy tarde a las")} ${new Date(ini.cooldownHastaMs).toLocaleTimeString(getLang(), { hour: "2-digit", minute: "2-digit" })}. ${tr("Es una cota, no una lectura.")}`,
+      );
+    }
+    if (cyno == null) supuestos.push(tr("Sin «quién pone el cyno»: se supone que sale de donde el que salta (el origen)."));
+    else if (cynoLoc == null) supuestos.push(`${tr("No se sabe dónde está")} ${nombrePj(cyno)}: ${tr("se supone que el cyno sale de donde el que salta (el origen).")}`);
+  }
+  // ---- editor de la forma de viajar ----
+  const [editando, setEditando] = useState<FormaViaje | null>(null);
+  const nuevaForma = (): FormaViaje => ({
+    id: 0,
+    nombre: "",
+    modo: "salto",
+    casco_type_id: null,
+    ciclo_cyno_min: 1,
+    min_por_salto: 1,
+    planes: [],
+  });
+  async function guardarForma() {
+    if (!editando || !plan) return;
+    try {
+      const id = await invoke<number>("forma_guardar", { forma: editando });
+      if (editando.id === 0) await invoke("plan_forma", { planId: plan.id, formaId: id });
+      setEditando(null);
+      await recargarFormas();
+      await recargar();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function borrarForma(id: number) {
+    try {
+      await invoke("forma_borrar", { id });
+      setEditando(null);
+      await recargarFormas();
+    } catch (e) {
+      // Si algún plan la usa, el error dice cuáles: se enseña tal cual.
+      setError(String(e));
+    }
+  }
+  async function fijarForma(formaId: number | null) {
+    if (!plan) return;
+    try {
+      await invoke("plan_forma", { planId: plan.id, formaId });
+      await recargar();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  async function fijarPapeles(s: number | null, c: number | null) {
+    if (!plan) return;
+    try {
+      await invoke("plan_papeles", { planId: plan.id, salta: s, cyno: c });
+      await recargar();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   return (
     <div className="plan-nav">
@@ -472,23 +719,163 @@ export function PlanNav(props: {
                 </button>
               )}
             </div>
+            {/* ★ FASE 3a · LA FORMA DE VIAJAR, a la vista: decide los márgenes igual que los minutos. */}
+            <div className="route-stop">
+              <span className="route-stop-label">{tr("Forma de viajar")}</span>
+              <select value={plan?.forma_id ?? ""} onChange={(e) => void fijarForma(e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{tr("A puertas (sin ficha)")}</option>
+                {formas.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nombre}
+                  </option>
+                ))}
+              </select>
+              <button className="route-add" onClick={() => setEditando(forma ? { ...forma } : nuevaForma())}>
+                {forma ? tr("Editar") : tr("Nueva")}
+              </button>
+              {forma && (
+                <button className="route-add" onClick={() => setEditando(nuevaForma())}>
+                  {tr("Nueva")}
+                </button>
+              )}
+            </div>
+            {editando && (
+              <div className="plan-forma-editor small">
+                <label>
+                  {tr("Nombre")}:&nbsp;
+                  <input value={editando.nombre} placeholder={tr("p. ej. blops con cyno covert")} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} />
+                </label>
+                <label>
+                  {tr("Modo")}:&nbsp;
+                  <select
+                    value={editando.modo}
+                    onChange={(e) => setEditando({ ...editando, modo: e.target.value as FormaViaje["modo"], casco_type_id: e.target.value === "puertas" ? null : editando.casco_type_id })}
+                  >
+                    <option value="salto">{tr("saltando, con cyno")}</option>
+                    <option value="puertas">{tr("a puertas")}</option>
+                  </select>
+                </label>
+                {editando.modo === "salto" && (
+                  <>
+                    <label>
+                      {tr("Casco que salta")}:&nbsp;
+                      <select
+                        value={editando.casco_type_id ?? ""}
+                        onChange={(e) => setEditando({ ...editando, casco_type_id: e.target.value ? Number(e.target.value) : null })}
+                      >
+                        <option value="">—</option>
+                        {(catalogo?.ships ?? []).map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.group} · {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      {tr("Ciclo del cyno (min)")}:&nbsp;
+                      <input
+                        type="number"
+                        min={0.1}
+                        step={0.5}
+                        value={editando.ciclo_cyno_min}
+                        style={{ width: "4.5rem" }}
+                        onChange={(e) => setEditando({ ...editando, ciclo_cyno_min: parseFloat(e.target.value) || 0 })}
+                      />
+                      {(catalogo?.cynos ?? []).map((c) => (
+                        <button key={c.id} className="route-add" title={c.name} onClick={() => setEditando({ ...editando, ciclo_cyno_min: c.cycleMin })}>
+                          {c.name.replace(" Cynosural Field Generator", "").replace("Cynosural Field Generator", "") || c.name}: {c.cycleMin}
+                        </button>
+                      ))}
+                    </label>
+                  </>
+                )}
+                <label>
+                  {editando.modo === "salto" ? tr("Minutos por salto del cyno") : tr("Minutos por salto")}:&nbsp;
+                  <input
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={editando.min_por_salto}
+                    style={{ width: "4.5rem" }}
+                    onChange={(e) => setEditando({ ...editando, min_por_salto: parseFloat(e.target.value) || 0 })}
+                  />
+                </label>
+                <div>
+                  <button className="route-add" onClick={() => void guardarForma()}>
+                    {tr("Guardar")}
+                  </button>
+                  {editando.id > 0 && (
+                    <button
+                      className="route-add"
+                      title={editando.planes.length ? `${tr("La usan")}: ${editando.planes.join(", ")}` : ""}
+                      onClick={() => void borrarForma(editando.id)}
+                    >
+                      {tr("Borrar")}
+                    </button>
+                  )}
+                  <button className="route-add" onClick={() => setEditando(null)}>
+                    {tr("Cancelar")}
+                  </button>
+                </div>
+              </div>
+            )}
+            {saltando && (
+              <div className="route-stop">
+                <span className="route-stop-label">{tr("Quién salta")}</span>
+                <select value={salta ?? ""} onChange={(e) => void fijarPapeles(e.target.value ? Number(e.target.value) : null, cyno)}>
+                  <option value="">—</option>
+                  {characters.map((c) => (
+                    <option key={c.character_id} value={c.character_id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="route-stop-label">{tr("Quién pone el cyno")}</span>
+                <select value={cyno ?? ""} onChange={(e) => void fijarPapeles(salta, e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">—</option>
+                  {characters.map((c) => (
+                    <option key={c.character_id} value={c.character_id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {saltando && casco && (
+              <div className="small muted">
+                ⤴ {casco.name}: {tr("alcance")} ~{unDecimal(alcance)} {tr("al")} (JDC {jdc}) · {tr("fatiga al empezar")} ~{minutos(ini.fatigaMin)}
+              </div>
+            )}
+            {supuestos.map((s) => (
+              <div key={s} className="small route-scope-warn">
+                ⚠ {s}
+              </div>
+            ))}
             {/* ⚠️ A LA VISTA y no en Ajustes: el veredicto depende de estos dos números, y un número
-                que decide si llegas no puede ser invisible. */}
-            <label className="muted small">
-              {tr("Minutos por salto")}:&nbsp;
-              <input
-                type="number"
-                min={0.1}
-                step={0.1}
-                value={minSalto}
-                style={{ width: "4.5rem" }}
-                onChange={(e) => {
-                  const v = Math.max(0.1, parseFloat(e.target.value) || DEF_MIN_SALTO);
-                  setMinSalto(v);
-                  localStorage.setItem(MIN_SALTO_KEY, String(v));
-                }}
-              />
-            </label>
+                que decide si llegas no puede ser invisible. Con ficha, el de la ficha (y no se edita
+                aquí): UN solo dueño. */}
+            {forma ? (
+              <span className="muted small">
+                {forma.modo === "salto" ? tr("Minutos por salto del cyno") : tr("Minutos por salto")}: <b>{forma.min_por_salto}</b>{" "}
+                ({tr("lo pone la ficha")} «{forma.nombre}»)
+              </span>
+            ) : (
+              <label className="muted small">
+                {tr("Minutos por salto")}:&nbsp;
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={minSalto}
+                  style={{ width: "4.5rem" }}
+                  onChange={(e) => {
+                    const v = Math.max(0.1, parseFloat(e.target.value) || DEF_MIN_SALTO);
+                    setMinSalto(v);
+                    localStorage.setItem(MIN_SALTO_KEY, String(v));
+                  }}
+                />
+              </label>
+            )}
             <label className="muted small">
               {tr("Minutos en cada sitio")}:&nbsp;
               <input
@@ -667,12 +1054,12 @@ export function PlanNav(props: {
                           {res.empezada && <span className="plan-empezada"> ▶ {tr("en camino")}</span>}
                         </div>
                         <div className="small">
-                          {r.estado === "sin_ruta" ? (
-                            <span>{tr("Sin ruta con los filtros actuales: no se puede contar.")}</span>
+                          {!llega(r.estado) ? (
+                            <span>{textoNoLlega(r)}</span>
                           ) : (
                             <>
                               <span className="muted">
-                                {r.saltos} {tr("saltos")} ·{" "}
+                                {r.saltos} {r.salto ? tr("saltos del cyno") : tr("saltos")} ·{" "}
                               </span>
                               {r.estado === "salvada" ? (
                                 <span>
@@ -691,16 +1078,21 @@ export function PlanNav(props: {
                             </span>
                           )}
                         </div>
-                        {r.estado !== "sin_ruta" && <div className="small muted">{lineaMuertes(r)}</div>}
+                        {r.salto?.saltos.map((s, k) => (
+                          <div key={k} className="small plan-salto">
+                            {lineaSalto(s, k === 0 ? r.salto!.espera : null)}
+                          </div>
+                        ))}
+                        {llega(r.estado) && <div className="small muted">{lineaMuertes(r)}</div>}
                         {lineaOtra(r) && <div className="small muted">🛡 {lineaOtra(r)}</div>}
                         {(() => {
                           const ms = marcasPlan.filter((m) => m.stop_id === r.stopId);
                           if (ms.length === 0) return null;
                           const idx = paradas.findIndex((x) => x.stopId === r.stopId);
-                          const pos = tramos ? posponer(actual.orden, idx, paradas, tramos, ahora, minSalto, minSitio) : null;
+                          const pos = tramos ? posponer(actual.orden, idx, paradas, tramos, ahora, minSaltoEf, minSitio, formaCalc) : null;
                           return (
                             <div className={`plan-intel ${ms.some((m) => m.aviso === "avisa") ? "suena" : "calla"}`}>
-                              <div>⚠ {tr("Intel en este tramo")}</div>
+                              <div>⚠ {saltando ? tr("Intel en el camino del cyno") : tr("Intel en este tramo")}</div>
                               {ms.map((m) => (
                                 <div key={`${m.sys_id}-${m.ts_ms}`} className="plan-intel-linea" title={m.message}>
                                   <b>{m.system}</b>{" "}
@@ -746,6 +1138,13 @@ export function PlanNav(props: {
                   );
                 })}
               </ol>
+              {totalSalto && (
+                <div className="small plan-salto">
+                  ⛽ {tr("Total")}:{" "}
+                  {[...totalSalto.iso].map(([t, n]) => `${n.toLocaleString(getLang())} ${t}`).join(" · ")} · {tr("acabas con")} ~
+                  {minutos(totalSalto.ultimo.fatigaMin)} {tr("de fatiga")} (~{minutos(totalSalto.ultimo.cooldownMin)} {tr("de cooldown")})
+                </div>
+              )}
               {/* ★ APARTE Y NO EN EL RECORRIDO: estas se pierden hagas lo que hagas, así que no
                   gastan viaje ni se arrastran. Ver `separarImposibles` en plan.ts. */}
               {actual.imposibles.length > 0 && (

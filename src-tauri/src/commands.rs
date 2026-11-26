@@ -1216,6 +1216,31 @@ pub fn plan_borrar(state: State<'_, AppState>, plan_id: i64) -> AppResult<bool> 
     state.db.plan_borrar(plan_id)
 }
 
+#[tauri::command]
+pub fn forma_listar(state: State<'_, AppState>) -> AppResult<Vec<crate::db::plan::FormaViaje>> {
+    state.db.forma_listar()
+}
+
+#[tauri::command]
+pub fn forma_guardar(state: State<'_, AppState>, forma: crate::db::plan::FormaViaje) -> AppResult<i64> {
+    state.db.forma_guardar(&forma)
+}
+
+#[tauri::command]
+pub fn forma_borrar(state: State<'_, AppState>, id: i64) -> AppResult<bool> {
+    state.db.forma_borrar(id)
+}
+
+#[tauri::command]
+pub fn plan_forma(state: State<'_, AppState>, plan_id: i64, forma_id: Option<i64>) -> AppResult<()> {
+    state.db.plan_forma(plan_id, forma_id)
+}
+
+#[tauri::command]
+pub fn plan_papeles(state: State<'_, AppState>, plan_id: i64, salta: Option<i64>, cyno: Option<i64>) -> AppResult<()> {
+    state.db.plan_papeles(plan_id, salta, cyno)
+}
+
 /// Ranura de acceso ocupada: qué lista, con quién dentro y por qué escalación.
 #[derive(Debug, serde::Serialize)]
 pub struct RanuraAcceso {
@@ -8542,6 +8567,9 @@ pub struct CaminoAlerta {
     pub cerca_de: String,
     pub system_id: i64,
     pub jumps: i64,
+    /// De quién es el camino si no es el tuyo (saltando, el del cyno). Sin él: «en tu camino».
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quien: Option<String>,
 }
 
 /// Un sistema silenciado. `until_ms` nulo = indefinido; con valor, caduca solo.
@@ -9427,16 +9455,20 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                     };
                     for &i in &pasada.avisar {
                         let m = &pasada.marcas[i];
-                        let destino = plan_tramos
-                            .iter()
-                            .find(|t| t.stop_id == m.stop_id)
-                            .map(|t| t.destino.clone())
-                            .unwrap_or_default();
+                        let tramo = plan_tramos.iter().find(|t| t.stop_id == m.stop_id);
+                        let destino = tramo.map(|t| t.destino.clone()).unwrap_or_default();
+                        // Saltando, el camino es del cyno: decir «tu camino» mandaría a mirar el
+                        // sistema equivocado (tú apareces en la parada, no pasas por ahí).
+                        let quien = tramo.and_then(|t| t.quien.clone());
+                        let de_quien = match &quien {
+                            Some(q) => format!("En el camino de {q} a"),
+                            None => "En tu camino a".to_string(),
+                        };
                         use tauri_plugin_notification::NotificationExt;
                         let _ = app
                             .notification()
                             .builder()
-                            .title(format!("⚠ En tu camino a {destino}: {}", m.system))
+                            .title(format!("⚠ {de_quien} {destino}: {}", m.system))
                             .body(format!(
                                 "{} salto(s) de {} · {}: {}",
                                 m.jumps, m.cerca_de_name, m.author, m.message
@@ -9462,6 +9494,7 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                     cerca_de: m.cerca_de_name.clone(),
                                     system_id: m.cerca_de,
                                     jumps: m.jumps,
+                                    quien,
                                 }),
                             },
                         );
