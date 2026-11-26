@@ -28,6 +28,7 @@ import { ContactosView } from "./contactos";
 import { ResumenView } from "./resumen";
 import { ActividadView } from "./actividad";
 import { IndustryView } from "./industry";
+import { REINTENTOS_ARRANQUE } from "./arranque";
 import { BattlesView, RivalsView, WingmatesView } from "./rivals";
 import { FlotasView, TICK_SEG, type OpEstado, type Roster, type OpPlayback } from "./flotas";
 import { SocialView } from "./social";
@@ -1461,7 +1462,6 @@ function App() {
   //
   // ➡️ Que el backend tarde un momento en estar listo NO es un error, es un arranque. Se reintenta
   // con espera creciente (~7,75 s en total) y el cartel solo sale si después de todo sigue sin ir.
-  const REINTENTOS_ARRANQUE = 6;
 
   async function refresh() {
     let ultimo: unknown = null;

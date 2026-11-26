@@ -30,6 +30,7 @@ import { openExternal } from "./openExternal";
 import { NotasAncla } from "./notas";
 import type {
   IntelConfig,
+  IntelStatus,
   SysActivity,
   SovSystem,
   FwSystem,
@@ -293,6 +294,59 @@ export function SystemSearch(props: {
       )}
     </div>
   );
+}
+
+/** Salud REAL del vigilante de intel: [clase, texto, tooltip]. La leen el badge de salud Y la
+ *  pastilla «Activo» del interruptor, a propósito desde aquí.
+ *
+ *  ⚠️ Estuvo dentro del badge y la pastilla se pintaba verde solo con mirar `intel.live`: con el
+ *  grafo vacío el panel decía a la vez «● Activo» en VERDE y «⚠ sin mapa de sistemas» en rojo, y
+ *  la verde es la que se ve de reojo. Es el mismo «Activo verde que mentía» de antes, por otra
+ *  puerta. Un solo cálculo para los dos y no pueden volver a contradecirse. */
+function saludVigilante(s: IntelStatus): ["ok" | "warn" | "bad", string, string] {
+  const stale = Date.now() - s.last_tick_ms > 15000;
+  return stale
+    ? ["bad", `⚠ ${tr("vigilante sin responder")}`, tr("El hilo del intel no responde")]
+    : s.last_error
+      ? ["bad", `⚠ ${tr("error leyendo logs")}`, s.last_error]
+      : !s.collecting
+        ? ["bad", `⚠ ${tr("parado")}: ${s.idle_reason ?? "?"}`, s.idle_reason ?? ""]
+        : // ★ SIN GRAFO va antes que «sin logs» y en rojo: es el único estado en que el
+          //   feed entra y el mapa se ve perfecto mientras el aviso flotante y el
+          //   minimapa no pueden saltar NUNCA. Aquí salía «leyendo» en verde.
+          //   `!s.graph_systems` y no `=== 0`: un backend sin el campo también es
+          //   un backend que no sabemos si tiene grafo.
+          !s.graph_systems
+          ? [
+              "bad",
+              `⚠ ${tr("sin mapa de sistemas: no puede avisar")}`,
+              tr("El vigilante lee el canal, pero no tiene el mapa de sistemas: no reconoce ninguno y ni el aviso flotante ni el minimapa pueden saltar. Si no se arregla solo, reinicia Koru."),
+            ]
+          : s.files === 0
+          ? [
+              "warn",
+              `⚠ ${tr("sin logs de ese canal")}`,
+              tr("No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?"),
+            ]
+          : [
+              "ok",
+              `${tr("leyendo")} ${s.files} ${tr("log(s)")} · ${s.lines} ${tr("líneas")}`,
+              tr("El vigilante está leyendo de verdad"),
+            ];
+}
+
+/** La PALABRA de la pastilla del interruptor encendido. Tiene que ser verdad ELLA SOLA, sin la
+ *  línea de salud al lado: si alguien tapa el badge con el dedo y solo lee esto, no puede quedarse
+ *  tranquilo con un vigilante que no puede avisar.
+ *
+ *  ⚠️ La primera versión solo pintaba de rojo la pastilla y dejaba «⚠ Activo»: una contradicción
+ *  en dos palabras, la mentira pintada de rojo en vez de cambiada. Por eso sale de la MISMA salud
+ *  que el color, y no de `intel.live`.
+ *   · bad (sin grafo, parado, error, hilo mudo) → «No avisa»: lee o no, avisar no puede.
+ *   · warn (sin logs del canal) → «Sin logs»: avisaría, pero ahora no tiene nada que leer.
+ *   · ok → «Activo», que entonces sí es verdad. */
+function palabraPastilla(cls: "ok" | "warn" | "bad"): string {
+  return cls === "bad" ? tr("No avisa") : cls === "warn" ? tr("Sin logs") : tr("Activo");
 }
 
 export function MapView(props: {
@@ -2110,6 +2164,8 @@ export function MapView(props: {
     intelAlert,
     setIntelAlert,
   } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, shipDisplay, noExisten, existen, alias, intelReports, intelOrigins, charLocations: intelPilots });
+  // Color de la pastilla «Activo»: sale de la MISMA salud que la línea de abajo. Ver `saludVigilante`.
+  const saludPastilla = intel?.live && intel.status ? saludVigilante(intel.status)[0] : null;
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -4597,14 +4653,26 @@ export function MapView(props: {
             <div className="intel-head">
               <strong>🚨 {tr("Intel en vivo")}</strong>
               <button
-                className={`intel-live-toggle${intel.live ? " on" : ""}`}
+                // ★ Encendida, el COLOR lo pone la salud real del vigilante, no el interruptor: ver
+                //   `saludVigilante`. Verde solo si de verdad puede avisar; si no, ámbar o rojo como
+                //   la línea de salud, y el ⚠ en vez del punto para que no dependa solo del color.
+                //   Sin estado todavía (el primer tick) se queda verde: es el arranque, no un fallo.
+                className={`intel-live-toggle${intel.live ? " on" : ""}${saludPastilla && saludPastilla !== "ok" ? ` ${saludPastilla}` : ""}`}
                 onClick={() => intel.onToggleLive?.()}
                 title={tr("Mantener el intel activo aunque mires otras secciones")}
               >
-                {intel.live ? `● ${tr("Activo")}` : `○ ${tr("Apagado")}`}
+                {intel.live
+                  ? saludPastilla && saludPastilla !== "ok"
+                    ? `⚠ ${palabraPastilla(saludPastilla)}`
+                    : `● ${tr("Activo")}`
+                  : `○ ${tr("Apagado")}`}
               </button>
               <span className="muted small">
-                {(intel.onlyRange
+                {/* Sin grafo, «0» sería mentira con cara de calma —el «Activo · 0 sistemas» que nos
+                    costó dos diagnósticos—: no es que no haya intel, es que no se puede contar. */}
+                {intel.live && intel.status && !intel.status.graph_systems
+                  ? "—"
+                  : (intel.onlyRange
                   ? [...(intelReports?.rep.keys() ?? [])].filter((sid) => {
                       const d = jumpsFrom?.get(sid);
                       return d != null && d <= intel.alertJumps;
@@ -4642,36 +4710,7 @@ export function MapView(props: {
             {intel.live &&
               intel.status &&
               (() => {
-                const s = intel.status;
-                const stale = Date.now() - s.last_tick_ms > 15000;
-                const [cls, txt, tip] = stale
-                  ? ["bad", `⚠ ${tr("vigilante sin responder")}`, tr("El hilo del intel no responde")]
-                  : s.last_error
-                    ? ["bad", `⚠ ${tr("error leyendo logs")}`, s.last_error]
-                    : !s.collecting
-                      ? ["bad", `⚠ ${tr("parado")}: ${s.idle_reason ?? "?"}`, s.idle_reason ?? ""]
-                      : // ★ SIN GRAFO va antes que «sin logs» y en rojo: es el único estado en que el
-                        //   feed entra y el mapa se ve perfecto mientras el aviso flotante y el
-                        //   minimapa no pueden saltar NUNCA. Aquí salía «leyendo» en verde.
-                        //   `!s.graph_systems` y no `=== 0`: un backend sin el campo también es
-                        //   un backend que no sabemos si tiene grafo.
-                        !s.graph_systems
-                        ? [
-                            "bad",
-                            `⚠ ${tr("sin mapa de sistemas: no puede avisar")}`,
-                            tr("El vigilante lee el canal, pero no tiene el mapa de sistemas: no reconoce ninguno y ni el aviso flotante ni el minimapa pueden saltar. Si no se arregla solo, reinicia Koru."),
-                          ]
-                        : s.files === 0
-                        ? [
-                            "warn",
-                            `⚠ ${tr("sin logs de ese canal")}`,
-                            tr("No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?"),
-                          ]
-                        : [
-                            "ok",
-                            `${tr("leyendo")} ${s.files} ${tr("log(s)")} · ${s.lines} ${tr("líneas")}`,
-                            tr("El vigilante está leyendo de verdad"),
-                          ];
+                const [cls, txt, tip] = saludVigilante(intel.status);
                 return (
                   <div className={`intel-health-row ${cls}`} title={tip}>
                     {txt}

@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { tr } from "./i18n";
+import { REINTENTOS_ARRANQUE } from "./arranque";
 import { ensureNotifPerm, playAlertChoice, loadCustomSound } from "./sound";
 import { classifyIntel } from "./intel";
 import type { IntelRep, IntelFeedRow, AliasLinea } from "./intel";
@@ -24,11 +25,6 @@ export type IntelDetail = {
 } | null;
 
 type IntelReports = { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } | null;
-
-/** Intentos para mandar el grafo a Rust. Mismo número que `REINTENTOS_ARRANQUE` de App.tsx: 250,
- *  500, 1000, 2000 y 4000 ms de espera, ~7,75 s en total. Si se cambia uno, se cambian los dos:
- *  es la misma carrera de arranque. */
-const REINTENTOS_ARRANQUE = 6;
 
 export function useIntel({
   geo,

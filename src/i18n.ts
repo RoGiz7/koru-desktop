@@ -323,6 +323,10 @@ const EN: Record<string, string> = {
   "vigilante sin responder": "watcher not responding",
   "sin logs de ese canal": "no logs for that channel",
   "sin mapa de sistemas: no puede avisar": "no system map: cannot alert",
+  // La pastilla del interruptor cuando el vigilante no puede avisar: la palabra tiene que ser
+  // verdad sola, sin el badge al lado. Ver `palabraPastilla` en map.tsx.
+  "No avisa": "No alerts",
+  "Sin logs": "No logs",
   "El vigilante lee el canal, pero no tiene el mapa de sistemas: no reconoce ninguno y ni el aviso flotante ni el minimapa pueden saltar. Si no se arregla solo, reinicia Koru.":
     "The watcher is reading the channel, but it has no system map: it recognises no systems, so neither the floating alert nor the minimap can go off. If it does not fix itself, restart Koru.",
   "El hilo del intel no responde": "The intel thread is not responding",

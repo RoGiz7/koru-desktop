@@ -7604,6 +7604,18 @@ h4 {
   background: rgba(34, 84, 54, 0.5);
   color: #c8f7d8;
 }
+/* Encendida pero el vigilante NO puede avisar: el color baja al de la línea de salud. Sin esto la
+   pastilla seguía verde con el panel diciendo en rojo que no había mapa de sistemas. */
+.intel-live-toggle.on.warn {
+  border-color: #d29922;
+  background: rgba(210, 153, 34, 0.15);
+  color: #f0d58a;
+}
+.intel-live-toggle.on.bad {
+  border-color: #e5534b;
+  background: rgba(229, 83, 75, 0.18);
+  color: #ffc9c4;
+}
 .intel-panel {
   position: absolute;
   top: 8px;

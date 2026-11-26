@@ -73,6 +73,10 @@ python scripts/check_privacidad.py       # siempre antes de publicar
 - ⚠️ **dev ≠ release.** Hay fallos que solo salen en la build de producción. Lo que se afirma de
   una release se comprueba en el `.exe` de release.
 - ⚠️ `audit_i18n.py` es puerta, no opcional: saltársela ya hizo salir 17 cadenas solo en español.
+- ⚠️ **En esta consola (Windows, cp1252), `audit_i18n.py` se lanza con `PYTHONIOENCODING=utf-8`.**
+  Sin eso, el emoji de su mensaje de ÉXITO revienta al imprimirse y el traceback tapa el veredicto:
+  parece que la puerta ha fallado cuando ha pasado. Una puerta que parece fallar cuando pasa es una
+  puerta que la gente deja de mirar. El veredicto real es el código de salida (0 / 1), no el texto.
 
 ## 📦 SDE — antes de integrar uno nuevo
 
