@@ -3969,6 +3969,8 @@ const EN: Record<string, string> = {
   "ningún sistema con muertes en esa hora": "no system with kills in that hour",
   "también con el plan cerrado": "also with the plan closed",
   "No se pudieron leer las paradas empezadas": "Could not read the started stops",
+  "el camino del plan no está al día": "the plan route is not up to date",
+  "Camino: fallo": "Route: fault",
   "sin ruta con los filtros actuales": "no route with the current filters",
   "sistemas con muertes en la última hora; el peor,": "systems with kills in the last hour; the worst,",
   "sistemas de baja o nula": "low or null-sec systems",

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { EVENTO_MINIMAPA, aplicarMinimapa, minimapaEncendido } from "./minimapaControl";
 import { tr, getLang } from "./i18n";
+import { saludVigilante } from "./saludIntel";
 import { fmtAgo, fmtIsk, fmtSp, fmtMin, fmtCompact, secColor, ownerColor, heatColor, typeIcon } from "./format";
 import { OverlayIcon, maxOf } from "./charts";
 import { findRoute, proximityBFS, type RouteMode } from "./mapRoute";
@@ -32,7 +33,6 @@ import { PlanNav } from "./planNav";
 import { PLAN_CAMBIADO, tramosEmpezados, type ParadaEmpezada, type PlanTramoIntel, type Tramo } from "./plan";
 import type {
   IntelConfig,
-  IntelStatus,
   SysActivity,
   SovSystem,
   FwSystem,
@@ -296,59 +296,6 @@ export function SystemSearch(props: {
       )}
     </div>
   );
-}
-
-/** Salud REAL del vigilante de intel: [clase, texto, tooltip]. La leen el badge de salud Y la
- *  pastilla «Activo» del interruptor, a propósito desde aquí.
- *
- *  ⚠️ Estuvo dentro del badge y la pastilla se pintaba verde solo con mirar `intel.live`: con el
- *  grafo vacío el panel decía a la vez «● Activo» en VERDE y «⚠ sin mapa de sistemas» en rojo, y
- *  la verde es la que se ve de reojo. Es el mismo «Activo verde que mentía» de antes, por otra
- *  puerta. Un solo cálculo para los dos y no pueden volver a contradecirse. */
-function saludVigilante(s: IntelStatus): ["ok" | "warn" | "bad", string, string] {
-  const stale = Date.now() - s.last_tick_ms > 15000;
-  return stale
-    ? ["bad", `⚠ ${tr("vigilante sin responder")}`, tr("El hilo del intel no responde")]
-    : s.last_error
-      ? ["bad", `⚠ ${tr("error leyendo logs")}`, s.last_error]
-      : !s.collecting
-        ? ["bad", `⚠ ${tr("parado")}: ${s.idle_reason ?? "?"}`, s.idle_reason ?? ""]
-        : // ★ SIN GRAFO va antes que «sin logs» y en rojo: es el único estado en que el
-          //   feed entra y el mapa se ve perfecto mientras el aviso flotante y el
-          //   minimapa no pueden saltar NUNCA. Aquí salía «leyendo» en verde.
-          //   `!s.graph_systems` y no `=== 0`: un backend sin el campo también es
-          //   un backend que no sabemos si tiene grafo.
-          !s.graph_systems
-          ? [
-              "bad",
-              `⚠ ${tr("sin mapa de sistemas: no puede avisar")}`,
-              tr("El vigilante lee el canal, pero no tiene el mapa de sistemas: no reconoce ninguno y ni el aviso flotante ni el minimapa pueden saltar. Si no se arregla solo, reinicia Koru."),
-            ]
-          : s.files === 0
-          ? [
-              "warn",
-              `⚠ ${tr("sin logs de ese canal")}`,
-              tr("No hay ningún log de ese canal en la carpeta. ¿Canal correcto? ¿Has entrado al canal en esta sesión?"),
-            ]
-          : [
-              "ok",
-              `${tr("leyendo")} ${s.files} ${tr("log(s)")} · ${s.lines} ${tr("líneas")}`,
-              tr("El vigilante está leyendo de verdad"),
-            ];
-}
-
-/** La PALABRA de la pastilla del interruptor encendido. Tiene que ser verdad ELLA SOLA, sin la
- *  línea de salud al lado: si alguien tapa el badge con el dedo y solo lee esto, no puede quedarse
- *  tranquilo con un vigilante que no puede avisar.
- *
- *  ⚠️ La primera versión solo pintaba de rojo la pastilla y dejaba «⚠ Activo»: una contradicción
- *  en dos palabras, la mentira pintada de rojo en vez de cambiada. Por eso sale de la MISMA salud
- *  que el color, y no de `intel.live`.
- *   · bad (sin grafo, parado, error, hilo mudo) → «No avisa»: lee o no, avisar no puede.
- *   · warn (sin logs del canal) → «Sin logs»: avisaría, pero ahora no tiene nada que leer.
- *   · ok → «Activo», que entonces sí es verdad. */
-function palabraPastilla(cls: "ok" | "warn" | "bad"): string {
-  return cls === "bad" ? tr("No avisa") : cls === "warn" ? tr("Sin logs") : tr("Activo");
 }
 
 export function MapView(props: {
@@ -2213,8 +2160,6 @@ export function MapView(props: {
     intelAlert,
     setIntelAlert,
   } = useIntel({ geo, ne, intel, overlay, intelDetail, shipNames, shipDisplay, noExisten, existen, alias, intelReports, intelOrigins, charLocations: intelPilots });
-  // Color de la pastilla «Activo»: sale de la MISMA salud que la línea de abajo. Ver `saludVigilante`.
-  const saludPastilla = intel?.live && intel.status ? saludVigilante(intel.status)[0] : null;
   // La FICHA del hostil vive ahora en la sección PvP → Cazador (onOpenCazador). El mapa solo
   // conserva feed + proximidad + rastro (huntTrack).
   // --- Hostiles habituales (aprendidos del intel por nº de menciones) ---
@@ -2615,6 +2560,12 @@ export function MapView(props: {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tramosVigiladosKey]);
+  // ¿Tiene el vigilante el camino al día? Si no, lo dice la pastilla de Intel en vivo, que es donde
+  // se mira con el panel cerrado. Las empezadas solo cuentan con el panel cerrado: abierto, el
+  // camino lo manda él y no las usa.
+  const caminoFallo = planIntelErr || (tramosPanel == null ? empezadasErr : "") || null;
+  // Color y palabra de la pastilla «Activo»: salen de la MISMA salud que la línea de abajo.
+  const saludPastilla = intel?.live && intel.status ? saludVigilante(intel.status, caminoFallo) : null;
 
   // ---- ¿HAY AVISOS DE INTEL EN LA RUTA QUE ACABAS DE TRAZAR? (idea de RoGiz7, 2026-08-12) ----
   //
@@ -4780,13 +4731,13 @@ export function MapView(props: {
                 //   `saludVigilante`. Verde solo si de verdad puede avisar; si no, ámbar o rojo como
                 //   la línea de salud, y el ⚠ en vez del punto para que no dependa solo del color.
                 //   Sin estado todavía (el primer tick) se queda verde: es el arranque, no un fallo.
-                className={`intel-live-toggle${intel.live ? " on" : ""}${saludPastilla && saludPastilla !== "ok" ? ` ${saludPastilla}` : ""}`}
+                className={`intel-live-toggle${intel.live ? " on" : ""}${saludPastilla && saludPastilla[0] !== "ok" ? ` ${saludPastilla[0]}` : ""}`}
                 onClick={() => intel.onToggleLive?.()}
                 title={tr("Mantener el intel activo aunque mires otras secciones")}
               >
                 {intel.live
-                  ? saludPastilla && saludPastilla !== "ok"
-                    ? `⚠ ${palabraPastilla(saludPastilla)}`
+                  ? saludPastilla && saludPastilla[0] !== "ok"
+                    ? `⚠ ${saludPastilla[3]}`
                     : `● ${tr("Activo")}`
                   : `○ ${tr("Apagado")}`}
               </button>
@@ -4833,7 +4784,7 @@ export function MapView(props: {
             {intel.live &&
               intel.status &&
               (() => {
-                const [cls, txt, tip] = saludVigilante(intel.status);
+                const [cls, txt, tip] = saludVigilante(intel.status, caminoFallo);
                 return (
                   <div className={`intel-health-row ${cls}`} title={tip}>
                     {txt}
