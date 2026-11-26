@@ -7,17 +7,25 @@
 ## Estado
 
 - **Publicado: v0.57.0** (2026-11-11).
-- **`main` va SEIS commits por delante y no hay release cortada.** Lo que lleva sin llegar a nadie:
+- **`main` va TRECE commits por delante de la v0.57.0 y no hay release cortada.** Lo que lleva sin llegar a nadie:
   - `fdd5ed6` corrige una frase falsa del changelog de la 0.57.0.
   - `5376b5c` `extract_industry_sde` deja de leer un campo que el SDE borró.
   - `fea20d7` `release.yml`: tope de 45 minutos por job.
   - `440784b` + `9b9acef` **`scripts/sde_check.py`**, el guardián del SDE.
   - `cc33845` al día con el SDE **3720952** y base del guardián fijada.
-- **SDE**: base en `3720952`. **DOS sin integrar**: el **3744011** (`20261125T110706Z`, cero
-  cambios de esquema y **10 de 24 tablas** con datos nuevos) y el **3749835** (26-11, sin mirar).
-  Son tres SDE en una semana: es la cadencia nueva de FC, no un acontecimiento.
-  `python scripts/sde_check.py` da el **acumulado** contra la base, así que se integra el más nuevo
-  y punto. ⚠️ Comprobar el NOMBRE del zip antes de lanzar los extractores.
+  - `d7443aa` + `3b87551` **el intel deja de quedarse mudo en silencio**: el grafo se reintenta, y
+    sin grafo la pastilla dice «⚠ No avisa» en rojo en vez de «Activo» en verde.
+  - `3e665bd` al día con el SDE **3749835**: 16 SKIN nuevas, un módulo renombrado en inglés
+    (98168) y el Pacifier renombrado en chino. Nada en el mapa.
+  - El resto son `CLAUDE.md` y este fichero.
+- **SDE**: base en **`3749835`** (26-11), integrado y con el guardián en código 0. El 3744011 se
+  saltó a propósito: el guardián da el acumulado contra la base.
+  ⚠️ El zip va a la `documentacion/` **HERMANA** (`../documentacion/sde-source/`), que es la que leen
+  los extractores. Una ruta relativa lanzada desde el repo cae en la de DENTRO, y la comprobación del
+  glob, lanzada desde el mismo sitio, sale en verde mientras ellos usan el zip viejo.
+  ⚠️ El guardián **avisa de más**: compara un hash de versión de la API, y en la 3749835 marcó cinco
+  tablas idénticas byte a byte (`mapSolarSystems` entre ellas). Una tabla marcada no prueba nada:
+  se mira el diff.
 
 ## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, niveles 1 y 2 hechos, falta la raíz)
 
@@ -80,14 +88,13 @@ la ventana principal—, nunca por número.
 1. **Las 16 llamadas a `/universe` de ESI** → al catálogo local. Es la sesión grande y **la que
    abre SKINR**: coger SKINR obliga a subir la fecha de compatibilidad, y eso retira esas rutas.
    **Migrar primero, subir la fecha después. Nunca al revés.**
-2. **Integrar el SDE 3744011** (10 tablas movidas, ningún riesgo de esquema).
-3. **Auditar los 7 huérfanos de `public/`**: `agents`, `jumpships`, `module_slots`,
+2. **Auditar los 7 huérfanos de `public/`**: `agents`, `jumpships`, `module_slots`,
    `npc_corp_systems`, `ores`, `skill_names`, `skill_reqs`. Siguen sin generador.
-4. **Mensaje a testers de la 0.57.0** — nunca se envió.
-5. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son
+3. **Mensaje a testers de la 0.57.0** — nunca se envió.
+4. **Fuentes Rajdhani**: o se commitean (la OFL lo permite) o se quitan los `@font-face`. Hoy son
    decorativas: ninguna release las ha llevado nunca.
-6. **Las notas de la release 0.57.0 en GitHub** siguen con la frase falsa; se editan a mano.
-7. **Reintento en `apt-get update`** del workflow: el tope de 45 min es el tope, no la cura.
+5. **Las notas de la release 0.57.0 en GitHub** siguen con la frase falsa; se editan a mano.
+6. **Reintento en `apt-get update`** del workflow: el tope de 45 min es el tope, no la cura.
 
 ## Mapa del terreno
 
