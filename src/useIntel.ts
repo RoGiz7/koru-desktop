@@ -7,7 +7,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
-import { tr } from "./i18n";
+import { getLang, tr } from "./i18n";
 import { REINTENTOS_ARRANQUE } from "./arranque";
 import { ensureNotifPerm, playAlertChoice, loadCustomSound } from "./sound";
 import { classifyIntel } from "./intel";
@@ -26,6 +26,14 @@ export type IntelDetail = {
 
 type IntelReports = { rep: Map<number, IntelRep>; feed: IntelFeedRow[] } | null;
 
+/** «En tu camino a Amarr» / «en el camino de X a Amarr», como FRASE ENTERA por idioma, igual que
+ *  `referencia()` en overlay.tsx. Pegar trozos traducidos sueltos («En el camino de» + X + «a»)
+ *  salía en inglés «On the way of X to Amarr»: el orden de las palabras no se traduce a trozos. */
+function caminoDe(quien: string | undefined, destino: string): string {
+  const en = getLang() === "en";
+  if (!quien) return `${tr("En tu camino a")} ${destino}`;
+  return en ? `On ${quien}'s way to ${destino}` : `En el camino de ${quien} a ${destino}`;
+}
 export function useIntel({
   geo,
   ne,
@@ -365,7 +373,7 @@ export function useIntel({
       // Un aviso del plan NO está «a N saltos» de ti: lo está de tu camino, y el texto lo dice.
       const text =
         (a.camino && lead.report.sysId === a.sys_id
-          ? `⚠ ${a.camino.quien ? `${tr("En el camino de")} ${a.camino.quien} ${tr("a")}` : tr("En tu camino a")} ${a.camino.destino}: ${lead.report.sysName} — ${lead.report.author}`
+          ? `⚠ ${caminoDe(a.camino.quien, a.camino.destino)}: ${lead.report.sysName} — ${lead.report.author}`
           : `⚠ ${tr("Intel a")} ${lead.jumps} ${tr("salto(s)")}: ${lead.report.sysName} — ${lead.report.author}`) +
         (extra > 0 ? ` · +${extra} ${tr("más")}` : "");
       const next = { text, extra, jumps: lead.jumps, report: lead.report };

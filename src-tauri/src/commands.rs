@@ -9380,12 +9380,20 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                             .get(sid)
                                             .cloned()
                                             .unwrap_or_else(|| sid.to_string());
-                                        // Notificación nativa del SO (visible/audible minimizado).
+                                        // Notificación nativa del SO (visible/audible minimizado),
+                                        // en el idioma de la app como las de escalaciones. Se lee
+                                        // AQUÍ, al avisar, y no en cada vuelta del bucle: es una
+                                        // consulta a `meta` por aviso, no cada 3 s.
+                                        let en = en_ingles(&app.state::<AppState>().db);
                                         use tauri_plugin_notification::NotificationExt;
                                         let _ = app
                                             .notification()
                                             .builder()
-                                            .title(format!("⚠ Intel a {d} salto(s): {system}"))
+                                            .title(if en {
+                                                format!("⚠ Intel {d} jump(s) away: {system}")
+                                            } else {
+                                                format!("⚠ Intel a {d} salto(s): {system}")
+                                            })
                                             .body(format!("{author}: {message}"))
                                             .show();
                                         // Sin anclas puestas se cae a los ORÍGENES (tu propio
@@ -9460,19 +9468,25 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                         // Saltando, el camino es del cyno: decir «tu camino» mandaría a mirar el
                         // sistema equivocado (tú apareces en la parada, no pasas por ahí).
                         let quien = tramo.and_then(|t| t.quien.clone());
-                        let de_quien = match &quien {
-                            Some(q) => format!("En el camino de {q} a"),
-                            None => "En tu camino a".to_string(),
+                        // La frase ENTERA por idioma, sin pegar trozos (ver `caminoDe` en useIntel.ts).
+                        let en = en_ingles(&app.state::<AppState>().db);
+                        let titulo = match (&quien, en) {
+                            (Some(q), true) => format!("⚠ On {q}'s way to {destino}: {}", m.system),
+                            (Some(q), false) => format!("⚠ En el camino de {q} a {destino}: {}", m.system),
+                            (None, true) => format!("⚠ On your way to {destino}: {}", m.system),
+                            (None, false) => format!("⚠ En tu camino a {destino}: {}", m.system),
+                        };
+                        let cuerpo = if en {
+                            format!("{} jump(s) from {} · {}: {}", m.jumps, m.cerca_de_name, m.author, m.message)
+                        } else {
+                            format!("{} salto(s) de {} · {}: {}", m.jumps, m.cerca_de_name, m.author, m.message)
                         };
                         use tauri_plugin_notification::NotificationExt;
                         let _ = app
                             .notification()
                             .builder()
-                            .title(format!("⚠ {de_quien} {destino}: {}", m.system))
-                            .body(format!(
-                                "{} salto(s) de {} · {}: {}",
-                                m.jumps, m.cerca_de_name, m.author, m.message
-                            ))
+                            .title(titulo)
+                            .body(cuerpo)
                             .show();
                         let refs: &[i64] = if cfg.anchors.is_empty() { &cfg.origins } else { &cfg.anchors };
                         let (pilots, anchor) = contexto_cerca(&g.adj, &g.id_to_name, &cfg.pilots, refs, m.sys_id);
