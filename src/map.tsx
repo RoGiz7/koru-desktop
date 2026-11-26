@@ -2515,6 +2515,9 @@ export function MapView(props: {
   //   · panel cerrado → las paradas con «▶ Voy» y la run abierta, de cualquier plan.
   // Terminar o abandonar la run la saca de `plan_paradas_empezadas`, y con eso deja de mirarse.
   const [tramosPanel, setTramosPanel] = useState<PlanTramoIntel[] | null>(null);
+  /** Fase 3a: los SALTOS del plan abierto (pares origen → destino), para pintarlos como rectas con
+   *  otro trazo. La línea amarilla es entonces la ruta a puertas del CYNO. `null` = el plan no salta. */
+  const [saltosPlan, setSaltosPlan] = useState<[number, number][] | null>(null);
   const [empezadas, setEmpezadas] = useState<ParadaEmpezada[]>([]);
   const [empezadasErr, setEmpezadasErr] = useState("");
   const [planIntelErr, setPlanIntelErr] = useState("");
@@ -4034,6 +4037,25 @@ export function MapView(props: {
               })}
             {/* Sistemas vetados (por encima de las capas, por debajo de la ruta) */}
             {avoidMarkers}
+            {/* ★ Fase 3a: los saltos del plan, rectos y en violeta discontinuo, POR DEBAJO de la ruta.
+                Son aristas que no son puertas, como los wormholes anotados: «apareces aquí». La
+                amarilla, con un plan que salta, es la ruta del cyno. */}
+            {saltosPlan && saltosPlan.length > 0 && (
+              <path
+                d={saltosPlan
+                  .map(([a, b]) => {
+                    const pa = posOf(a);
+                    const pb = posOf(b);
+                    return pa && pb ? `M${pa.px.toFixed(1)} ${pa.py.toFixed(1)}L${pb.px.toFixed(1)} ${pb.py.toFixed(1)}` : "";
+                  })
+                  .join("")}
+                fill="none"
+                stroke="#c89bff"
+                strokeWidth={2.2 / view.z}
+                strokeDasharray={`${6 / view.z} ${4 / view.z}`}
+                pointerEvents="none"
+              />
+            )}
             {/* ruta planificada */}
             {routePath && routePath.length > 1 && (() => {
               // La línea AMARILLA solo cubre puertas y Ansiblex. Los saltos por wormhole se pintan
@@ -6320,11 +6342,13 @@ export function MapView(props: {
               intelError={planIntelErr || empezadasErr}
               intercepting={intercepting}
               onPintar={(stops) => setRouteStops(stops)}
+              onSaltos={setSaltosPlan}
               rutaActual={routeStops}
               focusSystem={focusSystem}
               onCerrar={() => {
                 setPlanAbierto(null);
                 setRouteStops([null]);
+                setSaltosPlan(null);
               }}
             />
           )}

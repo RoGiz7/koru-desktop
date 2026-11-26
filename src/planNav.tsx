@@ -130,8 +130,11 @@ export function PlanNav(props: {
   characters: Character[];
   /** Dónde están: de aquí sale dónde está el cyno. */
   charLocations: CharLoc[];
-  /** Pinta las paradas en el planificador del mapa: [origen, parada1, parada2…]. */
+  /** Pinta las paradas en el planificador del mapa: [origen, parada1, parada2…]. Saltando,
+   *  [donde está el cyno, parada1, parada2…]: la línea amarilla es la ruta del cyno. */
   onPintar: (stops: number[]) => void;
+  /** Fase 3a: los saltos (pares desde → hasta) para pintarlos aparte; `null` si el plan no salta. */
+  onSaltos: (s: [number, number][] | null) => void;
   /** Las paradas que tiene AHORA el planificador, para saber si la línea sigue siendo la del plan. */
   rutaActual: (number | null)[];
   /** Mientras se intercepta a un piloto la ruta es suya: el plan no la pisa, y se dice. */
@@ -139,7 +142,7 @@ export function PlanNav(props: {
   focusSystem: (sid: number) => void;
   onCerrar: () => void;
 }) {
-  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, charLocations, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
+  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, charLocations, onPintar, onSaltos, rutaActual, intercepting, focusSystem, onCerrar } = props;
   const [cargado, setCargado] = useState<PlanCargado | null>(null);
   const [error, setError] = useState("");
   const [minSalto, setMinSalto] = useState(() => leerNum(MIN_SALTO_KEY, DEF_MIN_SALTO));
@@ -407,10 +410,13 @@ export function PlanNav(props: {
 
   // ---- pintar en el mapa ----
   // Sin ninguna parada en el recorrido (todas imposibles) no hay línea del plan: "" y no se vigila.
+  // Saltando, la línea amarilla es la del CYNO: sale de donde está él (o del origen, si no se sabe,
+  // que es lo que supone el cálculo).
+  const salidaLinea = formaCalc ? cynoLoc ?? origen : origen;
   const pintarKey =
-    actual && origen != null && !intercepting && actual.resultados.some((r) => llega(r.estado))
+    actual && salidaLinea != null && !intercepting && actual.resultados.some((r) => llega(r.estado))
       ? [
-          origen,
+          salidaLinea,
           ...actual.resultados.filter((r) => llega(r.estado)).map((r) => paradas.find((p) => p.stopId === r.stopId)!.systemId),
         ].join(",")
       : "";
@@ -420,6 +426,19 @@ export function PlanNav(props: {
     if (stops.length >= 2) onPintar(stops);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pintarKey]);
+  const saltosKey =
+    formaCalc && actual && !intercepting
+      ? JSON.stringify(actual.resultados.flatMap((r) => (r.salto?.saltos ?? []).map((s) => [s.desde, s.hasta])))
+      : "";
+  useEffect(() => {
+    onSaltos(saltosKey ? (JSON.parse(saltosKey) as [number, number][]) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saltosKey]);
+  useEffect(
+    () => () => onSaltos(null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   // ⚠️ La columna «Paradas» sigue siendo editable con el plan abierto. Si alguien toca la ruta a
   //    mano, la línea amarilla deja de ser la del plan y los márgenes de aquí contarían otra cosa
