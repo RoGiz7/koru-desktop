@@ -2852,7 +2852,9 @@ pub async fn sync_killmails(character_id: i64, state: State<'_, AppState>) -> Ap
         .iter()
         .any(|s| s == "esi-killmails.read_killmails.v1")
     {
-        return Err(AppError::OAuth(
+        // El mismo error que `token_with_scope`: dos maneras de decir lo mismo acaban diciendo
+        // cosas distintas.
+        return Err(AppError::FaltaScope(
             "este personaje no concedió el scope de killmails. Inicia sesión con la feature 'PvP'."
                 .into(),
         ));
@@ -6008,7 +6010,7 @@ async fn token_with_scope(
         .access_token(state.esi.http(), character_id)
         .await?;
     if !valid.claims.scp.iter().any(|s| s == scope) {
-        return Err(AppError::OAuth(format!(
+        return Err(AppError::FaltaScope(format!(
             "este personaje no concedió el scope necesario. Inicia sesión con la feature '{feature_hint}'."
         )));
     }
