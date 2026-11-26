@@ -68,26 +68,61 @@ export type ResultadoParada = {
   llegadaMs: number;
   /** caduca − llegada, en minutos. Positivo = sobra; negativo = llegas tarde. */
   margenMin: number;
-  /** Ni yendo directo desde el origen llegas: se pierde en CUALQUIER orden. */
-  imposible: boolean;
+};
+
+/** Una parada que no se salva ni yendo directo desde el origen. */
+export type Imposible = {
+  stopId: number;
+  /** Saltos del tramo DIRECTO desde el origen. */
+  saltos: number;
+  /** caduca − llegada yendo directo, en minutos: siempre negativo. */
+  margenMin: number;
 };
 
 export type Evaluacion = {
-  /** Índices de `paradas` en el orden evaluado. */
+  /** Índices de `paradas` EN EL RECORRIDO, en el orden evaluado. Las imposibles no están. */
   orden: number[];
   resultados: ResultadoParada[];
+  /** Fuera del recorrido: perdidas hagas lo que hagas. Ver `separarImposibles`. */
+  imposibles: Imposible[];
   salvadas: number;
   /** Minutos de recorrido (saltos × minutos por salto), sin el tiempo en los sitios. */
   recorridoMin: number;
 };
 
+/** ★ DOS «PERDIDAS» QUE NO SON LA MISMA COSA (decisión de RoGiz7, 2026-11-26).
+ *
+ *  · «No llegas ni yendo directo» es un hecho sobre LA ESCALACIÓN: perdida hagas lo que hagas.
+ *    SALE del recorrido, a una lista aparte, y no gasta ni un minuto de viaje. Dentro, el óptimo
+ *    la metía en mitad del camino porque «quedaba de paso» hacia otra, y eso no lo haría nadie.
+ *  · «Se pierde con este orden» es un hecho sobre TU ORDEN. Se queda en el recorrido (ver
+ *    `evaluar`), porque su «llegas 25 m tarde» es lo que hace útil decir que el propuesto
+ *    salvaría más.
+ *
+ *  Una parada SIN RUTA desde el origen no es imposible: es un problema de los filtros (evitados,
+ *  wormholes), y se queda en el recorrido como `sin_ruta` para que se vea dónde está. */
+export function separarImposibles(
+  paradas: ParadaCalc[],
+  tramos: Tramos,
+  ahoraMs: number,
+  minPorSalto: number,
+): Map<number, Imposible> {
+  const fuera = new Map<number, Imposible>();
+  paradas.forEach((p, i) => {
+    const directo = tramos(0, i + 1);
+    if (!directo) return;
+    const margenMin = (p.caducaMs - (ahoraMs + directo.saltos * minPorSalto * 60000)) / 60000;
+    if (margenMin < 0) fuera.set(i, { stopId: p.stopId, saltos: directo.saltos, margenMin });
+  });
+  return fuera;
+}
+
 /** ★ EL MODELO DE TIEMPO. Llegada a la parada i = ahora + los recorridos hasta ella + el tiempo
  *  en los sitios anteriores.
  *
- *  Dos decisiones que no salen del enunciado y que hay que poder defender:
- *   · Una parada PERDIDA no suma tiempo en el sitio: llegas, ya no está, y sigues. Su recorrido
- *     sí cuenta, porque el orden la incluye y la línea del mapa pasa por ella. Si no quieres ir,
- *     la sacas del plan.
+ *  Las imposibles (`separarImposibles`) se apartan antes y no cuentan para nada. De las demás:
+ *   · Una parada PERDIDA CON ESTE ORDEN no suma tiempo en el sitio —llegas, ya no está, y
+ *     sigues—, pero su viaje sí cuenta: el orden la incluye y la línea del mapa pasa por ella.
  *   · Una parada SIN RUTA no mueve el punto de partida: no se puede llegar, así que el siguiente
  *     tramo sale de donde estabas. */
 export function evaluar(
@@ -98,27 +133,18 @@ export function evaluar(
   minPorSalto: number,
   minEnSitio: number,
 ): Evaluacion {
+  const fuera = separarImposibles(paradas, tramos, ahoraMs, minPorSalto);
   let pos = 0; // índice de tramos: 0 = origen
   let t = ahoraMs;
   let salvadas = 0;
   let recorridoMin = 0;
+  const enRuta = orden.filter((i) => !fuera.has(i));
   const resultados: ResultadoParada[] = [];
-  for (const i of orden) {
+  for (const i of enRuta) {
     const p = paradas[i];
     const tramo = tramos(pos, i + 1);
-    const directo = tramos(0, i + 1);
-    const imposible =
-      !directo || ahoraMs + directo.saltos * minPorSalto * 60000 > p.caducaMs;
     if (!tramo) {
-      resultados.push({
-        stopId: p.stopId,
-        estado: "sin_ruta",
-        saltos: 0,
-        wormhole: false,
-        llegadaMs: NaN,
-        margenMin: NaN,
-        imposible,
-      });
+      resultados.push({ stopId: p.stopId, estado: "sin_ruta", saltos: 0, wormhole: false, llegadaMs: NaN, margenMin: NaN });
       continue;
     }
     const viaje = tramo.saltos * minPorSalto;
@@ -133,7 +159,6 @@ export function evaluar(
       wormhole: tramo.wormhole,
       llegadaMs: t,
       margenMin,
-      imposible,
     });
     if (salvada) {
       salvadas++;
@@ -141,7 +166,8 @@ export function evaluar(
     }
     pos = i + 1;
   }
-  return { orden, resultados, salvadas, recorridoMin };
+  const imposibles = orden.filter((i) => fuera.has(i)).map((i) => fuera.get(i)!);
+  return { orden: enRuta, resultados, imposibles, salvadas, recorridoMin };
 }
 
 /** ★ QUÉ OPTIMIZA, EN ESTE ORDEN EXACTO:
@@ -165,8 +191,10 @@ export function ordenCaducidad(paradas: ParadaCalc[]): number[] {
 
 export type Propuesta = { mejor: Evaluacion; metodo: "optimo" | "caducidad" };
 
-/** El orden que Koru propone. Con `MAX_PERMUTAR` paradas o menos, el óptimo probando todas las
- *  permutaciones; con más, por caducidad (y la pantalla lo dice). */
+/** El orden que Koru propone. FUERZA BRUTA de verdad: con `MAX_PERMUTAR` paradas o menos en el
+ *  recorrido se evalúan TODAS las permutaciones, sin poda ni heurística, y gana la mejor según
+ *  `mejor`. Con más, por caducidad (y la pantalla lo dice). Las imposibles no se permutan: están
+ *  fuera del recorrido y no cambian nada, solo multiplicarían el trabajo. */
 export function proponer(
   paradas: ParadaCalc[],
   tramos: Tramos,
@@ -174,9 +202,13 @@ export function proponer(
   minPorSalto: number,
   minEnSitio: number,
 ): Propuesta {
-  const base = ordenCaducidad(paradas);
-  const ev = (o: number[]) => evaluar(o, paradas, tramos, ahoraMs, minPorSalto, minEnSitio);
-  if (paradas.length > MAX_PERMUTAR) return { mejor: ev(base), metodo: "caducidad" };
+  const fuera = separarImposibles(paradas, tramos, ahoraMs, minPorSalto);
+  const todas = ordenCaducidad(paradas);
+  const base = todas.filter((i) => !fuera.has(i));
+  // Las imposibles van al final del orden que se evalúa, para que `imposibles` salga completa.
+  const conFuera = (o: number[]) => [...o, ...todas.filter((i) => fuera.has(i))];
+  const ev = (o: number[]) => evaluar(conFuera(o), paradas, tramos, ahoraMs, minPorSalto, minEnSitio);
+  if (base.length > MAX_PERMUTAR) return { mejor: ev(base), metodo: "caducidad" };
   let best = ev(base);
   const usado = new Array(base.length).fill(false);
   const actual: number[] = [];

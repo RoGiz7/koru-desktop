@@ -135,8 +135,9 @@ export function PlanNav(props: {
   const actual: Evaluacion | null = plan?.orden_manual ? manual : propuesta?.mejor ?? null;
 
   // ---- pintar en el mapa ----
+  // Sin ninguna parada en el recorrido (todas imposibles) no hay línea del plan: "" y no se vigila.
   const pintarKey =
-    actual && origen != null && !intercepting
+    actual && origen != null && !intercepting && actual.resultados.some((r) => r.estado !== "sin_ruta")
       ? [
           origen,
           ...actual.resultados.filter((r) => r.estado !== "sin_ruta").map((r) => paradas.find((p) => p.stopId === r.stopId)!.systemId),
@@ -159,8 +160,11 @@ export function PlanNav(props: {
    *  recalculan al instante) y luego se guarda; si guardar falla, se recarga lo que hay y se dice. */
   async function reordenar(ordenIdx: number[]) {
     if (!cargado) return;
+    // Las imposibles no están en `ordenIdx` (no están en el recorrido), pero son del plan: van
+    // detrás, o `plan_reordenar` rechazaría el orden por incompleto.
     const nuevas = ordenIdx.map((i) => calc[i].p);
-    const todas = [...nuevas, ...fuera];
+    const imposibles = calc.filter((_, i) => !ordenIdx.includes(i)).map((x) => x.p);
+    const todas = [...nuevas, ...imposibles, ...fuera];
     setCargado({ plan: { ...cargado.plan, orden_manual: true }, paradas: todas.map((p, i) => ({ ...p, orden: i })) });
     try {
       await invoke("plan_reordenar", { planId, stopIds: todas.map((p) => p.id) });
@@ -183,7 +187,11 @@ export function PlanNav(props: {
       // luego vuelves a arrastrar, partes de lo que estabas viendo.
       await invoke("plan_reordenar", {
         planId,
-        stopIds: [...propuesta.mejor.orden.map((i) => calc[i].p.id), ...fuera.map((p) => p.id)],
+        stopIds: [
+          ...propuesta.mejor.orden.map((i) => calc[i].p.id),
+          ...calc.filter((_, i) => !propuesta.mejor.orden.includes(i)).map((x) => x.p.id),
+          ...fuera.map((p) => p.id),
+        ],
       });
       await invoke("plan_orden_propuesto", { planId });
     } catch (e) {
@@ -412,8 +420,6 @@ export function PlanNav(props: {
                                 <span>
                                   {tr("llegas con")} <b>{duracion(r.margenMin)}</b> {tr("de sobra")}
                                 </span>
-                              ) : r.imposible ? (
-                                <b>✖ {tr("no llegas a tiempo de todas formas: ni yendo directo")}</b>
                               ) : (
                                 <span>
                                   ✖ {tr("llegas")} <b>{duracion(r.margenMin)}</b> {tr("tarde: se pierde con este orden")}
@@ -450,6 +456,44 @@ export function PlanNav(props: {
                   );
                 })}
               </ol>
+              {/* ★ APARTE Y NO EN EL RECORRIDO: estas se pierden hagas lo que hagas, así que no
+                  gastan viaje ni se arrastran. Ver `separarImposibles` en plan.ts. */}
+              {actual.imposibles.length > 0 && (
+                <>
+                  <div className="nav-head">✖ {tr("No llegas ni yendo directo")}</div>
+                  <ul className="plan-nav-fuera">
+                    {actual.imposibles.map((im) => {
+                      const res = calc.find((x) => x.p.id === im.stopId)!.p.resuelta!;
+                      return (
+                        <li key={im.stopId} className="plan-parada plan-perdida">
+                          <div className="plan-cuerpo">
+                            <div>
+                              <b>{res.titulo || tr("(sin título)")}</b>{" "}
+                              <a className="plan-sys" onClick={() => focusSystem(res.system_id!)}>
+                                {nameOf(res.system_id!) || res.system_name}
+                              </a>
+                            </div>
+                            <div className="small">
+                              <span className="muted">
+                                {im.saltos} {tr("saltos")} ·{" "}
+                              </span>
+                              ✖ {tr("yendo directo llegas")} <b>{duracion(im.margenMin)}</b>{" "}
+                              {tr("tarde: perdida hagas lo que hagas")}
+                            </div>
+                          </div>
+                          <button
+                            className="route-stop-del"
+                            title={tr("Sacar del plan (la escalación no se toca)")}
+                            onClick={() => void quitar(im.stopId)}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
             </>
           )}
           {cargado.paradas.length === 0 && (
