@@ -12274,3 +12274,13 @@ h4 .ped-glifo, h5 .ped-glifo { vertical-align: -4px; }
 .plan-cuerpo { flex: 1 1 auto; min-width: 0; }
 .plan-sys { cursor: pointer; }
 .plan-wh { color: #3ad6e0; }
+/* Fase 2. «▶ en camino»: el tramo que AVISA del intel. */
+.plan-empezada { color: var(--ok); font-size: 0.85em; }
+.plan-seguro { margin: 0.3rem 0; padding: 0.3rem 0.5rem; border-left: 2px solid #4a90d9; }
+/* Intel en un tramo. Los dos estados se distinguen a propósito: el que suena va en rojo lleno y el
+   marcado en silencio con borde DISCONTINUO — tiene que verse marcado, no parecer limpio. */
+.plan-intel { margin-top: 0.25rem; padding: 0.25rem 0.45rem; border-radius: 4px; font-size: 0.85em; }
+.plan-intel.suena { border: 1px solid var(--danger); background: rgba(192, 57, 43, 0.12); color: var(--danger-text); }
+.plan-intel.calla { border: 1px dashed #b4711e; background: rgba(180, 113, 30, 0.08); }
+.plan-intel-linea { margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-intel-aviso { opacity: 0.85; white-space: normal; }

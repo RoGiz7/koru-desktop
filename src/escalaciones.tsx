@@ -30,7 +30,7 @@ import { loadNewEden } from "./neweden";
 import { loadJson } from "./staticJson";
 import { PilotoNombre } from "./fichaPiloto";
 import type { NeSystem } from "./types";
-import type { PlanCargado, PlanResumen } from "./plan";
+import { PLAN_CAMBIADO, type PlanCargado, type PlanResumen } from "./plan";
 
 type Escalacion = {
   id: number;
@@ -222,6 +222,9 @@ export function EscalacionesView({
       setHist(h);
       setRanuras(r);
       setRuns(new Map(rn.map((x) => [x.id, x])));
+      // El plan abierto en el mapa tiene que enterarse de «▶ Voy», «Hecha», «Paso»…: «Voy» decide
+      // qué tramo AVISA del intel. Ver `PLAN_CAMBIADO` en planNav.tsx.
+      window.dispatchEvent(new Event(PLAN_CAMBIADO));
     } catch (e) {
       setError(String(e));
       setVivas([]);

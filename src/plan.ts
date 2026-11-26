@@ -18,6 +18,8 @@ export type ParadaResuelta = {
   caduca_at: string;
   estado: string;
   por_hacer: boolean;
+  /** «▶ Voy» pulsado: hay una run abierta. El único tramo que AVISA del intel (fase 2). */
+  empezada: boolean;
 };
 export type ParadaCargada = {
   id: number;
@@ -65,6 +67,9 @@ export type ResultadoParada = {
   saltos: number;
   /** El tramo que llega aquí cruza un wormhole: puede haberse cerrado. */
   wormhole: boolean;
+  /** Los sistemas del tramo que llega aquí, salida incluida ([] si `sin_ruta`). Fase 2: de aquí
+   *  salen las muertes del tramo y lo que el intel mira hacia delante. */
+  path: number[];
   llegadaMs: number;
   /** caduca − llegada, en minutos. Positivo = sobra; negativo = llegas tarde. */
   margenMin: number;
@@ -144,7 +149,7 @@ export function evaluar(
     const p = paradas[i];
     const tramo = tramos(pos, i + 1);
     if (!tramo) {
-      resultados.push({ stopId: p.stopId, estado: "sin_ruta", saltos: 0, wormhole: false, llegadaMs: NaN, margenMin: NaN });
+      resultados.push({ stopId: p.stopId, estado: "sin_ruta", saltos: 0, wormhole: false, path: [], llegadaMs: NaN, margenMin: NaN });
       continue;
     }
     const viaje = tramo.saltos * minPorSalto;
@@ -157,6 +162,7 @@ export function evaluar(
       estado: salvada ? "salvada" : "perdida",
       saltos: tramo.saltos,
       wormhole: tramo.wormhole,
+      path: tramo.path,
       llegadaMs: t,
       margenMin,
     });
@@ -230,6 +236,119 @@ export function proponer(
   recorrer();
   return { mejor: best, metodo: "optimo" };
 }
+
+/** ★ FASE 2 — «HACER ANTES OTRA»: el mejor orden en el que la parada `idx` va MÁS TARDE que ahora.
+ *
+ *  Para cuando cantan un hostil en el tramo que lleva a esa parada: la respuesta natural en el juego
+ *  es hacer otra primero y volver luego. Lo que el panel necesita saber ANTES de proponerlo es qué
+ *  cuesta, así que esto evalúa con el MISMO modelo y el MISMO criterio (`mejor`) que `proponer`.
+ *
+ *  ⚠️ El intel NO entra en el criterio de `proponer`: el óptimo sigue siendo «salvar más, luego
+ *     menos recorrido». Un hostil es de este minuto y se mueve; meterlo en el optimizador haría que el
+ *     orden propuesto bailara con cada línea del chat. Aquí solo se responde a la pregunta concreta.
+ *
+ *  Fuerza bruta como `proponer` (todas las permutaciones con la restricción) hasta `MAX_PERMUTAR`;
+ *  por encima, cambiarla con la siguiente. `null` si ya es la última: no hay nada que hacer antes. */
+export function posponer(
+  orden: number[],
+  idx: number,
+  paradas: ParadaCalc[],
+  tramos: Tramos,
+  ahoraMs: number,
+  minPorSalto: number,
+  minEnSitio: number,
+): Evaluacion | null {
+  const posActual = orden.indexOf(idx);
+  if (posActual < 0 || posActual === orden.length - 1) return null;
+  // Las que no están en el recorrido (las imposibles) van detrás, como en `proponer`, para que
+  // `imposibles` salga completa. `evaluar` las aparta igual.
+  const resto = paradas.map((_, i) => i).filter((i) => !orden.includes(i));
+  const ev = (o: number[]) => evaluar([...o, ...resto], paradas, tramos, ahoraMs, minPorSalto, minEnSitio);
+  if (orden.length > MAX_PERMUTAR) {
+    const o = [...orden];
+    [o[posActual], o[posActual + 1]] = [o[posActual + 1], o[posActual]];
+    return ev(o);
+  }
+  let best: Evaluacion | null = null;
+  const usado = new Array(orden.length).fill(false);
+  const actual: number[] = [];
+  const recorrer = () => {
+    if (actual.length === orden.length) {
+      if (actual.indexOf(idx) <= posActual) return;
+      const e = ev([...actual]);
+      if (!best || mejor(e, best)) best = e;
+      return;
+    }
+    for (let k = 0; k < orden.length; k++) {
+      if (usado[k]) continue;
+      usado[k] = true;
+      actual.push(orden[k]);
+      recorrer();
+      actual.pop();
+      usado[k] = false;
+    }
+  };
+  recorrer();
+  return best;
+}
+
+/** ★ FASE 2 — LAS MUERTES DE UN TRAMO. Un DATO, no un veredicto: cuántos sistemas del tramo tienen
+ *  muertes en la última hora y cuál es el peor. La salida (`path[0]`) no cuenta: es donde ya estás,
+ *  y en el tramo anterior ya contó como llegada.
+ *  `null` si no hay datos de muertes: «sin datos» no es «limpio», y no se pinta como tal. */
+export function muertesTramo(
+  path: number[],
+  kills: Map<number, number> | null,
+): { sistemas: number; peor: { systemId: number; kills: number } | null } | null {
+  if (!kills) return null;
+  let sistemas = 0;
+  let peor: { systemId: number; kills: number } | null = null;
+  for (const s of path.slice(1)) {
+    const k = kills.get(s) ?? 0;
+    if (k <= 0) continue;
+    sistemas++;
+    if (!peor || k > peor.kills) peor = { systemId: s, kills: k };
+  }
+  return { sistemas, peor };
+}
+
+/** ★ FASE 2 — «IR SEGURO TE CUESTA X». Las paradas que el MISMO orden salva por la corta y NO por
+ *  la segura: perdidas por llegar tarde, imposibles o sin ruta, da igual el motivo — la escalación
+ *  se va. Es la línea que justifica la fase entera: ninguna otra herramienta puede decirla, porque
+ *  ninguna tiene el reloj. */
+export function cuestaIrSeguro(corta: Evaluacion, segura: Evaluacion): number[] {
+  const salva = (ev: Evaluacion, id: number) => ev.resultados.some((r) => r.stopId === id && r.estado === "salvada");
+  return corta.resultados.filter((r) => r.estado === "salvada" && !salva(segura, r.stopId)).map((r) => r.stopId);
+}
+
+/** Sistemas de baja o nula (sec < 0.45, el MISMO corte que `findRoute`) que cruza un tramo, sin la
+ *  salida. Es lo que dice si «la segura» es segura de verdad o solo la menos mala. */
+export function bajaNula(path: number[], sec: (sid: number) => number | undefined): number {
+  return path.slice(1).filter((s) => (sec(s) ?? 0) < 0.45).length;
+}
+
+/** Lo avisa Escalaciones cuando cambia algo de sus filas («▶ Voy», «Hecha», «Paso»…): el plan
+ *  abierto en el mapa tiene que enterarse, porque «Voy» decide qué tramo AVISA del intel. Vive aquí
+ *  y no en planNav.tsx para que Escalaciones no tenga que importar la pantalla del mapa. */
+export const PLAN_CAMBIADO = "koru-plan-cambiado";
+
+/** Un hostil cantado cerca de un tramo del plan. Lo calcula el vigilante de Rust: ver
+ *  `plan_intel.rs`. `aviso` dice por qué suena o no, para que el silencio se vea. */
+export type PlanMarca = {
+  stop_id: number;
+  sys_id: number;
+  system: string;
+  jumps: number;
+  cerca_de: number;
+  cerca_de_name: string;
+  ts_ms: number;
+  author: string;
+  message: string;
+  aviso: "avisa" | "no_empezado" | "silenciado" | "alertas_apagadas";
+};
+
+/** Lo que se manda al vigilante: un tramo del plan, con los sistemas de su ruta. */
+export type PlanTramoIntel = { stop_id: number; destino: string; sistemas: number[]; empezado: boolean };
 
 /** Caché de tramos: cada par se calcula UNA vez con `calc` (el buscador de rutas del mapa).
  *  Con 8 paradas son como mucho 72 búsquedas, y arrastrar no repite ninguna. */

@@ -349,6 +349,8 @@ export function useIntel({
       author: string;
       message: string;
       ts_ms: number;
+      /** Solo en un aviso del plan (fase 2): el hostil está en tu camino, no cerca de ti. */
+      camino?: { destino: string; cerca_de: string; jumps: number };
     }>("intel-alert", (e) => {
       const a = e.payload;
       const prev = intelAlertRef.current;
@@ -360,8 +362,11 @@ export function useIntel({
               report: { sysId: a.sys_id, sysName: a.system, ts: a.ts_ms, author: a.author, message: a.message },
             }
           : { jumps: prev.jumps, report: prev.report };
+      // Un aviso del plan NO está «a N saltos» de ti: lo está de tu camino, y el texto lo dice.
       const text =
-        `⚠ ${tr("Intel a")} ${lead.jumps} ${tr("salto(s)")}: ${lead.report.sysName} — ${lead.report.author}` +
+        (a.camino && lead.report.sysId === a.sys_id
+          ? `⚠ ${tr("En tu camino a")} ${a.camino.destino}: ${lead.report.sysName} — ${lead.report.author}`
+          : `⚠ ${tr("Intel a")} ${lead.jumps} ${tr("salto(s)")}: ${lead.report.sysName} — ${lead.report.author}`) +
         (extra > 0 ? ` · +${extra} ${tr("más")}` : "");
       const next = { text, extra, jumps: lead.jumps, report: lead.report };
       intelAlertRef.current = next;

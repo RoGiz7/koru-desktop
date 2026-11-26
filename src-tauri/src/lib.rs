@@ -14,6 +14,7 @@ mod esi;
 mod gamelog;
 mod graphics;
 mod medals;
+mod plan_intel;
 mod social;
 mod sso;
 
@@ -371,6 +372,8 @@ pub fn run() {
             commands::get_gamelog_dps,
             commands::get_planet_detail,
             commands::get_intel_status,
+            commands::plan_intel_set,
+            commands::plan_intel_marcas,
             commands::get_blueprints,
             commands::get_blueprints_global,
             commands::get_pi_map,

@@ -5,21 +5,54 @@
 // amarilla, porque los márgenes salen del mismo grafo que la dibuja.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { tr } from "./i18n";
+import { listen } from "@tauri-apps/api/event";
+import { getLang, tr } from "./i18n";
 import { SystemSearch } from "./map";
-import type { NeSystem } from "./types";
+import type { RouteMode } from "./mapRoute";
+import type { IntelStatus, NeSystem } from "./types";
 import {
   MAX_PERMUTAR,
+  PLAN_CAMBIADO,
+  bajaNula,
   cacheTramos,
+  cuestaIrSeguro,
   duracion,
   evaluar,
+  muertesTramo,
+  posponer,
   proponer,
   type Evaluacion,
   type ParadaCalc,
   type ParadaCargada,
   type PlanCargado,
+  type PlanMarca,
+  type PlanTramoIntel,
+  type ResultadoParada,
   type Tramo,
 } from "./plan";
+
+
+/** Por qué una marca del intel suena o no. El silencio se DICE: un tramo marcado que no suena tiene
+ *  que verse marcado, no limpio. */
+function textoAviso(a: PlanMarca["aviso"]): string {
+  switch (a) {
+    case "avisa":
+      return `🔊 ${tr("suena: has salido hacia aquí")}`;
+    case "no_empezado":
+      return `🔕 ${tr("marcado, no suena: no has pulsado «Voy» en esta")}`;
+    case "silenciado":
+      return `🔕 ${tr("marcado, no suena: el sistema está silenciado")}`;
+    case "alertas_apagadas":
+      return `🔕 ${tr("marcado, no suena: Intel en vivo está apagado")}`;
+  }
+}
+
+/** «hace 3 min» / «3 min ago». Sin `tr()` porque el ORDEN cambia de un idioma a otro: mismo
+ *  motivo que `edad()` en overlay.tsx. */
+function haceMin(ts: number, ahora: number): string {
+  const m = Math.max(0, Math.round((ahora - ts) / 60000));
+  return getLang() === "en" ? `${m} min ago` : `hace ${m} min`;
+}
 
 const MIN_SALTO_KEY = "koru-plan-min-salto";
 const MIN_SITIO_KEY = "koru-plan-min-sitio";
@@ -54,8 +87,13 @@ export function PlanNav(props: {
   systems: NeSystem[];
   hereSystemId: number | null;
   nameOf: (sid: number) => string;
-  /** El buscador de rutas del mapa: MISMO grafo, modo y evitados que la línea amarilla. */
-  calcTramo: (desde: number, hasta: number) => Tramo;
+  /** El buscador de rutas del mapa: MISMO grafo, modo y evitados que la línea amarilla. Con
+   *  `modo` se pide otro modo sobre ese mismo grafo (fase 2: la comparación corta / segura). */
+  calcTramo: (desde: number, hasta: number, modo?: RouteMode) => Tramo;
+  /** El modo con el que se pinta la línea («Cómo rutar»). */
+  routeMode: RouteMode;
+  /** Muertes de la última hora por sistema (`get_system_kills`, ship + pod). `null` = sin datos. */
+  kills: Map<number, number> | null;
   /** Pinta las paradas en el planificador del mapa: [origen, parada1, parada2…]. */
   onPintar: (stops: number[]) => void;
   /** Las paradas que tiene AHORA el planificador, para saber si la línea sigue siendo la del plan. */
@@ -65,7 +103,7 @@ export function PlanNav(props: {
   focusSystem: (sid: number) => void;
   onCerrar: () => void;
 }) {
-  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
+  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, onPintar, rutaActual, intercepting, focusSystem, onCerrar } = props;
   const [cargado, setCargado] = useState<PlanCargado | null>(null);
   const [error, setError] = useState("");
   const [minSalto, setMinSalto] = useState(() => leerNum(MIN_SALTO_KEY, DEF_MIN_SALTO));
@@ -89,6 +127,14 @@ export function PlanNav(props: {
     void recargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId, nonce]);
+  // «▶ Voy», «Hecha» o «Paso» en Escalaciones: el mapa sigue montado y este panel abierto, así que
+  // sin esto el tramo empezado no se enteraría hasta reabrir el plan — y no sonaría.
+  useEffect(() => {
+    const h = () => void recargar();
+    window.addEventListener(PLAN_CAMBIADO, h);
+    return () => window.removeEventListener(PLAN_CAMBIADO, h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planId]);
 
   // ⚠️ Las que no resuelven se CANTAN también en consola, además de en pantalla: es un fallo de
   //    otro sitio (un borrado que no limpió) y quien desarrolla tiene que poder verlo sin abrir esto.
@@ -133,6 +179,98 @@ export function PlanNav(props: {
   // ★ El orden manual MANDA cuando existe. El propuesto se sigue calculando para decir si salvaría
   //   más: se calla la imposición, nunca el dato (misma regla que silenciar un sistema en el intel).
   const actual: Evaluacion | null = plan?.orden_manual ? manual : propuesta?.mejor ?? null;
+
+  // ==== FASE 2 · MITAD A: lo que cuesta ir seguro ====
+  // El orden EN USO con TODAS las paradas (las imposibles detrás): lo que es imposible por una ruta
+  // puede no serlo por otra, así que la comparación no puede partir de `actual.orden`, que ya las quitó.
+  const ordenEnUso = useMemo(() => {
+    if (!actual) return null;
+    if (plan?.orden_manual) return paradas.map((_, i) => i);
+    return [...actual.orden, ...paradas.map((_, i) => i).filter((i) => !actual.orden.includes(i))];
+  }, [actual, plan?.orden_manual, paradas]);
+  const tramosModo = (modo: RouteMode) =>
+    origen == null ? null : cacheTramos([origen, ...paradas.map((p) => p.systemId)], (a, b) => calcTramo(a, b, modo));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tramosCorta = useMemo(() => tramosModo("shortest"), [puntosKey, calcTramo]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tramosSegura = useMemo(() => tramosModo("safer"), [puntosKey, calcTramo]);
+  const seguro = useMemo(() => {
+    if (!ordenEnUso || !tramosCorta || !tramosSegura || paradas.length === 0) return null;
+    const corta = evaluar(ordenEnUso, paradas, tramosCorta, ahora, minSalto, minSitio);
+    const segura = evaluar(ordenEnUso, paradas, tramosSegura, ahora, minSalto, minSitio);
+    // Por si con la segura OTRO orden salvara más que el tuyo: entonces parte de lo que «cuesta» es
+    // el orden y no la ruta, y hay que decirlo.
+    const mejorSegura = proponer(paradas, tramosSegura, ahora, minSalto, minSitio).mejor;
+    return { corta, segura, mejorSegura };
+  }, [ordenEnUso, tramosCorta, tramosSegura, paradas, ahora, minSalto, minSitio]);
+  const secDe = useMemo(() => {
+    const m = new Map(systems.map((x) => [x.id, x.s] as const));
+    return (sid: number) => m.get(sid);
+  }, [systems]);
+
+  // ==== FASE 2 · MITAD B: el intel mira hacia delante ====
+  // Los tramos del recorrido que aún no has hecho (las hechas ya no están en `calc`). El EMPEZADO
+  // (el del «▶ Voy») se cuenta desde donde estás AHORA: lo que ya pasaste no entra.
+  const tramosIntel: PlanTramoIntel[] = useMemo(() => {
+    if (!actual) return [];
+    const out: PlanTramoIntel[] = [];
+    for (const r of actual.resultados) {
+      if (r.estado === "sin_ruta") continue;
+      const p = calc.find((x) => x.p.id === r.stopId)!;
+      // Caducada mientras el panel estaba abierto (aún no se ha recargado): ya no es camino.
+      if (p.c.caducaMs <= ahora) continue;
+      const res = p.p.resuelta!;
+      let sistemas = r.path;
+      if (res.empezada && hereSystemId != null) {
+        const desdeAqui = calcTramo(hereSystemId, p.c.systemId);
+        if (desdeAqui) sistemas = desdeAqui.path;
+      }
+      out.push({ stop_id: r.stopId, destino: nameOf(p.c.systemId) || res.system_name, sistemas, empezado: res.empezada });
+    }
+    return out;
+  }, [actual, calc, hereSystemId, calcTramo, nameOf, ahora]);
+  const tramosIntelKey = JSON.stringify(tramosIntel);
+  useEffect(() => {
+    invoke("plan_intel_set", { tramos: tramosIntel }).catch((e) => {
+      // Si no llega, el vigilante no mira el camino: se DICE aquí, no se deja el panel en calma.
+      setError(`${tr("El intel no recibió los tramos del plan")}: ${String(e)}`);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tramosIntelKey]);
+  // Al cerrar el plan, el camino deja de mirarse. Un fallo aquí no tiene pantalla donde decirse (el
+  // panel ya no está): va a consola, que es lo que queda.
+  useEffect(
+    () => () => {
+      invoke("plan_intel_set", { tramos: [] }).catch((e) => console.error("[plan] no se pudo dejar de vigilar el camino:", e));
+    },
+    [],
+  );
+  const [marcas, setMarcas] = useState<PlanMarca[]>([]);
+  useEffect(() => {
+    invoke<PlanMarca[]>("plan_intel_marcas")
+      .then(setMarcas)
+      .catch((e) => setError(`${tr("No se pudieron leer las marcas del intel")}: ${String(e)}`));
+    const un = listen<PlanMarca[]>("plan-intel", (e) => setMarcas(e.payload));
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
+  // ¿Está mirando alguien? Sin vigilante no hay marcas, y «sin marcas» NO puede parecer «camino limpio».
+  const [vigilante, setVigilante] = useState<IntelStatus | null>(null);
+  useEffect(() => {
+    const leer = () =>
+      invoke<IntelStatus>("get_intel_status")
+        .then(setVigilante)
+        .catch((e) => setError(`${tr("No se pudo leer el estado del intel")}: ${String(e)}`));
+    void leer();
+    const t = window.setInterval(leer, 10_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const vigila =
+    !!vigilante && vigilante.collecting && !vigilante.idle_reason && !vigilante.last_error && vigilante.graph_systems > 0;
+  const idsPlan = new Set(tramosIntel.map((t) => t.stop_id));
+  // Sin vigilante, las marcas que queden son de antes: no se pintan como si fueran de ahora.
+  const marcasPlan = vigila ? marcas.filter((m) => idsPlan.has(m.stop_id)) : [];
 
   // ---- pintar en el mapa ----
   // Sin ninguna parada en el recorrido (todas imposibles) no hay línea del plan: "" y no se vigila.
@@ -248,6 +386,45 @@ export function PlanNav(props: {
     return { aviso: false, texto: tr("Tu orden salva lo mismo que el propuesto.") };
   })();
 
+  // ---- fase 2: textos de pantalla ----
+  const nombreParada = (stopId: number) => {
+    const x = calc.find((c) => c.p.id === stopId)!;
+    return nameOf(x.c.systemId) || x.p.resuelta!.system_name;
+  };
+  const bajaNulaEv = (ev: Evaluacion) => ev.resultados.reduce((n, r) => n + bajaNula(r.path, secDe), 0);
+  // ¿La segura sale IGUAL que la corta? Entonces no hay alternativa y no se pinta una comparación vacía.
+  const mismaRuta =
+    !!seguro &&
+    JSON.stringify(seguro.corta.resultados.map((r) => [r.stopId, r.path])) ===
+      JSON.stringify(seguro.segura.resultados.map((r) => [r.stopId, r.path])) &&
+    seguro.corta.imposibles.length === seguro.segura.imposibles.length;
+  /** La misma parada por la OTRA ruta: la segura si pintas la corta (o la menos segura), la corta si
+   *  pintas la segura. Es lo que se lee debajo de cada parada. */
+  const otra = seguro ? (routeMode === "safer" ? seguro.corta : seguro.segura) : null;
+  const etiquetaOtra = routeMode === "safer" ? tr("por la corta") : tr("por la segura");
+  function lineaOtra(r: ResultadoParada) {
+    if (!otra || mismaRuta) return null;
+    const o = otra.resultados.find((x) => x.stopId === r.stopId);
+    if (!o) {
+      return otra.imposibles.some((i) => i.stopId === r.stopId) ? `${etiquetaOtra}: ${tr("no llegas ni yendo directo")}` : null;
+    }
+    if (o.path.join(",") === r.path.join(",")) return null;
+    if (o.estado === "sin_ruta") return `${etiquetaOtra}: ${tr("sin ruta con los filtros actuales")}`;
+    const d = o.saltos - r.saltos;
+    const saltos = `${d > 0 ? "+" : ""}${d} ${tr("saltos")}`;
+    return o.estado === "salvada"
+      ? `${etiquetaOtra}: ${saltos}, ${tr("llegas con")} ${duracion(o.margenMin)} ${tr("de sobra")}`
+      : `${etiquetaOtra}: ${saltos}, ${tr("llegas")} ${duracion(o.margenMin)} ${tr("tarde")}`;
+  }
+  function lineaMuertes(r: ResultadoParada) {
+    const mk = muertesTramo(r.path, kills);
+    // «Sin datos» no es «limpio»: se dice cuál de las dos es.
+    if (!mk) return `☠ ${tr("sin datos de muertes")}`;
+    if (!mk.peor) return `☠ ${tr("ningún sistema con muertes en la última hora")}`;
+    return `☠ ${mk.sistemas} ${tr("sistemas con muertes en la última hora; el peor,")} ${nameOf(mk.peor.systemId)} (${mk.peor.kills})`;
+  }
+  const empezados = tramosIntel.filter((t) => t.empezado);
+
   return (
     <div className="plan-nav">
       <div className="nav-head plan-nav-head">
@@ -360,6 +537,70 @@ export function PlanNav(props: {
                 </div>
               )}
 
+              {/* ★ FASE 2 · LO QUE CUESTA IR SEGURO. Mismo orden, mismo grafo, otro modo. Lo que
+                  justifica la fase es la línea «ir seguro te cuesta X»: ninguna otra herramienta
+                  puede decirla, porque ninguna tiene el reloj. */}
+              {seguro &&
+                (mismaRuta ? (
+                  <div className="small muted">
+                    🛡{" "}
+                    {bajaNulaEv(seguro.corta) > 0
+                      ? tr("No hay ruta por alta seguridad: la más segura sale igual que la corta.")
+                      : tr("La corta ya va entera por alta seguridad.")}
+                  </div>
+                ) : (
+                  <div className="plan-seguro small">
+                    <div>
+                      🛡 {bajaNulaEv(seguro.segura) === 0 ? tr("Por alta seguridad") : tr("Por la más segura")}:{" "}
+                      {tr("salvas")} <b>{seguro.segura.salvadas}</b> {tr("de")} {paradas.length} · {tr("recorrido")}{" "}
+                      {duracion(seguro.segura.recorridoMin)} (
+                      {seguro.segura.recorridoMin >= seguro.corta.recorridoMin ? "+" : "−"}
+                      {duracion(seguro.segura.recorridoMin - seguro.corta.recorridoMin)} {tr("que la corta")})
+                    </div>
+                    {bajaNulaEv(seguro.segura) > 0 && (
+                      <div className="muted">
+                        {tr("No hay ruta por alta seguridad")}: {tr("la más segura aún cruza")} {bajaNulaEv(seguro.segura)}{" "}
+                        {tr("sistemas de baja o nula")} ({tr("la corta")}, {bajaNulaEv(seguro.corta)}).
+                      </div>
+                    )}
+                    {(() => {
+                      const cuesta = cuestaIrSeguro(seguro.corta, seguro.segura).map(nombreParada);
+                      return cuesta.length > 0 ? (
+                        <div className="route-scope-warn">
+                          ⚠ {tr("Ir seguro te cuesta")} <b>{cuesta.join(", ")}</b>.
+                        </div>
+                      ) : (
+                        <div className="muted">{tr("Ir seguro no te cuesta ninguna escalación.")}</div>
+                      );
+                    })()}
+                    {seguro.mejorSegura.salvadas > seguro.segura.salvadas && (
+                      <div className="muted">
+                        {tr("Por la segura, otro orden salvaría")} {seguro.mejorSegura.salvadas} {tr("de")} {paradas.length}.
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+              {/* ★ FASE 2 · QUIÉN MIRA EL CAMINO. Sin vigilante no hay marcas, y un panel sin marcas
+                  no puede parecer un camino limpio. */}
+              {tramosIntel.length > 0 &&
+                (!vigila ? (
+                  <div className="small route-scope-warn">
+                    ⚠ {tr("El intel no está vigilando: el camino del plan no se mira.")}
+                  </div>
+                ) : (
+                  <div className="small muted">
+                    👁 {tr("El intel mira")} {tramosIntel.length} {tr("tramos")} ·{" "}
+                    {empezados.length > 0
+                      ? `${tr("suena el de")} ${empezados.map((t) => t.destino).join(", ")}`
+                      : tr("ninguno empezado: marca sin sonar")}{" "}
+                    ·{" "}
+                    {marcasPlan.length > 0
+                      ? `${marcasPlan.length} ${tr("avisos en el camino")}`
+                      : tr("nada cantado en el camino")}
+                  </div>
+                ))}
+
               <ol
                 className={`plan-nav-lista${arrastre ? " arrastrando" : ""}`}
                 onPointerMove={(e) => arrastre && setArrastre({ ...arrastre, sobre: sobreQue(e.clientY) })}
@@ -407,6 +648,7 @@ export function PlanNav(props: {
                           <a className="plan-sys" onClick={() => focusSystem(res.system_id!)}>
                             {nameOf(res.system_id!) || res.system_name}
                           </a>
+                          {res.empezada && <span className="plan-empezada"> ▶ {tr("en camino")}</span>}
                         </div>
                         <div className="small">
                           {r.estado === "sin_ruta" ? (
@@ -433,6 +675,38 @@ export function PlanNav(props: {
                             </span>
                           )}
                         </div>
+                        {r.estado !== "sin_ruta" && <div className="small muted">{lineaMuertes(r)}</div>}
+                        {lineaOtra(r) && <div className="small muted">🛡 {lineaOtra(r)}</div>}
+                        {(() => {
+                          const ms = marcasPlan.filter((m) => m.stop_id === r.stopId);
+                          if (ms.length === 0) return null;
+                          const idx = paradas.findIndex((x) => x.stopId === r.stopId);
+                          const pos = tramos ? posponer(actual.orden, idx, paradas, tramos, ahora, minSalto, minSitio) : null;
+                          return (
+                            <div className={`plan-intel ${ms.some((m) => m.aviso === "avisa") ? "suena" : "calla"}`}>
+                              <div>⚠ {tr("Intel en este tramo")}</div>
+                              {ms.map((m) => (
+                                <div key={`${m.sys_id}-${m.ts_ms}`} className="plan-intel-linea" title={m.message}>
+                                  <b>{m.system}</b>{" "}
+                                  {m.jumps === 0
+                                    ? tr("en el camino")
+                                    : `${m.jumps} ${tr("salto(s) del camino, junto a")} ${m.cerca_de_name}`}{" "}
+                                  · {haceMin(m.ts_ms, Date.now())} — {m.author}: {m.message}
+                                  <div className="plan-intel-aviso">{textoAviso(m.aviso)}</div>
+                                </div>
+                              ))}
+                              {pos && (
+                                <button className="route-add" onClick={() => void reordenar(pos.orden)}>
+                                  {tr("Hacer antes otra parada")} (
+                                  {pos.salvadas < actual.salvadas
+                                    ? `${tr("pierdes")} ${actual.salvadas - pos.salvadas}`
+                                    : tr("salvas las mismas")}
+                                  )
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <button className="route-stop-del" title={tr("Subir")} disabled={pos === 0} onClick={() => mover(pos, pos - 1)}>
                         ↑

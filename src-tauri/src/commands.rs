@@ -8469,6 +8469,11 @@ pub struct IntelWatch {
     pub alerted: std::sync::Mutex<HashSet<String>>,
     pub started: std::sync::atomic::AtomicBool,
     pub status: std::sync::Mutex<IntelStatus>,
+    /// Los tramos del plan abierto que aún no has hecho. APARTE de `cfg` a propósito: ver la trampa
+    /// en `plan_intel.rs` — si fueran a `cfg.origins`, la alerta de siempre sonaría por donde no estás.
+    pub plan: std::sync::Mutex<Vec<crate::plan_intel::PlanTramoIntel>>,
+    /// Las últimas marcas, para que el panel las pida al abrirse sin esperar a la siguiente pasada.
+    pub plan_marcas: std::sync::Mutex<Vec<crate::plan_intel::PlanMarca>>,
 }
 
 // ⚠️ AQUÍ HUBO UN COLAPSO DE AVISOS REPETIDOS Y SE QUITÓ A PROPÓSITO (2026-09-02).
@@ -8514,6 +8519,19 @@ pub struct IntelAlertEvent {
     /// de intel, dos avisos lejanos entre sí no son la misma pelea, y el renglón a secas no lo
     /// contaba. Ver `IntelGraph::id_to_region`.
     pub region: Option<String>,
+    /// Solo en un aviso del PLAN: el hostil está en tu camino, no cerca de ti. `None` (y fuera del
+    /// JSON) en la alerta de siempre, que así sale exactamente igual que antes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camino: Option<CaminoAlerta>,
+}
+
+/// En qué tramo del plan está el hostil: «en tu camino a Amarr, a 2 saltos de Jita».
+#[derive(Clone, Serialize)]
+pub struct CaminoAlerta {
+    pub destino: String,
+    pub cerca_de: String,
+    pub system_id: i64,
+    pub jumps: i64,
 }
 
 /// Un sistema silenciado. `until_ms` nulo = indefinido; con valor, caduca solo.
@@ -8925,7 +8943,7 @@ fn clean_intel_token(t: &str) -> String {
 }
 
 /// BFS multi-origen: distancia (en saltos) al más cercano de varios orígenes.
-fn intel_bfs(adj: &std::collections::HashMap<i64, Vec<i64>>, origins: &[i64]) -> std::collections::HashMap<i64, i64> {
+pub(crate) fn intel_bfs(adj: &std::collections::HashMap<i64, Vec<i64>>, origins: &[i64]) -> std::collections::HashMap<i64, i64> {
     let mut dist = std::collections::HashMap::new();
     let mut q = std::collections::VecDeque::new();
     for &o in origins {
@@ -9033,6 +9051,36 @@ pub fn start_intel_watch(
     Ok(())
 }
 
+/// Los tramos del plan que el vigilante mira hacia delante (fase 2). Lista vacía = ningún plan
+/// abierto: deja de mirarse el camino. Ver `plan_intel.rs`, y por qué esto NO va en `origins`.
+///
+/// ⚠️ Nada de `if let Ok(..)`: con el mutex envenenado devolvería `Ok` sin guardar, el panel diría
+///    que vigila y el vigilante no sabría del plan.
+#[tauri::command]
+pub fn plan_intel_set(
+    state: State<'_, AppState>,
+    tramos: Vec<crate::plan_intel::PlanTramoIntel>,
+) -> AppResult<()> {
+    let mut p = state
+        .intel
+        .plan
+        .lock()
+        .map_err(|_| AppError::Other("los tramos del plan están envenenados (un pánico los dejó a medias)".into()))?;
+    *p = tramos;
+    Ok(())
+}
+
+/// Las últimas marcas del plan, para el panel al abrirse. Luego llegan por el evento `plan-intel`.
+#[tauri::command]
+pub fn plan_intel_marcas(state: State<'_, AppState>) -> AppResult<Vec<crate::plan_intel::PlanMarca>> {
+    state
+        .intel
+        .plan_marcas
+        .lock()
+        .map(|m| m.clone())
+        .map_err(|_| AppError::Other("las marcas del plan están envenenadas".into()))
+}
+
 /// Detiene la vigilancia (el hilo sigue vivo pero ocioso).
 /// NO limpia el set de alertas ya emitidas: así, al reconfigurar (cambiar anclas/recencia/etc.,
 /// que hace stop+start) no se re-disparan las alertas que ya viste. Las claves (sid-ts) caducan
@@ -9052,6 +9100,9 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
         // (evita re-render del frontend) ni re-evaluamos matching salvo que cambie la config.
         let mut last_sig: u64 = 0;
         let mut last_cfg_sig: u64 = 0;
+        // La firma de los tramos del plan, APARTE de `cfg_sig`: cambiar el plan rehace la pasada del
+        // plan y NADA más. La alerta de tus personajes sigue dependiendo solo de líneas y config.
+        let mut last_plan_sig: u64 = 0;
         loop {
             // Publicar el estado REAL en cada vuelta: si el hilo está ocioso o petando, la UI tiene
             // que poder decirlo. Antes esto era invisible y el badge mentía con un "Activo" verde.
@@ -9072,6 +9123,17 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                         last_tick_ms: now_ms,
                         ..Default::default()
                     });
+                    // Parado, las marcas del plan serían de antes: se vacían (una vez) para que el
+                    // panel no enseñe un camino «limpio» o «marcado» que nadie está mirando. Y la
+                    // firma a 0, para que al volver a arrancar se rehaga la pasada aunque las
+                    // líneas no hayan cambiado.
+                    last_plan_sig = 0;
+                    if let Ok(mut m) = watch.plan_marcas.lock() {
+                        if !m.is_empty() {
+                            m.clear();
+                            let _ = app.emit("plan-intel", Vec::<crate::plan_intel::PlanMarca>::new());
+                        }
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                     continue;
                 }
@@ -9145,13 +9207,26 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
 
             let lines_changed = sig != last_sig;
             let cfg_changed = cfg_sig != last_cfg_sig;
-            // Si nada cambió (ni logs ni config), no hacemos trabajo ni despertamos al frontend.
-            if !lines_changed && !cfg_changed {
+            let plan_tramos = watch.plan.lock().map(|p| p.clone()).unwrap_or_default();
+            let mut hp = std::collections::hash_map::DefaultHasher::new();
+            plan_tramos.hash(&mut hp);
+            // Silencios y maestro entran en la firma del plan porque cambian el `aviso` de las marcas.
+            cfg.alerts_enabled.hash(&mut hp);
+            cfg.alert_jumps.hash(&mut hp);
+            for m in &cfg.muted {
+                (m.system_id, m.until_ms).hash(&mut hp);
+            }
+            // 1 y no 0: 0 es «hay que rehacerla» (ver el vigilante parado, arriba).
+            let plan_sig = hp.finish() | 1;
+            let plan_changed = plan_sig != last_plan_sig;
+            // Si nada cambió (ni logs ni config ni plan), no hacemos trabajo ni despertamos al frontend.
+            if !lines_changed && !cfg_changed && !plan_changed {
                 std::thread::sleep(std::time::Duration::from_millis(3000));
                 continue;
             }
             last_sig = sig;
             last_cfg_sig = cfg_sig;
+            last_plan_sig = plan_sig;
 
             // Solo re-emitimos (y re-renderiza el frontend) cuando cambian las líneas.
             if lines_changed {
@@ -9229,7 +9304,12 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                         }
                     }
                     // Proximidad desde los orígenes (pj + anclas).
-                    if !cfg.origins.is_empty() {
+                    //
+                    // ⚠️ `lines_changed || cfg_changed`: es EXACTAMENTE la condición con la que este
+                    //    bloque corría antes del plan (si no, el `continue` de arriba lo saltaba).
+                    //    Un cambio solo del plan no lo vuelve a evaluar: la alerta de tus personajes
+                    //    no sabe que el plan existe.
+                    if !cfg.origins.is_empty() && (lines_changed || cfg_changed) {
                         let dist = intel_bfs(&g.adj, &cfg.origins);
                         for (sid, (ts, author, message)) in &rep {
                             if let Some(&d) = dist.get(sid) {
@@ -9295,6 +9375,7 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                                 anchor,
                                                 parse: hostiles_de(&app, &g.name_to_id, message),
                                                 region: g.id_to_region.get(sid).cloned(),
+                                                camino: None,
                                             },
                                         );
                                         // El overlay se despierta SOLO si el jugador lo encendió.
@@ -9307,6 +9388,82 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                 }
                             }
                         }
+                    }
+
+                    // ★★ EL PLAN: el intel mira hacia delante (fase 2). Un SEGUNDO cálculo de
+                    //    distancias, desde los tramos del plan y no desde `cfg.origins`, con el
+                    //    MISMO `rep` de arriba (el troceador no se repite). Marca siempre; avisa solo
+                    //    el tramo del «▶ Voy». Ver `plan_intel.rs`.
+                    let ahora_ms = chrono::Utc::now().timestamp_millis();
+                    let silenciado = |sid: i64| {
+                        cfg.muted
+                            .iter()
+                            .any(|m| m.system_id == sid && m.until_ms.map(|u| u > ahora_ms).unwrap_or(true))
+                    };
+                    // Un mutex envenenado NO se convierte en «no hay nada que avisar»: se recupera el
+                    // conjunto y se sigue. Callar aquí sería la alarma muda con el panel en verde.
+                    let pasada = {
+                        let mut a = watch.alerted.lock().unwrap_or_else(|e| e.into_inner());
+                        crate::plan_intel::pasada(
+                            &g.adj,
+                            &g.id_to_name,
+                            &rep,
+                            &plan_tramos,
+                            cfg.alert_jumps,
+                            &silenciado,
+                            cfg.alerts_enabled,
+                            &mut a,
+                        )
+                    };
+                    for &i in &pasada.avisar {
+                        let m = &pasada.marcas[i];
+                        let destino = plan_tramos
+                            .iter()
+                            .find(|t| t.stop_id == m.stop_id)
+                            .map(|t| t.destino.clone())
+                            .unwrap_or_default();
+                        use tauri_plugin_notification::NotificationExt;
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title(format!("⚠ En tu camino a {destino}: {}", m.system))
+                            .body(format!(
+                                "{} salto(s) de {} · {}: {}",
+                                m.jumps, m.cerca_de_name, m.author, m.message
+                            ))
+                            .show();
+                        let refs: &[i64] = if cfg.anchors.is_empty() { &cfg.origins } else { &cfg.anchors };
+                        let (pilots, anchor) = contexto_cerca(&g.adj, &g.id_to_name, &cfg.pilots, refs, m.sys_id);
+                        let _ = app.emit(
+                            "intel-alert",
+                            IntelAlertEvent {
+                                sys_id: m.sys_id,
+                                system: m.system.clone(),
+                                jumps: m.jumps,
+                                author: m.author.clone(),
+                                message: m.message.clone(),
+                                ts_ms: m.ts_ms,
+                                pilots,
+                                anchor,
+                                parse: hostiles_de(&app, &g.name_to_id, &m.message),
+                                region: g.id_to_region.get(&m.sys_id).cloned(),
+                                camino: Some(CaminoAlerta {
+                                    destino,
+                                    cerca_de: m.cerca_de_name.clone(),
+                                    system_id: m.cerca_de,
+                                    jumps: m.jumps,
+                                }),
+                            },
+                        );
+                        if cfg.overlay_enabled {
+                            mostrar_overlay(&app);
+                        }
+                    }
+                    // Las marcas van al panel solo si cambian: el bucle pasa cada 3 s.
+                    let mut guardadas = watch.plan_marcas.lock().unwrap_or_else(|e| e.into_inner());
+                    if *guardadas != pasada.marcas {
+                        *guardadas = pasada.marcas.clone();
+                        let _ = app.emit("plan-intel", &pasada.marcas);
                     }
                 }
             }
@@ -14273,6 +14430,7 @@ pub fn overlay_test(
                 count: Some(2),
             },
             region: Some("The Forge".into()),
+            camino: None,
         },
     );
 
@@ -14316,6 +14474,7 @@ pub fn overlay_test(
             // Región DISTINTA de la del primero a propósito: es lo que ejerce la mejora del
             // renglón — sin dos regiones, el caso que se quiere ver no aparece.
             region: Some("Lonetrek".into()),
+            camino: None,
         },
     );
     Ok(())

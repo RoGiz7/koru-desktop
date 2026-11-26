@@ -75,6 +75,8 @@ type IntelAlert = {
   parse?: IntelParse;
   /** Región del sistema del aviso. `undefined` = el grafo no la sabe. */
   region?: string | null;
+  /** Solo en un aviso del PLAN (fase 2): el hostil está en tu CAMINO, no cerca de ti. */
+  camino?: { destino: string; cerca_de: string; system_id: number; jumps: number };
 };
 
 /** Un aviso en la pila: el evento + su identidad propia y cuándo le toca irse. */
@@ -114,6 +116,8 @@ function preposicionDe(): string {
  *  Este número manda SIEMPRE en el color de la tarjeta, aunque algún día la etiqueta prefiera
  *  nombrar otra cosa: el color mide peligro y el peligro no se configura. */
 function saltosDe(a: IntelAlert): number {
+  // Un aviso del plan mide desde el camino por el que vas a pasar: ese es el peligro.
+  if (a.camino) return a.camino.jumps;
   const c = (a.pilots ?? []).slice().sort((x, y) => x.jumps - y.jumps)[0];
   if (c) return c.jumps;
   return a.anchor ? a.anchor.jumps : a.jumps;
@@ -133,6 +137,17 @@ function saltosDe(a: IntelAlert): number {
  *  no puede permitirse una línea más: cuatro avisos ya son ~150 px sobre el juego.
  */
 function referencia(a: IntelAlert): { texto: string; titulo: string } | null {
+  // Un aviso del plan se mide desde el CAMINO, y lo primero que hay que leer es eso: sin esta
+  // línea, «a 2 saltos de Vera» haría creer que el hostil está cerca de un piloto tuyo.
+  if (a.camino) {
+    const en = getLang() === "en";
+    return {
+      texto: en ? `on your way to ${a.camino.destino}` : `en tu camino a ${a.camino.destino}`,
+      titulo: en
+        ? `${a.camino.jumps} jump(s) off the route, near ${a.camino.cerca_de}`
+        : `${a.camino.jumps} salto(s) del camino, junto a ${a.camino.cerca_de}`,
+    };
+  }
   const pilotos = (a.pilots ?? []).slice().sort((x, y) => x.jumps - y.jumps);
   if (pilotos.length > 0) {
     const min = pilotos[0].jumps;

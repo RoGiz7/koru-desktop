@@ -2528,9 +2528,11 @@ export function MapView(props: {
    *  márgenes contaran otra ruta, el panel mentiría respecto a la línea amarilla de al lado.
    *  Marca si cruza un wormhole (eve-scout o tuyo): no se bloquea, pero esa pata es más frágil. */
   const calcTramo = useCallback(
-    (desde: number, hasta: number): Tramo => {
+    // `modo` solo lo pasa la comparación corta / segura del plan (fase 2): MISMO grafo y evitados,
+    // otro modo. Sin él, el de «Cómo rutar», que es el de la línea amarilla.
+    (desde: number, hasta: number, modo?: RouteMode): Tramo => {
       if (!geo || !routeAdj) return null;
-      const path = findRoute(routeAdj, geo.idx, desde, hasta, routeMode, avoid);
+      const path = findRoute(routeAdj, geo.idx, desde, hasta, modo ?? routeMode, avoid);
       if (!path) return null;
       let wormhole = false;
       for (let i = 1; i < path.length; i++) {
@@ -6266,6 +6268,8 @@ export function MapView(props: {
               hereSystemId={hereSystemId ?? null}
               nameOf={nameOf}
               calcTramo={calcTramo}
+              routeMode={routeMode}
+              kills={liveKills}
               intercepting={intercepting}
               onPintar={(stops) => setRouteStops(stops)}
               rutaActual={routeStops}

@@ -44,6 +44,13 @@ pub struct ParadaResuelta {
     /// ¿Sigue habiendo que ir? Lo decide el kind, no el plan: una escalación vendida ya no es
     /// tuya, una hecha ya está hecha. Solo las que lo están entran en el cálculo del orden.
     pub por_hacer: bool,
+    /// ¿Has salido ya hacia ella? Para una escalación, «▶ Voy»: hay una run ABIERTA enlazada.
+    ///
+    /// ★ Es el disparador de la fase 2: solo el tramo empezado AVISA del intel; los demás se marcan
+    ///   en silencio. Se mira `outcome = 'open'` y no solo `run_id IS NOT NULL` porque «Hecha»
+    ///   cierra la run y DESPUÉS cambia el estado en otra llamada: si esa segunda fallara, la
+    ///   escalación quedaría pendiente con la run cerrada, y un tramo que ya hiciste seguiría sonando.
+    pub empezada: bool,
 }
 
 impl PlanKind {
@@ -62,20 +69,24 @@ impl PlanKind {
         match self {
             PlanKind::Escalacion => Ok(conn
                 .query_row(
-                    "SELECT titulo, system_id, system_name, caduca_at, estado, modo \
-                     FROM escalaciones WHERE id = ?1",
+                    "SELECT e.titulo, e.system_id, e.system_name, e.caduca_at, e.estado, e.modo, \
+                            COALESCE((SELECT r.outcome = 'open' FROM activity_runs r WHERE r.id = e.run_id), 0) \
+                     FROM escalaciones e WHERE e.id = ?1",
                     [ref_id],
                     |r| {
                         let estado: String = r.get(4)?;
                         let modo: String = r.get(5)?;
+                        // Solo la propia y pendiente. Una vendida la corre el comprador: su
+                        // reloj ya no es tuyo (mismo criterio que `escalaciones_avisar`).
+                        let por_hacer = modo == "propia" && estado == "pendiente";
+                        let run_abierta: bool = r.get(6)?;
                         Ok(ParadaResuelta {
                             titulo: r.get(0)?,
                             system_id: r.get(1)?,
                             system_name: r.get(2)?,
                             caduca_at: r.get(3)?,
-                            // Solo la propia y pendiente. Una vendida la corre el comprador: su
-                            // reloj ya no es tuyo (mismo criterio que `escalaciones_avisar`).
-                            por_hacer: modo == "propia" && estado == "pendiente",
+                            por_hacer,
+                            empezada: por_hacer && run_abierta,
                             estado,
                         })
                     },
@@ -362,6 +373,16 @@ mod tests {
         assert_eq!(c.paradas.len(), 1);
         assert_eq!(c.paradas[0].ref_id, b);
         assert!(c.paradas[0].resuelta.as_ref().unwrap().por_hacer);
+
+        // 1b) «▶ Voy» la marca como empezada mientras la run está ABIERTA; al cerrarla, deja de
+        //     estarlo aunque el estado siga «pendiente» (el caso de la segunda llamada que falla).
+        assert!(!c.paradas[0].resuelta.as_ref().unwrap().empezada, "sin Voy no está empezada");
+        let run = db.escalacion_run_start(b, None, None, None).unwrap();
+        let c = db.plan_cargar(plan).unwrap();
+        assert!(c.paradas[0].resuelta.as_ref().unwrap().empezada, "con Voy, empezada");
+        db.run_end(run, "done", None, None, None, None, None).unwrap();
+        let c = db.plan_cargar(plan).unwrap();
+        assert!(!c.paradas[0].resuelta.as_ref().unwrap().empezada, "run cerrada: ya no suena");
 
         // 2) Un borrado por otra puerta deja la parada colgando: el cargador la CANTA.
         db.conn.lock().unwrap().execute("DELETE FROM escalaciones WHERE id = ?1", [b]).unwrap();
