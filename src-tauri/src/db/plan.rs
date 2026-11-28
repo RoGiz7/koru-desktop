@@ -383,18 +383,18 @@ impl Db {
     pub fn forma_guardar(&self, f: &FormaViaje) -> AppResult<i64> {
         let nombre = f.nombre.trim();
         if nombre.is_empty() {
-            return Err(AppError::Other("la forma de viajar necesita un nombre".into()));
+            return Err(AppError::Other("el salto con cyno necesita un nombre".into()));
         }
         let casco = match f.modo.as_str() {
             "puertas" => None,
             "salto" => Some(f.casco_type_id.ok_or_else(|| {
-                AppError::Other("una forma «salto» necesita el casco que salta".into())
+                AppError::Other("un salto con cyno necesita la nave que salta".into())
             })?),
             otro => return Err(AppError::Other(format!("modo de viaje desconocido «{otro}»"))),
         };
         // `!(x > 0)` y no `x <= 0`: un NaN tiene que caer aquí, no colarse como número.
         if !(f.min_por_salto > 0.0) || !(f.ciclo_cyno_min > 0.0) {
-            return Err(AppError::Other("los minutos por salto y el ciclo del cyno tienen que ser mayores que 0".into()));
+            return Err(AppError::Other("los minutos por puerta y los del cyno tienen que ser mayores que 0".into()));
         }
         let conn = self.conn.lock().unwrap();
         if f.id > 0 {

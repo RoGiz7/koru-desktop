@@ -758,7 +758,7 @@ export function PlanNav(props: {
     if (o.path.join(",") === r.path.join(",")) return null;
     if (!llega(o.estado)) return `${etiquetaOtra}: ${textoNoLlega(o)}`;
     const d = o.saltos - r.saltos;
-    const saltos = `${d > 0 ? "+" : ""}${d} ${tr("saltos")}`;
+    const saltos = `${d > 0 ? "+" : ""}${d} ${tr("puertas")}`;
     return o.estado === "salvada"
       ? `${etiquetaOtra}: ${saltos}, ${tr("llegas con")} ${duracion(o.margenMin)} ${tr("de sobra")}`
       : `${etiquetaOtra}: ${saltos}, ${tr("llegas")} ${duracion(o.margenMin)} ${tr("tarde")}`;
@@ -968,7 +968,13 @@ export function PlanNav(props: {
   /** Lo que el cálculo SUPONE porque no lo sabe. Nunca un cero callado. */
   const supuestos: string[] = [];
   if (saltando) {
-    if (catalogo && !casco) supuestos.push(tr("El casco de la ficha no está en el catálogo de naves de salto: se cuenta A PUERTAS con los minutos de la ficha."));
+    if (catalogo && !casco && forma) {
+      supuestos.push(
+        getLang() === "en"
+          ? `The ship of “${forma.nombre}” isn't in the jump ship catalogue: counting BY GATES with the minutes of “${forma.nombre}”.`
+          : `La nave de «${forma.nombre}» no está en el catálogo de naves de salto: se cuenta POR PUERTAS con los minutos de «${forma.nombre}».`,
+      );
+    }
     if (salta == null) {
       supuestos.push(tr("Sin «quién salta»: se suponen Jump Drive Calibration y Jump Fuel Conservation a V, y sin fatiga."));
     } else {
@@ -991,6 +997,20 @@ export function PlanNav(props: {
   }
   // ---- editor de la forma de viajar ----
   const [editando, setEditando] = useState<FormaViaje | null>(null);
+  /** El tipo de cyno elegido en el formulario. NO se guarda: en la BD solo van los minutos. Al abrir
+   *  se deduce de los minutos, y con dos tipos de los mismos minutos (Normal e Industrial, 10) sale
+   *  el primero del catálogo: el número, que es lo que cuenta, es el mismo. */
+  const [tipoCyno, setTipoCyno] = useState<number | null>(null);
+  function abrirEditor(f: FormaViaje) {
+    setEditando(f);
+    setTipoCyno((catalogo?.cynos ?? []).find((c) => c.cycleMin === f.ciclo_cyno_min)?.id ?? null);
+  }
+  /** «Normal (10 min)»: el nombre corto por idioma y los minutos del catálogo. */
+  const nombreTipoCyno = (c: { name: string; cycleMin: number }) => {
+    const en = getLang() === "en";
+    const tipo = /covert/i.test(c.name) ? "Covert" : /industrial/i.test(c.name) ? "Industrial" : en ? "Standard" : "Normal";
+    return `${tipo} (${c.cycleMin} min)`;
+  };
   const nuevaForma = (): FormaViaje => ({
     id: 0,
     nombre: "",
@@ -1075,23 +1095,24 @@ export function PlanNav(props: {
             </div>
             {/* ★ FASE 3a · LA FORMA DE VIAJAR, a la vista: decide los márgenes igual que los minutos. */}
             <div className="route-stop">
-              <span className="route-stop-label">{tr("Forma de viajar")}</span>
+              <span className="route-stop-label">{tr("Cómo viajas")}</span>
               <select value={plan?.forma_id ?? ""} onChange={(e) => void fijarForma(e.target.value ? Number(e.target.value) : null)}>
-                <option value="">{tr("A puertas (sin ficha)")}</option>
+                <option value="">{tr("Por puertas")}</option>
                 {formas.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.nombre}
                   </option>
                 ))}
               </select>
-              <button className="route-add" onClick={() => setEditando(forma ? { ...forma } : nuevaForma())}>
-                {forma ? tr("Editar") : tr("Nueva")}
-              </button>
               {forma && (
-                <button className="route-add" onClick={() => setEditando(nuevaForma())}>
-                  {tr("Nueva")}
+                <button className="route-add" onClick={() => abrirEditor({ ...forma })}>
+                  {tr("Editar")}
                 </button>
               )}
+              {/* Lo que se crea desde aquí es SIEMPRE un salto: «por puertas» es no elegir nada. */}
+              <button className="route-add" onClick={() => abrirEditor(nuevaForma())}>
+                {tr("+ Salto con cyno")}
+              </button>
             </div>
             {editando && (
               <div className="plan-forma-editor small">
@@ -1099,20 +1120,13 @@ export function PlanNav(props: {
                   {tr("Nombre")}:&nbsp;
                   <input value={editando.nombre} placeholder={tr("p. ej. blops con cyno covert")} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} />
                 </label>
-                <label>
-                  {tr("Modo")}:&nbsp;
-                  <select
-                    value={editando.modo}
-                    onChange={(e) => setEditando({ ...editando, modo: e.target.value as FormaViaje["modo"], casco_type_id: e.target.value === "puertas" ? null : editando.casco_type_id })}
-                  >
-                    <option value="salto">{tr("saltando, con cyno")}</option>
-                    <option value="puertas">{tr("a puertas")}</option>
-                  </select>
-                </label>
+                {/* ⚠️ Sin «Modo»: el formulario solo crea saltos. Una fila vieja con modo `puertas`
+                    (las hubo hasta el 28-11, sin release) se sigue leyendo y editando: solo deja de
+                    poder crearse aquí. */}
                 {editando.modo === "salto" && (
                   <>
                     <label>
-                      {tr("Casco que salta")}:&nbsp;
+                      {tr("Nave que salta")}:&nbsp;
                       <select
                         value={editando.casco_type_id ?? ""}
                         onChange={(e) => setEditando({ ...editando, casco_type_id: e.target.value ? Number(e.target.value) : null })}
@@ -1126,25 +1140,44 @@ export function PlanNav(props: {
                       </select>
                     </label>
                     <label>
-                      {tr("Ciclo del cyno (min)")}:&nbsp;
+                      {tr("Tipo de cyno")}:&nbsp;
+                      {/* Los minutos salen de `jumpships.json` (el SDE), nunca escritos en el texto.
+                          El número de al lado es el que se guarda y se puede tocar: si no coincide
+                          con ningún tipo, el desplegable dice «a mano». */}
+                      <select
+                        value={tipoCyno ?? ""}
+                        onChange={(e) => {
+                          const c = (catalogo?.cynos ?? []).find((x) => x.id === Number(e.target.value));
+                          setTipoCyno(c ? c.id : null);
+                          if (c) setEditando({ ...editando, ciclo_cyno_min: c.cycleMin });
+                        }}
+                      >
+                        {tipoCyno == null && <option value="">{tr("a mano")}</option>}
+                        {(catalogo?.cynos ?? []).map((c) => (
+                          <option key={c.id} value={c.id} title={c.name}>
+                            {nombreTipoCyno(c)}
+                          </option>
+                        ))}
+                      </select>{" "}
                       <input
                         type="number"
                         min={0.1}
                         step={0.5}
                         value={editando.ciclo_cyno_min}
                         style={{ width: "4.5rem" }}
-                        onChange={(e) => setEditando({ ...editando, ciclo_cyno_min: parseFloat(e.target.value) || 0 })}
-                      />
-                      {(catalogo?.cynos ?? []).map((c) => (
-                        <button key={c.id} className="route-add" title={c.name} onClick={() => setEditando({ ...editando, ciclo_cyno_min: c.cycleMin })}>
-                          {c.name.replace(" Cynosural Field Generator", "").replace("Cynosural Field Generator", "") || c.name}: {c.cycleMin}
-                        </button>
-                      ))}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value) || 0;
+                          setEditando({ ...editando, ciclo_cyno_min: v });
+                          // Tocar el número a mano: el tipo sigue si casa, y si no pasa a «a mano».
+                          setTipoCyno((t) => ((catalogo?.cynos ?? []).find((x) => x.id === t)?.cycleMin === v ? t : null));
+                        }}
+                      />{" "}
+                      {tr("min")}
                     </label>
                   </>
                 )}
                 <label>
-                  {editando.modo === "salto" ? tr("Minutos por salto del cyno") : tr("Minutos por salto")}:&nbsp;
+                  {editando.modo === "salto" ? tr("Minutos por puerta del cyno") : tr("Minutos por puerta")}:&nbsp;
                   <input
                     type="number"
                     min={0.1}
@@ -1210,12 +1243,12 @@ export function PlanNav(props: {
                 aquí): UN solo dueño. */}
             {forma ? (
               <span className="muted small">
-                {forma.modo === "salto" ? tr("Minutos por salto del cyno") : tr("Minutos por salto")}: <b>{forma.min_por_salto}</b>{" "}
-                ({tr("lo pone la ficha")} «{forma.nombre}»)
+                {forma.modo === "salto" ? tr("Minutos por puerta del cyno") : tr("Minutos por puerta")}: <b>{forma.min_por_salto}</b> (
+                {getLang() === "en" ? `set by “${forma.nombre}”` : `lo pone «${forma.nombre}»`})
               </span>
             ) : (
               <label className="muted small">
-                {tr("Minutos por salto")}:&nbsp;
+                {tr("Minutos por puerta")}:&nbsp;
                 <input
                   type="number"
                   min={0.1}
@@ -1411,7 +1444,7 @@ export function PlanNav(props: {
                           ) : (
                             <>
                               <span className="muted">
-                                {r.saltos} {r.salto ? tr("saltos del cyno") : tr("saltos")} ·{" "}
+                                {r.saltos} {r.salto ? tr("puertas del cyno") : tr("puertas")} ·{" "}
                               </span>
                               {r.estado === "salvada" ? (
                                 <span>
@@ -1530,7 +1563,9 @@ export function PlanNav(props: {
                                   <b>{m.system}</b>{" "}
                                   {m.jumps === 0
                                     ? tr("en el camino")
-                                    : `${m.jumps} ${tr("salto(s) del camino, junto a")} ${m.cerca_de_name}`}{" "}
+                                    : getLang() === "en"
+                                      ? `${m.jumps} ${m.jumps === 1 ? "gate" : "gates"} off the route, near ${m.cerca_de_name}`
+                                      : `a ${m.jumps} ${m.jumps === 1 ? "puerta" : "puertas"} del camino, junto a ${m.cerca_de_name}`}{" "}
                                   · {haceMin(m.ts_ms, Date.now())} — {m.author}: {m.message}
                                   {!comun && <div className="plan-intel-aviso">{textoAviso(m.aviso)}</div>}
                                 </div>
@@ -1596,7 +1631,7 @@ export function PlanNav(props: {
                             </div>
                             <div className="small">
                               <span className="muted">
-                                {im.saltos} {tr("saltos")} ·{" "}
+                                {im.saltos} {tr("puertas")} ·{" "}
                               </span>
                               ✖ {tr("yendo directo llegas")} <b>{duracion(im.margenMin)}</b>{" "}
                               {tr("tarde: perdida hagas lo que hagas")}
