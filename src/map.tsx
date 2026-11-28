@@ -2506,6 +2506,10 @@ export function MapView(props: {
     },
     [geo, routeAdj, routeMode, avoid, wh, sigWh],
   );
+  // Plan, fase 3b: ¿tiene salidas en el MISMO grafo que usa `calcTramo`? Un intermedio necesita
+  // que el cyno llegue Y salga de él, así que uno sin salidas nunca sirve: se descarta antes de
+  // preguntar al buscador (217 saltables sin una puerta, ~25 ms cada uno para decir que no).
+  const conectado = useCallback((sid: number) => (routeAdj?.get(sid)?.length ?? 0) > 0, [routeAdj]);
 
   // ==== ★ QUÉ CAMINO MIRA EL VIGILANTE (plan, fase 2) ====
   // Vive AQUÍ y no en el panel del plan, porque el mapa está siempre montado y el panel no. Cuando
@@ -6343,6 +6347,7 @@ export function MapView(props: {
               intercepting={intercepting}
               onPintar={(stops) => setRouteStops(stops)}
               onSaltos={setSaltosPlan}
+              conectado={conectado}
               rutaActual={routeStops}
               focusSystem={focusSystem}
               onCerrar={() => {

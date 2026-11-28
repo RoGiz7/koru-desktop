@@ -28,6 +28,9 @@ export type ParadaCargada = {
   orden: number;
   kind: string;
   ref_id: number;
+  /** Fase 3b: el salto intermedio que aceptó el piloto (`null` = ninguno). Una declaración suya:
+   *  el cálculo la revalida en cada pata, ver `formaSalto`. */
+  via_system_id: number | null;
   resuelta: ParadaResuelta | null;
   /** Por qué NO resuelve, como código (el texto lo pone la pantalla). Se pinta, nunca se filtra:
    *  ver `Db::plan_cargar`. */

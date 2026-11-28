@@ -3991,6 +3991,11 @@ const EN: Record<string, string> = {
   "Es una cota, no una lectura.": "It's a bound, not a reading.",
   "Fatiga de": "Fatigue of",
   "Forma de viajar": "Way of travelling",
+  // Plan, fase 3b: el salto intermedio.
+  "Buscar intermedio": "Find an intermediate",
+  "Otro…": "Other…",
+  "Quitar intermedio": "Remove intermediate",
+  "Sistema intermedio…": "Intermediate system…",
   "Fuera de alcance": "Out of range",
   "Intel en el camino del cyno": "Intel on the cyno's route",
   "La usan": "Used by",

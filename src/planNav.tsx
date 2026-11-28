@@ -40,7 +40,38 @@ import {
   type PlanTramoIntel,
   type ResultadoParada,
   type Tramo,
+  buscarIntermedio,
+  contextoIntermedio,
+  probarIntermedio,
+  type BusquedaIntermedio,
+  type FalloIntermedio,
 } from "./plan";
+
+/** Un número por función, para meter en una clave «el buscador de rutas cambió». `calcTramo` cambia
+ *  de identidad cuando cambian el grafo, el modo o los evitados, que es justo lo que invalida una
+ *  propuesta de intermedio. */
+const idsFn = new WeakMap<object, number>();
+let ultimoIdFn = 0;
+function idDe(f: object): number {
+  const v = idsFn.get(f);
+  if (v !== undefined) return v;
+  idsFn.set(f, ++ultimoIdFn);
+  return ultimoIdFn;
+}
+
+/** Fase 3b: una búsqueda de intermedio de UNA parada, atada a la clave con la que se lanzó. Si la
+ *  clave de la fila deja de coincidir (grafo, modo, evitados, orden, ficha…), no se enseña: unas
+ *  puertas del cyno contadas con el modo de antes son mentir con un número bien puesto. */
+type BuscaIntermedio = {
+  clave: string;
+  /** Hay un recorrido en curso (por lotes). */
+  buscando: boolean;
+  /** Candidatos probados hasta ahora (mientras busca). */
+  hechos: number;
+  res: BusquedaIntermedio | null;
+  /** El «Otro…» del piloto: su sistema y, si no sirve, por qué. Va aparte de la búsqueda. */
+  otro: { via: number; fallo: FalloIntermedio | null } | null;
+};
 
 
 /** Por qué una marca del intel suena o no. El silencio se DICE: un tramo marcado que no suena tiene
@@ -135,6 +166,9 @@ export function PlanNav(props: {
   onPintar: (stops: number[]) => void;
   /** Fase 3a: los saltos (pares desde → hasta) para pintarlos aparte; `null` si el plan no salta. */
   onSaltos: (s: [number, number][] | null) => void;
+  /** Fase 3b: ¿tiene el sistema alguna salida en el grafo de rutas? Los que no, fuera de la búsqueda
+   *  de intermedio antes de preguntar al buscador (ver `buscarIntermedio`). */
+  conectado: (sid: number) => boolean;
   /** Las paradas que tiene AHORA el planificador, para saber si la línea sigue siendo la del plan. */
   rutaActual: (number | null)[];
   /** Mientras se intercepta a un piloto la ruta es suya: el plan no la pisa, y se dice. */
@@ -142,7 +176,7 @@ export function PlanNav(props: {
   focusSystem: (sid: number) => void;
   onCerrar: () => void;
 }) {
-  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, charLocations, onPintar, onSaltos, rutaActual, intercepting, focusSystem, onCerrar } = props;
+  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, charLocations, onPintar, onSaltos, conectado, rutaActual, intercepting, focusSystem, onCerrar } = props;
   const [cargado, setCargado] = useState<PlanCargado | null>(null);
   const [error, setError] = useState("");
   const [minSalto, setMinSalto] = useState(() => leerNum(MIN_SALTO_KEY, DEF_MIN_SALTO));
@@ -265,19 +299,29 @@ export function PlanNav(props: {
   const jdc = perfil?.jdc ?? 5;
   const jfc = perfil?.jfc ?? 5;
   const alcance = casco ? casco.range * (1 + 0.2 * jdc) : 0;
-  const formaDe = (modo?: RouteMode): FormaCalc<EstadoSalto> | undefined => {
+  const lyEntre = (a: number, b: number) => {
+    const A = sysIdx.get(a);
+    const B = sysIdx.get(b);
+    return A && B ? Math.hypot(B.gx - A.gx, B.gy - A.gy, B.gz - A.gz) : Infinity;
+  };
+  const saltableSys = (s: number) => {
+    const x = sysIdx.get(s);
+    return !!x && destinoSaltable(x.s, x.r);
+  };
+  // Fase 3b: los intermedios ACEPTADOS, por índice de `tramos` (el 0 es el origen).
+  const viasGuardadas = useMemo(() => [null, ...calc.map((x) => x.p.via_system_id ?? null)], [calc]);
+  /** `prueba`: el cálculo con UN intermedio de más, sin guardarlo, para enseñar lo que costaría
+   *  aceptarlo. Es la misma forma y el mismo `evaluar`: el precio que se enseña es el que saldría. */
+  const formaDe = (modo?: RouteMode, prueba?: { stopId: number; via: number }): FormaCalc<EstadoSalto> | undefined => {
     if (!saltando || !casco || origen == null) return undefined;
+    const vias = prueba
+      ? viasGuardadas.map((v, i) => (i > 0 && paradas[i - 1].stopId === prueba.stopId ? prueba.via : v))
+      : viasGuardadas;
     return formaSalto({
       puntos: [origen, ...paradas.map((p) => p.systemId)],
-      ly: (a, b) => {
-        const A = sysIdx.get(a);
-        const B = sysIdx.get(b);
-        return A && B ? Math.hypot(B.gx - A.gx, B.gy - A.gy, B.gz - A.gz) : Infinity;
-      },
-      saltable: (s) => {
-        const x = sysIdx.get(s);
-        return !!x && destinoSaltable(x.s, x.r);
-      },
+      ly: lyEntre,
+      saltable: saltableSys,
+      vias,
       rutaCyno: (a, b) => calcTramo(a, b, modo),
       // Sin saber dónde está el cyno, se supone que sale de donde el que salta: se dice.
       cynoDesde: cynoLoc ?? origen,
@@ -291,7 +335,7 @@ export function PlanNav(props: {
       ahoraMs: ahora,
     });
   };
-  const formaKey = JSON.stringify([forma, casco?.id, cynoLoc, jdc, jfc, fatiga, ahora, puntosKey]);
+  const formaKey = JSON.stringify([forma, casco?.id, cynoLoc, jdc, jfc, fatiga, ahora, puntosKey, viasGuardadas]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const formaCalc = useMemo(() => formaDe(), [formaKey, calcTramo, sysIdx]);
   const propuesta = useMemo(
@@ -417,7 +461,13 @@ export function PlanNav(props: {
     actual && salidaLinea != null && !intercepting && actual.resultados.some((r) => llega(r.estado))
       ? [
           salidaLinea,
-          ...actual.resultados.filter((r) => llega(r.estado)).map((r) => paradas.find((p) => p.stopId === r.stopId)!.systemId),
+          // Fase 3b: con intermedio, la línea del cyno pasa por él (es por donde va de verdad).
+          ...actual.resultados
+            .filter((r) => llega(r.estado))
+            .flatMap((r) => {
+              const sys = paradas.find((p) => p.stopId === r.stopId)!.systemId;
+              return r.salto?.via != null ? [r.salto.via, sys] : [sys];
+            }),
         ].join(",")
       : "";
   useEffect(() => {
@@ -444,6 +494,124 @@ export function PlanNav(props: {
   //    mano, la línea amarilla deja de ser la del plan y los márgenes de aquí contarían otra cosa
   //    que lo dibujado al lado. No se le bloquea —puede querer mirar un desvío—, pero se dice.
   const lineaEsDelPlan = !pintarKey || rutaActual.filter((s) => s != null).join(",") === pintarKey;
+
+  // ==== ★ FASE 3b · EL SALTO INTERMEDIO ====
+  // La propuesta NO se calcula sola: cuesta hasta ~1 s en baja densa con la ruta segura (medido el
+  // 28-11) y la paga quien pulsa «Buscar intermedio». Se reparte en lotes con `setTimeout(0)` para
+  // no congelar el mapa, y se ATA a una clave: si cambia el grafo, el modo, los evitados, el orden,
+  // la ficha o los intermedios guardados, la propuesta deja de enseñarse y vuelve el botón; si cambia
+  // a mitad de búsqueda, se cancela en el siguiente lote.
+  const claveCalc = JSON.stringify([
+    routeMode,
+    idDe(calcTramo),
+    idDe(conectado),
+    forma?.id,
+    forma?.ciclo_cyno_min,
+    forma?.min_por_salto,
+    casco?.id,
+    alcance,
+    cynoLoc,
+    puntosKey,
+    ordenEnUso,
+    viasGuardadas,
+  ]);
+  const clavesFila = useMemo(() => {
+    const m = new Map<number, string>();
+    if (!formaCalc) return m;
+    for (const r of actual?.resultados ?? []) {
+      if (r.estado === "fuera_alcance" && r.noLlega) m.set(r.stopId, `${claveCalc}|${r.stopId}|${r.noLlega.desde}|${r.noLlega.cyno}`);
+    }
+    return m;
+  }, [actual, claveCalc, formaCalc]);
+  const [busca, setBusca] = useState<Record<number, BuscaIntermedio>>({});
+  // La búsqueda en curso mira AQUÍ en cada lote si su clave sigue siendo la de la fila.
+  const clavesVivas = useRef(new Map<number, string>());
+  useEffect(() => {
+    clavesVivas.current = clavesFila;
+    // Lo que ya no casa se tira del estado, no solo de la pantalla: que no reaparezca si la clave
+    // volviera a coincidir por casualidad con números de otro momento.
+    setBusca((b) => {
+      const vivas = Object.entries(b).filter(([id, x]) => clavesFila.get(Number(id)) === x.clave);
+      return vivas.length === Object.keys(b).length ? b : Object.fromEntries(vivas);
+    });
+  }, [clavesFila]);
+  useEffect(
+    () => () => {
+      clavesVivas.current = new Map(); // al cerrar el panel, la búsqueda en curso se para sola
+    },
+    [],
+  );
+  const busquedaDe = (stopId: number): BuscaIntermedio | null => {
+    const b = busca[stopId];
+    return b && b.clave === clavesFila.get(stopId) ? b : null;
+  };
+  const cxIntermedio = () => contextoIntermedio({ ly: lyEntre, saltable: saltableSys, rutaCyno: (a, b) => calcTramo(a, b), alcanceLy: alcance });
+  function buscarVia(r: ResultadoParada) {
+    const clave = clavesFila.get(r.stopId);
+    const nl = r.noLlega;
+    const dst = paradas.find((p) => p.stopId === r.stopId)?.systemId;
+    if (!clave || !nl || dst == null) return;
+    const g = buscarIntermedio(cxIntermedio(), systems.map((x) => x.id), conectado, nl.desde, nl.cyno, dst);
+    setBusca((b) => ({ ...b, [r.stopId]: { clave, buscando: true, hechos: 0, res: null, otro: b[r.stopId]?.clave === clave ? b[r.stopId].otro : null } }));
+    const paso = () => {
+      if (clavesVivas.current.get(r.stopId) !== clave) return; // cambió algo: cancelada
+      const x = g.next();
+      if (x.done) {
+        setBusca((b) =>
+          b[r.stopId]?.clave === clave ? { ...b, [r.stopId]: { ...b[r.stopId], buscando: false, hechos: 0, res: x.value } } : b,
+        );
+        return;
+      }
+      setBusca((b) => (b[r.stopId]?.clave === clave ? { ...b, [r.stopId]: { ...b[r.stopId], hechos: x.value } } : b));
+      window.setTimeout(paso, 0);
+    };
+    window.setTimeout(paso, 0);
+  }
+  /** «Otro…»: el sistema del piloto, validado con la MISMA función que los candidatos. Dos rutas. */
+  function probarOtro(r: ResultadoParada, via: number) {
+    const clave = clavesFila.get(r.stopId);
+    const nl = r.noLlega;
+    const dst = paradas.find((p) => p.stopId === r.stopId)?.systemId;
+    if (!clave || !nl || dst == null) return;
+    const v = probarIntermedio(cxIntermedio(), nl.desde, nl.cyno, via, dst);
+    setBusca((b) => {
+      const prev = b[r.stopId]?.clave === clave ? b[r.stopId] : null;
+      return {
+        ...b,
+        [r.stopId]: { clave, buscando: prev?.buscando ?? false, hechos: prev?.hechos ?? 0, res: prev?.res ?? null, otro: { via, fallo: v.ok ? null : v.fallo } },
+      };
+    });
+  }
+  const [otroAbierto, setOtroAbierto] = useState<number | null>(null);
+  async function fijarVia(stopId: number, via: number | null) {
+    try {
+      await invoke("plan_via", { stopId, systemId: via });
+    } catch (e) {
+      setError(String(e));
+    }
+    await recargar();
+  }
+  /** Lo que costaría aceptar `via` para esa parada: el MISMO cálculo con el intermedio puesto, sin
+   *  guardarlo. Así el precio que se enseña es exactamente el que saldría al pulsar «Usar». */
+  //  ⚠️ En un `useMemo`: cada vista rehace las rutas del cyno de todo el orden, y sin memo se
+  //     repetiría en cada render (el arrastre de filas renderiza a cada movimiento del ratón).
+  const vistas = useMemo(() => {
+    const m = new Map<number, { via: number; delPiloto: boolean; r: ResultadoParada | null }>();
+    if (!tramos || !ordenEnUso) return m;
+    for (const [id, b] of Object.entries(busca)) {
+      const stopId = Number(id);
+      if (b.clave !== clavesFila.get(stopId)) continue;
+      // Si el piloto puso uno que sirve, se enseña el suyo; si no, el propuesto.
+      const delPiloto = !!b.otro && !b.otro.fallo;
+      const via = delPiloto ? b.otro!.via : b.res?.tipo === "propuesta" ? b.res.via : null;
+      if (via == null) continue;
+      const f = formaDe(undefined, { stopId, via });
+      const r = f ? evaluar(ordenEnUso, paradas, tramos, ahora, minSaltoEf, minSitio, f).resultados.find((x) => x.stopId === stopId) ?? null : null;
+      m.set(stopId, { via, delPiloto, r });
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca, clavesFila, formaKey, tramos, ordenEnUso, minSaltoEf, minSitio, calcTramo]);
 
   // ---- reordenar (arrastre y flechas) ----
   /** Guarda un orden nuevo de las paradas del cálculo. Se aplica YA en pantalla (los márgenes se
@@ -609,15 +777,139 @@ export function PlanNav(props: {
       }
     }
   }
-  function lineaSalto(s: SaltoHecho): string {
+  /** `enIntermedio`: el salto sale de un intermedio, donde NO hay sitio. La espera dice DÓNDE se
+   *  espera parado, que es la frase entera de la fase 3b. Frase entera por idioma: el orden cambia. */
+  function lineaSalto(s: SaltoHecho, enIntermedio = false): string {
     const espera = s.espera;
+    const en = getLang() === "en";
+    const sitio = espera ? nameOf(espera.en) || `#${espera.en}` : "";
     const e = !espera
-      ? tr("sales nada más acabar")
-      : espera.quien === "cyno"
-        ? `${tr("esperas")} ${minutos(espera.min)} ${tr("al cyno")}`
-        : `${tr("esperas")} ${minutos(espera.min)} ${tr("de cooldown")}`;
+      ? enIntermedio
+        ? en
+          ? "you jump on as soon as you land"
+          : "sigues en cuanto llegas"
+        : tr("sales nada más acabar")
+      : enIntermedio
+        ? espera.quien === "cyno"
+          ? en
+            ? `you wait ${minutos(espera.min)} in ${sitio} for the cyno`
+            : `esperas ${minutos(espera.min)} en ${sitio} al cyno`
+          : en
+            ? `you wait ${minutos(espera.min)} in ${sitio} for your cooldown`
+            : `esperas ${minutos(espera.min)} en ${sitio} de cooldown`
+        : espera.quien === "cyno"
+          ? `${tr("esperas")} ${minutos(espera.min)} ${tr("al cyno")}`
+          : `${tr("esperas")} ${minutos(espera.min)} ${tr("de cooldown")}`;
     return `⤴ ${unDecimal(s.ly)} ${tr("al")} · ⛽ ${s.isotopos.toLocaleString(getLang())} ${s.isotopo} · ${e} · ${tr("quedas con")} ~${minutos(s.cooldownMin)} ${tr("de cooldown y")} ~${minutos(s.fatigaMin)} ${tr("de fatiga")}`;
   }
+  // ---- fase 3b: textos del intermedio. Frases enteras por idioma: el orden de las piezas cambia. ----
+  const nom = (sid: number) => nameOf(sid) || `#${sid}`;
+  /** Por qué un sistema no sirve de intermedio, con su número. `desde` = donde está el que salta. */
+  function textoFalloVia(via: number, desde: number, f: FalloIntermedio): string {
+    const en = getLang() === "en";
+    const X = nom(via);
+    switch (f.motivo) {
+      case "mismo":
+        return en ? `${X} is where you jump from, or the destination itself.` : `${X} es el sitio de salida o el propio destino.`;
+      case "alta_sec":
+        return en ? `You can't jump to ${X}: high-sec or Pochven.` : `A ${X} no se puede saltar: es alta seguridad o Pochven.`;
+      case "lejos_ida":
+        return en
+          ? `${X} is ${unDecimal(f.ly)} ly from ${nom(desde)}, and your range is ${unDecimal(f.alcance)}.`
+          : `${X} queda a ${unDecimal(f.ly)} al desde ${nom(desde)}, y llegas a ${unDecimal(f.alcance)}.`;
+      case "lejos_vuelta":
+        return en
+          ? `From ${X} the destination is ${unDecimal(f.ly)} ly away, and your range is ${unDecimal(f.alcance)}.`
+          : `Desde ${X} el destino queda a ${unDecimal(f.ly)} al, y llegas a ${unDecimal(f.alcance)}.`;
+      case "cyno_sin_ruta":
+        return en
+          ? `The cyno has no gate route to ${X}, or from ${X} to the destination.`
+          : `El cyno no tiene ruta a puertas hasta ${X}, o de ${X} al destino.`;
+      default: {
+        const nunca: never = f;
+        return nunca;
+      }
+    }
+  }
+  /** Cuando no hay propuesta: EL MOTIVO EXACTO, nunca un genérico. */
+  function textoSinVia(b: BusquedaIntermedio): string {
+    const en = getLang() === "en";
+    switch (b.tipo) {
+      case "ni_con_dos":
+        return en
+          ? `Not even with an intermediate jump: it's ${unDecimal(b.ly)} ly, and two jumps reach ${unDecimal(b.alcanceDos)}.`
+          : `Ni con un salto intermedio: son ${unDecimal(b.ly)} al y con dos saltos llegas a ${unDecimal(b.alcanceDos)}.`;
+      case "sin_sistema":
+        return en
+          ? "There's no system within range of both ends that you can jump to."
+          : "No hay ningún sistema al alcance de los dos lados al que se pueda saltar.";
+      case "cyno_sin_ruta":
+        return en
+          ? "The cyno has no gate route to any of the possible intermediates."
+          : "El cyno no tiene ruta a puertas hasta ninguno de los intermedios posibles.";
+      case "propuesta":
+        return "";
+      default: {
+        const nunca: never = b;
+        return nunca;
+      }
+    }
+  }
+  /** El precio de un intermedio, con el MISMO cálculo que saldría al aceptarlo (`vistas`). */
+  function textoPrecio(via: number, r: ResultadoParada | null): string {
+    const en = getLang() === "en";
+    const X = nom(via);
+    const ss = r?.salto?.saltos ?? [];
+    if (!r || !llega(r.estado) || ss.length !== 2) return r ? textoNoLlega(r) : "";
+    const [a, b] = ss;
+    const iso = `${(a.isotopos + b.isotopos).toLocaleString(getLang())} ${a.isotopo}`;
+    const espera = !b.espera
+      ? en
+        ? `no wait in ${X}`
+        : `sin esperar en ${X}`
+      : b.espera.quien === "cyno"
+        ? en
+          ? `you wait ${minutos(b.espera.min)} in ${X} for the cyno`
+          : `esperas ${minutos(b.espera.min)} en ${X} al cyno`
+        : en
+          ? `you wait ${minutos(b.espera.min)} in ${X} for your cooldown`
+          : `esperas ${minutos(b.espera.min)} en ${X} de cooldown`;
+    const margen =
+      r.estado === "salvada"
+        ? en
+          ? `you'd arrive with ${duracion(r.margenMin)} to spare`
+          : `llegarías con ${duracion(r.margenMin)} de sobra`
+        : en
+          ? `you'd arrive ${duracion(r.margenMin)} late`
+          : `llegarías ${duracion(r.margenMin)} tarde`;
+    return en
+      ? `With an intermediate jump in ${X}: ${unDecimal(a.ly)} + ${unDecimal(b.ly)} ly · ${espera} · ⛽ ${iso} · you land with ~${minutos(b.fatigaMin)} of fatigue · ${margen}`
+      : `Con un salto intermedio en ${X}: ${unDecimal(a.ly)} + ${unDecimal(b.ly)} al · ${espera} · ⛽ ${iso} · llegas con ~${minutos(b.fatigaMin)} de fatiga · ${margen}`;
+  }
+  function textoAviso3b(via: number, delPiloto: boolean): string {
+    const en = getLang() === "en";
+    const X = nom(via);
+    if (delPiloto) {
+      return en ? `You chose ${X}. Koru doesn't know whether you can wait there safely.` : `${X} lo has elegido tú. Koru no sabe si ahí puedes esperar seguro.`;
+    }
+    return en
+      ? `Koru picks ${X} by distance and by the cyno's gates. It doesn't know whether you can wait there safely.`
+      : `Koru elige ${X} por distancia y por las puertas del cyno. No sabe si ahí puedes esperar seguro.`;
+  }
+  const textoUsar = (via: number) => (getLang() === "en" ? `Use ${nom(via)}` : `Usar ${nom(via)}`);
+  const textoBuscando = (n: number) =>
+    getLang() === "en" ? `looking for an intermediate… (${n} tried)` : `buscando un intermedio… (${n} probados)`;
+  const textoViaIgnorada = (via: number) =>
+    getLang() === "en"
+      ? `Saved intermediate ${nom(via)}: not needed now, you jump straight there.`
+      : `Intermedio ${nom(via)} guardado: ahora no hace falta, saltas directo.`;
+  const textoViaNoSirve = (via: number, desde: number) =>
+    getLang() === "en"
+      ? `The saved intermediate ${nom(via)} no longer works from ${nom(desde)}:`
+      : `El intermedio ${nom(via)} guardado ya no sirve desde ${nom(desde)}:`;
+  const textoViaEnUso = (via: number) =>
+    getLang() === "en" ? `Via ${nom(via)}, the intermediate you accepted.` : `Por ${nom(via)}, el intermedio que aceptaste.`;
+
   // Al final del recorrido: isótopos por tipo y con qué fatiga acabas.
   const totalSalto = (() => {
     if (!actual) return null;
@@ -1100,9 +1392,81 @@ export function PlanNav(props: {
                         </div>
                         {r.salto?.saltos.map((s, k) => (
                           <div key={k} className="small plan-salto">
-                            {lineaSalto(s)}
+                            {lineaSalto(s, k > 0 && r.salto?.via != null)}
                           </div>
                         ))}
+                        {/* ★ FASE 3b · el intermedio: en uso, guardado e ignorado, o guardado y que ya no sirve. */}
+                        {r.salto?.via != null && (
+                          <div className="small plan-salto">
+                            ⤴ {textoViaEnUso(r.salto.via)}{" "}
+                            <button className="route-add" onClick={() => void fijarVia(r.stopId, null)}>
+                              {tr("Quitar intermedio")}
+                            </button>
+                          </div>
+                        )}
+                        {r.salto?.viaIgnorada != null && (
+                          <div className="small muted">
+                            {textoViaIgnorada(r.salto.viaIgnorada)}{" "}
+                            <button className="route-add" onClick={() => void fijarVia(r.stopId, null)}>
+                              {tr("Quitar intermedio")}
+                            </button>
+                          </div>
+                        )}
+                        {r.estado === "fuera_alcance" && r.noLlega && formaCalc && (() => {
+                          const nl = r.noLlega;
+                          const b = busquedaDe(r.stopId);
+                          const v = vistas.get(r.stopId);
+                          return (
+                            <div className="small plan-salto">
+                              {nl.viaNoSirve && (
+                                <div className="route-scope-warn">
+                                  ⚠ {textoViaNoSirve(nl.viaNoSirve.via, nl.desde)} {textoFalloVia(nl.viaNoSirve.via, nl.desde, nl.viaNoSirve.fallo)}{" "}
+                                  <button className="route-add" onClick={() => void fijarVia(r.stopId, null)}>
+                                    {tr("Quitar intermedio")}
+                                  </button>
+                                </div>
+                              )}
+                              {v && (
+                                <div>
+                                  {textoPrecio(v.via, v.r)}{" "}
+                                  {v.r && llega(v.r.estado) && (
+                                    <button className="route-add" onClick={() => void fijarVia(r.stopId, v.via)}>
+                                      {textoUsar(v.via)}
+                                    </button>
+                                  )}
+                                  <div className="muted">
+                                    <i>{textoAviso3b(v.via, v.delPiloto)}</i>
+                                  </div>
+                                </div>
+                              )}
+                              {b?.res && b.res.tipo !== "propuesta" && <div>{textoSinVia(b.res)}</div>}
+                              {b?.otro?.fallo && <div>{textoFalloVia(b.otro.via, nl.desde, b.otro.fallo)}</div>}
+                              {b?.buscando && <div className="muted">{textoBuscando(b.hechos)}</div>}
+                              <div>
+                                {!b?.buscando && !b?.res && (
+                                  <button className="route-add" onClick={() => buscarVia(r)}>
+                                    {tr("Buscar intermedio")}
+                                  </button>
+                                )}{" "}
+                                {otroAbierto === r.stopId ? (
+                                  <SystemSearch
+                                    systems={systems}
+                                    value={b?.otro?.via ?? null}
+                                    placeholder={tr("Sistema intermedio…")}
+                                    onPick={(id) => {
+                                      setOtroAbierto(null);
+                                      probarOtro(r, id);
+                                    }}
+                                  />
+                                ) : (
+                                  <button className="route-add" onClick={() => setOtroAbierto(r.stopId)}>
+                                    {tr("Otro…")}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {llega(r.estado) && <div className="small muted">{lineaMuertes(r)}</div>}
                         {lineaOtra(r) && <div className="small muted">🛡 {lineaOtra(r)}</div>}
                         {(() => {
