@@ -2094,27 +2094,39 @@ function App() {
     );
   }
 
-  /** «Trázame la ruta hasta ahí» desde cualquier sección. Hermano de `verEnMapa`: el mismo salto de
-   *  pestaña y el mismo scroll, pero además abre el planificador con el destino puesto — con sus
-   *  saltos, el intel que haya EN esa ruta y el zKill de cada sistema. Ver `rutaReq` en map.tsx. */
-  function irARuta(sysId: number) {
-    changeTab("mapa");
-    setMapRutaReq({ sysId, nonce: Date.now() });
-    window.setTimeout(
-      () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      60,
-    );
-  }
-
-  /** «Ver el plan en el mapa» desde Escalaciones: el mismo salto que `irARuta`, pero abre el plan
-   *  entero en Navegación (orden, márgenes, arrastre). Ver `planReq` en map.tsx. */
+  /** «Ver el plan en el mapa» desde Escalaciones: abre el plan entero en Navegación (orden,
+   *  márgenes, arrastre). Ver `planReq` en map.tsx.
+   *  ⚠️ SIN `changeTab`: el mapa y Navegación viven en el stage, montados siempre encima de la
+   *     sección. Cambiar a «mapa» hacía desaparecer Escalaciones de debajo, y es justo la que se
+   *     quiere tener a mano mientras se mira el plan. Cambiar de sección no cargaba nada del mapa
+   *     (`loadTab` no tiene rama «mapa»), así que no hay nada que se deje de cargar. */
   function irAPlan(planId: number) {
-    changeTab("mapa");
     setMapPlanReq({ planId, nonce: Date.now() });
-    window.setTimeout(
-      () => document.querySelector(".section-header")?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      60,
-    );
+    irANavegacion();
+  }
+  /** «Trazar la ruta hasta ahí» desde Escalaciones: abre el planificador con el destino puesto —sus
+   *  saltos, el intel que haya EN esa ruta y el zKill de cada sistema; ver `rutaReq` en map.tsx— y
+   *  deja la sección debajo, como `irAPlan`. Hasta el 28-11 cambiaba a «mapa» como `verEnMapa`; su
+   *  único llamante es Escalaciones. */
+  function irARuta(sysId: number) {
+    setMapRutaReq({ sysId, nonce: Date.now() });
+    irANavegacion();
+  }
+  /** Lleva la vista hasta Navegación. ⚠️ La sección no existe hasta que el mapa enciende la Ruta
+   *  (efecto de `planReq` / `rutaReq` y otro render), así que se reintenta unos frames en vez de un
+   *  `setTimeout` a ojo. Si al final no aparece, se dice en consola: un botón que no lleva a ningún
+   *  sitio sin decir nada es el fallo que no se ve. */
+  function irANavegacion(intento = 0) {
+    const nav = document.querySelector(".nav-section");
+    if (nav) {
+      nav.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (intento < 30) {
+      window.requestAnimationFrame(() => irANavegacion(intento + 1));
+      return;
+    }
+    console.error("[escalaciones] Navegación no apareció tras abrir el plan o la ruta: no se pudo llevar la vista hasta ella.");
   }
 
   // Latidos de datos: las vistas piden parte de sus datos con `invoke` propio, y esos efectos

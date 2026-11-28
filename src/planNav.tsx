@@ -27,6 +27,9 @@ import {
   formaSalto,
   cacheSalto,
   caminoVigilado,
+  resumenMarcas,
+  ordenarMarcas,
+  avisoComun,
   fatigaInicial,
   type FormaViaje,
   type FormaCalc,
@@ -766,16 +769,28 @@ export function PlanNav(props: {
     if (!mk) return `☠ ${tr("sin datos de muertes")}${killsErr ? ` (${killsErr})` : ""}`;
     // Un dato viejo NO puede decir «en la última hora»: la frase cambia, no se le pega una nota.
     const viejo = muertesViejas(killsAt, ahora);
+    const en = getLang() === "en";
+    let pre = "☠ ";
     if (viejo != null) {
       const d = duracion(viejo);
-      const de = getLang() === "en" ? `data from ${d} ago` : `dato de hace ${d}`;
-      const fallo = killsErr ? `, ${tr("no se pudo refrescar")}` : "";
-      return mk.peor
-        ? `☠ ${de}${fallo}: ${mk.sistemas} ${tr("sistemas con muertes en esa hora; el peor,")} ${nameOf(mk.peor.systemId)} (${mk.peor.kills})`
-        : `☠ ${de}${fallo}: ${tr("ningún sistema con muertes en esa hora")}`;
-    }
-    if (!mk.peor) return `☠ ${tr("ningún sistema con muertes en la última hora")}`;
-    return `☠ ${mk.sistemas} ${tr("sistemas con muertes en la última hora; el peor,")} ${nameOf(mk.peor.systemId)} (${mk.peor.kills})`;
+      const fallo = killsErr ? (en ? ", couldn't refresh" : ", no se pudo refrescar") : "";
+      pre = `☠ ${en ? `data from ${d} ago` : `dato de hace ${d}`}${fallo}: `;
+      if (!mk.peor) return pre + tr("ningún sistema con muertes en esa hora");
+    } else if (!mk.peor) return `☠ ${tr("ningún sistema con muertes en la última hora")}`;
+    // Frase entera por idioma y en SINGULAR cuando es uno («1 sistemas con muertes» se veía así).
+    // Con uno solo, «el peor» sobra: es ese.
+    const n = mk.sistemas;
+    const peor = `${nameOf(mk.peor.systemId)} (${mk.peor.kills})`;
+    const hora = viejo != null ? (en ? "in that hour" : "en esa hora") : en ? "in the last hour" : "en la última hora";
+    if (n === 1) return pre + (en ? `1 system with kills ${hora}: ${peor}` : `1 sistema con muertes ${hora}: ${peor}`);
+    return pre + (en ? `${n} systems with kills ${hora}; the worst, ${peor}` : `${n} sistemas con muertes ${hora}; el peor, ${peor}`);
+  }
+  /** «5 avisos en 3 tramos»: reportes DISTINTOS (el mismo en tres tramos es uno), en singular si toca. */
+  function textoResumenMarcas(): string {
+    const { reportes: a, tramos: t } = resumenMarcas(marcasPlan);
+    return getLang() === "en"
+      ? `${a} ${a === 1 ? "report" : "reports"} on ${t} ${t === 1 ? "leg" : "legs"}`
+      : `${a} ${a === 1 ? "aviso" : "avisos"} en ${t} ${t === 1 ? "tramo" : "tramos"}`;
   }
   const empezados = tramosIntel.filter((t) => t.empezado);
 
@@ -1336,9 +1351,7 @@ export function PlanNav(props: {
                       ? `${tr("suena el de")} ${empezados.map((t) => t.destino).join(", ")} (${tr("también con el plan cerrado")})`
                       : tr("ninguno empezado: marca sin sonar")}{" "}
                     ·{" "}
-                    {marcasPlan.length > 0
-                      ? `${marcasPlan.length} ${tr("avisos en el camino")}`
-                      : tr("nada cantado en el camino")}
+                    {marcasPlan.length > 0 ? textoResumenMarcas() : tr("nada cantado en el camino")}
                   </div>
                 ))}
               {intelError && <div className="small route-scope-warn">⚠ {intelError}</div>}
@@ -1497,21 +1510,29 @@ export function PlanNav(props: {
                         {llega(r.estado) && <div className="small muted">{lineaMuertes(r)}</div>}
                         {lineaOtra(r) && <div className="small muted">🛡 {lineaOtra(r)}</div>}
                         {(() => {
-                          const ms = marcasPlan.filter((m) => m.stop_id === r.stopId);
+                          // Lo que está EN el camino, arriba y destacado; lo lejano, abajo y atenuado.
+                          const ms = ordenarMarcas(marcasPlan.filter((m) => m.stop_id === r.stopId));
                           if (ms.length === 0) return null;
+                          // El mismo motivo para todas se dice UNA vez; si difieren, cada una el suyo.
+                          const comun = avisoComun(ms);
                           const idx = paradas.findIndex((x) => x.stopId === r.stopId);
                           const pos = tramos ? posponer(actual.orden, idx, paradas, tramos, ahora, minSaltoEf, minSitio, formaCalc) : null;
                           return (
                             <div className={`plan-intel ${ms.some((m) => m.aviso === "avisa") ? "suena" : "calla"}`}>
                               <div>⚠ {saltando ? tr("Intel en el camino del cyno") : tr("Intel en este tramo")}</div>
+                              {comun && <div className="plan-intel-aviso">{textoAviso(comun)}</div>}
                               {ms.map((m) => (
-                                <div key={`${m.sys_id}-${m.ts_ms}`} className="plan-intel-linea" title={m.message}>
+                                <div
+                                  key={`${m.sys_id}-${m.ts_ms}`}
+                                  className={`plan-intel-linea ${m.jumps === 0 ? "en-camino" : "lejos"}`}
+                                  title={m.message}
+                                >
                                   <b>{m.system}</b>{" "}
                                   {m.jumps === 0
                                     ? tr("en el camino")
                                     : `${m.jumps} ${tr("salto(s) del camino, junto a")} ${m.cerca_de_name}`}{" "}
                                   · {haceMin(m.ts_ms, Date.now())} — {m.author}: {m.message}
-                                  <div className="plan-intel-aviso">{textoAviso(m.aviso)}</div>
+                                  {!comun && <div className="plan-intel-aviso">{textoAviso(m.aviso)}</div>}
                                 </div>
                               ))}
                               {pos && (

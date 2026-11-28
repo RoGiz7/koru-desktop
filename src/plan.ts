@@ -863,6 +863,29 @@ export type PlanMarca = {
   aviso: "avisa" | "no_empezado" | "silenciado" | "alertas_apagadas";
 };
 
+/** Un REPORTE es una línea del chat: quién, cuándo y qué. El vigilante saca una marca por cada tramo
+ *  al que toca (y por cada sistema que nombra), así que el mismo reporte sale repetido. */
+const claveReporte = (m: PlanMarca) => `${m.ts_ms}|${m.author}|${m.message}`;
+
+/** La cabecera: cuántos reportes DISTINTOS hay en el camino y en cuántos tramos. Antes contaba las
+ *  marcas, y un reporte que tocaba tres tramos salía como «3 avisos». */
+export function resumenMarcas(marcas: PlanMarca[]): { reportes: number; tramos: number } {
+  return { reportes: new Set(marcas.map(claveReporte)).size, tramos: new Set(marcas.map((m) => m.stop_id)).size };
+}
+
+/** Dentro de un tramo: primero lo que está EN el camino (0 saltos), luego por saltos. A igualdad, lo
+ *  más reciente arriba, y luego por sistema: el orden no puede bailar entre dos refrescos. */
+export function ordenarMarcas(ms: PlanMarca[]): PlanMarca[] {
+  return [...ms].sort((a, b) => a.jumps - b.jumps || b.ts_ms - a.ts_ms || a.sys_id - b.sys_id);
+}
+
+/** Si TODAS las marcas de un tramo tienen el mismo motivo para sonar o no, ese motivo (se dice una
+ *  vez en el tramo); si difieren, `null` (cada una lleva el suyo). */
+export function avisoComun(ms: PlanMarca[]): PlanMarca["aviso"] | null {
+  if (ms.length === 0) return null;
+  return ms.every((m) => m.aviso === ms[0].aviso) ? ms[0].aviso : null;
+}
+
 /** Lo que se manda al vigilante: un tramo del plan, con los sistemas de su ruta. */
 export type PlanTramoIntel = {
   stop_id: number;

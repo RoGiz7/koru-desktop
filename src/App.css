@@ -4797,13 +4797,23 @@ h4 {
   flex-shrink: 0;
 }
 
+/* ⚠️ `min-width: 0` y `box-sizing` arreglan el MISMO fallo, que viene del primer commit (24-06):
+   sin `box-sizing: border-box` (en este CSS no hay regla global), el `width: 100%` del campo NO
+   incluye su relleno ni su borde, y el campo medía su caja + ~21 px. Se salía de la columna en
+   «Paradas» y en «Evitar», y en la cabecera del plan se montaba sobre «Personaje activo». Y sin
+   `min-width: 0`, un elemento flex no encoge por debajo de lo que mide el campo por defecto, así que
+   en una columna estrecha también empujaba fuera. `.esc-campo input` ya lo llevaba: se había
+   parcheado allí, en un solo sitio, y los demás siguieron saliéndose. */
 .sys-search {
   position: relative;
   flex: 1;
+  min-width: 0;
 }
 
 .sys-search input {
   width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   font-size: 0.9rem;
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
@@ -12406,3 +12416,6 @@ h4 .ped-glifo, h5 .ped-glifo { vertical-align: -4px; }
 .plan-intel.calla { border: 1px dashed #b4711e; background: rgba(180, 113, 30, 0.08); }
 .plan-intel-linea { margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-intel-aviso { opacity: 0.85; white-space: normal; }
+/* Lo que está EN el camino manda; lo que está a varios saltos se lee, pero no compite. */
+.plan-intel-linea.en-camino { font-weight: 600; }
+.plan-intel-linea.lejos { opacity: 0.6; }

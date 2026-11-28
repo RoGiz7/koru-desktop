@@ -19,7 +19,7 @@ import { proponer, evaluar, cacheTramos, posponer, muertesTramo, bajaNula, cuest
 import { saltoFatiga, destinoSaltable } from "../src/jumpCalc.ts";
 import { llega, formaPuertas, formaSalto, fatigaInicial, separarImposibles } from "../src/plan.ts";
 import { buscarIntermedio, buscarIntermedioYa, contextoIntermedio, probarIntermedio, LOTE_INTERMEDIO } from "../src/plan.ts";
-import { cacheSalto } from "../src/plan.ts";
+import { cacheSalto, resumenMarcas, ordenarMarcas, avisoComun } from "../src/plan.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -510,5 +510,25 @@ console.log("Fase 3b, después — lo vigilado con intermedio y la caché de rut
 }
 const fase3bTras = cuenta - fase1 - fase2 - salto - fase3 - fase3b;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras})`);
+console.log("Panel — las marcas del intel en el plan");
+{
+  // Un reporte de Jita que toca tres tramos (tres marcas), y otro de Amarr en un tramo.
+  const m = (stop_id, sys_id, jumps, ts_ms, aviso, author = "Piloto A", message = "Jita +3") =>
+    ({ stop_id, sys_id, system: String(sys_id), jumps, cerca_de: 0, cerca_de_name: "", ts_ms, author, message, aviso });
+  const tres = [m(1, 30000142, 0, 100, "avisa"), m(2, 30000142, 2, 100, "no_empezado"), m(3, 30000142, 5, 100, "no_empezado"),
+    m(2, 30002187, 0, 200, "no_empezado", "Piloto B", "Amarr red")];
+  const res = resumenMarcas(tres);
+  ok(res.reportes === 2 && res.tramos === 3, "cabecera: 2 reportes distintos en 3 tramos, no 4 marcas");
+  ok(resumenMarcas([tres[0], tres[1], tres[2]]).reportes === 1, "el mismo reporte repetido en tres tramos es UNO");
+  const desordenadas = [m(9, 5, 5, 300, "avisa"), m(9, 6, 0, 100, "avisa"), m(9, 7, 2, 400, "avisa"), m(9, 8, 0, 200, "avisa")];
+  ok(JSON.stringify(ordenarMarcas(desordenadas).map((x) => x.sys_id)) === JSON.stringify([8, 6, 7, 5]),
+    "en el tramo: primero las del camino (la más reciente arriba), luego por saltos");
+  ok(desordenadas[0].sys_id === 5, "ordenar no toca la lista original");
+  ok(avisoComun([m(9, 1, 0, 1, "silenciado"), m(9, 2, 3, 2, "silenciado")]) === "silenciado", "todas con el mismo motivo: se dice una vez");
+  ok(avisoComun([m(9, 1, 0, 1, "silenciado"), m(9, 2, 3, 2, "no_empezado")]) === null, "motivos distintos: cada una el suyo");
+  ok(avisoComun([]) === null, "sin marcas, ningún motivo común");
+}
+const panel = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel})`);
 process.exit(fallos ? 1 : 0);
