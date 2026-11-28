@@ -3665,6 +3665,8 @@ function App() {
           // ★ El PLAN recibe a TODOS los personajes, con sus permisos, elijas a quien elijas arriba.
           //   `charLocations` (justo encima) se queda como está: de ella cuelgan los orígenes del intel
           //   y quién cuenta para la proximidad. Ver `PilotoPlan` en plan.ts.
+          // Con la hora de confirmación de cada posición: ver `src/posiciones.ts`.
+          tarjetasPos={Object.values(cards)}
           pilotosPlan={Object.values(cards).map((c) => ({
             id: c.character_id,
             name: c.name,

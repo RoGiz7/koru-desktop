@@ -3969,6 +3969,7 @@ const EN: Record<string, string> = {
   "No se pudieron leer las paradas empezadas": "Could not read the started stops",
   "el camino del plan no está al día": "the plan route is not up to date",
   "Camino: fallo": "Route: fault",
+  "Posición: fallo": "Position: fault",
   "Conectados": "Online",
   "Resto": "Others",
   "Ver todos los personajes": "Show all characters",

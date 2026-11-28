@@ -41,6 +41,30 @@ ok(e[3] === "No avisa", "hilo mudo gana");
 ok(saludVigilante(sano)[3] === "Activo", "sin segundo argumento, como antes");
 const pastilla = cuenta;
 
+// Posiciones sin confirmar (src/posiciones.ts). Pilotos de mentira.
+console.log("Posiciones — la palabra y su sitio en el orden");
+const hace3 = Date.now() - 3 * 60000;
+const vieja = { sin: [{ id: 1, name: "Piloto 1", clase: "vieja", desdeMs: hace3, motivo: "sin_respuesta_posicion" }], sinReferencias: false };
+const sinPos = { sin: [{ id: 2, name: "Piloto 2", clase: "sin_posicion", desdeMs: hace3, motivo: null }], sinReferencias: false };
+const pv = saludVigilante(sano, null, vieja);
+ok(pv[0] === "warn" && pv[3] === "Posición: fallo", "posición vieja: ámbar y «Posición: fallo» (el aviso sí suena)");
+ok(pv[1].includes("1 piloto,") && pv[1].includes("3 min"), "la línea dice cuántos pilotos y desde hace cuánto");
+ok(pv[2].includes("Piloto 1") && pv[2].includes("última posición conocida") && pv[2].includes("se miden desde su última posición conocida"),
+  "el tooltip dice quién, por qué y que los saltos se miden desde la última posición conocida");
+const ps = saludVigilante(sano, null, sinPos);
+ok(ps[3] === "Posición: fallo" && ps[2].includes("sin posición") && ps[2].includes("no cuenta para medir"),
+  "sin posición: la misma palabra, y el tooltip dice que no cuenta para medir hasta que se sepa");
+ok(saludVigilante({ ...sano, files: 0 }, null, vieja)[3] === "Sin logs", "«sin logs» gana a la posición (va antes en el orden)");
+ok(saludVigilante(sano, err, vieja)[3] === "Posición: fallo", "la posición gana al camino del plan");
+ok(saludVigilante({ ...sano, graph_systems: 0 }, null, vieja)[3] === "No avisa", "los rojos de hoy ganan a la posición");
+const sr = saludVigilante(sano, null, { ...sinPos, sinReferencias: true });
+ok(sr[0] === "bad" && sr[3] === "No avisa" && sr[2].includes("no tiene desde dónde medir"),
+  "sin NINGUNA referencia por este fallo: rojo y «No avisa», con el motivo");
+ok(saludVigilante({ ...sano, files: 0 }, null, { ...sinPos, sinReferencias: true })[3] === "No avisa", "y eso gana también a «sin logs»: no puede avisar");
+ok(saludVigilante(sano, null, null)[3] === "Activo" && saludVigilante(sano, null, { sin: [], sinReferencias: false })[3] === "Activo",
+  "vuelta a la normalidad: sin nadie sin confirmar, «Activo» otra vez");
+const posiciones = cuenta - pastilla;
+
 // «Falta el acceso» SOLO cuando falta el acceso (AppError::FaltaScope). Los textos son los que
 // devuelve el backend hoy: el de token_with_scope, un 502 de ESI y el OAuth que sigue existiendo.
 console.log("Errores — ¿falta el permiso, o ha fallado otra cosa?");
@@ -50,5 +74,5 @@ ok(!esFaltaPermiso("ESI 502 Bad Gateway en /characters/1/fatigue/: "), "un 502 d
 ok(!esFaltaPermiso("OAuth: sin refresh token para 1"), "otro error de OAuth: no");
 ok(!esFaltaPermiso("HTTP: error sending request"), "la red: no");
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (pastilla: ${pastilla}, errores: ${cuenta - pastilla})`);
+console.log(`\n${cuenta - fallos}/${cuenta} bien (pastilla: ${pastilla}, posiciones: ${posiciones}, errores: ${cuenta - pastilla - posiciones})`);
 process.exit(fallos ? 1 : 0);

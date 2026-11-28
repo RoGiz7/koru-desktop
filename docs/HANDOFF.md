@@ -6,9 +6,10 @@
 
 ## Estado
 
-- **`main` lleva CINCUENTA Y TRES commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `d1e92b0` está empujado; el siguiente, este fichero con el arranque cerrado por
-  ahora, está **solo en local, sin push**.
+- **`main` lleva CINCUENTA Y CINCO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `d1e92b0` está empujado; los TRES siguientes están **solo en local, sin push**:
+  el arranque cerrado por ahora (`a0a7123`) y las posiciones viejas (`a905233` y el último, con
+  este fichero).
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
@@ -199,7 +200,25 @@ escribe desbloqueos y la llaman a la vez la pantalla y `auto_sync`), y ningún c
 🧪 Medir sin la app: `KORU_COPIA_BD=<copia> cargo test --release medir_sobre_copia -- --ignored
 --nocapture` (con `KORU_VOLCAR=<carpeta>` deja lo que devuelven, para comparar antes y después).
 
-## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
+## ✅ HECHO, SIN VER EN PANTALLA: las posiciones viejas ya se dicen (28-11)
+
+Brief `documentacion/brief-posiciones-viejas.md` y sus «Decisiones del paso 0», que mandan.
+- `poll_positions` devuelve a todo personaje con permiso de posición, también sin confirmar, con el
+  motivo (`sin_token`, `sin_respuesta_posicion`). Desconectado con certeza = confirmado.
+- `src/posiciones.ts` (puro, guion `verificar_posiciones.mjs`): cada tarjeta sabe cuándo se confirmó;
+  sin confirmar = con permiso y nada cierto en más de 90 s; dos clases, «vieja» y «sin posición».
+- `refresh()` confirma, y si la tarjeta nueva llega sin sistema conserva la posición anterior.
+- La pastilla dice «Posición: fallo» (ámbar, tras «sin logs» y antes del camino del plan); rojo y
+  «No avisa» si por esto los orígenes del intel quedan vacíos. En el mapa, la marca del piloto sin
+  confirmar va discontinua y apagada, con «sin confirmar desde hace N min» en el tooltip.
+- ⏳ **Sin tocar, a propósito** (la lista de la pregunta 3 del paso 0): el texto del aviso flotante,
+  el minimapa, el plan (`pilotosPlan`), el recorrido, el planificador del mapa y el resto de lectores.
+- ⚠️ Antes, con CERO referencias para medir, la pastilla decía «Activo» en verde mientras el hilo se
+  saltaba la proximidad (`if !cfg.origins.is_empty()`). Ahora solo lo dice si la causa son las
+  posiciones; con cero referencias por otra causa (nadie con permiso de posición y sin anclas),
+  sigue diciendo «Activo».
+
+### La historia (antes del arreglo)
 
 `poll_positions` corre cada 30 s. Si falla la llamada entera, `App.tsx` se queda con las posiciones
 que tenía, y hasta el 28-11 el fallo se tragaba con `.catch(() => {})`. Ahora solo deja rastro en
@@ -271,10 +290,7 @@ la ventana principal—, nunca por número.
 
 ## 📋 Pendientes
 
-🔺 **CON PRIORIDAD · el sondeo de posiciones.** Si `poll_positions` falla, las posiciones se quedan
-viejas SIN LÍMITE y SIN AVISO, también las que usa la proximidad del intel (el aviso de siempre mide
-desde ahí). Detalle en «ABIERTO: las posiciones se quedan viejas», arriba. Sin arreglar a propósito
-el 28-11: va en una sesión propia.
+✅ ~~CON PRIORIDAD · el sondeo de posiciones~~: hecho el 28-11, sin ver en pantalla (arriba).
 
 0. **La ronda de `FaltaScope` por los demás paneles.** Desde `0981590` el permiso que falta es un
    error propio (`AppError::FaltaScope`, texto «Falta permiso: …», ayudante `esFaltaPermiso` en

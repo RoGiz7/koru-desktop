@@ -30,6 +30,8 @@ import type { MapOverlay, Tab } from "./constants";
 import { openExternal } from "./openExternal";
 import { NotasAncla } from "./notas";
 import { PlanNav } from "./planNav";
+import { sinConfirmar, type TarjetaPos } from "./posiciones";
+import type { FalloPosiciones } from "./saludIntel";
 import { PLAN_CAMBIADO, dondeEsta, sistemaDe, tramosEmpezados, type ParadaEmpezada, type PilotoPlan, type PlanTramoIntel, type Tramo } from "./plan";
 import type {
   IntelConfig,
@@ -326,6 +328,9 @@ export function MapView(props: {
   charLocations?: CharLoc[];
   /** TODOS los personajes, para el plan (ver `PilotoPlan`). No es `charLocations`: esa es la del intel. */
   pilotosPlan?: PilotoPlan[];
+  /** Las tarjetas con la hora de confirmación de su posición, para decir cuáles están viejas o sin
+   *  posición (ver `src/posiciones.ts`). */
+  tarjetasPos?: TarjetaPos[];
   characters?: Character[];
   /** Por qué no hay nadie situado, ya comprobado por App. El cartel lo DICE, no lo adivina. */
   ubicacionMotivo?: UbicacionMotivo;
@@ -402,6 +407,7 @@ export function MapView(props: {
     hereCharId,
     charLocations,
     pilotosPlan,
+    tarjetasPos,
     ubicacionMotivo,
     characters = [],
   } = props;
@@ -2592,7 +2598,21 @@ export function MapView(props: {
   // camino lo manda él y no las usa.
   const caminoFallo = planIntelErr || (tramosPanel == null ? empezadasErr : "") || null;
   // Color y palabra de la pastilla «Activo»: salen de la MISMA salud que la línea de abajo.
-  const saludPastilla = intel?.live && intel.status ? saludVigilante(intel.status, caminoFallo) : null;
+  // ★ Posiciones sin confirmar: se re-evalúa con la hora en cada render, y el estado del intel llega
+  //   cada 3 s, así que vuelve a verde sola cuando el sondeo responde. «Sin referencias» es POR ESTE
+  //   fallo: los orígenes del intel vacíos y alguno de tus pilotos sin posición.
+  const posSin = sinConfirmar(tarjetasPos ?? [], Date.now());
+  const posFallo: FalloPosiciones | null =
+    posSin.length > 0 ? { sin: posSin, sinReferencias: intelOrigins.length === 0 && posSin.some((p) => p.clase === "sin_posicion") } : null;
+  const posSinDe = new Map(posSin.map((p) => [p.id, p] as const));
+  /** «posición sin confirmar desde hace 3 min», para el tooltip de la marca. Frase por idioma. */
+  const notaSinConfirmar = (id: number): string => {
+    const p = posSinDe.get(id);
+    if (!p) return "";
+    const min = Math.max(1, Math.round((Date.now() - p.desdeMs) / 60000));
+    return getLang() === "en" ? `\nposition not confirmed for ${min} min` : `\nposición sin confirmar desde hace ${min} min`;
+  };
+  const saludPastilla = intel?.live && intel.status ? saludVigilante(intel.status, caminoFallo, posFallo) : null;
 
   // ---- ¿HAY AVISOS DE INTEL EN LA RUTA QUE ACABAS DE TRAZAR? (idea de RoGiz7, 2026-08-12) ----
   //
@@ -4385,8 +4405,11 @@ export function MapView(props: {
                 const s = geo.idx.get(c.system_id);
                 if (!s) return null;
                 const p = geo.proj(s);
+                // Sin confirmar: discontinua y apagada, y el tooltip dice desde cuándo. El sitio es
+                // el último conocido (el intel sigue midiendo desde ahí): se distingue, no se quita.
+                const viejo = posSinDe.has(c.id);
                 return (
-                  <g key={`ipil-${c.id}`}>
+                  <g key={`ipil-${c.id}`} opacity={viejo ? 0.5 : 1}>
                     <circle
                       cx={p.px}
                       cy={p.py}
@@ -4394,9 +4417,10 @@ export function MapView(props: {
                       fill="none"
                       stroke="#7fd8ff"
                       strokeWidth={1.4 / view.z}
+                      strokeDasharray={viejo ? `${2.2 / view.z} ${1.6 / view.z}` : undefined}
                       opacity={0.9}
                     >
-                      <title>{`${c.name}${c.ship ? ` · ${c.ship}` : ""}\n${s.n}`}</title>
+                      <title>{`${c.name}${c.ship ? ` · ${c.ship}` : ""}\n${s.n}${notaSinConfirmar(c.id)}`}</title>
                     </circle>
                     <circle cx={p.px} cy={p.py} r={cappedR(1.2, 3, view.z)} fill="#7fd8ff" />
                     <text
@@ -4426,10 +4450,20 @@ export function MapView(props: {
                   if (!s) return null;
                   const p = geo.proj(s);
                   const r = 4.6 / view.z;
+                  // Todos sin confirmar: el punto, hueco y discontinuo; cada nombre sin confirmar, apagado.
+                  const todosViejos = list.every((c) => posSinDe.has(c.id));
                   return (
                     <g key={`loc-${sysId}`}>
-                      <circle cx={p.px} cy={p.py} r={r} fill="#7fd8ff" stroke="#0a0d12" strokeWidth={0.6 / view.z}>
-                        <title>{`${s.n} (sec ${s.s.toFixed(1)})\n${list.map((c) => c.name).join("\n")}`}</title>
+                      <circle
+                        cx={p.px}
+                        cy={p.py}
+                        r={r}
+                        fill={todosViejos ? "none" : "#7fd8ff"}
+                        stroke={todosViejos ? "#7fd8ff" : "#0a0d12"}
+                        strokeWidth={(todosViejos ? 1.2 : 0.6) / view.z}
+                        strokeDasharray={todosViejos ? `${2.2 / view.z} ${1.6 / view.z}` : undefined}
+                      >
+                        <title>{`${s.n} (sec ${s.s.toFixed(1)})\n${list.map((c) => `${c.name}${notaSinConfirmar(c.id).replace("\n", " · ")}`).join("\n")}`}</title>
                       </circle>
                       {list.map((c, i) => (
                         <text
@@ -4437,6 +4471,7 @@ export function MapView(props: {
                           x={p.px + 6 / view.z}
                           y={p.py + (4 + i * 13) / view.z}
                           className="map-label"
+                          opacity={posSinDe.has(c.id) ? 0.5 : 1}
                           style={{ fontSize: `${13 / view.z}px` }}
                         >
                           {c.name}
@@ -4854,7 +4889,7 @@ export function MapView(props: {
             {intel.live &&
               intel.status &&
               (() => {
-                const [cls, txt, tip] = saludVigilante(intel.status, caminoFallo);
+                const [cls, txt, tip] = saludVigilante(intel.status, caminoFallo, posFallo);
                 return (
                   <div className={`intel-health-row ${cls}`} title={tip}>
                     {txt}
