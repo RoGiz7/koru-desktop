@@ -20,6 +20,8 @@ import { saltoFatiga, destinoSaltable } from "../src/jumpCalc.ts";
 import { llega, formaPuertas, formaSalto, fatigaInicial, separarImposibles } from "../src/plan.ts";
 import { buscarIntermedio, buscarIntermedioYa, contextoIntermedio, probarIntermedio, LOTE_INTERMEDIO } from "../src/plan.ts";
 import { cacheSalto, resumenMarcas, ordenarMarcas, avisoComun } from "../src/plan.ts";
+import { dondeEsta, sistemaDe, skillsDeSalto, SCOPE_UBICACION } from "../src/plan.ts";
+import { PREFIJO_FALTA_PERMISO } from "../src/errores.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -530,5 +532,26 @@ console.log("Panel — las marcas del intel en el plan");
 }
 const panel = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel})`);
+console.log("Fallos de la 3a — dónde está cada uno y las skills que no se leen");
+{
+  // Personajes de mentira: ninguno es real.
+  const pj = (id, system_id, scopes) => ({ id, name: `Piloto ${id}`, system_id, ship_type_id: null, online: true, scopes });
+  const todos = [pj(1, 30000142, [SCOPE_UBICACION]), pj(2, null, []), pj(3, null, [SCOPE_UBICACION])];
+  ok(sistemaDe(dondeEsta(todos, 1)) === 30000142, "con permiso y dato: su sistema");
+  ok(dondeEsta(todos, 2).noSeSabe === "sin_permiso", "sin permiso de ubicación: no se sabe, POR el permiso (y no desaparece)");
+  ok(dondeEsta(todos, 3).noSeSabe === "sin_dato", "con permiso y sin dato: ESI no lo ha dado");
+  ok(dondeEsta(todos, 9).noSeSabe === "no_esta" && dondeEsta(todos, null).noSeSabe === "no_elegido", "ni está ni elegido: cada uno su motivo");
+  // Las skills: V y el motivo cuando no se leen; nunca un 0 callado.
+  const falta = `${PREFIJO_FALTA_PERMISO}este personaje no concedió el scope necesario.`;
+  const sinPermiso = skillsDeSalto({ jdc: null, jfc: null, skills_error: falta, owned: [], assets_error: null }, "");
+  ok(sinPermiso.jdc === 5 && sinPermiso.jfc === 5 && sinPermiso.motivo === falta, "sin permiso de skills: se suponen a V, y se dice cuál falta");
+  const leidas = skillsDeSalto({ jdc: 0, jfc: 3, skills_error: null, owned: null, assets_error: falta }, "");
+  ok(leidas.jdc === 0 && leidas.jfc === 3 && leidas.motivo === null, "leídas: un 0 de verdad se respeta, y sin assets las skills siguen valiendo");
+  const caida = skillsDeSalto(null, "ESI 502");
+  ok(caida.jdc === 5 && caida.motivo === "ESI 502", "si la llamada entera falla: V y el error");
+  ok(skillsDeSalto(null, "").motivo === null, "mientras carga, sin motivo (aún no ha fallado nada)");
+}
+const fallos3a = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras - panel;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel}, fallos 3a: ${fallos3a})`);
 process.exit(fallos ? 1 : 0);

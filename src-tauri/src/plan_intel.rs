@@ -57,6 +57,25 @@ pub struct PlanMarca {
     pub aviso: &'static str,
 }
 
+/// ★ LOS DOS «YA AVISADO», separados (decisión de RoGiz7, 28-11). Claves `"{sid}-{ts}"`.
+///
+/// · `siempre` es el de la alerta de TUS PERSONAJES, la de antes del plan. El plan lo LEE y NUNCA
+///   lo escribe: la alerta de siempre queda exactamente como era antes de que existiera el plan.
+///   Hasta el 28-11 los dos compartían un conjunto, y el plan, al apuntar ahí lo que avisaba, podía
+///   callar más tarde un aviso de siempre; y qué reportes callaba dependía de por dónde fuera el
+///   camino del plan.
+/// · `plan` es del plan: para no repetirse a sí mismo.
+///
+/// ⚠️ EL ÚNICO DOBLE AVISO, Y ES A PROPÓSITO: suena el plan por un reporte lejos de tus pilotos y,
+///    más tarde, uno de tus pilotos entra en su radio y suena el de siempre. Son dos noticias
+///    distintas («está en tu camino» y «está cerca de ti»). Al revés no pasa: el de siempre va
+///    primero en cada vuelta del vigilante, y si ya sonó, el plan no suena (solo marca).
+#[derive(Debug, Default)]
+pub struct Vistos {
+    pub siempre: HashSet<String>,
+    pub plan: HashSet<String>,
+}
+
 /// Lo que sale de una pasada: todas las marcas (para el panel) y, de ellas, cuáles hay que avisar
 /// AHORA (índices en `marcas`): las del tramo empezado que aún no habían avisado.
 #[derive(Debug, Default)]
@@ -71,10 +90,10 @@ pub struct PasadaPlan {
 /// `rep` es lo que el vigilante YA sacó de las líneas (sistema → (ts, autor, mensaje), con los
 /// «clear» aplicados): el troceador no se repite ni se toca.
 ///
-/// `alerted` es el MISMO conjunto de claves `"{sid}-{ts}"` que usa la alerta de tus personajes.
-/// Compartirlo es a propósito: un reporte que ya sonó porque estaba cerca de ti no vuelve a sonar
-/// por estar además en tu camino. Y la clave se apunta SOLO para el tramo empezado: si un hostil
-/// está en el camino a Amarr y aún no has salido, al pulsar «▶ Voy» en Amarr sí sonará.
+/// `vistos`: ver `Vistos`. Se LEE `siempre` (lo que ya sonó por tus personajes no vuelve a sonar
+/// por estar además en tu camino) y se escribe SOLO `plan`. La clave del plan se apunta SOLO para
+/// el tramo empezado, suene o no: si un hostil está en el camino a Amarr y aún no has salido, al
+/// pulsar «▶ Voy» en Amarr sí sonará.
 #[allow(clippy::too_many_arguments)]
 pub fn pasada(
     adj: &HashMap<i64, Vec<i64>>,
@@ -84,7 +103,7 @@ pub fn pasada(
     alert_jumps: i64,
     silenciado: &dyn Fn(i64) -> bool,
     alerts_enabled: bool,
-    alerted: &mut HashSet<String>,
+    vistos: &mut Vistos,
 ) -> PasadaPlan {
     let bfs = crate::commands::intel_bfs;
     let nombre = |sid: i64| id_to_name.get(&sid).cloned().unwrap_or_else(|| sid.to_string());
@@ -142,8 +161,10 @@ pub fn pasada(
             if t.empezado {
                 // La clave se apunta aunque no suene (silencio, maestro apagado): mismo criterio que
                 // la alerta de tus personajes, para que quitar el silencio no vacíe la noche encima.
-                let nueva = alerted.insert(format!("{sid}-{ts}"));
-                if nueva && aviso == "avisa" {
+                let clave = format!("{sid}-{ts}");
+                let ya_sono = vistos.siempre.contains(&clave);
+                let nueva = vistos.plan.insert(clave);
+                if nueva && aviso == "avisa" && !ya_sono {
                     out.avisar.push(out.marcas.len() - 1);
                 }
             }
@@ -183,7 +204,7 @@ mod tests {
     #[test]
     fn marca_siempre_avisa_solo_el_empezado() {
         let (adj, names) = grafo();
-        let mut alerted = HashSet::new();
+        let mut alerted = Vistos::default();
         // 3 está EN el tramo a S5 (y a 2 de S5, que es del segundo). 18 está a 3 de S15. 20, lejos.
         let r = rep(&[(3, 10), (18, 20)]);
         let p = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut alerted);
@@ -203,7 +224,7 @@ mod tests {
         assert_eq!(p.avisar.len(), 1);
         assert_eq!(p.marcas[p.avisar[0]].stop_id, 100);
         // Y no se apuntó la clave del que no suena: al pulsar «Voy» en ese tramo, sonará.
-        assert!(!alerted.contains("18-20"));
+        assert!(!alerted.plan.contains("18-20"));
 
         // Segunda pasada con lo mismo: ya sonó, no repite; las marcas siguen ahí.
         let p2 = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut alerted);
@@ -222,7 +243,7 @@ mod tests {
     #[test]
     fn radio_silencio_y_maestro() {
         let (adj, names) = grafo();
-        let mut alerted = HashSet::new();
+        let mut alerted = Vistos::default();
         // 20 está a 5 de S15: fuera con alert_jumps = 3.
         let p = pasada(&adj, &names, &rep(&[(20, 1)]), &tramos(), 3, &|_| false, true, &mut alerted);
         assert!(p.marcas.is_empty());
@@ -230,7 +251,7 @@ mod tests {
         let p = pasada(&adj, &names, &rep(&[(2, 2)]), &tramos(), 3, &|s| s == 2, true, &mut alerted);
         assert_eq!(p.marcas[0].aviso, "silenciado");
         assert!(p.avisar.is_empty());
-        assert!(alerted.contains("2-2"), "visto aunque no suene");
+        assert!(alerted.plan.contains("2-2"), "visto aunque no suene");
 
         let p = pasada(&adj, &names, &rep(&[(4, 3)]), &tramos(), 3, &|_| false, false, &mut alerted);
         assert_eq!(p.marcas.iter().find(|m| m.stop_id == 100).unwrap().aviso, "alertas_apagadas");
@@ -242,9 +263,38 @@ mod tests {
     #[test]
     fn no_suena_dos_veces() {
         let (adj, names) = grafo();
-        let mut alerted: HashSet<String> = ["3-10".to_string()].into_iter().collect();
+        let mut alerted = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), plan: HashSet::new() };
         let p = pasada(&adj, &names, &rep(&[(3, 10)]), &tramos(), 3, &|_| false, true, &mut alerted);
         assert!(p.avisar.is_empty());
         assert!(!p.marcas.is_empty(), "pero se sigue marcando");
+        assert!(alerted.plan.contains("3-10"), "y el plan lo apunta en lo suyo: no sonará luego");
+    }
+
+    /// El plan avisa y NO deja la clave en el conjunto del aviso de siempre: así, si más tarde un
+    /// piloto tuyo entra en el radio, el de siempre suena (es otra noticia).
+    #[test]
+    fn el_plan_no_escribe_en_el_de_siempre() {
+        let (adj, names) = grafo();
+        let mut v = Vistos::default();
+        let p = pasada(&adj, &names, &rep(&[(3, 10)]), &tramos(), 3, &|_| false, true, &mut v);
+        assert_eq!(p.avisar.len(), 1, "el plan avisa");
+        assert!(v.siempre.is_empty(), "y el conjunto del aviso de siempre queda intacto");
+        assert!(v.plan.contains("3-10"));
+    }
+
+    /// El plan no se repite a sí mismo: el mismo reporte, en la pasada siguiente, ya no suena. Y
+    /// tampoco suena dos veces si cae en DOS tramos empezados.
+    #[test]
+    fn el_plan_no_se_repite() {
+        let (adj, names) = grafo();
+        let mut v = Vistos::default();
+        let r = rep(&[(5, 10)]);
+        let mut t = tramos();
+        t[1].empezado = true; // S5 está en los dos tramos
+        let p1 = pasada(&adj, &names, &r, &t, 3, &|_| false, true, &mut v);
+        assert_eq!(p1.avisar.len(), 1, "un reporte en dos tramos empezados suena UNA vez");
+        assert_eq!(p1.marcas.len(), 2, "pero marca los dos");
+        let p2 = pasada(&adj, &names, &r, &t, 3, &|_| false, true, &mut v);
+        assert!(p2.avisar.is_empty(), "la pasada siguiente no repite");
     }
 }

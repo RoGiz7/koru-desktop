@@ -1165,7 +1165,10 @@ function App() {
             showGlobalAlert(`📄 ${tr("Nota")}${donde}: ${textos.join(" · ")}${extra}`, "nota");
           }
         })
-        .catch(() => {});
+        // ⚠️ Antes era `.catch(() => {})`: si el sondeo fallaba, las posiciones se quedaban como
+        //    estaban, sin ninguna señal. De momento solo deja rastro; que la pantalla lo diga queda
+        //    para otro día (ver el HANDOFF).
+        .catch((e) => console.error("[posiciones] el sondeo de posiciones falló; se siguen enseñando las de antes:", e));
     };
     sondear();
     const t = window.setInterval(sondear, POSITION_POLL_MS);
@@ -3677,6 +3680,17 @@ function App() {
               online: c.online ?? null,
             }))}
           characters={characters}
+          // ★ El PLAN recibe a TODOS los personajes, con sus permisos, elijas a quien elijas arriba.
+          //   `charLocations` (justo encima) se queda como está: de ella cuelgan los orígenes del intel
+          //   y quién cuenta para la proximidad. Ver `PilotoPlan` en plan.ts.
+          pilotosPlan={Object.values(cards).map((c) => ({
+            id: c.character_id,
+            name: c.name,
+            system_id: c.system_id ?? null,
+            ship_type_id: c.ship_type_id ?? null,
+            online: c.online ?? null,
+            scopes: c.scopes ?? [],
+          }))}
           ubicacionMotivo={ubicacionMotivo}
         />
 

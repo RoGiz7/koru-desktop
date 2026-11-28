@@ -43,13 +43,16 @@ export function useJumpPlanner() {
       setJumpFatError("");
       return;
     }
-    invoke<{ jdc: number; jfc: number; owned: number[] }>("get_jump_profile", {
+    invoke<{ jdc: number | null; jfc: number | null; owned: number[] | null }>("get_jump_profile", {
       characterId: jumpChar,
     })
       .then((p) => {
-        setJdcLevel(p.jdc);
-        setJfcLevel(p.jfc);
-        setJumpOwned(new Set(p.owned));
+        // ⚠️ El planificador de salto del mapa se queda EXACTAMENTE como estaba (sin datos = 0 y
+        //    lo ajustas a mano): desde el 28-11 `get_jump_profile` dice «no se sabe» con `null`, y
+        //    aquí se traduce a lo de antes a propósito. Que lo diga es trabajo pendiente, no de hoy.
+        setJdcLevel(p.jdc ?? 0);
+        setJfcLevel(p.jfc ?? 0);
+        setJumpOwned(new Set(p.owned ?? []));
       })
       .catch(() => setJumpOwned(new Set()));
     invoke<{ jump_fatigue_expire_date: string | null }>("get_fatigue", { characterId: jumpChar })

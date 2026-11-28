@@ -109,8 +109,31 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
     ⚠️ Con el panel cerrado el intermedio guardado se usa TAL CUAL, sin revalidar: el mapa no tiene
     ni el casco ni las skills de salto para el alcance.
   - La caché de rutas del cyno ya no caduca cada minuto (`cacheSalto`): se ata a `calcTramo`.
+- **El plan y el aviso de siempre ya no comparten el «ya avisado»** (28-11, `plan_intel::Vistos`).
+  El de siempre es exactamente el de antes del plan: ni lee ni escribe nada del plan. El plan LEE el
+  suyo (si ya sonó por tus personajes, el plan solo marca) y apunta en un conjunto propio.
+  ⚠️ **El único doble aviso, a propósito:** suena el plan por un reporte lejos de tus pilotos y, más
+  tarde, uno de tus pilotos entra en su radio y suena el de siempre. Son dos noticias distintas.
+  Antes compartían conjunto, y el plan callaba avisos de siempre según por dónde fuera su camino.
+- **El plan recibe a TODOS los personajes** (`pilotosPlan`, con sus permisos), elijas a quien elijas
+  arriba. Hasta el 28-11, con uno elegido el plan no sabía dónde estaba el cyno y vigilaba el camino
+  desde donde estabas tú, sin decirlo (también con el panel cerrado). `charLocations` no se tocó.
+- **`get_jump_profile` dice «no se sabe»** (`null` y el motivo, por separado skills y naves). Sin
+  permiso de skills el plan supone V y nombra el permiso. ⏳ El planificador de salto del mapa sigue
+  traduciéndolo a 0 a propósito (`useJumpPlanner.ts`): que lo diga está sin hacer.
 - **Los guiones del cálculo están en el repo** (`866f77d`): `scripts/verificar_plan.mjs` y
   `scripts/verificar_salud_intel.mjs`, puerta en `CLAUDE.md` si se tocan `plan.ts` o `saludIntel.ts`.
+
+## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
+
+`poll_positions` corre cada 30 s. Si falla la llamada entera, `App.tsx` se queda con las posiciones
+que tenía, y hasta el 28-11 el fallo se tragaba con `.catch(() => {})`. Ahora solo deja rastro en
+consola; la pantalla sigue sin decir nada. Y dentro de Rust, si falla UN personaje (su `/location/`
+o su `/ship/`), llega `null` y la app conserva el dato anterior, también en silencio.
+Lo que ve el piloto: sus personajes en el último sistema bueno, en el mapa, en el minimapa y en lo
+que mide la proximidad del intel, **sin límite de tiempo**: nadie más vuelve a traer posiciones
+(`refresh()` solo corre al arrancar, al iniciar sesión y al quitar o borrar un personaje). Hasta
+reiniciar Koru o que el sondeo vuelva a funcionar. Rediseñarlo es otra sesión.
 
 ## 🐛 ABIERTO: el intel deja de avisar (diagnosticado el 26-11, niveles 1 y 2 hechos, falta la raíz)
 

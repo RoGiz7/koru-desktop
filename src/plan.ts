@@ -49,6 +49,61 @@ export type Plan = {
   forma_id: number | null;
 };
 
+/** ★ UN PERSONAJE, TAL COMO LO VE EL PLAN. Llegan TODOS, siempre, en una prop propia: con un
+ *  personaje elegido arriba, `charLocations` (la de los orígenes del intel y la proximidad) lleva solo
+ *  a ese, y el plan no sabía dónde estaba el cyno. Calculaba el camino como si saliera de donde
+ *  estás tú, sin decirlo y también con el panel cerrado. `charLocations` NO se toca: de ella cuelga
+ *  el aviso de siempre.
+ *  Quien no tiene permiso de ubicación NO se cae de la lista: `system_id` nulo y sus `scopes`, para
+ *  poder decir POR QUÉ no se sabe. */
+export type PilotoPlan = {
+  id: number;
+  name: string;
+  system_id: number | null;
+  ship_type_id: number | null;
+  online: boolean | null;
+  scopes: string[];
+};
+export const SCOPE_UBICACION = "esi-location.read_location.v1";
+export const SCOPE_NAVE = "esi-location.read_ship_type.v1";
+
+/** Dónde está un personaje, o por qué no se sabe. «No se sabe» nunca es un sistema inventado. */
+export type Donde =
+  | { sistema: number }
+  /** `no_elegido`: no hay nadie en ese papel · `no_esta`: el id no está entre los personajes (aún
+   *  no cargados, o quitado de Koru) · `sin_permiso`: no concedió la ubicación · `sin_dato`: la tiene
+   *  concedida y ESI no la ha dado (todavía o por un fallo). */
+  | { noSeSabe: "no_elegido" | "no_esta" | "sin_permiso" | "sin_dato" };
+export function dondeEsta(pilotos: PilotoPlan[], id: number | null): Donde {
+  if (id == null) return { noSeSabe: "no_elegido" };
+  const p = pilotos.find((x) => x.id === id);
+  if (!p) return { noSeSabe: "no_esta" };
+  if (p.system_id != null) return { sistema: p.system_id };
+  return { noSeSabe: p.scopes.includes(SCOPE_UBICACION) ? "sin_dato" : "sin_permiso" };
+}
+export const sistemaDe = (d: Donde): number | null => ("sistema" in d ? d.sistema : null);
+
+/** Lo que devuelve `get_jump_profile` desde el 28-11: cada mitad con su motivo si falta. */
+export type PerfilSalto = {
+  jdc: number | null;
+  jfc: number | null;
+  skills_error: string | null;
+  owned: number[] | null;
+  assets_error: string | null;
+};
+/** ★ LAS SKILLS DE SALTO PARA EL CÁLCULO: las leídas o, si no se pueden leer, V… Y DICIÉNDOLO.
+ *  Hasta el 28-11, sin permiso de skills llegaba un 0 que parecía un dato: el alcance salía con JDC 0
+ *  y el aviso «se suponen a V» no aparecía nunca. `motivo` es el texto del fallo (el de
+ *  `FaltaScope` empieza por «Falta permiso: »), o el de la llamada entera si falló ella. */
+export function skillsDeSalto(
+  p: PerfilSalto | null,
+  errLlamada: string,
+): { jdc: number; jfc: number; motivo: string | null } {
+  if (!p) return { jdc: 5, jfc: 5, motivo: errLlamada || null };
+  if (p.jdc == null || p.jfc == null) return { jdc: 5, jfc: 5, motivo: p.skills_error ?? "sin skills y sin motivo" };
+  return { jdc: p.jdc, jfc: p.jfc, motivo: null };
+}
+
 /** Una manera de moverse, con nombre (tabla `forma_viaje`). Solo lo DECLARADO: lo del casco se
  *  resuelve por `casco_type_id` en `jumpships.json` al calcular, nunca se copia. */
 export type FormaViaje = {

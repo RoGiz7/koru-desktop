@@ -30,7 +30,7 @@ import type { MapOverlay, Tab } from "./constants";
 import { openExternal } from "./openExternal";
 import { NotasAncla } from "./notas";
 import { PlanNav } from "./planNav";
-import { PLAN_CAMBIADO, tramosEmpezados, type ParadaEmpezada, type PlanTramoIntel, type Tramo } from "./plan";
+import { PLAN_CAMBIADO, dondeEsta, sistemaDe, tramosEmpezados, type ParadaEmpezada, type PilotoPlan, type PlanTramoIntel, type Tramo } from "./plan";
 import type {
   IntelConfig,
   SysActivity,
@@ -324,6 +324,8 @@ export function MapView(props: {
   hereSystemId?: number | null;
   hereCharId?: number | null;
   charLocations?: CharLoc[];
+  /** TODOS los personajes, para el plan (ver `PilotoPlan`). No es `charLocations`: esa es la del intel. */
+  pilotosPlan?: PilotoPlan[];
   characters?: Character[];
   /** Por qué no hay nadie situado, ya comprobado por App. El cartel lo DICE, no lo adivina. */
   ubicacionMotivo?: UbicacionMotivo;
@@ -399,6 +401,7 @@ export function MapView(props: {
     hereSystemId,
     hereCharId,
     charLocations,
+    pilotosPlan,
     ubicacionMotivo,
     characters = [],
   } = props;
@@ -2555,16 +2558,18 @@ export function MapView(props: {
       tramosEmpezados(empezadas, hereSystemId ?? null, calcTramo, nameOf, Date.now(), (e) => {
         // Fase 3a: si su plan va saltando, el camino es el del CYNO, desde donde esté él.
         if (!e.salto) return undefined;
-        const loc = e.cyno_character_id != null ? (charLocations ?? []).find((c) => c.id === e.cyno_character_id) : undefined;
+        // De `pilotosPlan` y NO de `charLocations`: con un personaje elegido arriba, esa solo lleva a
+        // ese, y el cyno «no estaba» aunque Koru supiera dónde.
+        const pilotos = pilotosPlan ?? [];
+        const loc = e.cyno_character_id != null ? pilotos.find((c) => c.id === e.cyno_character_id) : undefined;
         const nombre = e.cyno_character_id != null ? characters.find((c) => c.character_id === e.cyno_character_id)?.name : undefined;
         // Fase 3b: dónde está el que SALTA decide si el camino aún pasa por el intermedio.
-        const saltaEn =
-          e.salta_character_id != null ? (charLocations ?? []).find((c) => c.id === e.salta_character_id)?.system_id ?? null : null;
-        return { desde: loc?.system_id ?? null, quien: nombre ?? loc?.name ?? tr("el cyno"), saltaEn };
+        const saltaEn = sistemaDe(dondeEsta(pilotos, e.salta_character_id));
+        return { desde: sistemaDe(dondeEsta(pilotos, e.cyno_character_id)), quien: nombre ?? loc?.name ?? tr("el cyno"), saltaEn };
       }),
     // `nameOf` cambia en cada render; el nombre sale del mismo `ne` que `calcTramo`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tramosPanel, empezadas, hereSystemId, calcTramo, charLocations, characters],
+    [tramosPanel, empezadas, hereSystemId, calcTramo, pilotosPlan, characters],
   );
   const tramosVigiladosKey = JSON.stringify(tramosVigilados);
   useEffect(() => {
@@ -6345,7 +6350,7 @@ export function MapView(props: {
               killsErr={killsErr}
               onTramosIntel={setTramosPanel}
               characters={characters}
-              charLocations={charLocations ?? []}
+              pilotos={pilotosPlan ?? []}
               intelError={planIntelErr || empezadasErr}
               intercepting={intercepting}
               onPintar={(stops) => setRouteStops(stops)}

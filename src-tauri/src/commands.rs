@@ -6183,11 +6183,21 @@ pub async fn get_wallet_series_global(state: State<'_, AppState>) -> AppResult<W
 /// Perfil de salto del personaje: niveles de las skills relevantes + naves de salto que posee.
 /// JDC = Jump Drive Calibration (21611, rango), JFC = Jump Fuel Conservation (21610, fuel).
 /// `owned` = type_ids distintos en sus assets (el frontend cruza con el catálogo de naves).
+///
+/// ⚠️ NO SE SABE ≠ CERO. Hasta el 28-11 esto era «best-effort»: sin el permiso de skills devolvía
+///    JDC y JFC a 0, y sin el de assets `owned` vacío, sin error ninguno. El plan calculaba entonces
+///    el alcance con JDC 0 y no lo decía, porque su aviso «se suponen a V» solo salta con un error.
+///    Ahora cada mitad va por su lado: `None` y el motivo (el texto del error; si es `FaltaScope`
+///    empieza por «Falta permiso: »). Una no tira la otra: sin assets las skills siguen llegando.
 #[derive(Debug, Serialize)]
 pub struct JumpProfile {
-    pub jdc: i64,
-    pub jfc: i64,
-    pub owned: Vec<i64>,
+    pub jdc: Option<i64>,
+    pub jfc: Option<i64>,
+    /// Por qué no hay skills. `None` si llegaron.
+    pub skills_error: Option<String>,
+    pub owned: Option<Vec<i64>>,
+    /// Por qué no hay naves. `None` si llegaron.
+    pub assets_error: Option<String>,
 }
 
 #[tauri::command]
@@ -6195,31 +6205,28 @@ pub async fn get_jump_profile(
     character_id: i64,
     state: State<'_, AppState>,
 ) -> AppResult<JumpProfile> {
-    // Skills (best-effort: si falta el scope, quedan en 0 y el usuario los ajusta a mano).
-    let (mut jdc, mut jfc) = (0i64, 0i64);
-    if let Ok(token) =
-        token_with_scope(&state, character_id, "esi-skills.read_skills.v1", "Skills").await
-    {
-        if let Ok(s) = skills::skills(&state.esi, &state.db, character_id, &token).await {
-            for sk in &s.skills {
-                match sk.skill_id {
-                    21611 => jdc = sk.active_skill_level,
-                    21610 => jfc = sk.active_skill_level,
-                    _ => {}
-                }
-            }
+    // Skills. Una skill que no tiene entrenada SÍ es un 0 (lo sabemos); sin leerlas, no se sabe.
+    let skills = match token_with_scope(&state, character_id, "esi-skills.read_skills.v1", "Skills").await {
+        Ok(token) => skills::skills(&state.esi, &state.db, character_id, &token).await,
+        Err(e) => Err(e),
+    };
+    let (jdc, jfc, skills_error) = match skills {
+        Ok(s) => {
+            let nivel = |id: i64| s.skills.iter().find(|k| k.skill_id == id).map_or(0, |k| k.active_skill_level);
+            (Some(nivel(21611)), Some(nivel(21610)), None)
         }
-    }
-    // Naves que posee (best-effort: requiere scope de assets).
-    let mut owned = Vec::new();
-    if let Ok(token) =
-        token_with_scope(&state, character_id, "esi-assets.read_assets.v1", "Assets").await
-    {
-        owned = assets::owned_type_ids(&state.esi, &state.db, character_id, &token)
-            .await
-            .unwrap_or_default();
-    }
-    Ok(JumpProfile { jdc, jfc, owned })
+        Err(e) => (None, None, Some(e.to_string())),
+    };
+    // Naves que posee (permiso de assets).
+    let owned = match token_with_scope(&state, character_id, "esi-assets.read_assets.v1", "Assets").await {
+        Ok(token) => assets::owned_type_ids(&state.esi, &state.db, character_id, &token).await,
+        Err(e) => Err(e),
+    };
+    let (owned, assets_error) = match owned {
+        Ok(v) => (Some(v), None),
+        Err(e) => (None, Some(e.to_string())),
+    };
+    Ok(JumpProfile { jdc, jfc, skills_error, owned, assets_error })
 }
 
 /// Fatiga de salto del personaje (timer azul). `jump_fatigue_expire_date` es cuándo expira
@@ -8507,7 +8514,8 @@ pub struct IntelStatus {
 pub struct IntelWatch {
     pub cfg: std::sync::Mutex<Option<IntelWatchCfg>>,
     pub graph: std::sync::Mutex<IntelGraph>,
-    pub alerted: std::sync::Mutex<HashSet<String>>,
+    /// Los «ya avisado» de la alerta de siempre y del plan, separados: ver `plan_intel::Vistos`.
+    pub alerted: std::sync::Mutex<crate::plan_intel::Vistos>,
     pub started: std::sync::atomic::AtomicBool,
     pub status: std::sync::Mutex<IntelStatus>,
     /// Los tramos del plan abierto que aún no has hecho. APARTE de `cfg` a propósito: ver la trampa
@@ -9359,10 +9367,11 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                             if let Some(&d) = dist.get(sid) {
                                 if d <= cfg.alert_jumps {
                                     let key = format!("{sid}-{ts}");
+                                    // Solo `siempre`: esta alerta ni lee ni escribe nada del plan.
                                     let is_new = watch
                                         .alerted
                                         .lock()
-                                        .map(|mut a| a.insert(key))
+                                        .map(|mut a| a.siempre.insert(key))
                                         .unwrap_or(false);
                                     // `is_new` se registra SIEMPRE (aunque no alertemos): así, al
                                     // reactivar las alertas no se dispara de golpe todo lo que pasó

@@ -9,7 +9,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getLang, tr } from "./i18n";
 import { SystemSearch } from "./map";
 import type { RouteMode } from "./mapRoute";
-import type { CharLoc, Character, IntelStatus, JumpShip, NeSystem } from "./types";
+import type { Character, IntelStatus, JumpShip, NeSystem } from "./types";
 import { destinoSaltable } from "./jumpCalc";
 import { esFaltaPermiso } from "./errores";
 import { loadJson } from "./staticJson";
@@ -43,6 +43,12 @@ import {
   type PlanCargado,
   type PlanMarca,
   type PlanTramoIntel,
+  type PilotoPlan,
+  type PerfilSalto,
+  dondeEsta,
+  sistemaDe,
+  skillsDeSalto,
+  type Donde,
   type ResultadoParada,
   type Tramo,
   buscarIntermedio,
@@ -92,6 +98,19 @@ function textoAviso(a: PlanMarca["aviso"]): string {
     case "alertas_apagadas":
       return `🔕 ${tr("marcado, no suena: Intel en vivo está apagado")}`;
   }
+}
+
+/** Por qué no se sabe dónde está el cyno, y qué se supone. Frase entera por idioma. */
+function textoDondeNoSeSabe(pj: string, d: Donde): string {
+  const en = getLang() === "en";
+  const motivo = "noSeSabe" in d ? d.noSeSabe : "sin_dato";
+  const porque =
+    motivo === "sin_permiso"
+      ? en ? `${pj} hasn't granted the location permission (esi-location.read_location.v1)` : `${pj} no ha concedido el permiso de ubicación (esi-location.read_location.v1)`
+      : motivo === "no_esta"
+        ? en ? `${pj} isn't among your characters in Koru` : `${pj} no está entre tus personajes de Koru`
+        : en ? `ESI hasn't said where ${pj} is yet` : `ESI aún no ha dicho dónde está ${pj}`;
+  return en ? `${porque}: the cyno is assumed to start where the jumper does (the origin).` : `${porque}: se supone que el cyno sale de donde el que salta (el origen).`;
 }
 
 /** «hace 3 min» / «3 min ago». Sin `tr()` porque el ORDEN cambia de un idioma a otro: mismo
@@ -165,7 +184,8 @@ export function PlanNav(props: {
   /** Tus personajes, para los papeles (quién salta, quién pone el cyno). */
   characters: Character[];
   /** Dónde están: de aquí sale dónde está el cyno. */
-  charLocations: CharLoc[];
+  /** TODOS los personajes con sus permisos (ver `PilotoPlan`), no solo el elegido arriba. */
+  pilotos: PilotoPlan[];
   /** Pinta las paradas en el planificador del mapa: [origen, parada1, parada2…]. Saltando,
    *  [donde está el cyno, parada1, parada2…]: la línea amarilla es la ruta del cyno. */
   onPintar: (stops: number[]) => void;
@@ -181,7 +201,7 @@ export function PlanNav(props: {
   focusSystem: (sid: number) => void;
   onCerrar: () => void;
 }) {
-  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, charLocations, onPintar, onSaltos, conectado, rutaActual, intercepting, focusSystem, onCerrar } = props;
+  const { planId, nonce, systems, hereSystemId, nameOf, calcTramo, routeMode, kills, killsAt, killsErr, onTramosIntel, intelError, characters, pilotos, onPintar, onSaltos, conectado, rutaActual, intercepting, focusSystem, onCerrar } = props;
   const [cargado, setCargado] = useState<PlanCargado | null>(null);
   const [error, setError] = useState("");
   const [minSalto, setMinSalto] = useState(() => leerNum(MIN_SALTO_KEY, DEF_MIN_SALTO));
@@ -248,10 +268,12 @@ export function PlanNav(props: {
   const salta = plan?.salta_character_id ?? null;
   const cyno = plan?.cyno_character_id ?? null;
   const nombrePj = (id: number) => characters.find((c) => c.character_id === id)?.name ?? `#${id}`;
-  const cynoLoc = cyno != null ? charLocations.find((c) => c.id === cyno)?.system_id ?? null : null;
-  const saltaLoc = salta != null ? charLocations.find((c) => c.id === salta)?.system_id ?? null : null;
+  const cynoDonde = dondeEsta(pilotos, cyno);
+  const saltaDonde = dondeEsta(pilotos, salta);
+  const cynoLoc = sistemaDe(cynoDonde);
+  const saltaLoc = sistemaDe(saltaDonde);
   // Del que salta: sus niveles y su fatiga. Cada fallo dice cuál fue (sin permiso ≠ ESI caído).
-  const [perfil, setPerfil] = useState<{ jdc: number; jfc: number } | null>(null);
+  const [perfil, setPerfil] = useState<PerfilSalto | null>(null);
   const [perfilErr, setPerfilErr] = useState("");
   const [fatiga, setFatiga] = useState<{ expire: string | null; last: string | null } | null>(null);
   const [fatigaErr, setFatigaErr] = useState<{ permiso: boolean; msg: string } | null>(null);
@@ -262,8 +284,8 @@ export function PlanNav(props: {
     setFatigaErr(null);
     if (!saltando || salta == null) return;
     let vivo = true;
-    invoke<{ jdc: number; jfc: number }>("get_jump_profile", { characterId: salta })
-      .then((p) => vivo && setPerfil({ jdc: p.jdc, jfc: p.jfc }))
+    invoke<PerfilSalto>("get_jump_profile", { characterId: salta })
+      .then((p) => vivo && setPerfil(p))
       .catch((e) => vivo && setPerfilErr(String(e)));
     invoke<{ jump_fatigue_expire_date: string | null; last_jump_date: string | null }>("get_fatigue", { characterId: salta })
       .then((f) => vivo && setFatiga({ expire: f.jump_fatigue_expire_date, last: f.last_jump_date }))
@@ -301,8 +323,10 @@ export function PlanNav(props: {
   const sysIdx = useMemo(() => new Map(systems.map((x) => [x.id, x] as const)), [systems]);
   const ini = fatigaInicial(fatiga?.expire ?? null, fatiga?.last ?? null, ahora);
   // Sin «quién salta», o sin poder leer sus skills, se suponen a V: se dice en `supuestos`.
-  const jdc = perfil?.jdc ?? 5;
-  const jfc = perfil?.jfc ?? 5;
+  // Sin leerlas, V, y `skillsSalto.motivo` lo dice (en `supuestos`). Nunca un 0 que parezca un dato.
+  const skillsSalto = skillsDeSalto(perfil, perfilErr);
+  const jdc = skillsSalto.jdc;
+  const jfc = skillsSalto.jfc;
   const alcance = casco ? casco.range * (1 + 0.2 * jdc) : 0;
   const lyEntre = (a: number, b: number) => {
     const A = sysIdx.get(a);
@@ -978,7 +1002,16 @@ export function PlanNav(props: {
     if (salta == null) {
       supuestos.push(tr("Sin «quién salta»: se suponen Jump Drive Calibration y Jump Fuel Conservation a V, y sin fatiga."));
     } else {
-      if (perfilErr) supuestos.push(`${tr("No se pudieron leer las skills de salto de")} ${nombrePj(salta)} (${perfilErr}): ${tr("se suponen a V.")}`);
+      if (skillsSalto.motivo != null) {
+        const pj = nombrePj(salta);
+        supuestos.push(
+          esFaltaPermiso(skillsSalto.motivo)
+            ? getLang() === "en"
+              ? `${pj} hasn't granted the skills permission (esi-skills.read_skills.v1): Jump Drive Calibration and Jump Fuel Conservation are assumed at V.`
+              : `${pj} no ha concedido el permiso de skills (esi-skills.read_skills.v1): se suponen Jump Drive Calibration y Jump Fuel Conservation a V.`
+            : `${tr("No se pudieron leer las skills de salto de")} ${pj} (${skillsSalto.motivo}): ${tr("se suponen a V.")}`,
+        );
+      }
       if (fatigaErr) {
         supuestos.push(
           fatigaErr.permiso
@@ -993,7 +1026,7 @@ export function PlanNav(props: {
       );
     }
     if (cyno == null) supuestos.push(tr("Sin «quién pone el cyno»: se supone que sale de donde el que salta (el origen)."));
-    else if (cynoLoc == null) supuestos.push(`${tr("No se sabe dónde está")} ${nombrePj(cyno)}: ${tr("se supone que el cyno sale de donde el que salta (el origen).")}`);
+    else if (cynoLoc == null) supuestos.push(textoDondeNoSeSabe(nombrePj(cyno), cynoDonde));
   }
   // ---- editor de la forma de viajar ----
   const [editando, setEditando] = useState<FormaViaje | null>(null);
