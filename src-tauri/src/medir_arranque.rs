@@ -44,6 +44,10 @@ static TITULAR: Mutex<String> = Mutex::new(String::new());
 /// Cuándo lo cogió el titular. Quien esperaba lo consigue justo al soltarse, así que «ahora − esto» al
 /// conseguirlo es cuánto lo TUVO el titular (si nadie más se coló entre medias).
 static TITULAR_DESDE: Mutex<Option<Instant>> = Mutex::new(None);
+/// CADA vez que alguien coge el candado en el primer minuto: (ms desde el inicio, quién · sitio). Un
+/// `Mutex` no es justo, y mientras el hilo principal espera pueden pasar varios por delante; el
+/// titular del momento en que empezó a esperar no lo cuenta todo. Esto sí.
+static ADQUISICIONES: Mutex<Vec<(f64, String)>> = Mutex::new(Vec::new());
 
 thread_local! {
     /// Lo que lleva esperado el candado de la BD el comando que corre en ESTE hilo.
@@ -242,13 +246,46 @@ fn apuntar_titular(sitio: &'static std::panic::Location<'static>) {
         let p = *PASO_SYNC.lock().unwrap_or_else(|e| e.into_inner());
         format!("fondo · {p}")
     });
-    *TITULAR.lock().unwrap_or_else(|e| e.into_inner()) = format!("{q} · {}:{}", sitio.file(), sitio.line());
-    *TITULAR_DESDE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    let quien = format!("{q} · {}:{}", sitio.file(), sitio.line());
+    let ahora = Instant::now();
+    let ms = ms_desde_inicio(ahora);
+    if ms <= VENTANA_MS {
+        ADQUISICIONES.lock().unwrap_or_else(|e| e.into_inner()).push((ms, quien.clone()));
+    }
+    *TITULAR.lock().unwrap_or_else(|e| e.into_inner()) = quien;
+    *TITULAR_DESDE.lock().unwrap_or_else(|e| e.into_inner()) = Some(ahora);
 }
 
 /// El informe: lo que se pega. Solo nombres del código y milisegundos.
 pub fn informe() -> String {
-    componer(&estado(), HILO_PRINCIPAL.get().is_some())
+    let adq = ADQUISICIONES.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    componer(&estado(), HILO_PRINCIPAL.get().is_some()) + &componer_cola(&estado(), &adq)
+}
+
+/// Debajo de cada comando que esperó la BD más de `UMBRAL_MS`: quién cogió el candado mientras
+/// esperaba, en orden y con su hora. Entre una y la siguiente, lo que lo tuvo cada uno (como mucho).
+fn componer_cola(e: &Estado, adq: &[(f64, String)]) -> String {
+    let mut o = String::from("\n-- Quién cogió la BD mientras esperaba cada comando (ms desde run(); «tuvo ≤» hasta la siguiente)\n");
+    let mut alguno = false;
+    for c in e.comandos.iter().filter(|c| c.espera_bd_ms > UMBRAL_MS) {
+        alguno = true;
+        o += &format!("   {} (de {:.0} a {:.0}, {:.0} ms esperando):\n", c.nombre, c.ini_ms, c.ini_ms + c.dur_ms, c.espera_bd_ms);
+        // La que lo tenía al empezar a esperar es la última adquisición ANTES de `ini_ms`.
+        let desde = adq.iter().rposition(|(t, _)| *t <= c.ini_ms).unwrap_or(0);
+        let hasta = adq.iter().position(|(t, _)| *t > c.ini_ms + c.dur_ms).unwrap_or(adq.len());
+        let tramo = &adq[desde..hasta];
+        for (k, (t, q)) in tramo.iter().enumerate().take(25) {
+            let sig = tramo.get(k + 1).map(|x| x.0).unwrap_or(c.ini_ms + c.dur_ms);
+            o += &format!("      {t:>9.0}  tuvo ≤ {:>6.0} ms  {q}\n", sig - t);
+        }
+        if tramo.len() > 25 {
+            o += &format!("      … y {} más\n", tramo.len() - 25);
+        }
+    }
+    if !alguno {
+        o += "   (ninguno)\n";
+    }
+    o
 }
 
 /// El texto, sobre un `Estado` dado: puro, para poder probarlo sin la app.
@@ -356,6 +393,35 @@ mod tests {
         assert!(c.lock().is_ok());
         assert!(comando("x", || true));
         assert!(estado().comandos.is_empty(), "apagada no apunta nada");
+    }
+
+    /// La cola: mientras un comando espera, salen en orden los que cogieron el candado, empezando por
+    /// el que lo tenía al empezar a esperar; y no los de antes ni los de después.
+    #[test]
+    fn la_cola_de_quien_cogio_la_bd() {
+        let e = Estado {
+            tramos: vec![],
+            marcas: vec![],
+            comandos: vec![Comando {
+                nombre: "fleet_op_activa".into(),
+                ini_ms: 700.0,
+                dur_ms: 860.0,
+                espera_bd_ms: 860.0,
+                paso: "ninguno",
+                quien: String::new(),
+            }],
+        };
+        let adq = vec![
+            (100.0, "antes · zz_antes.rs:9".to_string()),
+            (650.0, "fondo · ninguno · bitacora.rs:1514".to_string()),
+            (900.0, "fondo · ninguno · mod.rs:4371".to_string()),
+            (1559.0, "fleet_op_activa · mod.rs:3624".to_string()),
+            (2000.0, "despues · zz_despues.rs:9".to_string()),
+        ];
+        let t = componer_cola(&e, &adq);
+        assert!(t.contains("bitacora.rs:1514") && t.contains("mod.rs:4371") && t.contains("mod.rs:3624"), "{t}");
+        assert!(!t.contains("zz_antes.rs") && !t.contains("zz_despues.rs"), "ni los de antes ni los de después: {t}");
+        assert!(t.contains("tuvo ≤    250 ms  fondo · ninguno · bitacora.rs:1514"), "{t}");
     }
 
     /// Encendida a mano en el test: un comando que coge el candado queda como su titular, y alguien
