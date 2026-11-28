@@ -25,6 +25,8 @@ import {
   muertesViejas,
   llega,
   formaSalto,
+  cacheSalto,
+  caminoVigilado,
   fatigaInicial,
   type FormaViaje,
   type FormaCalc,
@@ -308,6 +310,23 @@ export function PlanNav(props: {
     const x = sysIdx.get(s);
     return !!x && destinoSaltable(x.s, x.r);
   };
+  // ★ LAS RUTAS DEL CYNO, CON MEMORIA QUE NO CADUCA CON EL RELOJ. Dependen del grafo, del modo y de
+  //   los evitados, que es exactamente lo que cambia la identidad de `calcTramo`; nunca de la hora.
+  //   Antes vivían dentro de `formaSalto`, que se rehace cada minuto por «ahora», y se volvían a
+  //   buscar enteras cada minuto. Una por modo: la del panel (`base`, el de la línea amarilla) y las
+  //   dos de la comparación corta / segura.
+  const caches = useMemo(
+    () => ({
+      base: cacheSalto(lyEntre, (a, b) => calcTramo(a, b)),
+      shortest: cacheSalto(lyEntre, (a, b) => calcTramo(a, b, "shortest")),
+      safer: cacheSalto(lyEntre, (a, b) => calcTramo(a, b, "safer")),
+    }),
+    // `lyEntre` solo lee `sysIdx`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [calcTramo, sysIdx],
+  );
+  const cacheDe = (modo?: RouteMode) =>
+    modo === "shortest" ? caches.shortest : modo === "safer" ? caches.safer : modo ? undefined : caches.base;
   // Fase 3b: los intermedios ACEPTADOS, por índice de `tramos` (el 0 es el origen).
   const viasGuardadas = useMemo(() => [null, ...calc.map((x) => x.p.via_system_id ?? null)], [calc]);
   /** `prueba`: el cálculo con UN intermedio de más, sin guardarlo, para enseñar lo que costaría
@@ -323,6 +342,7 @@ export function PlanNav(props: {
       saltable: saltableSys,
       vias,
       rutaCyno: (a, b) => calcTramo(a, b, modo),
+      cache: cacheDe(modo),
       // Sin saber dónde está el cyno, se supone que sale de donde el que salta: se dice.
       cynoDesde: cynoLoc ?? origen,
       alcanceLy: alcance,
@@ -400,8 +420,9 @@ export function PlanNav(props: {
       // cyno (y si no se sabe dónde está, se supone que donde el que salta).
       const desde = saltando ? cynoLoc ?? saltaLoc ?? hereSystemId : hereSystemId;
       if (res.empezada && desde != null) {
-        const desdeAqui = calcTramo(desde, p.c.systemId);
-        if (desdeAqui) sistemas = desdeAqui.path;
+        // Fase 3b: la MISMA regla que con el panel cerrado. Aquí el intermedio ya viene validado
+        // por el cálculo (`r.salto.via` solo existe si se usó); el guardado que no sirve no entra.
+        sistemas = caminoVigilado(desde, p.c.systemId, saltando ? r.salto?.via ?? null : null, saltaLoc, calcTramo);
       }
       out.push({
         stop_id: r.stopId,
@@ -545,7 +566,10 @@ export function PlanNav(props: {
     const b = busca[stopId];
     return b && b.clave === clavesFila.get(stopId) ? b : null;
   };
-  const cxIntermedio = () => contextoIntermedio({ ly: lyEntre, saltable: saltableSys, rutaCyno: (a, b) => calcTramo(a, b), alcanceLy: alcance });
+  // La búsqueda comparte la caché del panel: las rutas que ya buscó el cálculo no se repiten, y las
+  // de la búsqueda le sirven al precio que se enseña después.
+  const cxIntermedio = () =>
+    contextoIntermedio({ ly: lyEntre, saltable: saltableSys, rutaCyno: (a, b) => calcTramo(a, b), alcanceLy: alcance, cache: caches.base });
   function buscarVia(r: ResultadoParada) {
     const clave = clavesFila.get(r.stopId);
     const nl = r.noLlega;
@@ -780,27 +804,30 @@ export function PlanNav(props: {
   /** `enIntermedio`: el salto sale de un intermedio, donde NO hay sitio. La espera dice DÓNDE se
    *  espera parado, que es la frase entera de la fase 3b. Frase entera por idioma: el orden cambia. */
   function lineaSalto(s: SaltoHecho, enIntermedio = false): string {
+    // Frase ENTERA por idioma, nunca trozos de `tr()` pegados. Antes era «esperas» + «al cyno» y
+    // «quedas con» + «de cooldown y»: que en inglés encajara era suerte, y un trozo como «al cyno»
+    // reutilizado en otra frase arrastra una traducción que allí no vale.
     const espera = s.espera;
     const en = getLang() === "en";
     const sitio = espera ? nameOf(espera.en) || `#${espera.en}` : "";
+    const m = espera ? minutos(espera.min) : "";
     const e = !espera
       ? enIntermedio
-        ? en
-          ? "you jump on as soon as you land"
-          : "sigues en cuanto llegas"
-        : tr("sales nada más acabar")
+        ? en ? "you jump on as soon as you land" : "sigues en cuanto llegas"
+        : en ? "you leave as soon as you finish" : "sales nada más acabar"
       : enIntermedio
         ? espera.quien === "cyno"
-          ? en
-            ? `you wait ${minutos(espera.min)} in ${sitio} for the cyno`
-            : `esperas ${minutos(espera.min)} en ${sitio} al cyno`
-          : en
-            ? `you wait ${minutos(espera.min)} in ${sitio} for your cooldown`
-            : `esperas ${minutos(espera.min)} en ${sitio} de cooldown`
+          ? en ? `you wait ${m} in ${sitio} for the cyno` : `esperas ${m} en ${sitio} al cyno`
+          : en ? `you wait ${m} in ${sitio} for your cooldown` : `esperas ${m} en ${sitio} de cooldown`
         : espera.quien === "cyno"
-          ? `${tr("esperas")} ${minutos(espera.min)} ${tr("al cyno")}`
-          : `${tr("esperas")} ${minutos(espera.min)} ${tr("de cooldown")}`;
-    return `⤴ ${unDecimal(s.ly)} ${tr("al")} · ⛽ ${s.isotopos.toLocaleString(getLang())} ${s.isotopo} · ${e} · ${tr("quedas con")} ~${minutos(s.cooldownMin)} ${tr("de cooldown y")} ~${minutos(s.fatigaMin)} ${tr("de fatiga")}`;
+          ? en ? `you wait ${m} for the cyno` : `esperas ${m} al cyno`
+          : en ? `you wait ${m} for your cooldown` : `esperas ${m} de cooldown`;
+    const iso = `${s.isotopos.toLocaleString(getLang())} ${s.isotopo}`;
+    const cd = minutos(s.cooldownMin);
+    const fat = minutos(s.fatigaMin);
+    return en
+      ? `⤴ ${unDecimal(s.ly)} ly · ⛽ ${iso} · ${e} · you're left with ~${cd} of cooldown and ~${fat} of fatigue`
+      : `⤴ ${unDecimal(s.ly)} al · ⛽ ${iso} · ${e} · quedas con ~${cd} de cooldown y ~${fat} de fatiga`;
   }
   // ---- fase 3b: textos del intermedio. Frases enteras por idioma: el orden de las piezas cambia. ----
   const nom = (sid: number) => nameOf(sid) || `#${sid}`;

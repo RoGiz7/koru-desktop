@@ -2557,7 +2557,10 @@ export function MapView(props: {
         if (!e.salto) return undefined;
         const loc = e.cyno_character_id != null ? (charLocations ?? []).find((c) => c.id === e.cyno_character_id) : undefined;
         const nombre = e.cyno_character_id != null ? characters.find((c) => c.character_id === e.cyno_character_id)?.name : undefined;
-        return { desde: loc?.system_id ?? null, quien: nombre ?? loc?.name ?? tr("el cyno") };
+        // Fase 3b: dónde está el que SALTA decide si el camino aún pasa por el intermedio.
+        const saltaEn =
+          e.salta_character_id != null ? (charLocations ?? []).find((c) => c.id === e.salta_character_id)?.system_id ?? null : null;
+        return { desde: loc?.system_id ?? null, quien: nombre ?? loc?.name ?? tr("el cyno"), saltaEn };
       }),
     // `nameOf` cambia en cada render; el nombre sale del mismo `ne` que `calcTramo`.
     // eslint-disable-next-line react-hooks/exhaustive-deps

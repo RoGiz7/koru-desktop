@@ -99,9 +99,13 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
   - ⏳ **Sin probar**: todo en pantalla (cómo se ve la fila, el «buscando…», que no congele la
     ventana, que la propuesta desaparezca al cambiar el modo), el `ALTER` sobre una BD real ya
     creada, y un intermedio de verdad en el juego.
-  - ⚠️ **Hueco conocido, fuera de alcance del brief (fase 2 no se tocaba):** con el panel CERRADO,
-    lo que vigila el intel de una parada empezada es la ruta del cyno directa a ella
-    (`tramosEmpezados`), no la que pasa por el intermedio. Con el panel abierto sí pasa por él.
+  - El camino vigilado de una parada EMPEZADA pasa por el intermedio mientras el que salta no esté
+    en él (y si no se sabe dónde está, también: vigilar de más es el lado seguro). Una regla,
+    `caminoVigilado`, para el panel abierto y el cerrado. Hasta el 28-11 se lo saltaban LOS DOS:
+    aquí ponía que con el panel abierto sí pasaba por él, y era falso.
+    ⚠️ Con el panel cerrado el intermedio guardado se usa TAL CUAL, sin revalidar: el mapa no tiene
+    ni el casco ni las skills de salto para el alcance.
+  - La caché de rutas del cyno ya no caduca cada minuto (`cacheSalto`): se ata a `calcTramo`.
 - **Los guiones del cálculo están en el repo** (`866f77d`): `scripts/verificar_plan.mjs` y
   `scripts/verificar_salud_intel.mjs`, puerta en `CLAUDE.md` si se tocan `plan.ts` o `saludIntel.ts`.
 

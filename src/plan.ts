@@ -268,6 +268,9 @@ export type ParamsSalto = {
   /** Fase 3b: el intermedio ACEPTADO para llegar a cada punto, por índice de `tramos` (el 0, el
    *  origen, no tiene). `null`/ausente = ninguno. Se revalida en cada pata: ver `formaSalto`. */
   vias?: (number | null)[];
+  /** La caché de distancias y rutas del cyno, si quien llama la quiere COMPARTIR entre formas y
+   *  entre minutos (ver `cacheSalto`). Sin ella, cada `formaSalto` estrena la suya. */
+  cache?: CacheSalto;
 };
 
 /** El estado que se arrastra de pata en pata. */
@@ -398,7 +401,24 @@ export type ContextoIntermedio = {
   saltable: (sys: number) => boolean;
   alcanceLy: number;
 };
-export function contextoIntermedio(p: Pick<ParamsSalto, "ly" | "rutaCyno" | "saltable" | "alcanceLy">): ContextoIntermedio {
+export function contextoIntermedio(
+  p: Pick<ParamsSalto, "ly" | "rutaCyno" | "saltable" | "alcanceLy" | "cache">,
+): ContextoIntermedio {
+  const c = p.cache ?? cacheSalto(p.ly, p.rutaCyno);
+  return { ly: c.ly, ruta: c.ruta, saltable: p.saltable, alcanceLy: p.alcanceLy };
+}
+
+/** Distancias y rutas del cyno, con memoria, por par de SISTEMAS. */
+export type CacheSalto = {
+  ly: (a: number, b: number) => number;
+  ruta: (a: number, b: number) => Tramo;
+};
+/** ★ Una caché que solo sabe de sistemas, NO de la hora. Las rutas dependen del grafo, del modo y de
+ *  los evitados (todo eso cambia la identidad del buscador que se le pasa) y las distancias, del
+ *  mapa; ninguna del reloj. Por eso quien la crea la ata a ESO y no a la forma de viajar: la forma
+ *  se rehace cada minuto porque lleva «ahora» (fatiga, cooldown, salida), y con la caché dentro las
+ *  rutas se tiraban y se volvían a buscar enteras cada minuto. */
+export function cacheSalto(ly: (a: number, b: number) => number, rutaCyno: (a: number, b: number) => Tramo): CacheSalto {
   const memoLy = new Map<number, number>();
   const memoRuta = new Map<number, Tramo>();
   const clave = (a: number, b: number) => a * 100_000_000 + b;
@@ -406,17 +426,15 @@ export function contextoIntermedio(p: Pick<ParamsSalto, "ly" | "rutaCyno" | "sal
     ly: (a, b) => {
       const k = clave(a, b);
       let v = memoLy.get(k);
-      if (v === undefined) memoLy.set(k, (v = p.ly(a, b)));
+      if (v === undefined) memoLy.set(k, (v = ly(a, b)));
       return v;
     },
     ruta: (a, b) => {
       if (a === b) return { saltos: 0, path: [a], wormhole: false };
       const k = clave(a, b);
-      if (!memoRuta.has(k)) memoRuta.set(k, p.rutaCyno(a, b));
+      if (!memoRuta.has(k)) memoRuta.set(k, rutaCyno(a, b));
       return memoRuta.get(k)!;
     },
-    saltable: p.saltable,
-    alcanceLy: p.alcanceLy,
   };
 }
 
@@ -865,7 +883,40 @@ export type ParadaEmpezada = {
   /** ¿Su plan va saltando? Entonces el camino vigilado es el del cyno (fase 3a). */
   salto: boolean;
   cyno_character_id: number | null;
+  /** Quien salta en su plan (solo saltando): dónde está decide si el camino aún pasa por el intermedio. */
+  salta_character_id: number | null;
+  /** Fase 3b: el intermedio aceptado (solo saltando). Con el panel cerrado se usa TAL CUAL: ver
+   *  `caminoVigilado`. */
+  via_system_id: number | null;
 };
+
+/** ★ FASE 3b · EL CAMINO QUE SE VIGILA HASTA UNA PARADA EMPEZADA. Una sola regla para el panel
+ *  abierto y el cerrado (antes cada uno hacía `calc(desde, destino)` y los dos se saltaban el
+ *  intermedio: el intel miraba un camino por el que el cyno no iba a pasar).
+ *  · Sin intermedio, o con el que salta YA en el intermedio: `desde → destino`, como en la 3a.
+ *  · Con intermedio y el que salta aún no está en él: `desde → intermedio → destino`.
+ *  · Sin saber dónde está el que salta: el camino LARGO, por el intermedio. Vigilar de más es el
+ *    lado seguro; de menos, un hostil en el camino que no suena.
+ *  ⚠️ Sin ruta en un trozo, se queda el OTRO trozo y el destino: nunca se tira nada en silencio. Sin
+ *     ninguna ruta, el intermedio y el destino. Y sin intermedio ni ruta, el destino solo (fase 2). */
+export function caminoVigilado(
+  desde: number | null,
+  dst: number,
+  via: number | null,
+  saltaEn: number | null,
+  calc: (desde: number, hasta: number) => Tramo,
+): number[] {
+  if (via == null || via === dst || saltaEn === via) {
+    const t = desde != null ? calc(desde, dst) : null;
+    return t ? t.path : [dst];
+  }
+  const ida = desde != null ? calc(desde, via) : null;
+  const vuelta = calc(via, dst);
+  if (ida && vuelta) return [...ida.path, ...vuelta.path.slice(1)];
+  if (vuelta) return vuelta.path; // ya empieza en el intermedio y acaba en el destino
+  if (ida) return [...ida.path, dst];
+  return [via, dst];
+}
 
 /** ★ FASE 2 · LO QUE SE VIGILA CON EL PLAN CERRADO. Cuando vuelas estás en EVE, no en el mapa de
  *  Koru: la vigilancia no puede depender de que el panel esté abierto. Con el panel cerrado no hay
@@ -883,7 +934,7 @@ export function tramosEmpezados(
   ahoraMs: number,
   /** Fase 3a: si el plan de esta parada va SALTANDO, quien cruza el camino es el CYNO: de dónde sale
    *  y cómo se llama. `undefined` = a puertas, el camino es el tuyo desde `aqui`, como en la fase 2. */
-  camino?: (e: ParadaEmpezada) => { desde: number | null; quien: string } | undefined,
+  camino?: (e: ParadaEmpezada) => { desde: number | null; quien: string; saltaEn?: number | null } | undefined,
 ): PlanTramoIntel[] {
   const out: PlanTramoIntel[] = [];
   for (const e of empezadas) {
@@ -892,11 +943,12 @@ export function tramosEmpezados(
     const c = camino?.(e);
     // Sin saber dónde está el cyno se SUPONE que sale de donde tú: se dice en el panel.
     const desde = c ? c.desde ?? aqui : aqui;
-    const t = desde != null ? calc(desde, e.system_id) : null;
+    // Fase 3b: el intermedio solo cuenta saltando (a puertas, Rust ya lo manda vacío).
+    const via = c ? e.via_system_id ?? null : null;
     out.push({
       stop_id: e.stop_id,
       destino: nameOf(e.system_id) || e.system_name,
-      sistemas: t ? t.path : [e.system_id],
+      sistemas: caminoVigilado(desde, e.system_id, via, c?.saltaEn ?? null, calc),
       empezado: true,
       ...(c ? { quien: c.quien } : {}),
     });

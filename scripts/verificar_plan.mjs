@@ -19,6 +19,7 @@ import { proponer, evaluar, cacheTramos, posponer, muertesTramo, bajaNula, cuest
 import { saltoFatiga, destinoSaltable } from "../src/jumpCalc.ts";
 import { llega, formaPuertas, formaSalto, fatigaInicial, separarImposibles } from "../src/plan.ts";
 import { buscarIntermedio, buscarIntermedioYa, contextoIntermedio, probarIntermedio, LOTE_INTERMEDIO } from "../src/plan.ts";
+import { cacheSalto } from "../src/plan.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -471,5 +472,43 @@ console.log("Fase 3b — el salto intermedio");
 }
 const fase3b = cuenta - fase1 - fase2 - salto - fase3;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b})`);
+console.log("Fase 3b, después — lo vigilado con intermedio y la caché de rutas");
+{
+  const H = 3600e3, ahora = 0;
+  // Cyno en 1 (Jita), intermedio 11, destino 3. Rutas de mentira: un sistema 90+x entre medias.
+  const ruta = (a, b) => ({ saltos: 2, path: [a, 90 + a, b], wormhole: false });
+  const emp = (via) => [{ stop_id: 51, system_id: 3, system_name: "Amarr", caduca_at: new Date(10 * H).toISOString(),
+    salto: true, cyno_character_id: 8, salta_character_id: 7, via_system_id: via }];
+  const nom = () => "";
+  const vig = (via, saltaEn, calc = ruta) => tramosEmpezados(emp(via), 1, calc, nom, ahora, () => ({ desde: 1, quien: "Cyno Alt", saltaEn }))[0].sistemas;
+  const largo = [1, 91, 11, 101, 3];
+  ok(JSON.stringify(vig(11, 1)) === JSON.stringify(largo), "panel cerrado, el que salta aún no está en el intermedio: cyno → intermedio → destino");
+  ok(JSON.stringify(vig(11, 11)) === JSON.stringify([1, 91, 3]), "el que salta ya está en el intermedio: cyno → destino, como en la 3a");
+  ok(JSON.stringify(vig(11, null)) === JSON.stringify(largo), "sin saber dónde está el que salta: el camino LARGO (vigilar de más)");
+  // Sin ruta en un trozo, se queda el otro y el destino.
+  const sinIda = (a, b) => (b === 11 ? null : ruta(a, b));
+  ok(JSON.stringify(vig(11, 1, sinIda)) === JSON.stringify([11, 101, 3]), "sin ruta hasta el intermedio: queda el trozo intermedio → destino");
+  const sinVuelta = (a, b) => (a === 11 ? null : ruta(a, b));
+  ok(JSON.stringify(vig(11, 1, sinVuelta)) === JSON.stringify([1, 91, 11, 3]), "sin ruta del intermedio al destino: queda cyno → intermedio, y el destino");
+  ok(JSON.stringify(vig(null, 1)) === JSON.stringify([1, 91, 3]), "sin intermedio: lo de siempre");
+
+  // La caché compartida: las rutas no se rehacen con el reloj, y el resultado es el mismo.
+  let n = 0;
+  const contar = (a, b) => (n++, { saltos: 3, path: [a, b], wormhole: false });
+  const pts = [1, 2, 3];
+  const base = { puntos: pts, ly: () => 5, saltable: () => true, rutaCyno: contar, cynoDesde: 1, alcanceLy: 8,
+    casco: { fatMult: 0.25, fuelPerLy: 700, isotope: "Helium Isotopes" }, jfc: 5, cicloCynoMin: 1, cynoMinPorSalto: 1, fatigaMin: 0 };
+  const P = [{ stopId: 61, systemId: 2, caducaMs: 5 * H }, { stopId: 62, systemId: 3, caducaMs: 6 * H }];
+  const tr3 = cacheTramos(pts, (a, b) => ({ saltos: 1, path: [a, b], wormhole: false }));
+  const cache = cacheSalto(base.ly, contar);
+  const conCache = (t) => proponer(P, tr3, t, 1, 45, formaSalto({ ...base, cooldownHastaMs: t, ahoraMs: t, cache }));
+  const sinCache = (t) => proponer(P, tr3, t, 1, 45, formaSalto({ ...base, cooldownHastaMs: t, ahoraMs: t }));
+  const a = conCache(0); const tras1 = n; const b = conCache(60e3); const tras2 = n;
+  ok(tras1 > 0 && tras2 === tras1, `con la caché compartida, el minuto siguiente no busca ninguna ruta (${tras1} y luego 0)`);
+  ok(JSON.stringify(b) === JSON.stringify(sinCache(60e3)), "y da exactamente lo mismo que con una caché nueva");
+  ok(JSON.stringify(a.mejor.orden) === JSON.stringify(b.mejor.orden), "el mismo orden un minuto después");
+}
+const fase3bTras = cuenta - fase1 - fase2 - salto - fase3 - fase3b;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras})`);
 process.exit(fallos ? 1 : 0);

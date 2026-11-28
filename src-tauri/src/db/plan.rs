@@ -198,6 +198,12 @@ pub struct ParadaEmpezada {
     pub salto: bool,
     /// El cyno de su plan, si la forma es `salto` y está puesto.
     pub cyno_character_id: Option<i64>,
+    /// Quien SALTA en su plan, si la forma es `salto` y está puesto: dónde está decide si el camino
+    /// vigilado pasa aún por el intermedio (ver `caminoVigilado` en plan.ts).
+    pub salta_character_id: Option<i64>,
+    /// Fase 3b: el intermedio aceptado para esta parada, si la forma es `salto`. Con el panel
+    /// cerrado no hay cálculo que lo revalide: se usa tal cual (vigilar de más es el lado seguro).
+    pub via_system_id: Option<i64>,
 }
 
 impl Db {
@@ -306,21 +312,22 @@ impl Db {
     /// marcas del mismo hostil. Las que no saben su sistema no se pueden rutar y no salen.
     pub fn plan_paradas_empezadas(&self) -> AppResult<Vec<ParadaEmpezada>> {
         let conn = self.conn.lock().unwrap();
-        let filas: Vec<(i64, String, i64, bool, Option<i64>)> = {
+        type Fila = (i64, String, i64, bool, Option<i64>, Option<i64>, Option<i64>);
+        let filas: Vec<Fila> = {
             let mut st = conn.prepare(
-                "SELECT s.id, s.kind, s.ref_id, COALESCE(f.modo = 'salto', 0), p.cyno_character_id \
+                "SELECT s.id, s.kind, s.ref_id, COALESCE(f.modo = 'salto', 0), p.cyno_character_id,                  p.salta_character_id, s.via_system_id \
                  FROM plan_stop s JOIN plan p ON p.id = s.plan_id \
                  LEFT JOIN forma_viaje f ON f.id = p.forma_id \
                  ORDER BY s.plan_id, s.orden, s.id",
             )?;
             let v = st
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
                 .collect::<Result<Vec<_>, _>>()?;
             v
         };
         let mut vistas = std::collections::HashSet::new();
         let mut out = Vec::new();
-        for (stop_id, kind, ref_id, salto, cyno) in filas {
+        for (stop_id, kind, ref_id, salto, cyno, salta, via) in filas {
             // Un kind que este Koru no conoce no puede estar empezado por este Koru: lo canta el
             // cargador, aquí solo no se vigila.
             let Some(k) = PlanKind::de_clave(&kind) else { continue };
@@ -334,6 +341,10 @@ impl Db {
                     caduca_at: r.caduca_at,
                     salto,
                     cyno_character_id: if salto { cyno } else { None },
+                    salta_character_id: if salto { salta } else { None },
+                    // A puertas no hay saltos: un intermedio guardado de cuando el plan saltaba no
+                    // pinta nada en el camino, igual que el cyno.
+                    via_system_id: if salto { via } else { None },
                 });
             }
         }
@@ -656,9 +667,14 @@ mod tests {
         let run_d = db.escalacion_run_start(d, None, None, None).unwrap();
         let e = db.plan_paradas_empezadas().unwrap();
         assert_eq!((e.len(), e[0].salto, e[0].cyno_character_id), (1, true, Some(8)), "saltando: el camino es del cyno");
+        assert_eq!((e[0].salta_character_id, e[0].via_system_id), (Some(7), None), "sin intermedio aceptado");
+        db.plan_via(e[0].stop_id, Some(30000142)).unwrap();
+        let e = db.plan_paradas_empezadas().unwrap();
+        assert_eq!(e[0].via_system_id, Some(30000142), "con el panel cerrado, el intermedio llega al vigilante");
         db.plan_forma(plan, None).unwrap();
         let e = db.plan_paradas_empezadas().unwrap();
         assert_eq!((e[0].salto, e[0].cyno_character_id), (false, None), "a puertas: tu camino, como en la fase 2");
+        assert_eq!((e[0].salta_character_id, e[0].via_system_id), (None, None), "a puertas no hay intermedio que vigilar");
         db.run_end(run_d, "done", None, None, None, None, None).unwrap();
         assert!(db.forma_borrar(fid).unwrap(), "sin planes, se borra");
         assert!(db.forma_borrar(pid_a_puertas).unwrap());
