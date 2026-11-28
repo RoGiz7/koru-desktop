@@ -41,6 +41,9 @@ static PASO_SYNC: Mutex<&'static str> = Mutex::new("ninguno");
 /// Quién cogió el candado de la BD la última vez: mientras está cogido, es quien lo TIENE. Lo pone
 /// cada `lock()` nada más conseguirlo; lo lee quien se encuentra el candado ocupado.
 static TITULAR: Mutex<String> = Mutex::new(String::new());
+/// Cuándo lo cogió el titular. Quien esperaba lo consigue justo al soltarse, así que «ahora − esto» al
+/// conseguirlo es cuánto lo TUVO el titular (si nadie más se coló entre medias).
+static TITULAR_DESDE: Mutex<Option<Instant>> = Mutex::new(None);
 
 thread_local! {
     /// Lo que lleva esperado el candado de la BD el comando que corre en ESTE hilo.
@@ -184,25 +187,34 @@ impl CandadoBd {
     pub fn new(c: Connection) -> Self {
         CandadoBd(Mutex::new(c))
     }
+    /// `#[track_caller]`: con la medición encendida, apunta DESDE DÓNDE (fichero y línea) se cogió el
+    /// candado, sin tocar ninguna de las 300 llamadas. Apagada, no cuesta nada: no se lee.
+    #[track_caller]
     pub fn lock(&self) -> LockResult<MutexGuard<'_, Connection>> {
         if !activa() {
             return self.0.lock();
         }
+        let sitio = std::panic::Location::caller();
         // Libre: se coge y se apunta quién lo tiene. Ocupado: se lee quién lo tiene ANTES de esperar.
         let quien = match self.0.try_lock() {
             Ok(g) => {
-                apuntar_titular();
+                apuntar_titular(sitio);
                 return Ok(g);
             }
             Err(TryLockError::Poisoned(p)) => {
-                apuntar_titular();
+                apuntar_titular(sitio);
                 return Err(p);
             }
-            Err(TryLockError::WouldBlock) => TITULAR.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+            Err(TryLockError::WouldBlock) => (
+                TITULAR.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+                *TITULAR_DESDE.lock().unwrap_or_else(|e| e.into_inner()),
+            ),
         };
         let t = Instant::now();
         let r = self.0.lock();
-        apuntar_titular();
+        // Lo que lo tuvo el titular: de cuando lo cogió hasta ahora, que es cuando se ha soltado.
+        let tuvo_ms = quien.1.map(|d| d.elapsed().as_secs_f64() * 1000.0);
+        apuntar_titular(sitio);
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         if ms > 0.5 {
             ESPERA_BD_MS.with(|c| c.set(c.get() + ms));
@@ -210,7 +222,11 @@ impl CandadoBd {
                 ESPERA_MAX_MS.with(|c| c.set(ms));
                 let p = *PASO_SYNC.lock().unwrap_or_else(|e| e.into_inner());
                 PASO_EN_ESPERA.with(|c| c.set(p));
-                TITULAR_EN_ESPERA.with(|c| *c.borrow_mut() = quien);
+                let texto = match tuvo_ms {
+                    Some(m) => format!("{} · lo tuvo {m:.0} ms", quien.0),
+                    None => quien.0,
+                };
+                TITULAR_EN_ESPERA.with(|c| *c.borrow_mut() = texto);
             }
         }
         r
@@ -220,12 +236,14 @@ impl CandadoBd {
 /// Apunta quién acaba de coger el candado: el comando de este hilo si corre uno en el manejador; si
 /// no, «fondo» y el paso de la sincronización. ⚠️ Los comandos `async` corren FUERA del manejador
 /// (Tauri los lanza en su runtime), así que salen como «fondo»: nombrarlos pediría tocar cada uno.
-fn apuntar_titular() {
+/// Y DESDE DÓNDE: fichero y línea del `lock()` (relativos al crate: ni rutas del usuario ni datos).
+fn apuntar_titular(sitio: &'static std::panic::Location<'static>) {
     let q = CMD_ACTUAL.with(|c| c.borrow().clone()).unwrap_or_else(|| {
         let p = *PASO_SYNC.lock().unwrap_or_else(|e| e.into_inner());
         format!("fondo · {p}")
     });
-    *TITULAR.lock().unwrap_or_else(|e| e.into_inner()) = q;
+    *TITULAR.lock().unwrap_or_else(|e| e.into_inner()) = format!("{q} · {}:{}", sitio.file(), sitio.line());
+    *TITULAR_DESDE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
 }
 
 /// El informe: lo que se pega. Solo nombres del código y milisegundos.
@@ -345,10 +363,11 @@ mod tests {
     #[test]
     fn titular_comando_o_fondo() {
         CMD_ACTUAL.with(|c| *c.borrow_mut() = Some("fleet_op_activa".into()));
-        apuntar_titular();
-        assert_eq!(*TITULAR.lock().unwrap(), "fleet_op_activa");
+        apuntar_titular(std::panic::Location::caller());
+        let t = TITULAR.lock().unwrap().clone();
+        assert!(t.starts_with("fleet_op_activa · ") && t.contains("medir_arranque.rs:"), "con su sitio: {t}");
         CMD_ACTUAL.with(|c| *c.borrow_mut() = None);
-        apuntar_titular();
+        apuntar_titular(std::panic::Location::caller());
         assert!(TITULAR.lock().unwrap().starts_with("fondo · "), "{}", TITULAR.lock().unwrap());
         TITULAR.lock().unwrap().clear();
     }
