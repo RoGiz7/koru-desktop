@@ -258,8 +258,11 @@ fn apuntar_titular(sitio: &'static std::panic::Location<'static>) {
 
 /// El informe: lo que se pega. Solo nombres del código y milisegundos.
 pub fn informe() -> String {
+    // ⚠️ UN solo `estado()`: el `Mutex` no es reentrante, y con dos en la misma expresión (lo que
+    //    hubo en c30526c) el hilo del informe se bloqueaba esperándose a sí mismo y no escribía nada.
     let adq = ADQUISICIONES.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    componer(&estado(), HILO_PRINCIPAL.get().is_some()) + &componer_cola(&estado(), &adq)
+    let e = estado();
+    componer(&e, HILO_PRINCIPAL.get().is_some()) + &componer_cola(&e, &adq)
 }
 
 /// Debajo de cada comando que esperó la BD más de `UMBRAL_MS`: quién cogió el candado mientras
@@ -393,6 +396,18 @@ mod tests {
         assert!(c.lock().is_ok());
         assert!(comando("x", || true));
         assert!(estado().comandos.is_empty(), "apagada no apunta nada");
+    }
+
+    /// `informe()` entero, no solo sus piezas: tiene que ACABAR. En c30526c cogía dos veces el mismo
+    /// `Mutex` y se quedaba bloqueado para siempre, y ningún test lo vio porque probaban las piezas.
+    #[test]
+    fn el_informe_acaba() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(informe());
+        });
+        let t = rx.recv_timeout(Duration::from_secs(5)).expect("informe() no acabó en 5 s: ¿un Mutex cogido dos veces?");
+        assert!(t.contains("Quién cogió la BD mientras esperaba"), "{t}");
     }
 
     /// La cola: mientras un comando espera, salen en orden los que cogieron el candado, empezando por
