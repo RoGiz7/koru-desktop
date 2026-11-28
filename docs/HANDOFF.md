@@ -6,9 +6,10 @@
 
 ## Estado
 
-- **`main` lleva CUARENTA Y UN commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `4643a40` está empujado; el siguiente, el de «sonó de verdad» con este fichero,
-  está **solo en local, sin push**.
+- **`main` lleva CUARENTA Y TRES commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `4643a40` está empujado; los TRES siguientes están **solo en local, sin push**:
+  «ya sonó» de lo que sonó de verdad (`3f59cb5`), «Usar B» con cuántos planes (`7eccab1`) y la
+  medición del arranque (el último, con este fichero).
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
@@ -28,7 +29,12 @@
   (`src/i18n.ts:328`). «No alerts» se leia como «ahora no hay avisos», que es la lectura benigna
   que esa release venia a quitar.
 
-- **SDE**: base en **`3749835`** (26-11), integrado y con el guardián en código 0. El 3744011 se
+- **SDE**: base en **`3749835`** (26-11), integrado y con el guardián en código 0.
+  ⏳ **Publicada la 3754864 (27-11), SIN integrar.** El guardián solo marca `types`, y comparado campo a
+  campo con la base cambian 8 tipos y solo en `published` (true → false): 8 SKIN «Frost Thorn» de
+  naves Navy/Fleet Issue. Al regenerar saldrían de `market_types.json` y `type_volumes.json` (sus
+  extractores filtran por publicado). `dogmaAttributes` sale «sin versión en la base» porque la lee
+  `extract_cyno_fit.py` desde el 28-11. El 3744011 se
   saltó a propósito: el guardián da el acumulado contra la base.
   ⚠️ El zip va a la `documentacion/` **HERMANA** (`../documentacion/sde-source/`), que es la que leen
   los extractores. Una ruta relativa lanzada desde el repo cae en la de DENTRO, y la comprobación del
@@ -143,6 +149,16 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
   - ⏳ Qué cyno lleva montado: NO se lee (hora y media de retraso y sin probar con datos reales).
   - ⚠️ «Usar B» cambia la nave del salto guardado, y un salto lo pueden usar varios planes: el botón
     lo dice en su título, no pide confirmación.
+
+## 🐛 ABIERTO: al abrir, la ventana se queda en «No responde» (28-11, paso 0 hecho, sin medir aún)
+
+Brief `documentacion/brief-arranque-no-responde.md`. **Hecho solo el paso 0: la medición**, detrás de
+`KORU_MEDIR_ARRANQUE=1` (apagada sin la variable; un test lo vigila). `src-tauri/src/medir_arranque.rs`:
+`setup()` medido DESDE FUERA (de `run()` al evento `Ready`; `setup()` no se tocó, es la raíz de la
+carrera de arranque), los tramos de `Db::open`, cada comando en el manejador (hilo principal) con lo
+que esperó el candado de la BD y el paso de `auto_sync` en marcha, y la cuenta de hilo principal sin
+atender. Informe a los 65 s en `%TEMP%\koru-arranque.txt`: solo nombres de comando y ms.
+⏳ Falta que RoGiz7 lo lance y pegue el resultado; con eso se propone el arreglo. Nada arreglado.
 
 ## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
 

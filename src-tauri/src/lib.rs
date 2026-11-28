@@ -14,6 +14,7 @@ mod esi;
 mod gamelog;
 mod graphics;
 mod medals;
+mod medir_arranque;
 mod plan_intel;
 mod social;
 mod sso;
@@ -84,218 +85,11 @@ pub fn run() {
     // LO PRIMERO DE TODO, y no es negociable el orden: las variables de entorno del renderizado
     // solo surten efecto si se ponen ANTES de que se cree la webview. Ver `graphics.rs`.
     graphics::preparar();
-
-    tauri::Builder::default()
-        // Instancia única: si se intenta abrir una 2ª, enfocamos la ventana existente.
-        // Debe registrarse ANTES que el resto de plugins.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }))
-        // ⚠️ CERRAR LA PRINCIPAL: qué significa depende de «Mantener Koru en marcha».
-        //
-        // ★ HISTORIA, que explica por qué esto no puede ser un simple `prevent_close`:
-        // Tauri termina el proceso cuando se destruyen TODAS las ventanas. Al añadir el overlay,
-        // cerrar Koru dejaba viva esa segunda ventana (aunque estuviera oculta) → el proceso seguía
-        // corriendo, el vigilante de intel seguía leyendo y los avisos SEGUÍAN SALIENDO encima del
-        // juego con la app «cerrada». Lo cazó RoGiz7: «le di a cerrar y sigo viendo el overlay».
-        // De ahí el `exit(0)` explícito de abajo.
-        //
-        // ★★ Y DE AHÍ TAMBIÉN QUE `prevent_exit` NO SIRVA AQUÍ (2026-09-02): `app.exit(0)` emite
-        // `ExitRequested` con `code = Some(0)`, y un código explícito NO se puede prevenir. Se vio
-        // en la consola: `prevent_exit aplicado` … y el proceso murió igual. La salida no es
-        // interceptar la salida: es **no pedirla**.
-        .on_window_event(|window, event| {
-            if window.label() != "main" {
-                return;
-            }
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                use tauri_plugin_autostart::ManagerExt;
-                let app = window.app_handle().clone();
-
-                // CON EL INTERRUPTOR ENCENDIDO: esconder y ya. Ni se toca el overlay ni se pide
-                // salir — el overlay tiene que seguir vivo, que para eso Koru se queda en marcha.
-                if app.autolaunch().is_enabled().unwrap_or(false) {
-                    api.prevent_close();
-                    let _ = window.hide();
-                    // El aviso va DESPUÉS de esconder, y ese orden importa: esconderse no puede
-                    // depender de que la notificación funcione. Si el sistema se la come, la X
-                    // sigue haciendo lo suyo.
-                    avisar_bandeja_una_vez(&app);
-                    return;
-                }
-
-                // APAGADO: exactamente lo de siempre, sin un cambio.
-                // 1) Cerrar a mano las ventanas SECUNDARIAS (el aviso y el minimapa). Son las que
-                //    impedían salir, y destruirlas antes deja a Tauri sin motivos para seguir vivo.
-                //
-                //    ⚠️ CADA VENTANA NUEVA QUE SE DECLARE EN `tauri.conf.json` HAY QUE AÑADIRLA
-                //    AQUÍ. Si se olvida, vuelve el Koru zombi: el proceso sigue vivo con la app
-                //    «cerrada», el vigilante de intel sigue leyendo y los avisos siguen saltando
-                //    encima del juego. Es el fallo que dio origen a todo este bloque.
-                if let Some(o) = app.get_webview_window("overlay") {
-                    let _ = o.close();
-                }
-                if let Some(m) = app.get_webview_window("minimapa") {
-                    let _ = m.close();
-                }
-                // 2) Salida ordenada: deja que Tauri haga su limpieza.
-                app.exit(0);
-                // 3) Red de seguridad. Si en 2 s el proceso sigue en pie —un hilo bloqueado, una
-                //    webview que no suelta—, se mata a lo bruto. Es aceptable porque SQLite va en
-                //    WAL y las escrituras de Koru son transacciones cerradas: lo confirmado está a
-                //    salvo. Un Koru zombi consumiendo y lanzando avisos con la app «cerrada» es
-                //    mucho peor que un cierre brusco.
-                std::thread::spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    std::process::exit(0);
-                });
-            }
-        })
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        // ★ AUTOARRANQUE. El argumento `--autostart` es lo que permite distinguir «me ha abierto el
-        // sistema» de «me ha abierto la persona»: en el primer caso Koru se queda en la bandeja sin
-        // enseñar ventana, que es justo lo que la hace soportable. Sin esa marca habría que
-        // adivinarlo, y adivinar mal significa una ventana saltando en cada arranque del PC.
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--autostart"]),
-        ))
-        .setup(|app| {
-            // ★ La carpeta de datos la decide `datadir`, NO `app_data_dir()`. Ver el porqué y la
-            // trampa en `datadir.rs`: el identifier sigue diciendo «rekium» a propósito, así que
-            // `app_data_dir()` apunta a la carpeta heredada y usarlo a pelo escribiría fuera.
-            // ★★ FASE 2 — LA MUDANZA, y va ANTES de resolver a propósito: si mueve algo, el
-            // resolutor de la línea siguiente tiene que encontrar ya la BD en la carpeta nueva.
-            // Solo hace algo si la vieja tiene BD y la nueva no; en cualquier otro estado devuelve
-            // `None` y no toca un byte. Ver `datadir::mudar_si_toca` para el porqué de cada paso.
-            if let Some(base) = app
-                .handle()
-                .path()
-                .app_data_dir()
-                .ok()
-                .and_then(|d| d.parent().map(|p| p.to_path_buf()))
-            {
-                let _ = datadir::mudar_si_toca(&base);
-            }
-            let data_dir = datadir::resolver(app.handle());
-            // Puede no existir todavía (instalación nueva): se crea aquí, antes de abrir la BD.
-            if let Err(e) = std::fs::create_dir_all(&data_dir) {
-                eprintln!("[koru] no se pudo crear {data_dir:?}: {e}");
-            }
-            let db_path = data_dir.join(datadir::FICHERO_BD);
-            eprintln!("[koru] datos en {db_path:?}");
-
-            // Restauración pendiente: si existe un archivo .restore (dejado por restore_db),
-            // lo aplicamos AHORA, con la BD aún cerrada. Reemplazamos la BD vigente y
-            // borramos los sidecar -wal/-shm para que no "revivan" datos antiguos.
-            let staging = commands::restore_staging_path(&db_path);
-            if staging.exists() {
-                let _ = std::fs::remove_file(&db_path);
-                let _ = std::fs::remove_file(db_path.with_extension("sqlite3-wal"));
-                let _ = std::fs::remove_file(db_path.with_extension("sqlite3-shm"));
-                if std::fs::rename(&staging, &db_path).is_err() {
-                    // rename puede fallar entre volúmenes distintos → copia + borrado.
-                    let _ = std::fs::copy(&staging, &db_path);
-                    let _ = std::fs::remove_file(&staging);
-                }
-            }
-
-            let db = Db::open(db_path.clone()).expect("no se pudo abrir la BD");
-
-            // ★ EL SELLO. Se LEE antes de escribirlo, o se leería lo de este mismo arranque.
-            //
-            // ⚠️ AVISA, NO BLOQUEA — y es una decisión, no un descuido. Las migraciones de Koru son
-            // aditivas, así que un binario viejo leyendo una BD nueva funciona casi siempre. Dejar
-            // a alguien sin poder abrir Koru con sus datos intactos ahí al lado es peor que el
-            // riesgo que evitaría, y basta un límite mal puesto para encerrar a todo el mundo.
-            // Donde SÍ hay que plantarse es al RESTAURAR una copia: ahí se sobrescriben datos
-            // buenos y la decisión la toma el usuario (ver `restore_db`).
-            {
-                let s = db.sello();
-                if s.mas_nueva_que_yo {
-                    eprintln!(
-                        "[koru] ⚠️ Esta base de datos la escribió una versión más nueva de Koru                          (esquema {:?}, escrita por {:?}) y esta versión entiende hasta el {}.                          Se abre igualmente, pero puede que no leas todo. Actualiza Koru.",
-                        s.esquema, s.escrito_por, crate::db::ESQUEMA
-                    );
-                }
-                db.sellar(app.package_info().version.to_string().as_str());
-            }
-            // Reintentar resoluciones de ubicación fallidas (estructuras de jugador que antes
-            // no se pudieron resolver, p. ej. por faltar el scope read_structures).
-            let _ = db.location_system_clear_negative();
-
-            let http = sso::http_client().expect("no se pudo crear el cliente HTTP");
-            let esi = EsiClient::new(http);
-
-            app.manage(AppState {
-                db,
-                db_path,
-                tokens: TokenManager::new(),
-                esi,
-                cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                intel: std::sync::Arc::new(commands::IntelWatch::default()),
-            });
-
-            // ★★ LA BANDEJA. Existe SIEMPRE, encendido o no el interruptor: es lo que garantiza
-            // que, si alguien lo enciende, tenga por dónde volver a abrir Koru y por dónde salir
-            // de verdad. Una app que se esconde sin dejar puerta es un ticket de soporte seguro.
-            {
-                use tauri::menu::{Menu, MenuItem};
-                use tauri::tray::TrayIconBuilder;
-
-                let abrir = MenuItem::with_id(app, "abrir", "Abrir Koru", true, None::<&str>)?;
-                // «Salir» cierra DE VERDAD. Con el interruptor encendido la X solo esconde, así
-                // que sin esta entrada no habría forma de terminar el proceso sin el administrador
-                // de tareas — y eso sí que es una queja garantizada.
-                let salir = MenuItem::with_id(app, "salir", "Salir", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&abrir, &salir])?;
-
-                TrayIconBuilder::with_id("koru")
-                    .icon(app.default_window_icon().unwrap().clone())
-                    .tooltip("Koru Desktop")
-                    .menu(&menu)
-                    // `false` a propósito: en Windows el clic izquierdo abre el menú por defecto, y
-                    // aquí queremos que el clic izquierdo ENSEÑE la ventana, que es lo que espera
-                    // cualquiera. El menú se abre con el derecho.
-                    .show_menu_on_left_click(false)
-                    .on_menu_event(|app, ev| match ev.id.as_ref() {
-                        "abrir" => mostrar_principal(app),
-                        "salir" => app.exit(0),
-                        _ => {}
-                    })
-                    .on_tray_icon_event(|tray, ev| {
-                        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = ev
-                        {
-                            mostrar_principal(tray.app_handle());
-                        }
-                    })
-                    .build(app)?;
-            }
-
-            // ★ ARRANQUE OCULTO. Solo cuando lo ha lanzado el sistema (`--autostart`). Si lo abres
-            // tú, la ventana sale como siempre — que alguien pulse el icono y no pase nada visible
-            // sería el peor estreno posible.
-            if std::env::args().any(|a| a == "--autostart") {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.hide();
-                }
-            }
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+    // Medición del arranque: APAGADA salvo con `KORU_MEDIR_ARRANQUE=1` (ver `medir_arranque.rs`).
+    medir_arranque::inicio();
+    // Todos los comandos pasan por aquí: medido solo con la bandera puesta (y si no, es el manejador
+    // de siempre). Se envuelve el manejador entero para no tocar ni uno de los 300 comandos.
+    let manejador: Box<dyn Fn(tauri::ipc::Invoke) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
             commands::login,
             commands::cancel_login,
             commands::list_characters,
@@ -636,7 +430,241 @@ pub fn run() {
             commands::social_scan,
             commands::social_overview,
             commands::social_thread,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    ]);
+
+    tauri::Builder::default()
+        // Instancia única: si se intenta abrir una 2ª, enfocamos la ventana existente.
+        // Debe registrarse ANTES que el resto de plugins.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        // ⚠️ CERRAR LA PRINCIPAL: qué significa depende de «Mantener Koru en marcha».
+        //
+        // ★ HISTORIA, que explica por qué esto no puede ser un simple `prevent_close`:
+        // Tauri termina el proceso cuando se destruyen TODAS las ventanas. Al añadir el overlay,
+        // cerrar Koru dejaba viva esa segunda ventana (aunque estuviera oculta) → el proceso seguía
+        // corriendo, el vigilante de intel seguía leyendo y los avisos SEGUÍAN SALIENDO encima del
+        // juego con la app «cerrada». Lo cazó RoGiz7: «le di a cerrar y sigo viendo el overlay».
+        // De ahí el `exit(0)` explícito de abajo.
+        //
+        // ★★ Y DE AHÍ TAMBIÉN QUE `prevent_exit` NO SIRVA AQUÍ (2026-09-02): `app.exit(0)` emite
+        // `ExitRequested` con `code = Some(0)`, y un código explícito NO se puede prevenir. Se vio
+        // en la consola: `prevent_exit aplicado` … y el proceso murió igual. La salida no es
+        // interceptar la salida: es **no pedirla**.
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                use tauri_plugin_autostart::ManagerExt;
+                let app = window.app_handle().clone();
+
+                // CON EL INTERRUPTOR ENCENDIDO: esconder y ya. Ni se toca el overlay ni se pide
+                // salir — el overlay tiene que seguir vivo, que para eso Koru se queda en marcha.
+                if app.autolaunch().is_enabled().unwrap_or(false) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    // El aviso va DESPUÉS de esconder, y ese orden importa: esconderse no puede
+                    // depender de que la notificación funcione. Si el sistema se la come, la X
+                    // sigue haciendo lo suyo.
+                    avisar_bandeja_una_vez(&app);
+                    return;
+                }
+
+                // APAGADO: exactamente lo de siempre, sin un cambio.
+                // 1) Cerrar a mano las ventanas SECUNDARIAS (el aviso y el minimapa). Son las que
+                //    impedían salir, y destruirlas antes deja a Tauri sin motivos para seguir vivo.
+                //
+                //    ⚠️ CADA VENTANA NUEVA QUE SE DECLARE EN `tauri.conf.json` HAY QUE AÑADIRLA
+                //    AQUÍ. Si se olvida, vuelve el Koru zombi: el proceso sigue vivo con la app
+                //    «cerrada», el vigilante de intel sigue leyendo y los avisos siguen saltando
+                //    encima del juego. Es el fallo que dio origen a todo este bloque.
+                if let Some(o) = app.get_webview_window("overlay") {
+                    let _ = o.close();
+                }
+                if let Some(m) = app.get_webview_window("minimapa") {
+                    let _ = m.close();
+                }
+                // 2) Salida ordenada: deja que Tauri haga su limpieza.
+                app.exit(0);
+                // 3) Red de seguridad. Si en 2 s el proceso sigue en pie —un hilo bloqueado, una
+                //    webview que no suelta—, se mata a lo bruto. Es aceptable porque SQLite va en
+                //    WAL y las escrituras de Koru son transacciones cerradas: lo confirmado está a
+                //    salvo. Un Koru zombi consumiendo y lanzando avisos con la app «cerrada» es
+                //    mucho peor que un cierre brusco.
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    std::process::exit(0);
+                });
+            }
+        })
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        // ★ AUTOARRANQUE. El argumento `--autostart` es lo que permite distinguir «me ha abierto el
+        // sistema» de «me ha abierto la persona»: en el primer caso Koru se queda en la bandeja sin
+        // enseñar ventana, que es justo lo que la hace soportable. Sin esa marca habría que
+        // adivinarlo, y adivinar mal significa una ventana saltando en cada arranque del PC.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
+        .setup(|app| {
+            // ★ La carpeta de datos la decide `datadir`, NO `app_data_dir()`. Ver el porqué y la
+            // trampa en `datadir.rs`: el identifier sigue diciendo «rekium» a propósito, así que
+            // `app_data_dir()` apunta a la carpeta heredada y usarlo a pelo escribiría fuera.
+            // ★★ FASE 2 — LA MUDANZA, y va ANTES de resolver a propósito: si mueve algo, el
+            // resolutor de la línea siguiente tiene que encontrar ya la BD en la carpeta nueva.
+            // Solo hace algo si la vieja tiene BD y la nueva no; en cualquier otro estado devuelve
+            // `None` y no toca un byte. Ver `datadir::mudar_si_toca` para el porqué de cada paso.
+            if let Some(base) = app
+                .handle()
+                .path()
+                .app_data_dir()
+                .ok()
+                .and_then(|d| d.parent().map(|p| p.to_path_buf()))
+            {
+                let _ = datadir::mudar_si_toca(&base);
+            }
+            let data_dir = datadir::resolver(app.handle());
+            // Puede no existir todavía (instalación nueva): se crea aquí, antes de abrir la BD.
+            if let Err(e) = std::fs::create_dir_all(&data_dir) {
+                eprintln!("[koru] no se pudo crear {data_dir:?}: {e}");
+            }
+            let db_path = data_dir.join(datadir::FICHERO_BD);
+            eprintln!("[koru] datos en {db_path:?}");
+
+            // Restauración pendiente: si existe un archivo .restore (dejado por restore_db),
+            // lo aplicamos AHORA, con la BD aún cerrada. Reemplazamos la BD vigente y
+            // borramos los sidecar -wal/-shm para que no "revivan" datos antiguos.
+            let staging = commands::restore_staging_path(&db_path);
+            if staging.exists() {
+                let _ = std::fs::remove_file(&db_path);
+                let _ = std::fs::remove_file(db_path.with_extension("sqlite3-wal"));
+                let _ = std::fs::remove_file(db_path.with_extension("sqlite3-shm"));
+                if std::fs::rename(&staging, &db_path).is_err() {
+                    // rename puede fallar entre volúmenes distintos → copia + borrado.
+                    let _ = std::fs::copy(&staging, &db_path);
+                    let _ = std::fs::remove_file(&staging);
+                }
+            }
+
+            let db = Db::open(db_path.clone()).expect("no se pudo abrir la BD");
+
+            // ★ EL SELLO. Se LEE antes de escribirlo, o se leería lo de este mismo arranque.
+            //
+            // ⚠️ AVISA, NO BLOQUEA — y es una decisión, no un descuido. Las migraciones de Koru son
+            // aditivas, así que un binario viejo leyendo una BD nueva funciona casi siempre. Dejar
+            // a alguien sin poder abrir Koru con sus datos intactos ahí al lado es peor que el
+            // riesgo que evitaría, y basta un límite mal puesto para encerrar a todo el mundo.
+            // Donde SÍ hay que plantarse es al RESTAURAR una copia: ahí se sobrescriben datos
+            // buenos y la decisión la toma el usuario (ver `restore_db`).
+            {
+                let s = db.sello();
+                if s.mas_nueva_que_yo {
+                    eprintln!(
+                        "[koru] ⚠️ Esta base de datos la escribió una versión más nueva de Koru                          (esquema {:?}, escrita por {:?}) y esta versión entiende hasta el {}.                          Se abre igualmente, pero puede que no leas todo. Actualiza Koru.",
+                        s.esquema, s.escrito_por, crate::db::ESQUEMA
+                    );
+                }
+                db.sellar(app.package_info().version.to_string().as_str());
+            }
+            // Reintentar resoluciones de ubicación fallidas (estructuras de jugador que antes
+            // no se pudieron resolver, p. ej. por faltar el scope read_structures).
+            let _ = db.location_system_clear_negative();
+
+            let http = sso::http_client().expect("no se pudo crear el cliente HTTP");
+            let esi = EsiClient::new(http);
+
+            app.manage(AppState {
+                db,
+                db_path,
+                tokens: TokenManager::new(),
+                esi,
+                cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                intel: std::sync::Arc::new(commands::IntelWatch::default()),
+            });
+
+            // ★★ LA BANDEJA. Existe SIEMPRE, encendido o no el interruptor: es lo que garantiza
+            // que, si alguien lo enciende, tenga por dónde volver a abrir Koru y por dónde salir
+            // de verdad. Una app que se esconde sin dejar puerta es un ticket de soporte seguro.
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::TrayIconBuilder;
+
+                let abrir = MenuItem::with_id(app, "abrir", "Abrir Koru", true, None::<&str>)?;
+                // «Salir» cierra DE VERDAD. Con el interruptor encendido la X solo esconde, así
+                // que sin esta entrada no habría forma de terminar el proceso sin el administrador
+                // de tareas — y eso sí que es una queja garantizada.
+                let salir = MenuItem::with_id(app, "salir", "Salir", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&abrir, &salir])?;
+
+                TrayIconBuilder::with_id("koru")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("Koru Desktop")
+                    .menu(&menu)
+                    // `false` a propósito: en Windows el clic izquierdo abre el menú por defecto, y
+                    // aquí queremos que el clic izquierdo ENSEÑE la ventana, que es lo que espera
+                    // cualquiera. El menú se abre con el derecho.
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, ev| match ev.id.as_ref() {
+                        "abrir" => mostrar_principal(app),
+                        "salir" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, ev| {
+                        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = ev
+                        {
+                            mostrar_principal(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            // ★ ARRANQUE OCULTO. Solo cuando lo ha lanzado el sistema (`--autostart`). Si lo abres
+            // tú, la ventana sale como siempre — que alguien pulse el icono y no pase nada visible
+            // sería el peor estreno posible.
+            if std::env::args().any(|a| a == "--autostart") {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+            Ok(())
+        })
+        .on_page_load(|_w, carga| {
+            if medir_arranque::activa() {
+                medir_arranque::marca(match carga.event() {
+                    tauri::webview::PageLoadEvent::Started => "página: empieza a cargar",
+                    tauri::webview::PageLoadEvent::Finished => "página: cargada",
+                });
+            }
+        })
+        .invoke_handler(move |invoke| {
+            // Apagada, el manejador de siempre y nada más (ni copiar el nombre).
+            if !medir_arranque::activa() {
+                return manejador(invoke);
+            }
+            let nombre = invoke.message.command().to_string();
+            medir_arranque::comando(&nombre, || manejador(invoke))
+        })
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        // `Ready` llega cuando el bucle de eventos arranca, o sea DESPUÉS de `setup()`: es la forma
+        // de medir `setup()` sin tocarlo. Solo apunta con la medición encendida.
+        .run(|_app, ev| {
+            if let tauri::RunEvent::Ready = ev {
+                medir_arranque::marca("Ready (setup terminado, el bucle de eventos arranca)");
+            }
+        });
 }

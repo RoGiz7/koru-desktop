@@ -9,10 +9,12 @@ use rusqlite::Connection;
 use rusqlite::OptionalExtension; // social_file_fresh: query_row().optional()
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 pub struct Db {
-    pub conn: Mutex<Connection>,
+    /// El candado de la BD. Mismo `lock()` que un `Mutex`; con `KORU_MEDIR_ARRANQUE=1` mide además
+    /// cuánto se espera (ver `medir_arranque.rs`). Apagado, es un `Mutex` y nada más.
+    pub conn: crate::medir_arranque::CandadoBd,
 }
 
 /// Fila cruda de un fiteo guardado (modules en JSON). El comando la convierte a la vista del frontend.
@@ -33,10 +35,16 @@ impl Db {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
+        // Los tramos de abajo solo se apuntan con la medición del arranque encendida.
+        let t0 = std::time::Instant::now();
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        crate::medir_arranque::tramo("Db::open · abrir y pragmas", t0);
+        let t0 = std::time::Instant::now();
         conn.execute_batch(include_str!("schema.sql"))?;
+        crate::medir_arranque::tramo("Db::open · esquema (schema.sql)", t0);
+        let t_alter = std::time::Instant::now();
         // Micro-migración defensiva: si la BD se creó antes de añadir `solo`, la añadimos.
         // Ignoramos el error "duplicate column name" si ya existe.
         let _ = conn.execute(
@@ -1047,12 +1055,15 @@ impl Db {
             );
         }
 
+        crate::medir_arranque::tramo("Db::open · ALTER, migraciones y limpiezas", t_alter);
         let db = Db {
-            conn: Mutex::new(conn),
+            conn: crate::medir_arranque::CandadoBd::new(conn),
         };
         // Diccionario ES→EN de ratas desde el SDE. Es catálogo, no dato del usuario: sembrarlo aquí
         // canoniza retroactivamente los años con el cliente en español SIN reescanear nada.
+        let t0 = std::time::Instant::now();
         let _ = db.seed_rat_alias();
+        crate::medir_arranque::tramo("Db::open · diccionario de ratas", t0);
         Ok(db)
     }
 }

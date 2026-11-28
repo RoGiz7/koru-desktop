@@ -320,6 +320,8 @@ pub struct BitacoraUnlockEvent {
 /// Recibe `app` (inyectado por Tauri) para poder avisar de logros nuevos de la Bitácora.
 #[tauri::command]
 pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<AutoSyncResult> {
+    // Medición del arranque (apagada salvo con la bandera): qué paso tiene el candado de la BD.
+    let _medida = crate::medir_arranque::EnSync::empieza();
     let mut res = AutoSyncResult {
         killmails: 0,
         wallet: 0,
@@ -341,6 +343,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
     let mut tareas_hechas: Vec<crate::db::StepFired> = Vec::new();
 
     // Precios de mercado primero (público, cacheado ≈1h) para valorar assets en los snapshots.
+    crate::medir_arranque::paso("auto_sync: precios");
     if let Ok(n) = market::sync_prices(&state.esi, &state.db).await {
         res.prices = n;
     }
@@ -400,6 +403,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         // mirara al abrir la sección, las fechas serían «el día que me acordé de mirar», no el día
         // en que se aprendió. Y lo que no se ve mientras la app está cerrada NO SE RECUPERA — ESI
         // no tiene historial de habilidades, así que cada sync perdido es historia perdida.
+        crate::medir_arranque::paso("auto_sync: skills");
         if has("esi-skills.read_skills.v1") {
             match skills::skills(&state.esi, &state.db, c.character_id, &valid.access_token).await {
                 Ok(s) => {
@@ -459,6 +463,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                 }
             }
         }
+        crate::medir_arranque::paso("auto_sync: killmails");
         if has("esi-killmails.read_killmails.v1") {
             match killmails::sync(&state.esi, &state.db, c.character_id, &valid.access_token).await
             {
@@ -485,6 +490,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                 }
             }
         }
+        crate::medir_arranque::paso("auto_sync: wallet");
         if has("esi-wallet.read_character_wallet.v1") {
             if let Ok(n) = wallet::sync_journal(
                 &state.esi,
@@ -505,6 +511,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
             )
             .await;
         }
+        crate::medir_arranque::paso("auto_sync: mineria");
         if has("esi-industry.read_character_mining.v1") {
             if let Ok(n) =
                 industry::sync_mining(&state.esi, &state.db, c.character_id, &valid.access_token)
@@ -517,6 +524,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         // todavía no haya ninguna pantalla que lo enseñe — la ventana de ESI aquí es MÁS corta que
         // la de industria (~30 días), así que esperar a construir el panel de estadísticas sería
         // construirlo sobre nada. Ver documentacion/SPEC_TRANSPORTE.md §3bis.
+        crate::medir_arranque::paso("auto_sync: contratos");
         if has("esi-contracts.read_character_contracts.v1") {
             match contracts::sync_contracts(&state.esi, &state.db, c.character_id, &valid.access_token)
                 .await
@@ -543,6 +551,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         // Trabajos de industria: se guardan AQUÍ y no solo al abrir la sección, porque la ventana
         // de ESI son 90 días. Quien no entre a Industria en tres meses perdería el trimestre
         // entero, y justo el que más fabrica es el que menos mira la lista.
+        crate::medir_arranque::paso("auto_sync: industria");
         if has("esi-industry.read_character_jobs.v1") {
             match industry::sync_jobs(&state.esi, &state.db, c.character_id, &valid.access_token)
                 .await
@@ -561,6 +570,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         // de sync (get_cached + ETag: los 304 son gratis) revisamos la caducidad de cada
         // extractor: <24h = aviso, <=0 = caducado. La clave incluye expiry: reinstalar el
         // extractor cambia la fecha → clave nueva → volverá a avisar cuando toque.
+        crate::medir_arranque::paso("auto_sync: planetas");
         if has("esi-planets.manage_planets.v1") {
             let cid = c.character_id;
             if let Ok(planets) = state
@@ -678,6 +688,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
         let mut asset_value = 0.0;
         let mut have_data = false;
         let mut skip_networth = false;
+        crate::medir_arranque::paso("auto_sync: wallet (segunda pasada)");
         if has("esi-wallet.read_character_wallet.v1") {
             if let Ok(b) =
                 wallet::balance(&state.esi, &state.db, c.character_id, &valid.access_token).await
@@ -686,6 +697,7 @@ pub async fn auto_sync(app: tauri::AppHandle, state: State<'_, AppState>) -> App
                 have_data = true;
             }
         }
+        crate::medir_arranque::paso("auto_sync: assets e inventario");
         if has("esi-assets.read_assets.v1") {
             // ⚠️ El inventario puede quedarse quieto por DOS motivos opuestos —«no se movió
             // nada» y «ni siquiera he mirado»— y desde fuera son idénticos. `get_cached` respeta
