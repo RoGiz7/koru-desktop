@@ -6,11 +6,10 @@
 
 ## Estado
 
-- **`main` lleva CUARENTA Y SIETE commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `b84f36e` está empujado; los CUATRO siguientes están **solo en local, sin push**:
-  el SDE apuntado como paso previo al corte (`031bd36`), el índice del saneo del wallet (`3d3c22c`),
-  el índice parcial de killmails con `intel_channels` asíncrono (`4824e95`) y quién tiene la BD en
-  la medición (el último, con este fichero).
+- **`main` lleva CINCUENTA Y DOS commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `3457086` está empujado; los CINCO siguientes están **solo en local, sin push**:
+  cuatro de medición del arranque (`ba1d6cc`, `c30526c`, `7fedbc7`, `603cf30`) y el arreglo de la
+  serie negra (el último, con este fichero).
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
@@ -177,7 +176,18 @@ tras el ALTER de la columna: de 76 a 0 ms en la copia, mismas filas rellenas.
 ✅ **`intel_channels`** (609 ms en el hilo principal, solo lista la carpeta) pasa a `async`.
 ✅ **La medición dice ahora QUIÉN tenía la BD** cuando un comando espera: el comando, o «fondo ·
 <paso del sync>». ⚠️ Los comandos `async` corren fuera del manejador y salen como «fondo».
-⏳ `fleet_op_activa` (478 ms esperando la BD): sin tocar, hasta ver quién la tenía.
+✅ **Las dos esperas que quedaban (28-11):** `fleet_op_activa` e `intel_record_lines` esperaban
+~870 ms cada una a `bitacora_series` y a `bitacora` (comandos `async` del arranque, y `bitacora`
+también desde `auto_sync`). En las dos, el ~75 % era `fleet_serie_negra`, que leía y parseaba los
+102 MB de JSON de TODOS los killmails para quedarse con los de las ventanas de las ops. Ahora pide
+a SQL solo los de esas ventanas (tramos juntados, con margen; con más de 200 tramos, la consulta de
+siempre). Release medida, antes → después: esperas 869 → 234 ms y 866 → 235 ms; hilo principal sin
+atender en el primer minuto 3.187 → 1.346 ms; tramo seguido más largo 949 → 930 ms (ahora es el
+propio arranque hasta Ready y los primeros comandos).
+⏳ Sin tocar a propósito: `bitacora` sigue con el candado cogido de principio a fin (~190 ms;
+escribe desbloqueos y la llaman a la vez la pantalla y `auto_sync`), y ningún comando pasa a async.
+🧪 Medir sin la app: `KORU_COPIA_BD=<copia> cargo test --release medir_sobre_copia -- --ignored
+--nocapture` (con `KORU_VOLCAR=<carpeta>` deja lo que devuelven, para comparar antes y después).
 
 ## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
 

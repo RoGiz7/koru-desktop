@@ -362,6 +362,36 @@ fn fleet_racha_semanas(ops: &[(i64, String, i64, i64)]) -> Vec<(String, f64)> {
     out
 }
 
+/// Más tramos que esto en el OR de `fleet_serie_negra`, y se usa la consulta sin filtro. Muy por
+/// debajo del límite de profundidad de expresión de SQLite (1000), y de sus variables (2 por tramo).
+const MAX_TRAMOS_OR: usize = 200;
+
+/// Las ventanas de las ops como tramos de FECHA (texto `YYYY-MM-DD`), juntando los que se solapan o
+/// se tocan: (desde, hasta), con `desde` incluido y `hasta` excluido.
+/// Margen: desde la fecha de `t0 − 1 día` hasta antes de la de `t1 + 2 días`. Un `killed_at` con
+/// desfase horario en el texto (como mucho 14 h) sigue cayendo dentro; el filtro exacto es otro.
+fn tramos_de_fechas(ops: &[(i64, String, i64, i64)]) -> Vec<(String, String)> {
+    let dia = |t: i64| chrono::DateTime::from_timestamp(t, 0).map(|d| d.format("%Y-%m-%d").to_string());
+    let mut t: Vec<(String, String)> = ops
+        .iter()
+        .filter_map(|(_, _, t0, t1)| Some((dia(t0 - 86_400)?, dia(t1 + 2 * 86_400)?)))
+        .collect();
+    t.sort();
+    let mut juntos: Vec<(String, String)> = Vec::new();
+    for (lo, hi) in t {
+        match juntos.last_mut() {
+            // Se solapan o se tocan (el «hasta» es excluido: lo == hi ya es contiguo).
+            Some(u) if lo <= u.1 => {
+                if hi > u.1 {
+                    u.1 = hi;
+                }
+            }
+            _ => juntos.push((lo, hi)),
+        }
+    }
+    juntos
+}
+
 /// «Serie negra»: los kills de la FLOTA en las ventanas de esas ops — killmails con algún
 /// atacante del roster y víctima de FUERA (mismo criterio que la película de la op), dedupe
 /// global por killmail_id (si dos ops se solapan por multibox, un kill puntúa UNA vez).
@@ -372,13 +402,43 @@ fn fleet_serie_negra(conn: &rusqlite::Connection, ops: &[(i64, String, i64, i64)
     }
     // UN paseo por los killmails: (epoch, kid, víctima, atacantes) ya parseados; luego cada
     // op solo filtra su ventana. Parsear el raw dentro del bucle de ops sería O(ops × kms).
-    let Ok(mut st) = conn.prepare(
-        "SELECT killed_at, raw FROM killmails WHERE killed_at IS NOT NULL AND raw IS NOT NULL",
-    ) else {
-        return Vec::new();
+    //
+    // ★ SOLO LOS DE LAS VENTANAS DE LAS OPS (28-11). Antes se leían y parseaban TODOS: medido en
+    //   una copia de una base real, 102 MB de JSON y ~510 ms, con el candado de la BD cogido; esta
+    //   función la llaman `bitacora` y `bitacora_series` al arrancar, y el hilo principal esperaba
+    //   detrás. Abajo, cada op se queda solo con `t0 <= t <= t1`, así que lo que cae fuera de TODAS
+    //   las ventanas nunca puntuaba: no leerlo no cambia el resultado.
+    //   ⚠️ El filtro de SQL es por TEXTO de `killed_at` y con margen: ver `tramos_de_fechas`. El
+    //      filtro EXACTO es el de siempre, en Rust, sobre `ts_rfc`. Una sola consulta con los tramos
+    //      en OR: cada killmail sale UNA vez aunque las ventanas se solapen (los de `kid == 0` no se
+    //      deduplican abajo, y salir dos veces los contaría doble).
+    //   🚨 Con demasiados tramos, la consulta de SIEMPRE, sin filtro: más lenta, mismo resultado. Un
+    //      OR de cientos de términos puede pasar la profundidad de expresión de SQLite (1000 por
+    //      defecto), y entonces `prepare` falla y la medalla salía a CERO sin decir nada.
+    let tramos = tramos_de_fechas(ops);
+    let filtrar = tramos.len() <= MAX_TRAMOS_OR;
+    let sql = if filtrar {
+        let condiciones: Vec<String> = (0..tramos.len())
+            .map(|i| format!("(killed_at >= ?{} AND killed_at < ?{})", 2 * i + 1, 2 * i + 2))
+            .collect();
+        format!(
+            "SELECT killed_at, raw FROM killmails WHERE killed_at IS NOT NULL AND raw IS NOT NULL AND ({})",
+            condiciones.join(" OR ")
+        )
+    } else {
+        "SELECT killed_at, raw FROM killmails WHERE killed_at IS NOT NULL AND raw IS NOT NULL".to_string()
+    };
+    let params: Vec<String> = if filtrar { tramos.into_iter().flat_map(|(lo, hi)| [lo, hi]).collect() } else { Vec::new() };
+    let mut st = match conn.prepare(&sql) {
+        Ok(st) => st,
+        Err(e) => {
+            // Lo que falla en silencio falla dos veces: una medalla a cero sin motivo no se ve.
+            eprintln!("[bitacora] la serie negra no pudo leer los killmails: {e}");
+            return Vec::new();
+        }
     };
     let mut kms: Vec<(i64, i64, Option<i64>, Vec<i64>)> = Vec::new();
-    if let Ok(rows) = st.query_map([], |r| {
+    if let Ok(rows) = st.query_map(rusqlite::params_from_iter(params.iter()), |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
     }) {
         for (ka, raw) in rows.flatten() {
@@ -3360,4 +3420,121 @@ pub struct LogiPilot {
     pub hp_armor: f64,
     pub hp_hull: f64,
     pub char_id: i64, // resuelto por ESI (nombre→id) para el retrato; 0 = sin resolver/no es PJ
+}
+
+#[cfg(test)]
+mod tests_serie_negra {
+    use super::*;
+
+    /// ★ La serie negra con su filtro de SQL por ventanas: lo que cuenta es lo de siempre. Datos de
+    /// mentira con los bordes que el margen tiene que cubrir. Dos ops solapadas (20:00–22:00 y
+    /// 21:00–23:00 UTC) con el mismo piloto 100 en el roster; esperado, a mano:
+    ///   · kid 1, 20:30Z, dentro de la 1 ...................................... 1
+    ///   · kid 2, 23:30+02:00 (21:30 UTC), en las dos; deduplicado por kid ...... 1
+    ///   · kid 0, 21:15Z, en las dos; los kid 0 no se deduplican ................ 2
+    ///   · kid 4, 2026-11-11T01:00+05:00 (= 20:00 UTC, el borde de la 1): el TEXTO
+    ///     es del día siguiente y tiene que entrar igual ........................ 1
+    ///   · kid 5, 09:00-12:00 (= 21:00 UTC, borde de la 2); en las dos ........... 1
+    ///   · kid 3, dos días después: fuera de las dos ............................ 0
+    ///   · kid 6, dentro pero la víctima es del roster (pérdida) .................. 0
+    /// Total: 6. Si el margen del filtro de SQL se queda corto, el kid 4 se pierde y salen 5.
+    #[test]
+    fn serie_negra_cuenta_lo_mismo_con_el_filtro_por_ventanas() {
+        let tmp = std::env::temp_dir().join(format!("koru-serie-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let db = Db::open(tmp.join("koru.db")).unwrap();
+        let c = db.conn.lock().unwrap();
+        for (op, ini, fin) in [(1, "2026-11-10T20:00:00Z", "2026-11-10T22:00:00Z"), (2, "2026-11-10T21:00:00Z", "2026-11-10T23:00:00Z")] {
+            c.execute(
+                "INSERT INTO fleet_op (op_id, fleet_id, boss_id, started_at, ended_at, ticks) VALUES (?1, 9, 7, ?2, ?3, 1)",
+                rusqlite::params![op, ini, fin],
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO fleet_member_state (op_id, character_id, first_seen, last_seen) VALUES (?1, 100, ?2, ?3)",
+                rusqlite::params![op, ini, fin],
+            )
+            .unwrap();
+        }
+        let km = |fila: i64, kid: i64, cuando: &str, victima: i64| {
+            let raw = format!(r#"{{"killmail_id":{kid},"victim":{{"character_id":{victima}}},"attackers":[{{"character_id":100}}]}}"#);
+            c.execute(
+                "INSERT INTO killmails (killmail_id, character_id, killed_at, raw) VALUES (?1, 7, ?2, ?3)",
+                rusqlite::params![fila, cuando, raw],
+            )
+            .unwrap();
+        };
+        km(1, 1, "2026-11-10T20:30:00Z", 999);
+        km(2, 2, "2026-11-10T23:30:00+02:00", 999);
+        km(10, 0, "2026-11-10T21:15:00Z", 999);
+        km(4, 4, "2026-11-11T01:00:00+05:00", 999);
+        km(5, 5, "2026-11-10T09:00:00-12:00", 999);
+        km(3, 3, "2026-11-12T21:00:00Z", 999);
+        km(6, 6, "2026-11-10T20:45:00Z", 100);
+        let ops = fleet_ops_grabadas(&c, None);
+        assert_eq!(ops.len(), 2);
+        let hits = fleet_serie_negra(&c, &ops);
+        assert_eq!(hits.len(), 6, "lo de siempre: {hits:?}");
+        assert_eq!(tramos_de_fechas(&ops).len(), 1, "las dos ventanas solapadas se juntan en un tramo");
+        drop(c);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+#[cfg(test)]
+mod tests_serie_negra_muchas_ops {
+    use super::*;
+
+    /// Con muchas más ops de las que caben en un OR (2.000 ventanas separadas por una semana: no se
+    /// pueden juntar), el resultado es el de la consulta SIN filtro, no vacío. Sin la guarda de
+    /// `MAX_TRAMOS_OR`, el OR pasa la profundidad de expresión de SQLite, `prepare` falla y la serie
+    /// sale vacía: este test salta.
+    #[test]
+    fn muchas_ops_cuentan_igual() {
+        let tmp = std::env::temp_dir().join(format!("koru-serie-muchas-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let db = Db::open(tmp.join("koru.db")).unwrap();
+        let mut c = db.conn.lock().unwrap();
+        let base = chrono::DateTime::parse_from_rfc3339("2001-01-01T20:00:00Z").unwrap().timestamp();
+        let iso = |t: i64| chrono::DateTime::from_timestamp(t, 0).unwrap().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        {
+            let tx = c.transaction().unwrap();
+            for op in 0..2000i64 {
+                let t0 = base + op * 7 * 86_400;
+                tx.execute(
+                    "INSERT INTO fleet_op (op_id, fleet_id, boss_id, started_at, ended_at, ticks) VALUES (?1, 9, 7, ?2, ?3, 1)",
+                    rusqlite::params![op + 1, iso(t0), iso(t0 + 3600)],
+                )
+                .unwrap();
+                tx.execute(
+                    "INSERT INTO fleet_member_state (op_id, character_id, first_seen, last_seen) VALUES (?1, 100, ?2, ?3)",
+                    rusqlite::params![op + 1, iso(t0), iso(t0 + 3600)],
+                )
+                .unwrap();
+            }
+            // Un kill dentro de la op 1.500 y otro fuera de todas (a mitad de semana).
+            let dentro = base + 1499 * 7 * 86_400 + 600;
+            let fuera = base + 1499 * 7 * 86_400 + 4 * 86_400;
+            for (fila, t) in [(1i64, dentro), (2, fuera)] {
+                let raw = format!(r#"{{"killmail_id":{fila},"victim":{{"character_id":999}},"attackers":[{{"character_id":100}}]}}"#);
+                tx.execute(
+                    "INSERT INTO killmails (killmail_id, character_id, killed_at, raw) VALUES (?1, 7, ?2, ?3)",
+                    rusqlite::params![fila, iso(t), raw],
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
+        let ops = fleet_ops_grabadas(&c, None);
+        assert_eq!(ops.len(), 2000);
+        assert!(tramos_de_fechas(&ops).len() > MAX_TRAMOS_OR, "el caso tiene que pasar del tope");
+        let hits = fleet_serie_negra(&c, &ops);
+        assert_eq!(hits, vec![base + 1499 * 7 * 86_400 + 600], "el kill de la op 1.500, como sin filtro; no vacío");
+        drop(c);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
