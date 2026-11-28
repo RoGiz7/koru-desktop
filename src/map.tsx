@@ -4676,7 +4676,18 @@ export function MapView(props: {
                     : []),
                 ]
               : []),
-            ...(routePath && routePath.length > 1 ? [{ color: "#ffd54a", label: tr("Ruta") }] : []),
+            // Con un plan a salto pintado hay DOS líneas y la leyenda explica las dos: la amarilla es
+            // la ruta del cyno por puertas, la morada punteada son los saltos (el mismo trazo, #c89bff).
+            ...(routePath && routePath.length > 1
+              ? lineaDelCyno
+                ? [
+                    { color: "#ffd54a", label: getLang() === "en" ? "Cyno's route (gates)" : "Ruta del cyno (puertas)" },
+                    ...(saltosPlan && saltosPlan.length > 0
+                      ? [{ color: "#c89bff", label: getLang() === "en" ? "Jumps" : "Saltos", dash: true }]
+                      : []),
+                  ]
+                : [{ color: "#ffd54a", label: tr("Ruta") }]
+              : []),
             ...(ansi && useAnsiblex && (overlay === "intel" || routeActive || jumpActive)
               ? [{ color: "#56d364", label: tr("Ansiblex") }]
               : []),
@@ -5127,7 +5138,13 @@ export function MapView(props: {
               {routePath && (
                 <span className="muted small">
                   {" · "}
-                  {routePath.length - 1} {tr("saltos")}
+                  {/* La misma frase que la cabecera de Navegación: con un plan a salto pintado, son las
+                      puertas del CYNO, no las tuyas. */}
+                  {lineaDelCyno
+                    ? getLang() === "en"
+                      ? `${routePath.length - 1} cyno gates`
+                      : `${routePath.length - 1} puertas del cyno`
+                    : `${routePath.length - 1} ${tr("saltos")}`}
                   {ansiLegs.size > 0 && <> · {ansiLegs.size} <AnsiBadge /></>}
                   {whLegs.size > 0 && <span style={{ color: "#3ad6e0" }}> · {whLegs.size} ◆</span>}
                 </span>

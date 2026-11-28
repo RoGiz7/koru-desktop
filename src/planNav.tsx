@@ -122,6 +122,14 @@ function textoAviso(a: PlanMarca["aviso"]): string {
   }
 }
 
+/** El piloto del cyno va en una nave que no puede montar ese tipo. UNA frase, la misma en el editor y
+ *  en el panel, y por idioma: el orden de las piezas cambia. */
+function textoNoMonta(pj: string, nave: string, t: TipoCyno): string {
+  return getLang() === "en"
+    ? `${pj}, who lights the cyno, is now in a ${nave}, which can't fit a ${nombreTipo(t)} cyno: counting the base duration.`
+    : `${pj}, que pone el cyno, va ahora en una ${nave}, que no puede montar un cyno ${nombreTipo(t).toLowerCase()}: se cuenta la duración base.`;
+}
+
 /** El nombre de un tipo de cyno, por idioma: lo único que dice su desplegable. */
 function nombreTipo(t: TipoCyno | null): string {
   const en = getLang() === "en";
@@ -1147,13 +1155,8 @@ export function PlanNav(props: {
             : `El catálogo de cynos no cargó: el cyno se cuenta con los minutos guardados en «${forma.nombre}» (${minutos(durCyno.min)}).`,
         );
       }
-      if (durCyno.puedeMontar === false && cyno != null) {
-        const nave = naveDe(cyno)?.ship ?? "?";
-        supuestos.push(
-          en
-            ? `${nombrePj(cyno)} is in a ${nave}, which can't fit a ${nombreTipo(forma.tipo_cyno)} cyno.`
-            : `${nombrePj(cyno)} está en una ${nave}, que no puede montar un cyno ${nombreTipo(forma.tipo_cyno).toLowerCase()}.`,
-        );
+      if (durCyno.puedeMontar === false && cyno != null && forma.tipo_cyno) {
+        supuestos.push(textoNoMonta(nombrePj(cyno), naveDe(cyno)?.ship ?? "?", forma.tipo_cyno));
       }
     }
     if (cyno == null) supuestos.push(tr("Sin «quién pone el cyno»: se supone que sale de donde el que salta (el origen)."));
@@ -1184,6 +1187,9 @@ export function PlanNav(props: {
         return en ? `${minutos(d.min)}: lit from a ${nave}, which halves it` : `${minutos(d.min)}: lo enciende una ${nave}, que lo deja en la mitad`;
       case "base":
         return en ? `${minutos(d.min)}: lit from a ${nave}, with no bonus` : `${minutos(d.min)}: lo enciende una ${nave}, sin bono`;
+      case "no_monta":
+        // Solo la duración: el porqué lo dice el aviso de debajo, una vez.
+        return en ? `${minutos(d.min)}: the base duration` : `${minutos(d.min)}: la duración base`;
       case "sin_casco":
         return en ? `${minutos(d.min)}: base, without a hull bonus (the cyno's ship isn't known)` : `${minutos(d.min)}: la base, sin bono (no se sabe la nave del cyno)`;
       case "a_mano":
@@ -1527,12 +1533,7 @@ export function PlanNav(props: {
                           )}
                         </label>
                         {d.puedeMontar === false && cyno != null && (
-                          <div className="route-scope-warn">
-                            ⚠{" "}
-                            {en
-                              ? `A ${naveDe(cyno)?.ship ?? "?"} can't fit a ${nombreTipo(tipoSel as TipoCyno)} cyno.`
-                              : `Una ${naveDe(cyno)?.ship ?? "?"} no puede montar un cyno ${nombreTipo(tipoSel as TipoCyno).toLowerCase()}.`}
-                          </div>
+                          <div className="route-scope-warn">⚠ {textoNoMonta(nombrePj(cyno), naveDe(cyno)?.ship ?? "?", tipoSel as TipoCyno)}</div>
                         )}
                       </>
                     );

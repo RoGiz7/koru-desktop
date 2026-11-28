@@ -137,14 +137,18 @@ export function duracionCyno(
   cascoEnciende: number | null,
   bases: CynoBase[],
   fit: CynoFit | null,
-): { min: number; motivo: "a_mano" | "bono" | "base" | "sin_casco" | "sin_catalogo"; puedeMontar: boolean | null } {
+): { min: number; motivo: "a_mano" | "bono" | "base" | "no_monta" | "sin_casco" | "sin_catalogo"; puedeMontar: boolean | null } {
   if (f.tipo_cyno == null) return { min: f.ciclo_cyno_min, motivo: "a_mano", puedeMontar: null };
   const c = fit?.cynos.find((x) => x.tipo === f.tipo_cyno);
   const base = c ? bases.find((b) => b.id === c.id)?.cycleMin : undefined;
   if (!c || base == null) return { min: f.ciclo_cyno_min, motivo: "sin_catalogo", puedeMontar: null };
   if (cascoEnciende == null) return { min: base, motivo: "sin_casco", puedeMontar: null };
+  // ⚠️ Un casco que NO puede montar ese tipo no lo enciende: ni bono ni «lo enciende una X». Antes la
+  //    línea decía «lo enciende una X, sin bono» y debajo «una X no puede montarlo»: las dos a la vez.
+  //    Se cuenta la base (el piloto irá en otra nave, y de más es el lado seguro) y se dice por qué.
+  if (!c.fitTypes.includes(cascoEnciende)) return { min: base, motivo: "no_monta", puedeMontar: false };
   const mult = fit!.durationMult[String(cascoEnciende)] ?? 1;
-  return { min: base * mult, motivo: mult !== 1 ? "bono" : "base", puedeMontar: c.fitTypes.includes(cascoEnciende) };
+  return { min: base * mult, motivo: mult !== 1 ? "bono" : "base", puedeMontar: true };
 }
 
 /** El tipo de cyno por defecto de un salto NUEVO: si el casco de quien lo enciende solo puede montar

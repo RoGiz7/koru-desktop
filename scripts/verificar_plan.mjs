@@ -607,6 +607,9 @@ console.log("Parte B — lo que Koru ya sabe, propuesto");
   ok(duracionCyno({ tipo_cyno: null, ciclo_cyno_min: 7 }, 601, bases, fit).motivo === "a_mano" && duracionCyno({ tipo_cyno: null, ciclo_cyno_min: 7 }, 601, bases, fit).min === 7,
     "D1: sin tipo (una fila de antes), a mano con su número");
   ok(duracionCyno({ tipo_cyno: "industrial", ciclo_cyno_min: 10 }, 601, bases, fit).puedeMontar === false, "D1: una Force Recon no monta el industrial: se dice, no se bloquea");
+  const noMonta = duracionCyno({ tipo_cyno: "industrial", ciclo_cyno_min: 99 }, 601, bases, fit);
+  ok(noMonta.motivo === "no_monta" && noMonta.min === 10,
+    "D1: el casco no monta ese tipo: la duración BASE (sin el bono de la Force Recon) y el motivo propio, sin «lo enciende una X»");
   ok(tipoCynoPorDefecto(602, fit) === "covert" && tipoCynoPorDefecto(601, fit) === null && tipoCynoPorDefecto(null, fit) === null,
     "por defecto: el único que cabe; si caben varios, no se adivina");
   // D1 con los catálogos REALES de public/ (datos del SDE, no de nadie): una Falcon enciende un normal en 5 min.
