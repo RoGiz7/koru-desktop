@@ -61,6 +61,8 @@ export type PilotoPlan = {
   name: string;
   system_id: number | null;
   ship_type_id: number | null;
+  /** El nombre del tipo de la nave en la que está («Falcon»), si se sabe. */
+  ship: string | null;
   online: boolean | null;
   scopes: string[];
 };
@@ -104,6 +106,125 @@ export function skillsDeSalto(
   return { jdc: p.jdc, jfc: p.jfc, motivo: null };
 }
 
+// ==== ★ PARTE B (28-11): LO QUE KORU YA SABE, PROPUESTO. Koru propone, nunca pone; y no se sabe ≠ no tiene. ====
+
+export type TipoCyno = "normal" | "covert" | "industrial";
+/** `public/cyno_fit.json` (`extract_cyno_fit.py`): qué cascos montan cada cyno y cuáles acortan su
+ *  duración. Del SDE, nunca escrito a mano. */
+export type CynoFit = { cynos: { id: number; tipo: TipoCyno; fitTypes: number[] }[]; durationMult: Record<string, number> };
+/** Los cynos de `jumpships.json`: de ahí sale la duración BASE (un número, un dueño). */
+export type CynoBase = { id: number; name: string; cycleMin: number };
+
+/** Lo que devuelve `plan_datos_salto`: lo que Koru tiene GUARDADO de cada personaje, sin ESI. */
+export type DatosSaltoPiloto = {
+  character_id: number;
+  naves: number[] | null;
+  naves_motivo: "sin_permiso" | "sin_acceso" | "sin_sincronizar" | null;
+  foto_at: string | null;
+  cft: number | null;
+  cft_motivo: "sin_permiso" | "sin_acceso" | "sin_sincronizar" | null;
+};
+
+/** ★ D1 · CUÁNTO DURA EL CYNO. Se CALCULA: la base del tipo × el multiplicador del casco de QUIEN LO
+ *  ENCIENDE (Force Recon y Black Ops, la mitad). El número a mano es la excepción.
+ *  · `a_mano`: no hay tipo; manda el número guardado.
+ *  · `sin_casco`: no se sabe en qué nave está quien lo enciende → la base SIN bono. De más es el lado
+ *    seguro: de menos prometería un margen que no hay.
+ *  · `sin_catalogo`: el tipo no está en los catálogos → el número guardado, y se dice.
+ *  `puedeMontar`: ¿ese casco monta ese tipo? `null` si no se sabe el casco. NO bloquea: se dice. */
+export function duracionCyno(
+  f: { tipo_cyno: TipoCyno | null; ciclo_cyno_min: number },
+  cascoEnciende: number | null,
+  bases: CynoBase[],
+  fit: CynoFit | null,
+): { min: number; motivo: "a_mano" | "bono" | "base" | "sin_casco" | "sin_catalogo"; puedeMontar: boolean | null } {
+  if (f.tipo_cyno == null) return { min: f.ciclo_cyno_min, motivo: "a_mano", puedeMontar: null };
+  const c = fit?.cynos.find((x) => x.tipo === f.tipo_cyno);
+  const base = c ? bases.find((b) => b.id === c.id)?.cycleMin : undefined;
+  if (!c || base == null) return { min: f.ciclo_cyno_min, motivo: "sin_catalogo", puedeMontar: null };
+  if (cascoEnciende == null) return { min: base, motivo: "sin_casco", puedeMontar: null };
+  const mult = fit!.durationMult[String(cascoEnciende)] ?? 1;
+  return { min: base * mult, motivo: mult !== 1 ? "bono" : "base", puedeMontar: c.fitTypes.includes(cascoEnciende) };
+}
+
+/** El tipo de cyno por defecto de un salto NUEVO: si el casco de quien lo enciende solo puede montar
+ *  uno, ese. Si puede varios (una Force Recon monta el normal y el covert), NO se adivina: `null`. */
+export function tipoCynoPorDefecto(cascoEnciende: number | null, fit: CynoFit | null): TipoCyno | null {
+  if (cascoEnciende == null || !fit) return null;
+  const puede = fit.cynos.filter((c) => c.fitTypes.includes(cascoEnciende));
+  return puede.length === 1 ? puede[0].tipo : null;
+}
+
+/** ★ B1 · LA NAVE QUE SALTA, PROPUESTA. Si la nave en la que está ahora es de salto, esa, y se dice
+ *  por qué. Si no, primero las de salto que posee y luego el resto del catálogo, separadas. Sin la
+ *  foto de assets, `posesion: "no_se_sabe"`: «no tiene ninguna» sería mentira. */
+export function proponerNave(
+  naveAhora: number | null,
+  datos: DatosSaltoPiloto | undefined,
+  catalogo: number[],
+): { propuesta: number | null; poseidas: number[]; resto: number[]; posesion: "sabe" | "no_se_sabe" } {
+  const propuesta = naveAhora != null && catalogo.includes(naveAhora) ? naveAhora : null;
+  const posee = new Set(datos?.naves ?? []);
+  const poseidas = catalogo.filter((t) => t !== propuesta && posee.has(t));
+  const resto = catalogo.filter((t) => t !== propuesta && !posee.has(t));
+  return { propuesta, poseidas, resto, posesion: datos?.naves != null ? "sabe" : "no_se_sabe" };
+}
+
+/** ★ B2 · LA NAVE GUARDADA NO ES LA QUE LLEVA. Solo si la que lleva AHORA es de salto (si va en una
+ *  lanzadera no hay nada que proponer). Sin pulsar «Usar», el cálculo sigue con la guardada. */
+export function avisoNave(guardada: number | null, naveAhora: number | null, catalogo: number[]): { guardada: number | null; ahora: number } | null {
+  if (naveAhora == null || !catalogo.includes(naveAhora) || naveAhora === guardada) return null;
+  return { guardada, ahora: naveAhora };
+}
+
+export type MotivoPapel =
+  | { tipo: "lleva"; nave: number }
+  | { tipo: "posee"; naves: number }
+  | { tipo: "puede_cyno"; tipos: TipoCyno[] }
+  | { tipo: "no_se_sabe" }
+  | { tipo: "no" };
+export type CandidatosPapel = { candidatos: { id: number; motivo: MotivoPapel }[]; resto: { id: number; motivo: MotivoPapel }[]; unico: number | null };
+
+/** ★ B3 · QUIÉN PUEDE HACER CADA PAPEL.
+ *  · Saltar: quien está AHORA en una nave de salto, o posee alguna.
+ *  · Encender el cyno: skill Y casco a la vez. El casco es el de AHORA (el mismo que decide la
+ *    duración, `duracionCyno`) y tiene que poder montar ese tipo; la skill, Cynosural Field Theory
+ *    al nivel que pide ese tipo (`nivelPide`, de `skill_reqs.json`).
+ *  Quien no se puede decidir por falta de datos va al resto con «no se sabe», nunca con «no».
+ *  `unico`: el candidato si es exactamente uno (solo entonces se preselecciona). */
+export function candidatosPapeles(
+  pilotos: PilotoPlan[],
+  datos: DatosSaltoPiloto[],
+  catalogo: number[],
+  fit: CynoFit | null,
+  nivelPide: Partial<Record<TipoCyno, number>>,
+): { salta: CandidatosPapel; cyno: CandidatosPapel } {
+  const dDe = (id: number) => datos.find((d) => d.character_id === id);
+  const salta: CandidatosPapel = { candidatos: [], resto: [], unico: null };
+  const cyno: CandidatosPapel = { candidatos: [], resto: [], unico: null };
+  for (const p of pilotos) {
+    const d = dDe(p.id);
+    // Saltar
+    if (p.ship_type_id != null && catalogo.includes(p.ship_type_id)) salta.candidatos.push({ id: p.id, motivo: { tipo: "lleva", nave: p.ship_type_id } });
+    else if (d?.naves && d.naves.length > 0) salta.candidatos.push({ id: p.id, motivo: { tipo: "posee", naves: d.naves.length } });
+    else if (d?.naves == null) salta.resto.push({ id: p.id, motivo: { tipo: "no_se_sabe" } });
+    else salta.resto.push({ id: p.id, motivo: { tipo: "no" } });
+    // Encender el cyno
+    if (p.ship_type_id == null || d?.cft == null || !fit) {
+      cyno.resto.push({ id: p.id, motivo: { tipo: "no_se_sabe" } });
+      continue;
+    }
+    const tipos = fit.cynos
+      .filter((c) => c.fitTypes.includes(p.ship_type_id!) && nivelPide[c.tipo] != null && d.cft! >= nivelPide[c.tipo]!)
+      .map((c) => c.tipo);
+    if (tipos.length > 0) cyno.candidatos.push({ id: p.id, motivo: { tipo: "puede_cyno", tipos } });
+    else cyno.resto.push({ id: p.id, motivo: { tipo: "no" } });
+  }
+  salta.unico = salta.candidatos.length === 1 ? salta.candidatos[0].id : null;
+  cyno.unico = cyno.candidatos.length === 1 ? cyno.candidatos[0].id : null;
+  return { salta, cyno };
+}
+
 /** Una manera de moverse, con nombre (tabla `forma_viaje`). Solo lo DECLARADO: lo del casco se
  *  resuelve por `casco_type_id` en `jumpships.json` al calcular, nunca se copia. */
 export type FormaViaje = {
@@ -114,6 +235,8 @@ export type FormaViaje = {
   ciclo_cyno_min: number;
   /** De quien va POR PUERTAS: el propio casco en `puertas`, el CYNO en `salto`. */
   min_por_salto: number;
+  /** El tipo de cyno; `null` = «a mano», y entonces manda `ciclo_cyno_min`. Ver `duracionCyno`. */
+  tipo_cyno: TipoCyno | null;
   /** Los planes que la usan (por nombre). Una ficha en uso no se borra. */
   planes: string[];
 };

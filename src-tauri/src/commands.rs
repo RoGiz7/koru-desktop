@@ -1211,6 +1211,25 @@ pub fn plan_origen(state: State<'_, AppState>, plan_id: i64, system_id: Option<i
     state.db.plan_origen(plan_id, system_id)
 }
 
+/// Lo que Koru ya tiene guardado de cada personaje para proponer papeles y nave: ver
+/// `db::plan::DatosSaltoPiloto`. CERO peticiones a ESI. `tipos` = las naves de salto del catálogo.
+/// La hora de la foto de assets se deduce como en `orders_wip`: el `expires` del caché de la
+/// página 1 menos la hora que ESI cachea los assets.
+#[tauri::command]
+pub fn plan_datos_salto(state: State<'_, AppState>, tipos: Vec<i64>) -> AppResult<Vec<crate::db::plan::DatosSaltoPiloto>> {
+    let mut v = state.db.plan_datos_salto(&tipos)?;
+    for d in &mut v {
+        if d.naves.is_some() {
+            d.foto_at = state
+                .db
+                .get_cache(d.character_id, &format!("/characters/{}/assets/?page=1", d.character_id))?
+                .and_then(|c| c.expires.as_deref().and_then(crate::esi::parse_http_or_rfc3339))
+                .map(|exp| (exp - chrono::Duration::seconds(3600)).to_rfc3339());
+        }
+    }
+    Ok(v)
+}
+
 /// Fase 3b: el salto intermedio aceptado («Usar X») o quitado («Quitar intermedio»).
 #[tauri::command]
 pub fn plan_via(state: State<'_, AppState>, stop_id: i64, system_id: Option<i64>) -> AppResult<()> {

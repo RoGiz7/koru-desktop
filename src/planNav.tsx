@@ -50,6 +50,16 @@ import {
   skillsDeSalto,
   resumenTiempo,
   puertasCyno,
+  duracionCyno,
+  tipoCynoPorDefecto,
+  proponerNave,
+  avisoNave,
+  candidatosPapeles,
+  type CynoFit,
+  type DatosSaltoPiloto,
+  type MotivoPapel,
+  type CandidatosPapel,
+  type TipoCyno,
   type Donde,
   type ResultadoParada,
   type Tramo,
@@ -100,6 +110,12 @@ function textoAviso(a: PlanMarca["aviso"]): string {
     case "alertas_apagadas":
       return `🔕 ${tr("marcado, no suena: Intel en vivo está apagado")}`;
   }
+}
+
+/** El nombre de un tipo de cyno, por idioma: lo único que dice su desplegable. */
+function nombreTipo(t: TipoCyno | null): string {
+  const en = getLang() === "en";
+  return t === "covert" ? "Covert" : t === "industrial" ? "Industrial" : en ? "Standard" : "Normal";
 }
 
 /** Por qué no se sabe dónde está el cyno, y qué se supone. Frase entera por idioma. */
@@ -259,6 +275,26 @@ export function PlanNav(props: {
     void recargarFormas();
     void loadJson<Catalogo>("/jumpships.json", { ships: [], cynos: [] }).then(setCatalogo);
   }, []);
+  // ★ Parte B (28-11): de quién puede hacer qué y cuánto dura el cyno. Todo del SDE o de la BD; nada de ESI.
+  const [cynoFit, setCynoFit] = useState<CynoFit | null>(null);
+  const [nivelPide, setNivelPide] = useState<Partial<Record<TipoCyno, number>>>({});
+  useEffect(() => {
+    // Un catálogo que no carga NO es «ningún casco monta nada»: `loadJson` devuelve el vacío y
+    // `duracionCyno` lo dice (`sin_catalogo`); aquí se deja rastro.
+    void loadJson<CynoFit>("/cyno_fit.json", { cynos: [], durationMult: {} }).then((f) => {
+      if (f.cynos.length === 0) console.error("[plan] cyno_fit.json vacío o sin cargar: la duración del cyno no se puede calcular");
+      setCynoFit(f);
+      // El nivel de Cynosural Field Theory que pide cada tipo, de `skill_reqs.json`, no de memoria.
+      void loadJson<Record<string, [number, number][]>>("/skill_reqs.json", {}).then((r) => {
+        const n: Partial<Record<TipoCyno, number>> = {};
+        for (const c of f.cynos) {
+          const req = (r[String(c.id)] ?? []).find(([sk]) => sk === 21603);
+          if (req) n[c.tipo] = req[1];
+        }
+        setNivelPide(n);
+      });
+    });
+  }, []);
   const forma = plan?.forma_id != null ? formas.find((f) => f.id === plan.forma_id) ?? null : null;
   const saltando = forma?.modo === "salto";
   // Sin casco en el catálogo no hay alcance ni consumo: se cuenta a puertas Y SE DICE (abajo).
@@ -270,6 +306,16 @@ export function PlanNav(props: {
   const salta = plan?.salta_character_id ?? null;
   const cyno = plan?.cyno_character_id ?? null;
   const nombrePj = (id: number) => characters.find((c) => c.character_id === id)?.name ?? `#${id}`;
+  // Lo que Koru tiene guardado de cada personaje (naves de salto que posee, nivel de CFT), sin ESI.
+  const [datosSalto, setDatosSalto] = useState<DatosSaltoPiloto[] | null>(null);
+  const catalogoIds = useMemo(() => (catalogo?.ships ?? []).map((x) => x.id), [catalogo]);
+  useEffect(() => {
+    if (catalogoIds.length === 0) return;
+    invoke<DatosSaltoPiloto[]>("plan_datos_salto", { tipos: catalogoIds })
+      .then(setDatosSalto)
+      .catch((e) => setError(`${getLang() === "en" ? "Couldn't read what Koru has stored about your characters" : "No se pudo leer lo que Koru tiene guardado de tus personajes"}: ${String(e)}`));
+  }, [catalogoIds, planId, nonce]);
+  const naveDe = (id: number | null) => (id == null ? null : pilotos.find((x) => x.id === id) ?? null);
   const cynoDonde = dondeEsta(pilotos, cyno);
   const saltaDonde = dondeEsta(pilotos, salta);
   const cynoLoc = sistemaDe(cynoDonde);
@@ -330,6 +376,9 @@ export function PlanNav(props: {
   const jdc = skillsSalto.jdc;
   const jfc = skillsSalto.jfc;
   const alcance = casco ? casco.range * (1 + 0.2 * jdc) : 0;
+  // ★ D1 · cuánto dura el cyno de ESTE plan: el tipo guardado y la nave en la que está ahora quien lo enciende.
+  const cascoCyno = naveDe(cyno)?.ship_type_id ?? null;
+  const durCyno = forma ? duracionCyno(forma, cascoCyno, catalogo?.cynos ?? [], cynoFit) : null;
   const lyEntre = (a: number, b: number) => {
     const A = sysIdx.get(a);
     const B = sysIdx.get(b);
@@ -377,14 +426,15 @@ export function PlanNav(props: {
       alcanceLy: alcance,
       casco: { fatMult: casco.fatMult, fuelPerLy: casco.fuelPerLy, isotope: casco.isotope },
       jfc,
-      cicloCynoMin: forma!.ciclo_cyno_min,
+      // D1: CALCULADA (tipo × el casco de quien lo enciende), o el número a mano.
+      cicloCynoMin: durCyno!.min,
       cynoMinPorSalto: forma!.min_por_salto,
       fatigaMin: ini.fatigaMin,
       cooldownHastaMs: ini.cooldownHastaMs,
       ahoraMs: ahora,
     });
   };
-  const formaKey = JSON.stringify([forma, casco?.id, cynoLoc, jdc, jfc, fatiga, ahora, puntosKey, viasGuardadas]);
+  const formaKey = JSON.stringify([forma, casco?.id, cynoLoc, jdc, jfc, fatiga, ahora, puntosKey, viasGuardadas, durCyno?.min]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const formaCalc = useMemo(() => formaDe(), [formaKey, calcTramo, sysIdx]);
   const propuesta = useMemo(
@@ -1043,38 +1093,169 @@ export function PlanNav(props: {
         `${tr("Cooldown: ESI no lo da. Por su último salto, puede saltar como muy tarde a las")} ${new Date(ini.cooldownHastaMs).toLocaleTimeString(getLang(), { hour: "2-digit", minute: "2-digit" })}. ${tr("Es una cota, no una lectura.")}`,
       );
     }
+    if (durCyno && forma) {
+      const en = getLang() === "en";
+      if (durCyno.motivo === "sin_casco") {
+        supuestos.push(
+          cyno == null
+            ? en
+              ? `The cyno is counted at its base duration (${minutos(durCyno.min)}), with no hull bonus: nobody lights it yet. Longer is the safe side.`
+              : `El cyno se cuenta con su duración base (${minutos(durCyno.min)}), sin bono de casco: aún no hay quién lo encienda. De más es el lado seguro.`
+            : en
+              ? `It's not known which ship ${nombrePj(cyno)} is in: the cyno is counted at its base duration (${minutos(durCyno.min)}), with no hull bonus. Longer is the safe side.`
+              : `No se sabe en qué nave está ${nombrePj(cyno)}: el cyno se cuenta con su duración base (${minutos(durCyno.min)}), sin bono de casco. De más es el lado seguro.`,
+        );
+      } else if (durCyno.motivo === "sin_catalogo") {
+        supuestos.push(
+          en
+            ? `The cyno catalogue didn't load: counting the cyno with the minutes saved in “${forma.nombre}” (${minutos(durCyno.min)}).`
+            : `El catálogo de cynos no cargó: el cyno se cuenta con los minutos guardados en «${forma.nombre}» (${minutos(durCyno.min)}).`,
+        );
+      }
+      if (durCyno.puedeMontar === false && cyno != null) {
+        const nave = naveDe(cyno)?.ship ?? "?";
+        supuestos.push(
+          en
+            ? `${nombrePj(cyno)} is in a ${nave}, which can't fit a ${nombreTipo(forma.tipo_cyno)} cyno.`
+            : `${nombrePj(cyno)} está en una ${nave}, que no puede montar un cyno ${nombreTipo(forma.tipo_cyno).toLowerCase()}.`,
+        );
+      }
+    }
     if (cyno == null) supuestos.push(tr("Sin «quién pone el cyno»: se supone que sale de donde el que salta (el origen)."));
     else if (cynoLoc == null) supuestos.push(textoDondeNoSeSabe(nombrePj(cyno), cynoDonde));
   }
   // ---- editor de la forma de viajar ----
   const [editando, setEditando] = useState<FormaViaje | null>(null);
-  /** El tipo de cyno elegido en el formulario. NO se guarda: en la BD solo van los minutos. Al abrir
-   *  se deduce de los minutos, y con dos tipos de los mismos minutos (Normal e Industrial, 10) sale
-   *  el primero del catálogo: el número, que es lo que cuenta, es el mismo. */
-  const [tipoCyno, setTipoCyno] = useState<number | null>(null);
+  /** El tipo elegido en el formulario: un tipo, «a mano», o nada todavía ("" = no se ha elegido:
+   *  si el casco de quien enciende puede montar varios, no se adivina). */
+  const [tipoSel, setTipoSel] = useState<TipoCyno | "mano" | "">("");
   function abrirEditor(f: FormaViaje) {
+    if (f.id === 0) {
+      // B1: la nave propuesta, si la que lleva ahora quien salta es de salto. Solo al CREAR: un
+      // salto guardado no se cambia sin que el piloto pulse (ver el aviso de B2).
+      const p = proponerNave(naveDe(salta)?.ship_type_id ?? null, datosSalto?.find((d) => d.character_id === salta), catalogoIds);
+      f = { ...f, casco_type_id: p.propuesta };
+    }
     setEditando(f);
-    setTipoCyno((catalogo?.cynos ?? []).find((c) => c.cycleMin === f.ciclo_cyno_min)?.id ?? null);
+    // Una fila de antes, sin tipo, se lee «a mano» con su número. Una nueva, el tipo si solo cabe uno.
+    setTipoSel(f.id > 0 ? f.tipo_cyno ?? "mano" : tipoCynoPorDefecto(cascoCyno, cynoFit) ?? "");
   }
-  /** «Normal (10 min)»: el nombre corto por idioma y los minutos del catálogo. */
-  const nombreTipoCyno = (c: { name: string; cycleMin: number }) => {
+  /** «5 min: lo enciende una Falcon, que lo deja en la mitad». La duración que RESULTA y por qué. */
+  function textoDuracion(d: ReturnType<typeof duracionCyno>): string {
     const en = getLang() === "en";
-    const tipo = /covert/i.test(c.name) ? "Covert" : /industrial/i.test(c.name) ? "Industrial" : en ? "Standard" : "Normal";
-    return `${tipo} (${c.cycleMin} min)`;
-  };
+    const nave = naveDe(cyno)?.ship;
+    switch (d.motivo) {
+      case "bono":
+        return en ? `${minutos(d.min)}: lit from a ${nave}, which halves it` : `${minutos(d.min)}: lo enciende una ${nave}, que lo deja en la mitad`;
+      case "base":
+        return en ? `${minutos(d.min)}: lit from a ${nave}, with no bonus` : `${minutos(d.min)}: lo enciende una ${nave}, sin bono`;
+      case "sin_casco":
+        return en ? `${minutos(d.min)}: base, without a hull bonus (the cyno's ship isn't known)` : `${minutos(d.min)}: la base, sin bono (no se sabe la nave del cyno)`;
+      case "a_mano":
+        return en ? "by hand" : "a mano";
+      case "sin_catalogo":
+        return en ? `${minutos(d.min)}: the cyno catalogue didn't load` : `${minutos(d.min)}: el catálogo de cynos no cargó`;
+    }
+  }
   const nuevaForma = (): FormaViaje => ({
     id: 0,
     nombre: "",
     modo: "salto",
     casco_type_id: null,
-    ciclo_cyno_min: 1,
+    ciclo_cyno_min: 10,
     min_por_salto: 1,
+    tipo_cyno: null,
     planes: [],
   });
+  // ★ B3 · quién puede hacer cada papel.
+  const papeles = useMemo(
+    () => candidatosPapeles(pilotos, datosSalto ?? [], catalogoIds, cynoFit, nivelPide),
+    [pilotos, datosSalto, catalogoIds, cynoFit, nivelPide],
+  );
+  /** Por qué alguien es candidato (o no se sabe). Frase corta por idioma. */
+  function textoMotivo(m: MotivoPapel): string {
+    const en = getLang() === "en";
+    const nombreNave = (t: number) => catalogo?.ships.find((x) => x.id === t)?.name ?? `#${t}`;
+    switch (m.tipo) {
+      case "lleva":
+        return en ? `in a ${nombreNave(m.nave)} now` : `está en una ${nombreNave(m.nave)}`;
+      case "posee":
+        return en ? `owns ${m.naves} jump ${m.naves === 1 ? "ship" : "ships"}` : `tiene ${m.naves} ${m.naves === 1 ? "nave" : "naves"} de salto`;
+      case "puede_cyno":
+        return en ? `can light: ${m.tipos.map(nombreTipo).join(", ")}` : `puede encender: ${m.tipos.map((t) => nombreTipo(t).toLowerCase()).join(", ")}`;
+      case "no_se_sabe":
+        return en ? "not known" : "no se sabe";
+      case "no":
+        return "";
+    }
+  }
+  /** Las opciones de un papel: primero los candidatos con su motivo, debajo el resto. Uno que está
+   *  elegido y no sale en ninguna lista (no cargado aún) se enseña igual: no se esconde lo guardado. */
+  function opcionesPapel(c: CandidatosPapel, elegido: number | null) {
+    const en = getLang() === "en";
+    const op = (x: { id: number; motivo: MotivoPapel }) => {
+      const m = textoMotivo(x.motivo);
+      return (
+        <option key={x.id} value={x.id}>
+          {nombrePj(x.id)}
+          {m ? ` — ${m}` : ""}
+        </option>
+      );
+    };
+    const conocidos = new Set([...c.candidatos, ...c.resto].map((x) => x.id));
+    return (
+      <>
+        {c.candidatos.map(op)}
+        {c.resto.length > 0 && <optgroup label={c.candidatos.length > 0 ? (en ? "The rest" : "El resto") : en ? "Nobody fits for sure" : "Nadie seguro"}>{c.resto.map(op)}</optgroup>}
+        {elegido != null && !conocidos.has(elegido) && <option value={elegido}>{nombrePj(elegido)}</option>}
+      </>
+    );
+  }
+  // Se preselecciona SOLO un papel VACÍO y SOLO con un único candidato, UNA vez por plan y papel: si
+  // el piloto lo vuelve a dejar en «—», no se le pisa. Se guarda (si no, el desplegable diría un
+  // nombre y el cálculo contaría sin nadie) y se dice en la línea de debajo.
+  const yaPropuesto = useRef(new Set<string>());
+  const [preseleccion, setPreseleccion] = useState<string[]>([]);
+  useEffect(() => {
+    if (!saltando || !plan || datosSalto == null || !cynoFit) return;
+    let s = salta;
+    let c = cyno;
+    const dichos: string[] = [];
+    const k = (papel: string) => `${plan.id}-${papel}`;
+    if (s == null && papeles.salta.unico != null && !yaPropuesto.current.has(k("salta"))) {
+      yaPropuesto.current.add(k("salta"));
+      s = papeles.salta.unico;
+      dichos.push("salta");
+    }
+    if (c == null && papeles.cyno.unico != null && !yaPropuesto.current.has(k("cyno"))) {
+      yaPropuesto.current.add(k("cyno"));
+      c = papeles.cyno.unico;
+      dichos.push("cyno");
+    }
+    if (dichos.length > 0) {
+      setPreseleccion(dichos);
+      void fijarPapeles(s, c);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saltando, plan?.id, salta, cyno, papeles, datosSalto, cynoFit]);
+  async function usarNave(nave: number) {
+    if (!forma) return;
+    try {
+      await invoke<number>("forma_guardar", { forma: { ...forma, casco_type_id: nave } });
+      await recargarFormas();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   async function guardarForma() {
     if (!editando || !plan) return;
+    if (editando.modo === "salto" && tipoSel === "") {
+      setError(getLang() === "en" ? "Choose the cyno type (or “by hand”)." : "Elige el tipo de cyno (o «a mano»).");
+      return;
+    }
     try {
-      const id = await invoke<number>("forma_guardar", { forma: editando });
+      const tipo_cyno = tipoSel === "mano" || tipoSel === "" ? null : tipoSel;
+      const id = await invoke<number>("forma_guardar", { forma: { ...editando, tipo_cyno } });
       if (editando.id === 0) await invoke("plan_forma", { planId: plan.id, formaId: id });
       setEditando(null);
       await recargarFormas();
@@ -1165,6 +1346,62 @@ export function PlanNav(props: {
                 {tr("+ Salto con cyno")}
               </button>
             </div>
+            {/* ★ PARTE B · primero QUIÉN salta y QUIÉN pone el cyno, después la nave: la nave se
+                propone según el piloto, y pedirla antes es pedirla a ciegas. */}
+            {(saltando || editando?.modo === "salto") && (
+              <div className="route-stop">
+                <span className="route-stop-label">{tr("Quién salta")}</span>
+                <select value={salta ?? ""} onChange={(e) => void fijarPapeles(e.target.value ? Number(e.target.value) : null, cyno)}>
+                  <option value="">—</option>
+                  {opcionesPapel(papeles.salta, salta)}
+                </select>
+                <span className="route-stop-label">{tr("Quién pone el cyno")}</span>
+                <select value={cyno ?? ""} onChange={(e) => void fijarPapeles(salta, e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">—</option>
+                  {opcionesPapel(papeles.cyno, cyno)}
+                </select>
+              </div>
+            )}
+            {preseleccion.length > 0 && (
+              <div className="small muted">
+                {preseleccion
+                  .map((p) => {
+                    const id = p === "salta" ? salta : cyno;
+                    const en = getLang() === "en";
+                    if (id == null) return "";
+                    return p === "salta"
+                      ? en
+                        ? `${nombrePj(id)} picked to jump: the only candidate.`
+                        : `${nombrePj(id)} elegido para saltar: el único que puede.`
+                      : en
+                        ? `${nombrePj(id)} picked for the cyno: the only one who can light it.`
+                        : `${nombrePj(id)} elegido para el cyno: el único que puede encenderlo.`;
+                  })
+                  .join(" ")}
+              </div>
+            )}
+            {/* ★ B2 · la nave guardada no es la que lleva quien salta ahora. Sin pulsar, se calcula con la guardada. */}
+            {saltando &&
+              forma &&
+              (() => {
+                const a = avisoNave(forma.casco_type_id, naveDe(salta)?.ship_type_id ?? null, catalogoIds);
+                if (!a) return null;
+                const nom = (t: number | null) => catalogo?.ships.find((x) => x.id === t)?.name ?? (t == null ? "—" : `#${t}`);
+                return (
+                  <div className="small route-scope-warn">
+                    {getLang() === "en"
+                      ? `“${forma.nombre}” says ${nom(a.guardada)}; ${nombrePj(salta!)} is in a ${nom(a.ahora)}.`
+                      : `«${forma.nombre}» dice ${nom(a.guardada)}; ${nombrePj(salta!)} está en una ${nom(a.ahora)}.`}{" "}
+                    <button
+                      className="route-add"
+                      title={forma.planes.length > 1 ? `${tr("La usan")}: ${forma.planes.join(", ")}` : ""}
+                      onClick={() => void usarNave(a.ahora)}
+                    >
+                      {getLang() === "en" ? `Use ${nom(a.ahora)}` : `Usar ${nom(a.ahora)}`}
+                    </button>
+                  </div>
+                );
+              })()}
             {editando && (
               <div className="plan-forma-editor small">
                 <label>
@@ -1174,59 +1411,97 @@ export function PlanNav(props: {
                 {/* ⚠️ Sin «Modo»: el formulario solo crea saltos. Una fila vieja con modo `puertas`
                     (las hubo hasta el 28-11, sin release) se sigue leyendo y editando: solo deja de
                     poder crearse aquí. */}
-                {editando.modo === "salto" && (
-                  <>
-                    <label>
-                      {tr("Nave que salta")}:&nbsp;
-                      <select
-                        value={editando.casco_type_id ?? ""}
-                        onChange={(e) => setEditando({ ...editando, casco_type_id: e.target.value ? Number(e.target.value) : null })}
-                      >
-                        <option value="">—</option>
-                        {(catalogo?.ships ?? []).map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.group} · {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      {tr("Tipo de cyno")}:&nbsp;
-                      {/* Los minutos salen de `jumpships.json` (el SDE), nunca escritos en el texto.
-                          El número de al lado es el que se guarda y se puede tocar: si no coincide
-                          con ningún tipo, el desplegable dice «a mano». */}
-                      <select
-                        value={tipoCyno ?? ""}
-                        onChange={(e) => {
-                          const c = (catalogo?.cynos ?? []).find((x) => x.id === Number(e.target.value));
-                          setTipoCyno(c ? c.id : null);
-                          if (c) setEditando({ ...editando, ciclo_cyno_min: c.cycleMin });
-                        }}
-                      >
-                        {tipoCyno == null && <option value="">{tr("a mano")}</option>}
-                        {(catalogo?.cynos ?? []).map((c) => (
-                          <option key={c.id} value={c.id} title={c.name}>
-                            {nombreTipoCyno(c)}
-                          </option>
-                        ))}
-                      </select>{" "}
-                      <input
-                        type="number"
-                        min={0.1}
-                        step={0.5}
-                        value={editando.ciclo_cyno_min}
-                        style={{ width: "4.5rem" }}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value) || 0;
-                          setEditando({ ...editando, ciclo_cyno_min: v });
-                          // Tocar el número a mano: el tipo sigue si casa, y si no pasa a «a mano».
-                          setTipoCyno((t) => ((catalogo?.cynos ?? []).find((x) => x.id === t)?.cycleMin === v ? t : null));
-                        }}
-                      />{" "}
-                      {tr("min")}
-                    </label>
-                  </>
-                )}
+                {editando.modo === "salto" &&
+                  (() => {
+                    // B1: la propuesta, lo que tiene y el resto, por separado.
+                    const p = proponerNave(naveDe(salta)?.ship_type_id ?? null, datosSalto?.find((d) => d.character_id === salta), catalogoIds);
+                    const ship = (t: number) => catalogo?.ships.find((x) => x.id === t);
+                    const opt = (t: number, extra = "") => {
+                      const x = ship(t);
+                      return (
+                        <option key={t} value={t}>
+                          {x ? `${x.group} · ${x.name}` : `#${t}`}
+                          {extra}
+                        </option>
+                      );
+                    };
+                    const en = getLang() === "en";
+                    const d = duracionCyno({ tipo_cyno: tipoSel === "mano" || tipoSel === "" ? null : tipoSel, ciclo_cyno_min: editando.ciclo_cyno_min }, cascoCyno, catalogo?.cynos ?? [], cynoFit);
+                    return (
+                      <>
+                        <label>
+                          {tr("Nave que salta")}:&nbsp;
+                          <select
+                            value={editando.casco_type_id ?? ""}
+                            onChange={(e) => setEditando({ ...editando, casco_type_id: e.target.value ? Number(e.target.value) : null })}
+                          >
+                            <option value="">—</option>
+                            {p.propuesta != null && opt(p.propuesta, en ? " (the one they're in now)" : " (en la que está ahora)")}
+                            {p.poseidas.length > 0 && <optgroup label={en ? "The ones they own" : "Las que tiene"}>{p.poseidas.map((t) => opt(t))}</optgroup>}
+                            <optgroup
+                              label={
+                                p.posesion === "no_se_sabe"
+                                  ? en
+                                    ? "The catalogue (which ones they own isn't known)"
+                                    : "El catálogo (no se sabe cuáles tiene)"
+                                  : en
+                                    ? "The rest of the catalogue"
+                                    : "El resto del catálogo"
+                              }
+                            >
+                              {p.resto.map((t) => opt(t))}
+                            </optgroup>
+                          </select>
+                        </label>
+                        {salta == null && (
+                          <div className="muted">
+                            {en ? "Choose who jumps first: the ship is proposed from them." : "Elige primero quién salta: la nave se propone según él."}
+                          </div>
+                        )}
+                        <label>
+                          {tr("Tipo de cyno")}:&nbsp;
+                          {/* D1: el desplegable dice solo el tipo; al lado, lo que dura y POR QUÉ. Los
+                              minutos salen de `jumpships.json` y el bono de `cyno_fit.json`. */}
+                          <select value={tipoSel} onChange={(e) => setTipoSel(e.target.value as TipoCyno | "mano" | "")}>
+                            {tipoSel === "" && <option value="">—</option>}
+                            {(cynoFit?.cynos ?? []).map((c) => (
+                              <option key={c.tipo} value={c.tipo}>
+                                {nombreTipo(c.tipo)}
+                              </option>
+                            ))}
+                            <option value="mano">{tr("a mano")}</option>
+                          </select>{" "}
+                          {tipoSel === "mano" ? (
+                            <>
+                              <input
+                                type="number"
+                                min={0.1}
+                                step={0.5}
+                                value={editando.ciclo_cyno_min}
+                                style={{ width: "4.5rem" }}
+                                onChange={(e) => setEditando({ ...editando, ciclo_cyno_min: parseFloat(e.target.value) || 0 })}
+                              />{" "}
+                              {en ? "min, by hand: this number rules" : "min, a mano: manda este número"}
+                            </>
+                          ) : tipoSel === "" ? (
+                            <span className="muted">
+                              {en ? "the cyno's ship can fit more than one: choose" : "la nave del cyno puede montar más de uno: elige"}
+                            </span>
+                          ) : (
+                            <span className="muted">{textoDuracion(d)}</span>
+                          )}
+                        </label>
+                        {d.puedeMontar === false && cyno != null && (
+                          <div className="route-scope-warn">
+                            ⚠{" "}
+                            {en
+                              ? `A ${naveDe(cyno)?.ship ?? "?"} can't fit a ${nombreTipo(tipoSel as TipoCyno)} cyno.`
+                              : `Una ${naveDe(cyno)?.ship ?? "?"} no puede montar un cyno ${nombreTipo(tipoSel as TipoCyno).toLowerCase()}.`}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 <label>
                   {editando.modo === "salto" ? tr("Minutos por puerta del cyno") : tr("Minutos por puerta")}:&nbsp;
                   <input
@@ -1260,26 +1535,10 @@ export function PlanNav(props: {
                 </div>
               </div>
             )}
-            {saltando && (
-              <div className="route-stop">
-                <span className="route-stop-label">{tr("Quién salta")}</span>
-                <select value={salta ?? ""} onChange={(e) => void fijarPapeles(e.target.value ? Number(e.target.value) : null, cyno)}>
-                  <option value="">—</option>
-                  {characters.map((c) => (
-                    <option key={c.character_id} value={c.character_id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <span className="route-stop-label">{tr("Quién pone el cyno")}</span>
-                <select value={cyno ?? ""} onChange={(e) => void fijarPapeles(salta, e.target.value ? Number(e.target.value) : null)}>
-                  <option value="">—</option>
-                  {characters.map((c) => (
-                    <option key={c.character_id} value={c.character_id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+            {saltando && forma && durCyno && durCyno.motivo !== "a_mano" && (
+              <div className="small muted">
+                {getLang() === "en" ? `Cyno (${nombreTipo(forma.tipo_cyno)}): ` : `Cyno (${nombreTipo(forma.tipo_cyno).toLowerCase()}): `}
+                {textoDuracion(durCyno)}
               </div>
             )}
             {saltando && casco && (

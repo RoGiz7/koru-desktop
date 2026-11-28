@@ -897,7 +897,12 @@ CREATE TABLE IF NOT EXISTS forma_viaje (
     casco_type_id   INTEGER,                       -- el que SALTA; NULL en `puertas`
     ciclo_cyno_min  REAL NOT NULL DEFAULT 10,
     min_por_salto   REAL NOT NULL DEFAULT 1,
-    creado_at       TEXT NOT NULL
+    creado_at       TEXT NOT NULL,
+    -- El TIPO de cyno (28-11): 'normal' | 'covert' | 'industrial'. Con tipo, los minutos se
+    -- CALCULAN (la base del módulo, y la mitad si el casco de quien lo enciende lleva el bono) y
+    -- `ciclo_cyno_min` no se lee. NULL = «a mano»: manda `ciclo_cyno_min`. Una fila de antes, que
+    -- solo tenía minutos, se lee así: a mano, con su número. (En BD ya creadas la añade `Db::open`.)
+    tipo_cyno       TEXT
 );
 
 -- ★★ EL PLAN: una tanda de sitios a los que ir, ordenada para salvar los que se puedan.

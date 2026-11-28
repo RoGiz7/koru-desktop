@@ -6,12 +6,12 @@
 
 ## Estado
 
-- **`main` lleva TREINTA Y CUATRO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `1b7fd8d` está empujado; los SIETE siguientes están **solo en local, sin push**:
-  la fase 3b (`ed3a932`, `b31fb44`, `5a77802`, `200d0a7`), lo que vino detrás (`4465c89`: el intel
-  por el intermedio, frases enteras y la caché de rutas), los retoques del panel vistos por RoGiz7
-  con intel real (`cd5907d`) y qué instalador coger (README, `releaseBody` y la plantilla
-  `documentacion/PLANTILLA_que_instalador.md`, que no sube). Este fichero va en el último. Ni versión, ni changelog,
+- **`main` lleva TREINTA Y OCHO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `9a48dc7` está empujado; los CUATRO siguientes están **solo en local, sin
+  push**: los nombres de «Cómo viajas» (`f0065d3`), los fallos de la 3a que destapó el paso 0
+  (`49d7081`: el aviso de siempre suelta al plan, el plan ve a todos, las skills dicen si faltan),
+  los retoques vistos en pantalla (`57704be`) y la parte B (el último, con este fichero).
+  ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count`): en los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
   (`0981590`), el salto (`dff63d9`), los huérfanos de `public/`, el skill-check y la lista de
   personajes.
@@ -123,6 +123,25 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
   traduciéndolo a 0 a propósito (`useJumpPlanner.ts`): que lo diga está sin hacer.
 - **Los guiones del cálculo están en el repo** (`866f77d`): `scripts/verificar_plan.mjs` y
   `scripts/verificar_salud_intel.mjs`, puerta en `CLAUDE.md` si se tocan `plan.ts` o `saludIntel.ts`.
+
+- **«Cómo viajas» y lo que se carga solo** (28-11, brief `documentacion/brief-plan-nombres-autocarga.md`
+  con sus «Decisiones del paso 0», que mandan). **SIN VER EN PANTALLA.**
+  - Nombres: «Cómo viajas», «Por puertas», «+ Salto con cyno», «Nave que salta», «Tipo de cyno», y
+    «puerta» donde «salto» era puerta. «Ficha» solo queda en el código.
+  - **El cyno dura lo que dice el casco de QUIEN LO ENCIENDE** (`duracionCyno`): la base del tipo
+    (`jumpships.json`) × 0,5 si es Force Recon o Black Ops. Del SDE con `extract_cyno_fit.py` →
+    `public/cyno_fit.json` (qué casco monta qué cyno y los 15 con bono). El salto guarda el TIPO
+    (`forma_viaje.tipo_cyno`); sin tipo = «a mano» con su número, que es como se leen las de antes.
+    Sin saber el casco del cyno, la base sin bono, y se dice.
+  - Naves que posee y nivel de Cynosural Field Theory de TODOS los personajes con CERO peticiones a
+    ESI (`plan_datos_salto`, de `asset_stack` y `skill_seen`). Sin permiso o sin sincronizar = «no se
+    sabe», nunca «no tiene».
+  - Nave propuesta al crear (la que lleva si es de salto), aviso «"X" dice A; está en B» con «Usar B»,
+    y papeles preseleccionados SOLO con un único candidato y en un papel vacío (se guarda y se dice;
+    una vez por plan y papel, para no pisar al piloto). «Puede encender» = skill Y casco de ahora.
+  - ⏳ Qué cyno lleva montado: NO se lee (hora y media de retraso y sin probar con datos reales).
+  - ⚠️ «Usar B» cambia la nave del salto guardado, y un salto lo pueden usar varios planes: el botón
+    lo dice en su título, no pide confirmación.
 
 ## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
 
@@ -264,5 +283,5 @@ la ventana principal—, nunca por número.
   `src/intel.ts` (troceo) · `src/map.tsx`, `src/overlay.tsx`, `src/minimapaVentana.tsx` (pintan).
 - **Ventanas**: tres, con etiquetas `main`, `overlay` y `minimapa`. En Tauri v2 **las capacidades
   van POR VENTANA**.
-- **Datos del SDE**: 29 scripts en `scripts/extract_*.py` → 35 JSON en `public/`, más siete
+- **Datos del SDE**: 30 scripts en `scripts/extract_*.py` → 36 JSON en `public/`, más siete
   embebidos en el binario. El SDE entra SOLO por esos scripts: nada se pide en caliente.

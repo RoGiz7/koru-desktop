@@ -3688,6 +3688,7 @@ function App() {
             name: c.name,
             system_id: c.system_id ?? null,
             ship_type_id: c.ship_type_id ?? null,
+            ship: c.ship_type_name ?? null,
             online: c.online ?? null,
             scopes: c.scopes ?? [],
           }))}

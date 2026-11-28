@@ -22,6 +22,8 @@ import { buscarIntermedio, buscarIntermedioYa, contextoIntermedio, probarInterme
 import { cacheSalto, resumenMarcas, ordenarMarcas, avisoComun } from "../src/plan.ts";
 import { dondeEsta, sistemaDe, skillsDeSalto, SCOPE_UBICACION, resumenTiempo, puertasCyno } from "../src/plan.ts";
 import { PREFIJO_FALTA_PERMISO } from "../src/errores.ts";
+import { duracionCyno, tipoCynoPorDefecto, proponerNave, avisoNave, candidatosPapeles } from "../src/plan.ts";
+import { readFileSync } from "node:fs";
 
 let fallos = 0;
 let cuenta = 0;
@@ -585,5 +587,62 @@ console.log("Retoques — el resumen saltando y el cyno que ya está");
 }
 const retoques = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras - panel - fallos3a;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel}, fallos 3a: ${fallos3a}, retoques: ${retoques})`);
+console.log("Parte B — lo que Koru ya sabe, propuesto");
+{
+  // Catálogos de mentira: 501 y 502 naves de salto; 601 una Force Recon (monta normal y covert, con
+  // bono), 602 un Covert Ops (solo covert), 603 un hauler (solo industrial), 604 una lanzadera.
+  const bases = [{ id: 1, name: "N", cycleMin: 10 }, { id: 2, name: "C", cycleMin: 1 }, { id: 3, name: "I", cycleMin: 10 }];
+  const fit = { cynos: [{ id: 1, tipo: "normal", fitTypes: [601] }, { id: 2, tipo: "covert", fitTypes: [601, 602] }, { id: 3, tipo: "industrial", fitTypes: [603] }],
+    durationMult: { "601": 0.5 } };
+  const nivel = { normal: 1, covert: 5, industrial: 1 };
+  const cat = [501, 502];
+  // D1
+  ok(duracionCyno({ tipo_cyno: "normal", ciclo_cyno_min: 99 }, 601, bases, fit).min === 5, "D1: normal desde una Force Recon, 5 min (la mitad)");
+  ok(duracionCyno({ tipo_cyno: "covert", ciclo_cyno_min: 99 }, 601, bases, fit).min === 0.5, "D1: covert desde una Force Recon, 30 s");
+  const sinCasco = duracionCyno({ tipo_cyno: "normal", ciclo_cyno_min: 99 }, null, bases, fit);
+  ok(sinCasco.min === 10 && sinCasco.motivo === "sin_casco", "D1: sin saber el casco, la base SIN bono, y se dice");
+  ok(duracionCyno({ tipo_cyno: null, ciclo_cyno_min: 7 }, 601, bases, fit).motivo === "a_mano" && duracionCyno({ tipo_cyno: null, ciclo_cyno_min: 7 }, 601, bases, fit).min === 7,
+    "D1: sin tipo (una fila de antes), a mano con su número");
+  ok(duracionCyno({ tipo_cyno: "industrial", ciclo_cyno_min: 10 }, 601, bases, fit).puedeMontar === false, "D1: una Force Recon no monta el industrial: se dice, no se bloquea");
+  ok(tipoCynoPorDefecto(602, fit) === "covert" && tipoCynoPorDefecto(601, fit) === null && tipoCynoPorDefecto(null, fit) === null,
+    "por defecto: el único que cabe; si caben varios, no se adivina");
+  // D1 con los catálogos REALES de public/ (datos del SDE, no de nadie): una Falcon enciende un normal en 5 min.
+  const real = JSON.parse(readFileSync(new URL("../public/cyno_fit.json", import.meta.url), "utf8"));
+  const basesReales = JSON.parse(readFileSync(new URL("../public/jumpships.json", import.meta.url), "utf8")).cynos;
+  ok(duracionCyno({ tipo_cyno: "normal", ciclo_cyno_min: 0 }, 11957, basesReales, real).min === 5 &&
+     duracionCyno({ tipo_cyno: "normal", ciclo_cyno_min: 0 }, 12011, basesReales, real).min === 10,
+    "D1 con el SDE: una Falcon deja el normal en 5 min; una Eagle (sin bono) no lo toca");
+  // B1
+  const datos = (id, naves, cft = 3) => ({ character_id: id, naves, naves_motivo: naves ? null : "sin_permiso", foto_at: null, cft, cft_motivo: cft == null ? "sin_permiso" : null });
+  const b1 = proponerNave(502, datos(1, [501]), cat);
+  ok(b1.propuesta === 502 && JSON.stringify(b1.poseidas) === "[501]" && b1.resto.length === 0, "B1: en una de salto ahora: esa, y la que tiene aparte");
+  const b1b = proponerNave(604, datos(1, [502]), cat);
+  ok(b1b.propuesta === null && JSON.stringify(b1b.poseidas) === "[502]" && JSON.stringify(b1b.resto) === "[501]", "B1: en una lanzadera: primero las que tiene, luego el resto");
+  ok(proponerNave(null, datos(1, null), cat).posesion === "no_se_sabe", "B1: sin la foto de assets, no se sabe (no «no tiene»)");
+  // B2
+  ok(avisoNave(501, 502, cat)?.ahora === 502, "B2: guardada 501 y lleva 502: se avisa");
+  ok(avisoNave(501, 501, cat) === null && avisoNave(501, 604, cat) === null && avisoNave(501, null, cat) === null,
+    "B2: la misma, una que no es de salto, o no se sabe: no se avisa");
+  // B3
+  const pj = (id, ship) => ({ id, name: `Piloto ${id}`, system_id: 30000142, ship_type_id: ship, ship: null, online: true, scopes: [] });
+  const uno = candidatosPapeles([pj(1, 501), pj(2, 604)], [datos(1, []), datos(2, [])], cat, fit, nivel);
+  ok(uno.salta.unico === 1 && uno.salta.candidatos[0].motivo.tipo === "lleva", "B3: un solo candidato a saltar: se preselecciona");
+  const varios = candidatosPapeles([pj(1, 501), pj(2, 604)], [datos(1, []), datos(2, [502])], cat, fit, nivel);
+  ok(varios.salta.unico === null && varios.salta.candidatos.length === 2 && varios.salta.candidatos[1].motivo.tipo === "posee", "B3: varios: ninguno preseleccionado, los dos primero con su motivo");
+  const ninguno = candidatosPapeles([pj(1, 604)], [datos(1, [])], cat, fit, nivel);
+  ok(ninguno.salta.candidatos.length === 0 && ninguno.salta.resto[0].motivo.tipo === "no" && ninguno.salta.unico === null, "B3: ninguno: nadie preseleccionado");
+  const noSabe = candidatosPapeles([pj(1, null)], [datos(1, null, null)], cat, fit, nivel);
+  ok(noSabe.salta.resto[0].motivo.tipo === "no_se_sabe" && noSabe.cyno.resto[0].motivo.tipo === "no_se_sabe", "B3: sin nave ni foto ni skills: «no se sabe», no «no»");
+  // Cyno: skill Y casco.
+  const cy = candidatosPapeles([pj(1, 601), pj(2, 602), pj(3, 601), pj(4, 604)], [datos(1, [], 5), datos(2, [], 3), datos(3, [], 1), datos(4, [], 5)], cat, fit, nivel);
+  const de = (id) => [...cy.cyno.candidatos, ...cy.cyno.resto].find((x) => x.id === id).motivo;
+  ok(JSON.stringify(de(1).tipos) === '["normal","covert"]', "cyno: Force Recon y CFT V: normal y covert");
+  ok(de(2).tipo === "no", "cyno: Covert Ops con CFT III: el casco sí, la skill no (el covert pide V)");
+  ok(JSON.stringify(de(3).tipos) === '["normal"]', "cyno: Force Recon con CFT I: solo el normal");
+  ok(de(4).tipo === "no", "cyno: CFT V en una lanzadera: la skill sí, el casco no");
+  ok(cy.cyno.unico === null && cy.cyno.candidatos.length === 2, "cyno: dos candidatos, ninguno preseleccionado");
+}
+const parteB = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras - panel - fallos3a - retoques;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel}, fallos 3a: ${fallos3a}, retoques: ${retoques}, parte B: ${parteB})`);
 process.exit(fallos ? 1 : 0);

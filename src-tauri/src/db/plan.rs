@@ -142,11 +142,35 @@ pub struct FormaViaje {
     /// `puertas` | `salto`.
     pub modo: String,
     pub casco_type_id: Option<i64>,
+    /// Los minutos del cyno «a mano». Solo cuentan si `tipo_cyno` es `None`.
     pub ciclo_cyno_min: f64,
     pub min_por_salto: f64,
+    /// `normal` | `covert` | `industrial`, o `None` = a mano (ver la columna en `schema.sql`).
+    #[serde(default)]
+    pub tipo_cyno: Option<String>,
     /// Los planes que la usan, por nombre: una ficha en uso no se borra, y se dice por quién.
     #[serde(default)]
     pub planes: Vec<String>,
+}
+
+/// ★ LO QUE KORU YA TIENE GUARDADO DE UN PERSONAJE PARA PROPONER PAPELES Y NAVE (28-11). Sale de la
+/// BD, con CERO peticiones a ESI: las naves, de la última foto de assets (`asset_stack`, la de la
+/// sincronización automática); la skill de cyno, de `skill_seen`. Proponer papeles mira a TODOS los
+/// personajes, y pedirle a ESI los assets de diez cada vez que se abre el panel sería un gasto por
+/// algo que ya está en casa.
+/// ⚠️ NO SE SABE ≠ NO TIENE: sin el permiso, o sin haber sincronizado nunca, va `None` con el motivo.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DatosSaltoPiloto {
+    pub character_id: i64,
+    /// De los `tipos` pedidos (las naves de salto del catálogo), los que posee. `None` = no se sabe.
+    pub naves: Option<Vec<i64>>,
+    /// `sin_permiso` · `sin_acceso` (token retirado) · `sin_sincronizar`.
+    pub naves_motivo: Option<&'static str>,
+    /// Cuándo es esa foto de assets (RFC 3339), si se sabe. La pone el comando: ver `plan_datos_salto`.
+    pub foto_at: Option<String>,
+    /// Nivel de Cynosural Field Theory (21603). `Some(0)` = la conocemos y no la tiene.
+    pub cft: Option<i64>,
+    pub cft_motivo: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -355,7 +379,7 @@ impl Db {
     pub fn forma_listar(&self) -> AppResult<Vec<FormaViaje>> {
         let conn = self.conn.lock().unwrap();
         let mut st = conn.prepare(
-            "SELECT id, nombre, modo, casco_type_id, ciclo_cyno_min, min_por_salto FROM forma_viaje ORDER BY nombre, id",
+            "SELECT id, nombre, modo, casco_type_id, ciclo_cyno_min, min_por_salto, tipo_cyno FROM forma_viaje ORDER BY nombre, id",
         )?;
         let mut v = st
             .query_map([], |r| {
@@ -366,6 +390,7 @@ impl Db {
                     casco_type_id: r.get(3)?,
                     ciclo_cyno_min: r.get(4)?,
                     min_por_salto: r.get(5)?,
+                    tipo_cyno: r.get(6)?,
                     planes: Vec::new(),
                 })
             })?
@@ -392,6 +417,11 @@ impl Db {
             })?),
             otro => return Err(AppError::Other(format!("modo de viaje desconocido «{otro}»"))),
         };
+        if let Some(t) = f.tipo_cyno.as_deref() {
+            if !matches!(t, "normal" | "covert" | "industrial") {
+                return Err(AppError::Other(format!("tipo de cyno desconocido «{t}»")));
+            }
+        }
         // `!(x > 0)` y no `x <= 0`: un NaN tiene que caer aquí, no colarse como número.
         if !(f.min_por_salto > 0.0) || !(f.ciclo_cyno_min > 0.0) {
             return Err(AppError::Other("los minutos por puerta y los del cyno tienen que ser mayores que 0".into()));
@@ -400,8 +430,8 @@ impl Db {
         if f.id > 0 {
             let n = conn.execute(
                 "UPDATE forma_viaje SET nombre = ?2, modo = ?3, casco_type_id = ?4, ciclo_cyno_min = ?5, \
-                 min_por_salto = ?6 WHERE id = ?1",
-                rusqlite::params![f.id, nombre, f.modo, casco, f.ciclo_cyno_min, f.min_por_salto],
+                 min_por_salto = ?6, tipo_cyno = ?7 WHERE id = ?1",
+                rusqlite::params![f.id, nombre, f.modo, casco, f.ciclo_cyno_min, f.min_por_salto, f.tipo_cyno],
             )?;
             if n == 0 {
                 return Err(AppError::Other(format!("la forma de viajar #{} ya no existe", f.id)));
@@ -409,9 +439,9 @@ impl Db {
             Ok(f.id)
         } else {
             conn.execute(
-                "INSERT INTO forma_viaje (nombre, modo, casco_type_id, ciclo_cyno_min, min_por_salto, creado_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![nombre, f.modo, casco, f.ciclo_cyno_min, f.min_por_salto, chrono::Utc::now().to_rfc3339()],
+                "INSERT INTO forma_viaje (nombre, modo, casco_type_id, ciclo_cyno_min, min_por_salto, creado_at, tipo_cyno) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![nombre, f.modo, casco, f.ciclo_cyno_min, f.min_por_salto, chrono::Utc::now().to_rfc3339(), f.tipo_cyno],
             )?;
             Ok(conn.last_insert_rowid())
         }
@@ -526,6 +556,63 @@ impl Db {
             rusqlite::params![plan_id, system_id],
         )?;
         Ok(())
+    }
+
+    /// Ver `DatosSaltoPiloto`. `foto_at` sale vacío: lo rellena el comando con el caché de ESI.
+    pub fn plan_datos_salto(&self, tipos: &[i64]) -> AppResult<Vec<DatosSaltoPiloto>> {
+        let chars = self.list_characters()?;
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::with_capacity(chars.len());
+        for c in chars {
+            let tiene = |s: &str| c.scopes.iter().any(|x| x == s);
+            let (naves, naves_motivo) = if c.sin_acceso {
+                (None, Some("sin_acceso"))
+            } else if !tiene("esi-assets.read_assets.v1") {
+                (None, Some("sin_permiso"))
+            } else {
+                // Sin una sola fila, la foto no se ha hecho nunca: «no se sabe», no «no tiene nada».
+                let filas: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM asset_stack WHERE character_id = ?1",
+                    [c.character_id],
+                    |r| r.get(0),
+                )?;
+                if filas == 0 {
+                    (None, Some("sin_sincronizar"))
+                } else {
+                    let mut st = conn.prepare("SELECT DISTINCT type_id FROM asset_stack WHERE character_id = ?1")?;
+                    let todos: std::collections::HashSet<i64> =
+                        st.query_map([c.character_id], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                    let mut v: Vec<i64> = tipos.iter().copied().filter(|t| todos.contains(t)).collect();
+                    v.sort_unstable();
+                    v.dedup();
+                    (Some(v), None)
+                }
+            };
+            let (cft, cft_motivo) = if c.sin_acceso {
+                (None, Some("sin_acceso"))
+            } else if !tiene("esi-skills.read_skills.v1") {
+                (None, Some("sin_permiso"))
+            } else {
+                let vigilado: bool = conn
+                    .query_row("SELECT 1 FROM skill_watch WHERE character_id = ?1", [c.character_id], |_| Ok(()))
+                    .optional()?
+                    .is_some();
+                if !vigilado {
+                    (None, Some("sin_sincronizar"))
+                } else {
+                    let nivel: Option<i64> = conn
+                        .query_row(
+                            "SELECT level FROM skill_seen WHERE character_id = ?1 AND skill_id = 21603",
+                            [c.character_id],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    (Some(nivel.unwrap_or(0)), None)
+                }
+            };
+            out.push(DatosSaltoPiloto { character_id: c.character_id, naves, naves_motivo, foto_at: None, cft, cft_motivo });
+        }
+        Ok(out)
     }
 
     /// Fase 3b: pone (o quita, con `None`) el salto intermedio de una parada. Solo lo llama el
@@ -643,6 +730,7 @@ mod tests {
             casco_type_id: casco,
             ciclo_cyno_min: 1.0,
             min_por_salto: 1.0,
+            tipo_cyno: None,
             planes: vec![],
         };
         assert!(db.forma_guardar(&ficha("salto", None)).is_err(), "salto sin casco: no entra");
@@ -678,6 +766,46 @@ mod tests {
         db.run_end(run_d, "done", None, None, None, None, None).unwrap();
         assert!(db.forma_borrar(fid).unwrap(), "sin planes, se borra");
         assert!(db.forma_borrar(pid_a_puertas).unwrap());
+
+        // 4d) El tipo de cyno: con tipo, se guarda; uno desconocido no entra; sin tipo = a mano.
+        let fc = db.forma_guardar(&FormaViaje { tipo_cyno: Some("covert".into()), ..ficha("salto", Some(22430)) }).unwrap();
+        assert_eq!(db.forma_listar().unwrap().iter().find(|f| f.id == fc).unwrap().tipo_cyno.as_deref(), Some("covert"));
+        assert!(db.forma_guardar(&FormaViaje { tipo_cyno: Some("rojo".into()), ..ficha("salto", Some(22430)) }).is_err(), "tipo desconocido");
+        let fm = db.forma_guardar(&ficha("salto", Some(22430))).unwrap();
+        assert_eq!(db.forma_listar().unwrap().iter().find(|f| f.id == fm).unwrap().tipo_cyno, None, "sin tipo: a mano");
+        assert!(db.forma_borrar(fc).unwrap());
+        assert!(db.forma_borrar(fm).unwrap());
+
+        // 4e) Lo guardado de cada piloto, de la BD. «No se sabe» NO es «no tiene». Tres personajes de
+        //     mentira: 1 sin permisos; 2 con permisos y sin haber sincronizado nunca; 3 con su foto
+        //     de assets (una Black Ops y algo que no es nave de salto) y sus skills vistas sin CFT.
+        {
+            let c = db.conn.lock().unwrap();
+            let todos = "esi-assets.read_assets.v1 esi-skills.read_skills.v1";
+            for (id, scopes) in [(1i64, ""), (2, todos), (3, todos)] {
+                c.execute(
+                    "INSERT INTO characters (character_id, name, scopes, added_at) VALUES (?1, ?2, ?3, '2026-11-28')",
+                    rusqlite::params![id, format!("Piloto {id}"), scopes],
+                )
+                .unwrap();
+            }
+            for t in [22430i64, 34] {
+                c.execute(
+                    "INSERT INTO asset_stack (character_id, location_id, container_id, type_id, assembled, slot, quantity, seen_at) \
+                     VALUES (3, 60003760, 0, ?1, 1, '', 1, '2026-11-28')",
+                    [t],
+                )
+                .unwrap();
+            }
+            c.execute("INSERT INTO skill_watch (character_id, seeded_at) VALUES (3, '2026-11-28')", []).unwrap();
+        }
+        let d = db.plan_datos_salto(&[22430, 22436]).unwrap();
+        let de = |id: i64| d.iter().find(|x| x.character_id == id).unwrap().clone();
+        assert_eq!((de(1).naves, de(1).naves_motivo, de(1).cft, de(1).cft_motivo), (None, Some("sin_permiso"), None, Some("sin_permiso")));
+        assert_eq!((de(2).naves, de(2).naves_motivo, de(2).cft_motivo), (None, Some("sin_sincronizar"), Some("sin_sincronizar")),
+            "con permiso y sin foto: no se sabe, no «no tiene»");
+        assert_eq!((de(3).naves, de(3).naves_motivo), (Some(vec![22430]), None), "solo las de salto pedidas, y la que tiene");
+        assert_eq!((de(3).cft, de(3).cft_motivo), (Some(0), None), "skills vistas y sin CFT: un 0 que SÍ se sabe");
 
         // 4c) Fase 3b: el intermedio. Sin aceptar, nada; se pone, se lee, se quita. Y sobre una
         //     parada que ya no existe, error: no un «guardado» que no guardó.

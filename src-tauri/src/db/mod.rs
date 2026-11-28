@@ -926,6 +926,8 @@ impl Db {
         let _ = conn.execute("ALTER TABLE plan ADD COLUMN forma_id INTEGER REFERENCES forma_viaje(id)", []);
         // Plan, fase 3b: el salto intermedio aceptado por el piloto. NULL = ninguno, como antes.
         let _ = conn.execute("ALTER TABLE plan_stop ADD COLUMN via_system_id INTEGER", []);
+        // Plan, 28-11: el tipo de cyno del salto. NULL = a mano, que es como se leen las de antes.
+        let _ = conn.execute("ALTER TABLE forma_viaje ADD COLUMN tipo_cyno TEXT", []);
         // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
         // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó
