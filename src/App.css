@@ -11904,6 +11904,17 @@ button.cz-calor-h:hover,
 /* ★ Los campos, con el mismo aspecto que el buscador de sistema — que es el que a él le gustaba.
    Los otros dos salían con el estilo por defecto del navegador: cuadrados y ajenos al resto de la
    app. Un formulario donde cada casilla se ve distinta no parece un formulario, parece un arreglo. */
+/* El campo de texto de la casa, para los sueltos (el nombre de un salto, el del plan nuevo), que
+   salían con el estilo claro del navegador sobre fondo oscuro. El mismo aspecto que `.sys-search`. */
+.campo-texto {
+  box-sizing: border-box;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #3a3a3a;
+  background: #2f2f2f;
+  color: #e8e8e8;
+}
 .esc-campo input {
   width: 100%;
   box-sizing: border-box;
@@ -12407,7 +12418,16 @@ h4 .ped-glifo, h5 .ped-glifo { vertical-align: -4px; }
 .plan-seguro { margin: 0.3rem 0; padding: 0.3rem 0.5rem; border-left: 2px solid #4a90d9; }
 /* Fase 3a: la línea de cada salto (al, isótopos, espera y con qué quedas) y el editor de la forma. */
 .plan-salto { color: #8fb8e8; }
-.plan-forma-editor { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.3rem 0; padding: 0.35rem 0.5rem; border: 1px solid #3a4a5c; border-radius: 4px; }
+/* ⚠️ `flex-basis: 100%`: el editor vive dentro de `.plan-nav-ajustes`, que es una fila flex que
+   envuelve, y medía lo que su contenido. Lo que venía detrás («Quién salta», y antes «Minutos por
+   salto» y «Minutos en cada sitio») cabía a su lado y se iba a la derecha. A lo ancho, empuja lo
+   siguiente a la fila de abajo. */
+.plan-forma-editor { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.3rem 0; padding: 0.35rem 0.5rem; border: 1px solid #3a4a5c; border-radius: 4px; flex-basis: 100%; box-sizing: border-box; }
+.plan-forma-botones { display: flex; gap: 0.4rem; align-items: center; }
+.plan-forma-borrar { margin-left: auto; }
+/* Los 70 px fijos de `.route-stop-label` partían «Cómo viajas» y «Quién pone el cyno» en dos líneas.
+   Solo en las filas del plan: las del planificador del mapa siguen como estaban. */
+.plan-nav-ajustes .route-stop-label { width: auto; min-width: 70px; white-space: nowrap; }
 .plan-forma-editor input:not([type="number"]) { width: 14rem; }
 /* Intel en un tramo. Los dos estados se distinguen a propósito: el que suena va en rojo lleno y el
    marcado en silencio con borde DISCONTINUO — tiene que verse marcado, no parecer limpio. */

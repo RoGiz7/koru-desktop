@@ -2525,6 +2525,11 @@ export function MapView(props: {
   /** Fase 3a: los SALTOS del plan abierto (pares origen → destino), para pintarlos como rectas con
    *  otro trazo. La línea amarilla es entonces la ruta a puertas del CYNO. `null` = el plan no salta. */
   const [saltosPlan, setSaltosPlan] = useState<[number, number][] | null>(null);
+  /** ★ La línea amarilla es la del CYNO: hay un plan a salto abierto y pintado (el panel solo manda
+   *  `saltosPlan` si el plan salta y no se está interceptando). Entonces la cabecera, «Paradas» y
+   *  «La ruta» lo dicen: con su origen el plan dice otro sitio, y «12 saltos» parecían los tuyos.
+   *  En el resto del mapa no cambia nada. */
+  const lineaDelCyno = planAbierto != null && saltosPlan != null;
   const [empezadas, setEmpezadas] = useState<ParadaEmpezada[]>([]);
   const [empezadasErr, setEmpezadasErr] = useState("");
   const [planIntelErr, setPlanIntelErr] = useState("");
@@ -6329,7 +6334,11 @@ export function MapView(props: {
             {routePath && (
               <span className="muted small">
                 {" · "}
-                {routePath.length - 1} {tr("saltos")}
+                {lineaDelCyno
+                  ? getLang() === "en"
+                    ? `${routePath.length - 1} cyno gates`
+                    : `${routePath.length - 1} puertas del cyno`
+                  : `${routePath.length - 1} ${tr("saltos")}`}
                 {ansiLegs.size > 0 && ` · ${ansiLegs.size} Ansiblex`}
                 {whLegs.size > 0 && ` · ${whLegs.size} WH`}
               </span>
@@ -6369,11 +6378,11 @@ export function MapView(props: {
           <div className="nav-grid">
             {/* ---- Columna 1: paradas + opciones ---- */}
             <div className="nav-col">
-              <div className="nav-head">{tr("Paradas")}</div>
+              <div className="nav-head">{lineaDelCyno ? (getLang() === "en" ? "Stops · the cyno's route" : "Paradas · ruta del cyno") : tr("Paradas")}</div>
               {routeStops.map((stop, i) => (
                 <div className="route-stop" key={i}>
                   <span className="route-stop-label">
-                    {i === 0 ? tr("Origen") : `${tr("Destino")} ${i}`}
+                    {i === 0 ? (lineaDelCyno ? (getLang() === "en" ? "Cyno at" : "Cyno en") : tr("Origen")) : `${tr("Destino")} ${i}`}
                   </span>
                   <SystemSearch
                     systems={ne.systems}
@@ -6541,7 +6550,7 @@ export function MapView(props: {
 
             {/* ---- Columna 3: la ruta + enviar a EVE ---- */}
             <div className="nav-col nav-col-wide">
-              <div className="nav-head">{tr("La ruta")}</div>
+              <div className="nav-head">{lineaDelCyno ? (getLang() === "en" ? "The cyno's route" : "La ruta del cyno") : tr("La ruta")}</div>
               {routeWaypoints.length > 0 && hereCharId != null && (
                 <button
                   className="route-send-eve"

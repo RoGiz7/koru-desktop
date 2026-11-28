@@ -798,6 +798,7 @@ export function EscalacionesView({
           </button>
         )}
         <input
+          className="campo-texto"
           value={planNombre}
           onChange={(ev) => setPlanNombre(ev.target.value)}
           placeholder={tr("Nombre del plan nuevo")}

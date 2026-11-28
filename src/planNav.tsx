@@ -48,6 +48,8 @@ import {
   dondeEsta,
   sistemaDe,
   skillsDeSalto,
+  resumenTiempo,
+  puertasCyno,
   type Donde,
   type ResultadoParada,
   type Tramo,
@@ -809,6 +811,22 @@ export function PlanNav(props: {
     if (n === 1) return pre + (en ? `1 system with kills ${hora}: ${peor}` : `1 sistema con muertes ${hora}: ${peor}`);
     return pre + (en ? `${n} systems with kills ${hora}; the worst, ${peor}` : `${n} sistemas con muertes ${hora}; el peor, ${peor}`);
   }
+  /** «recorrido 2 h 10 m» a puertas; saltando, «esperas 21 m» o «sin esperas». */
+  function textoResumenTiempo(t: ReturnType<typeof resumenTiempo>): string {
+    const en = getLang() === "en";
+    if (t.tipo === "recorrido") return en ? `travel ${duracion(t.min)}` : `recorrido ${duracion(t.min)}`;
+    if (t.tipo === "esperas") return en ? `waiting ${duracion(t.min)}` : `esperas ${duracion(t.min)}`;
+    return en ? "no waiting" : "sin esperas";
+  }
+  /** Las puertas que cruza quien va por puertas hasta esta parada: tú, o el cyno si saltas. */
+  function textoPuertas(r: ResultadoParada): string {
+    const en = getLang() === "en";
+    const c = puertasCyno(r);
+    if (!c) return en ? `${r.saltos} ${r.saltos === 1 ? "gate" : "gates"}` : `${r.saltos} ${r.saltos === 1 ? "puerta" : "puertas"}`;
+    if (c.tipo === "ya_ahi") return en ? "the cyno is already there" : "el cyno ya está ahí";
+    if (c.tipo === "mismo_sitio") return en ? "same system as the previous stop" : "el mismo sistema que la parada anterior";
+    return en ? `${c.n} cyno ${c.n === 1 ? "gate" : "gates"}` : `${c.n} ${c.n === 1 ? "puerta" : "puertas"} del cyno`;
+  }
   /** «5 avisos en 3 tramos»: reportes DISTINTOS (el mismo en tres tramos es uno), en singular si toca. */
   function textoResumenMarcas(): string {
     const { reportes: a, tramos: t } = resumenMarcas(marcasPlan);
@@ -1151,7 +1169,7 @@ export function PlanNav(props: {
               <div className="plan-forma-editor small">
                 <label>
                   {tr("Nombre")}:&nbsp;
-                  <input value={editando.nombre} placeholder={tr("p. ej. blops con cyno covert")} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} />
+                  <input className="campo-texto" value={editando.nombre} placeholder={tr("p. ej. blops con cyno covert")} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} />
                 </label>
                 {/* ⚠️ Sin «Modo»: el formulario solo crea saltos. Una fila vieja con modo `puertas`
                     (las hubo hasta el 28-11, sin release) se sigue leyendo y editando: solo deja de
@@ -1220,22 +1238,25 @@ export function PlanNav(props: {
                     onChange={(e) => setEditando({ ...editando, min_por_salto: parseFloat(e.target.value) || 0 })}
                   />
                 </label>
-                <div>
+                {/* «Borrar» APARTE, a la derecha: estaba entre «Guardar» y «Cancelar», a un clic
+                    de uno y de otro. No pide confirmación; un salto que usa algún plan no se borra
+                    (lo rechaza `forma_borrar` y dice qué planes lo usan). */}
+                <div className="plan-forma-botones">
                   <button className="route-add" onClick={() => void guardarForma()}>
                     {tr("Guardar")}
                   </button>
+                  <button className="route-add" onClick={() => setEditando(null)}>
+                    {tr("Cancelar")}
+                  </button>
                   {editando.id > 0 && (
                     <button
-                      className="route-add"
+                      className="route-add plan-forma-borrar"
                       title={editando.planes.length ? `${tr("La usan")}: ${editando.planes.join(", ")}` : ""}
                       onClick={() => void borrarForma(editando.id)}
                     >
                       {tr("Borrar")}
                     </button>
                   )}
-                  <button className="route-add" onClick={() => setEditando(null)}>
-                    {tr("Cancelar")}
-                  </button>
                 </div>
               </div>
             )}
@@ -1335,8 +1356,7 @@ export function PlanNav(props: {
           {actual && paradas.length > 0 && (
             <>
               <div className="plan-nav-resumen">
-                {tr("Salvas")} <b>{actual.salvadas}</b> {tr("de")} {paradas.length} ·{" "}
-                {tr("recorrido")} {duracion(actual.recorridoMin)}
+                {tr("Salvas")} <b>{actual.salvadas}</b> {tr("de")} {paradas.length} · {textoResumenTiempo(resumenTiempo(actual, !!formaCalc))}
                 {" · "}
                 <span className="muted">
                   {plan?.orden_manual ? tr("orden tuyo") : tr("orden propuesto por Koru")}
@@ -1477,7 +1497,7 @@ export function PlanNav(props: {
                           ) : (
                             <>
                               <span className="muted">
-                                {r.saltos} {r.salto ? tr("puertas del cyno") : tr("puertas")} ·{" "}
+                                {textoPuertas(r)} ·{" "}
                               </span>
                               {r.estado === "salvada" ? (
                                 <span>

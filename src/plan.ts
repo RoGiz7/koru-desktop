@@ -282,6 +282,23 @@ export type FormaCalc<E> = {
   pata: (e: E, desde: number, hasta: number, tMs: number) => Pata<E>;
 };
 
+/** ★ QUÉ DICE LA LÍNEA DE RESUMEN SOBRE EL TIEMPO DE VIAJE. A puertas, «recorrido N». Saltando,
+ *  el salto es instantáneo y `recorridoMin` es SOLO lo que esperas (al cyno o al cooldown): decir
+ *  «recorrido 0 m» se leía como cero metros y no decía nada. Así que saltando se dicen las esperas. */
+export function resumenTiempo(ev: Evaluacion, saltando: boolean): { tipo: "recorrido" | "esperas" | "sin_esperas"; min: number } {
+  if (!saltando) return { tipo: "recorrido", min: ev.recorridoMin };
+  return ev.recorridoMin > 1e-9 ? { tipo: "esperas", min: ev.recorridoMin } : { tipo: "sin_esperas", min: 0 };
+}
+
+/** ★ LO QUE HIZO EL CYNO PARA LLEGAR A UNA PARADA. «0 puertas del cyno» no dice nada: si salta y el
+ *  cyno no cruzó ninguna puerta, es que ya estaba ahí. `mismo_sitio`: dos paradas en el mismo
+ *  sistema, no hay salto. `null` = la parada no es de un plan a salto (a puertas, o no llega). */
+export function puertasCyno(r: ResultadoParada): { tipo: "ya_ahi" } | { tipo: "mismo_sitio" } | { tipo: "puertas"; n: number } | null {
+  if (!r.salto) return null;
+  if (r.salto.saltos.length === 0) return { tipo: "mismo_sitio" };
+  return r.salto.cynoSaltos === 0 ? { tipo: "ya_ahi" } : { tipo: "puertas", n: r.salto.cynoSaltos };
+}
+
 /** A puertas: saltos × minutos por salto, sin memoria. Es EXACTAMENTE el cálculo de las fases 1 y 2;
  *  `evaluar` la construye cuando no le dan otra, y por eso sus guiones pasan sin tocarlos. */
 export function formaPuertas(tramos: Tramos, minPorSalto: number): FormaCalc<null> {

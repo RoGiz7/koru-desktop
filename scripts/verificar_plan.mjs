@@ -20,7 +20,7 @@ import { saltoFatiga, destinoSaltable } from "../src/jumpCalc.ts";
 import { llega, formaPuertas, formaSalto, fatigaInicial, separarImposibles } from "../src/plan.ts";
 import { buscarIntermedio, buscarIntermedioYa, contextoIntermedio, probarIntermedio, LOTE_INTERMEDIO } from "../src/plan.ts";
 import { cacheSalto, resumenMarcas, ordenarMarcas, avisoComun } from "../src/plan.ts";
-import { dondeEsta, sistemaDe, skillsDeSalto, SCOPE_UBICACION } from "../src/plan.ts";
+import { dondeEsta, sistemaDe, skillsDeSalto, SCOPE_UBICACION, resumenTiempo, puertasCyno } from "../src/plan.ts";
 import { PREFIJO_FALTA_PERMISO } from "../src/errores.ts";
 
 let fallos = 0;
@@ -553,5 +553,37 @@ console.log("Fallos de la 3a — dónde está cada uno y las skills que no se le
 }
 const fallos3a = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras - panel;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel}, fallos 3a: ${fallos3a})`);
+console.log("Retoques — el resumen saltando y el cyno que ya está");
+{
+  const H = 3600e3;
+  const pts = [1, 2, 3];
+  const base = { puntos: pts, ly: () => 5, saltable: () => true, cynoDesde: 1, alcanceLy: 8,
+    casco: { fatMult: 0.25, fuelPerLy: 700, isotope: "Helium Isotopes" }, jfc: 5, cicloCynoMin: 1, cynoMinPorSalto: 1,
+    fatigaMin: 0, cooldownHastaMs: 0, ahoraMs: 0 };
+  const P = [{ stopId: 71, systemId: 2, caducaMs: 9 * H }, { stopId: 72, systemId: 3, caducaMs: 9 * H }];
+  const tr3 = cacheTramos(pts, (a, b) => ({ saltos: 4, path: [a, b], wormhole: false }));
+  // El cyno ya está en 2 (sale de ahí) y 2→3 son 0 puertas: ninguna espera… salvo el cooldown.
+  const cero = (a, b) => ({ saltos: 0, path: [a, b], wormhole: false });
+  const sinEsperas = evaluar([0], P, tr3, 0, 1, 45, formaSalto({ ...base, cynoDesde: 2, rutaCyno: cero }));
+  ok(resumenTiempo(sinEsperas, true).tipo === "sin_esperas", "saltando sin esperar nada: «sin esperas», no «recorrido 0 m»");
+  const conEsperas = evaluar([0], P, tr3, 0, 1, 45, formaSalto({ ...base, rutaCyno: (a, b) => ({ saltos: 7, path: [a, b], wormhole: false }) }));
+  const rt = resumenTiempo(conEsperas, true);
+  ok(rt.tipo === "esperas" && Math.abs(rt.min - 7) < 1e-9, "saltando con esperas: «esperas 7 m»");
+  const aPuertas = evaluar([0, 1], P, tr3, 0, 1, 45);
+  ok(resumenTiempo(aPuertas, false).tipo === "recorrido" && resumenTiempo(aPuertas, false).min === aPuertas.recorridoMin, "a puertas: «recorrido», como siempre");
+  ok(resumenTiempo(sinEsperas, false).tipo === "recorrido", "lo decide la forma de viajar, no los minutos");
+  // El punto 4: el cyno que ya está en la parada.
+  const r0 = sinEsperas.resultados[0];
+  ok(puertasCyno(r0)?.tipo === "ya_ahi", "salta y el cyno no cruzó ninguna puerta: «el cyno ya está ahí»");
+  const r7 = conEsperas.resultados[0];
+  const p7 = puertasCyno(r7);
+  ok(p7?.tipo === "puertas" && p7.n === 7, "con puertas, las cuenta");
+  ok(puertasCyno(aPuertas.resultados[0]) === null, "a puertas no hay cyno: lo de siempre");
+  const mismo = evaluar([0, 1], [P[0], { stopId: 73, systemId: 2, caducaMs: 9 * H }], cacheTramos([1, 2, 2], cero), 0, 1, 45,
+    formaSalto({ ...base, puntos: [1, 2, 2], rutaCyno: (a, b) => ({ saltos: 3, path: [a, b], wormhole: false }) }));
+  ok(puertasCyno(mismo.resultados[1])?.tipo === "mismo_sitio", "dos paradas en el mismo sistema: no es «el cyno ya está ahí»");
+}
+const retoques = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras - panel - fallos3a;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b}, 3b después: ${fase3bTras}, panel: ${panel}, fallos 3a: ${fallos3a}, retoques: ${retoques})`);
 process.exit(fallos ? 1 : 0);
