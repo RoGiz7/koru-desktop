@@ -6,10 +6,9 @@
 
 ## Estado
 
-- **`main` lleva CINCUENTA Y DOS commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `3457086` está empujado; los CINCO siguientes están **solo en local, sin push**:
-  cuatro de medición del arranque (`ba1d6cc`, `c30526c`, `7fedbc7`, `603cf30`) y el arreglo de la
-  serie negra (el último, con este fichero).
+- **`main` lleva CINCUENTA Y TRES commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `d1e92b0` está empujado; el siguiente, este fichero con el arranque cerrado por
+  ahora, está **solo en local, sin push**.
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
@@ -154,7 +153,18 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
   - ⚠️ «Usar B» cambia la nave del salto guardado, y un salto lo pueden usar varios planes: el botón
     lo dice en su título, no pide confirmación.
 
-## 🐛 ABIERTO: al abrir, la ventana se queda en «No responde» (28-11, paso 0 hecho, sin medir aún)
+## ✅ CERRADO POR AHORA: al abrir, la ventana se quedaba en «No responde» (28-11)
+
+**De 8,6 s a 0,6 s hasta Ready**, medido en la release y visto por RoGiz7 en pantalla.
+⏸ **Aparcado A PROPÓSITO** (decidido el 28-11), no olvidado:
+- lo que queda hasta Ready es Tauri más `setup()`; `setup()` es la raíz pendiente de la carrera de
+  arranque (ver «el intel deja de avisar») y no se toca sin poder provocarla a voluntad;
+- las dos esperas de ~200 ms del hilo principal detrás de `bitacora` (`fleet_op_activa`,
+  `intel_record_lines`): `bitacora` retiene el candado de principio a fin, y soltarlo o pasar
+  comandos a async se decide aparte.
+📝 **Para el changelog de la 0.59.0, la frase es «Koru abre más rápido». SIN cifras.**
+
+Historia y medición (para cuando se retome):
 
 Brief `documentacion/brief-arranque-no-responde.md`. **Hecho solo el paso 0: la medición**, detrás de
 `KORU_MEDIR_ARRANQUE=1` (apagada sin la variable; un test lo vigila). `src-tauri/src/medir_arranque.rs`:
