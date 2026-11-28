@@ -23,6 +23,14 @@ const SANEO_WALLET: &str = "DELETE FROM wallet_journal WHERE id < 0 AND EXISTS (
                     AND ROUND(r.amount, 2) = ROUND(wallet_journal.amount, 2)
              )";
 
+/// El relleno de la víctima de los killmails, en cada arranque (ver `Db::open`). En una constante
+/// para que el test mire la MISMA sentencia que corre. Su `WHERE` implica el del índice parcial
+/// `idx_km_sin_victima`: si se cambia, el planificador puede dejar de usarlo (lo vigila un test).
+const RELLENO_KILLMAILS: &str = "UPDATE killmails SET
+                 victim_character_id = json_extract(raw, '$.victim.character_id'),
+                 victim_corporation_id = json_extract(raw, '$.victim.corporation_id')
+             WHERE victim_corporation_id IS NULL AND raw IS NOT NULL AND raw <> ''";
+
 pub struct Db {
     /// El candado de la BD. Mismo `lock()` que un `Mutex`; con `KORU_MEDIR_ARRANQUE=1` mide además
     /// cuánto se espera (ver `medir_arranque.rs`). Apagado, es un `Mutex` y nada más.
@@ -93,14 +101,19 @@ impl Db {
         // Víctima (personaje/corp) para la caza selectiva de proyectos personales (0.18.4).
         let _ = conn.execute("ALTER TABLE killmails ADD COLUMN victim_character_id INTEGER", []);
         let _ = conn.execute("ALTER TABLE killmails ADD COLUMN victim_corporation_id INTEGER", []);
-        // Backfill desde el JSON crudo del killmail (solo filas sin rellenar). json_extract = JSON1.
+        // ★ Para el relleno de abajo, que corre en CADA arranque: los killmails nuevos entran sin
+        //   víctima (el INSERT no la pone) y es este relleno el que se la pone. Sin el índice repasaba
+        //   la tabla entera para no encontrar nada (~75 ms medidos el 28-11 en una base real); con él,
+        //   solo mira las filas que faltan.
+        //   ⚠️ AQUÍ y no en schema.sql: la columna la añade el ALTER de justo encima, y en una base de
+        //   antes de esa columna el CREATE INDEX de schema.sql tumbaría `Db::open`. Si falla, se sigue
+        //   como el resto: sin índice, el relleno tarda lo de antes y hace lo mismo.
         let _ = conn.execute(
-            "UPDATE killmails SET
-                 victim_character_id = json_extract(raw, '$.victim.character_id'),
-                 victim_corporation_id = json_extract(raw, '$.victim.corporation_id')
-             WHERE victim_corporation_id IS NULL AND raw IS NOT NULL AND raw <> ''",
+            "CREATE INDEX IF NOT EXISTS idx_km_sin_victima ON killmails(killmail_id) WHERE victim_corporation_id IS NULL",
             [],
         );
+        // Backfill desde el JSON crudo del killmail (solo filas sin rellenar). json_extract = JSON1.
+        let _ = conn.execute(RELLENO_KILLMAILS, []);
         // Journal: campos de detalle para histórico de rateo (sistema vía ESS, etc.).
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN reason TEXT", []);
         let _ = conn.execute("ALTER TABLE wallet_journal ADD COLUMN context_id INTEGER", []);
@@ -10219,6 +10232,54 @@ mod tests_saneo_wallet {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(quedan, vec![-2, 10], "se va la gemela; la de ESI y la casi gemela se quedan");
+        drop(db);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+#[cfg(test)]
+mod tests_relleno_killmails {
+    use super::*;
+
+    /// El relleno usa el índice parcial (con el SQLite de Koru) y rellena lo que debe: un killmail
+    /// con su JSON y sin víctima la tiene al reabrir; uno que ya la tenía no se toca.
+    #[test]
+    fn relleno_de_killmails_usa_su_indice() {
+        let tmp = std::env::temp_dir().join(format!("koru-km-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let ruta = tmp.join("koru.db");
+        {
+            let db = Db::open(ruta.clone()).unwrap();
+            let c = db.conn.lock().unwrap();
+            let plan: Vec<String> = c
+                .prepare(&format!("EXPLAIN QUERY PLAN {RELLENO_KILLMAILS}"))
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(3))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(plan.iter().any(|p| p.contains("idx_km_sin_victima")), "el relleno no usa su índice: {plan:?}");
+            let raw = r#"{"victim":{"character_id":11,"corporation_id":22}}"#;
+            c.execute("INSERT INTO killmails (killmail_id, character_id, raw) VALUES (1, 7, ?1)", [raw]).unwrap();
+            c.execute(
+                "INSERT INTO killmails (killmail_id, character_id, raw, victim_character_id, victim_corporation_id) VALUES (2, 7, ?1, 5, 6)",
+                [raw],
+            )
+            .unwrap();
+        }
+        let db = Db::open(ruta).unwrap();
+        let v: Vec<(i64, Option<i64>, Option<i64>)> = db
+            .conn
+            .lock()
+            .unwrap()
+            .prepare("SELECT killmail_id, victim_character_id, victim_corporation_id FROM killmails ORDER BY killmail_id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(v, vec![(1, Some(11), Some(22)), (2, Some(5), Some(6))], "se rellena la que falta; la otra, intacta");
         drop(db);
         let _ = std::fs::remove_dir_all(&tmp);
     }

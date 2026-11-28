@@ -8109,7 +8109,12 @@ fn logs_txt(folder: &str) -> std::io::Result<Vec<std::path::PathBuf>> {
 }
 
 /// Lista los canales presentes en la carpeta (prefijo antes de `_AAAAMMDD_HHMMSS_charID.txt`).
-#[tauri::command]
+///
+/// ⚠️ `(async)`: medido el 28-11 en la release con datos reales, 609 ms en el hilo principal (sin
+///    esperar la BD: solo lista la carpeta de logs). Síncrono, eso eran 609 ms de ventana sin
+///    responder al arrancar. Con `async`, Tauri lo corre fuera del hilo principal; el cuerpo y lo
+///    que devuelve son los mismos.
+#[tauri::command(async)]
 pub fn intel_channels(folder: String) -> AppResult<IntelFolderScan> {
     // ⚠️ ESTO ANTES SE TRAGABA EL ERROR (`if let Ok(rd)`), y por eso un tester de Linux se pasó un
     // rato mirando una carpeta CORRECTA que decía «no se encontraron canales». No es lo mismo «he
