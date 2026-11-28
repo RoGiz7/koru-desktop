@@ -52,7 +52,8 @@ pub struct PlanMarca {
     pub message: String,
     /// Por qué suena o no, con las condiciones de AHORA:
     /// `"avisa"` (tramo empezado, alertas encendidas, sistema sin silenciar) · `"no_empezado"` ·
-    /// `"silenciado"` · `"alertas_apagadas"`. Un tramo marcado que no suena tiene que parecer
+    /// `"silenciado"` · `"alertas_apagadas"` · `"ya_sono"` (no suena OTRA vez: ya sonó por estar
+    /// cerca de tus pilotos; ver `Vistos`). Un tramo marcado que no suena tiene que parecer
     /// marcado, no limpio: la pantalla pinta esto tal cual.
     pub aviso: &'static str,
 }
@@ -137,12 +138,21 @@ pub fn pasada(
                 // No puede faltar (la distancia es simétrica en este grafo), pero si faltara se
                 // nombra el primero del tramo antes que inventar uno.
                 .unwrap_or(t.sistemas[0]);
+            let clave = format!("{sid}-{ts}");
+            // ⚠️ Hasta el 28-11, cuando el plan no sonaba porque ya había sonado el aviso de siempre,
+            //    la marca seguía diciendo `avisa` y el panel pintaba «🔊 suena» sin que sonara nada.
+            //    El motivo se apunta en lo del plan con su propia clave (`ya:`): en la pasada
+            //    siguiente la clave normal ya está en `plan`, y sin esto no se sabría POR QUÉ no sonó.
+            let ya_sono = t.empezado && (vistos.plan.contains(&format!("ya:{clave}"))
+                || (!vistos.plan.contains(&clave) && vistos.siempre.contains(&clave)));
             let aviso = if !t.empezado {
                 "no_empezado"
             } else if silenciado(**sid) {
                 "silenciado"
             } else if !alerts_enabled {
                 "alertas_apagadas"
+            } else if ya_sono {
+                "ya_sono"
             } else {
                 "avisa"
             };
@@ -161,10 +171,11 @@ pub fn pasada(
             if t.empezado {
                 // La clave se apunta aunque no suene (silencio, maestro apagado): mismo criterio que
                 // la alerta de tus personajes, para que quitar el silencio no vacíe la noche encima.
-                let clave = format!("{sid}-{ts}");
-                let ya_sono = vistos.siempre.contains(&clave);
+                if aviso == "ya_sono" {
+                    vistos.plan.insert(format!("ya:{clave}"));
+                }
                 let nueva = vistos.plan.insert(clave);
-                if nueva && aviso == "avisa" && !ya_sono {
+                if nueva && aviso == "avisa" {
                     out.avisar.push(out.marcas.len() - 1);
                 }
             }
@@ -268,6 +279,29 @@ mod tests {
         assert!(p.avisar.is_empty());
         assert!(!p.marcas.is_empty(), "pero se sigue marcando");
         assert!(alerted.plan.contains("3-10"), "y el plan lo apunta en lo suyo: no sonará luego");
+    }
+
+    /// Lo que no suena porque ya sonó por tus pilotos lo DICE: no puede quedarse en «avisa». Y lo
+    /// sigue diciendo en la pasada siguiente, cuando la clave ya está en lo del plan.
+    #[test]
+    fn ya_sono_se_dice() {
+        let (adj, names) = grafo();
+        let mut v = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), plan: HashSet::new() };
+        let r = rep(&[(3, 10)]);
+        let p = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut v);
+        let m = p.marcas.iter().find(|m| m.stop_id == 100).unwrap();
+        assert_eq!(m.aviso, "ya_sono", "marcado, y no «avisa» sin sonar");
+        assert!(p.avisar.is_empty());
+        let p2 = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut v);
+        assert_eq!(p2.marcas.iter().find(|m| m.stop_id == 100).unwrap().aviso, "ya_sono", "y en la pasada siguiente, igual");
+        // Lo que sonó por el PLAN y luego también por tus pilotos (el doble aviso a propósito) sigue
+        // diciendo que sonó por el plan: no se reescribe como «ya sonó por tus pilotos».
+        let mut w = Vistos::default();
+        let a = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut w);
+        assert_eq!(a.avisar.len(), 1);
+        w.siempre.insert("3-10".into());
+        let b = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut w);
+        assert_eq!(b.marcas.iter().find(|m| m.stop_id == 100).unwrap().aviso, "avisa");
     }
 
     /// El plan avisa y NO deja la clave en el conjunto del aviso de siempre: así, si más tarde un

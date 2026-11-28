@@ -531,6 +531,9 @@ console.log("Panel — las marcas del intel en el plan");
   ok(avisoComun([m(9, 1, 0, 1, "silenciado"), m(9, 2, 3, 2, "silenciado")]) === "silenciado", "todas con el mismo motivo: se dice una vez");
   ok(avisoComun([m(9, 1, 0, 1, "silenciado"), m(9, 2, 3, 2, "no_empezado")]) === null, "motivos distintos: cada una el suyo");
   ok(avisoComun([]) === null, "sin marcas, ningún motivo común");
+  ok(avisoComun([m(9, 1, 0, 1, "ya_sono"), m(9, 2, 3, 2, "ya_sono")]) === "ya_sono",
+    "«ya sonó por tus pilotos» entra en la regla: si todas lo comparten, se dice una vez");
+  ok(avisoComun([m(9, 1, 0, 1, "ya_sono"), m(9, 2, 3, 2, "avisa")]) === null, "y mezclado con otro motivo, cada una el suyo");
 }
 const panel = cuenta - fase1 - fase2 - salto - fase3 - fase3b - fase3bTras;
 

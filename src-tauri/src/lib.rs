@@ -611,6 +611,7 @@ pub fn run() {
             commands::plan_origen,
             commands::plan_via,
             commands::plan_datos_salto,
+            commands::plan_aviso_probar,
             commands::plan_borrar,
             commands::forma_listar,
             commands::forma_guardar,

@@ -8977,6 +8977,131 @@ fn hostiles_de(
 /// ⚠️ Aquí NO se llama a `set_focus()`, y es a propósito: robar el foco mientras alguien está en
 /// medio de un combate es peor que no avisar. `show()` sobre una ventana `alwaysOnTop` la pinta
 /// encima sin activarla. El foco solo se pide cuando el jugador HACE CLIC (ver `overlay_open_main`).
+/// ★ EL AVISO DEL PLAN, EN UN SOLO SITIO: notificación del sistema, evento `intel-alert` con su
+/// `camino` (de ahí salen el banner, el sonido —`useIntel.ts`, el MISMO oyente que el aviso de
+/// siempre— y el minimapa) y el overlay si está encendido. Lo usan el vigilante y
+/// `plan_aviso_probar`: una prueba que fuera por otro camino podría pasar con el real roto.
+/// `prueba`: el título lo dice («[PRUEBA]»), además del texto que manda la pantalla.
+/// Devuelve el error de la notificación del sistema, si lo hubo; lo demás se emite igual.
+fn emitir_aviso_plan(
+    app: &tauri::AppHandle,
+    cfg: &IntelWatchCfg,
+    g: &IntelGraph,
+    tramo: Option<&crate::plan_intel::PlanTramoIntel>,
+    m: &crate::plan_intel::PlanMarca,
+    prueba: bool,
+) -> AppResult<()> {
+    let destino = tramo.map(|t| t.destino.clone()).unwrap_or_default();
+    // Saltando, el camino es del cyno: decir «tu camino» mandaría a mirar el sistema equivocado
+    // (tú apareces en la parada, no pasas por ahí).
+    let quien = tramo.and_then(|t| t.quien.clone());
+    // La frase ENTERA por idioma, sin pegar trozos (ver `caminoDe` en useIntel.ts).
+    let en = en_ingles(&app.state::<AppState>().db);
+    let titulo = match (&quien, en) {
+        (Some(q), true) => format!("⚠ On {q}'s way to {destino}: {}", m.system),
+        (Some(q), false) => format!("⚠ En el camino de {q} a {destino}: {}", m.system),
+        (None, true) => format!("⚠ On your way to {destino}: {}", m.system),
+        (None, false) => format!("⚠ En tu camino a {destino}: {}", m.system),
+    };
+    let titulo = match (prueba, en) {
+        (true, true) => format!("[TEST] {titulo}"),
+        (true, false) => format!("[PRUEBA] {titulo}"),
+        (false, _) => titulo,
+    };
+    let cuerpo = if en {
+        format!("{} jump(s) from {} · {}: {}", m.jumps, m.cerca_de_name, m.author, m.message)
+    } else {
+        format!("{} salto(s) de {} · {}: {}", m.jumps, m.cerca_de_name, m.author, m.message)
+    };
+    use tauri_plugin_notification::NotificationExt;
+    let notif = app
+        .notification()
+        .builder()
+        .title(titulo)
+        .body(cuerpo)
+        .show()
+        .map_err(|e| AppError::Other(format!("el sistema rechazó el aviso: {e}")));
+    let refs: &[i64] = if cfg.anchors.is_empty() { &cfg.origins } else { &cfg.anchors };
+    let (pilots, anchor) = contexto_cerca(&g.adj, &g.id_to_name, &cfg.pilots, refs, m.sys_id);
+    let _ = app.emit(
+        "intel-alert",
+        IntelAlertEvent {
+            sys_id: m.sys_id,
+            system: m.system.clone(),
+            jumps: m.jumps,
+            author: m.author.clone(),
+            message: m.message.clone(),
+            ts_ms: m.ts_ms,
+            pilots,
+            anchor,
+            parse: hostiles_de(app, &g.name_to_id, &m.message),
+            region: g.id_to_region.get(&m.sys_id).cloned(),
+            camino: Some(CaminoAlerta {
+                destino,
+                cerca_de: m.cerca_de_name.clone(),
+                system_id: m.cerca_de,
+                jumps: m.jumps,
+                quien,
+            }),
+        },
+    );
+    if cfg.overlay_enabled {
+        mostrar_overlay(app);
+    }
+    notif
+}
+
+/// ★ «PROBAR EL AVISO» del panel del plan: un reporte de MENTIRA en el destino de una parada
+/// EMPEZADA, por el mismo camino que el de verdad (`emitir_aviso_plan`). Mismo patrón que
+/// `aviso_probar` y `overlay_test`: sin esto, comprobar que el aviso del plan llega exige esperar a
+/// que canten un hostil en tu camino.
+/// · No apunta nada en «ya avisado» ni deja marca: no pasa por `plan_intel::pasada`.
+/// · `mensaje` lo manda la pantalla ya traducido y marcado como PRUEBA (Rust no tiene i18n).
+/// · Devuelve si Intel en vivo tiene los avisos encendidos: con el maestro apagado un aviso de
+///   verdad no sonaría, y la pantalla lo dice en vez de dejar creer que sí.
+#[tauri::command]
+pub fn plan_aviso_probar(app: tauri::AppHandle, state: State<'_, AppState>, stop_id: i64, mensaje: String) -> AppResult<bool> {
+    let tramo = state
+        .intel
+        .plan
+        .lock()
+        .map_err(|_| AppError::Other("los tramos del plan están envenenados (un pánico los dejó a medias)".into()))?
+        .iter()
+        .find(|t| t.stop_id == stop_id)
+        .cloned()
+        .ok_or_else(|| AppError::Other("el vigilante no tiene esta parada: el panel aún no le ha mandado el camino".into()))?;
+    if !tramo.empezado {
+        return Err(AppError::Other("esta parada no está empezada: solo avisa el tramo del «▶ Voy»".into()));
+    }
+    let cfg = state
+        .intel
+        .cfg
+        .lock()
+        .map_err(|_| AppError::Other("la configuración del intel está envenenada".into()))?
+        .clone()
+        .ok_or_else(|| AppError::Other("Intel en vivo no está en marcha: sin vigilante no hay aviso que probar".into()))?;
+    let g = state.intel.graph.lock().map_err(|_| AppError::Other("el mapa del intel está envenenado".into()))?;
+    let dst = *tramo
+        .sistemas
+        .last()
+        .ok_or_else(|| AppError::Other("el tramo de esta parada no tiene sistemas".into()))?;
+    let nombre = g.id_to_name.get(&dst).cloned().unwrap_or_else(|| tramo.destino.clone());
+    let marca = crate::plan_intel::PlanMarca {
+        stop_id,
+        sys_id: dst,
+        system: nombre.clone(),
+        jumps: 0,
+        cerca_de: dst,
+        cerca_de_name: nombre,
+        ts_ms: chrono::Utc::now().timestamp_millis(),
+        author: "Koru".into(),
+        message: mensaje,
+        aviso: "avisa",
+    };
+    emitir_aviso_plan(&app, &cfg, &g, Some(&tramo), &marca, true)?;
+    Ok(cfg.alerts_enabled)
+}
+
 fn mostrar_overlay(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("overlay") {
         // ⚠️ COLOCAR ANTES DE ENSEÑAR, SIEMPRE (2026-08-18). Antes solo se colocaba cuando tocabas
@@ -9498,57 +9623,9 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                     for &i in &pasada.avisar {
                         let m = &pasada.marcas[i];
                         let tramo = plan_tramos.iter().find(|t| t.stop_id == m.stop_id);
-                        let destino = tramo.map(|t| t.destino.clone()).unwrap_or_default();
-                        // Saltando, el camino es del cyno: decir «tu camino» mandaría a mirar el
-                        // sistema equivocado (tú apareces en la parada, no pasas por ahí).
-                        let quien = tramo.and_then(|t| t.quien.clone());
-                        // La frase ENTERA por idioma, sin pegar trozos (ver `caminoDe` en useIntel.ts).
-                        let en = en_ingles(&app.state::<AppState>().db);
-                        let titulo = match (&quien, en) {
-                            (Some(q), true) => format!("⚠ On {q}'s way to {destino}: {}", m.system),
-                            (Some(q), false) => format!("⚠ En el camino de {q} a {destino}: {}", m.system),
-                            (None, true) => format!("⚠ On your way to {destino}: {}", m.system),
-                            (None, false) => format!("⚠ En tu camino a {destino}: {}", m.system),
-                        };
-                        let cuerpo = if en {
-                            format!("{} jump(s) from {} · {}: {}", m.jumps, m.cerca_de_name, m.author, m.message)
-                        } else {
-                            format!("{} salto(s) de {} · {}: {}", m.jumps, m.cerca_de_name, m.author, m.message)
-                        };
-                        use tauri_plugin_notification::NotificationExt;
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title(titulo)
-                            .body(cuerpo)
-                            .show();
-                        let refs: &[i64] = if cfg.anchors.is_empty() { &cfg.origins } else { &cfg.anchors };
-                        let (pilots, anchor) = contexto_cerca(&g.adj, &g.id_to_name, &cfg.pilots, refs, m.sys_id);
-                        let _ = app.emit(
-                            "intel-alert",
-                            IntelAlertEvent {
-                                sys_id: m.sys_id,
-                                system: m.system.clone(),
-                                jumps: m.jumps,
-                                author: m.author.clone(),
-                                message: m.message.clone(),
-                                ts_ms: m.ts_ms,
-                                pilots,
-                                anchor,
-                                parse: hostiles_de(&app, &g.name_to_id, &m.message),
-                                region: g.id_to_region.get(&m.sys_id).cloned(),
-                                camino: Some(CaminoAlerta {
-                                    destino,
-                                    cerca_de: m.cerca_de_name.clone(),
-                                    system_id: m.cerca_de,
-                                    jumps: m.jumps,
-                                    quien,
-                                }),
-                            },
-                        );
-                        if cfg.overlay_enabled {
-                            mostrar_overlay(&app);
-                        }
+                        // Como antes: un fallo de la notificación del sistema no para el resto del
+                        // aviso (evento, overlay). `plan_aviso_probar` sí lo devuelve.
+                        let _ = emitir_aviso_plan(&app, &cfg, &g, tramo, m, false);
                     }
                     // Las marcas van al panel solo si cambian: el bucle pasa cada 3 s.
                     let mut guardadas = watch.plan_marcas.lock().unwrap_or_else(|e| e.into_inner());

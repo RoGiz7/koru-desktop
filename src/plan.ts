@@ -1055,7 +1055,8 @@ export type PlanMarca = {
   ts_ms: number;
   author: string;
   message: string;
-  aviso: "avisa" | "no_empezado" | "silenciado" | "alertas_apagadas";
+  /** `ya_sono`: marcado y no suena OTRA vez, porque ya sonó por estar cerca de tus pilotos. */
+  aviso: "avisa" | "no_empezado" | "silenciado" | "alertas_apagadas" | "ya_sono";
 };
 
 /** Un REPORTE es una línea del chat: quién, cuándo y qué. El vigilante saca una marca por cada tramo

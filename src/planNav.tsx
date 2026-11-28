@@ -100,6 +100,8 @@ type BuscaIntermedio = {
 /** Por qué una marca del intel suena o no. El silencio se DICE: un tramo marcado que no suena tiene
  *  que verse marcado, no limpio. */
 function textoAviso(a: PlanMarca["aviso"]): string {
+  // `switch` exhaustivo: un motivo nuevo en Rust (como `ya_sono`, que faltaba) no compila aquí
+  // hasta tener su frase. Sin él, la marca decía «🔊 suena» sin que sonara nada.
   switch (a) {
     case "avisa":
       return `🔊 ${tr("suena: has salido hacia aquí")}`;
@@ -109,6 +111,14 @@ function textoAviso(a: PlanMarca["aviso"]): string {
       return `🔕 ${tr("marcado, no suena: el sistema está silenciado")}`;
     case "alertas_apagadas":
       return `🔕 ${tr("marcado, no suena: Intel en vivo está apagado")}`;
+    case "ya_sono":
+      return getLang() === "en"
+        ? "🔕 marked, doesn't sound again: it already sounded for being near your pilots"
+        : "🔕 marcado, no suena otra vez: ya sonó por estar cerca de tus pilotos";
+    default: {
+      const nunca: never = a;
+      return nunca;
+    }
   }
 }
 
@@ -686,6 +696,31 @@ export function PlanNav(props: {
     });
   }
   const [otroAbierto, setOtroAbierto] = useState<number | null>(null);
+  /** «Probar el aviso»: un reporte de mentira en el destino, por el MISMO camino que el de verdad.
+   *  El resultado se dice en la fila: si el sistema rechazó la notificación, o si los avisos están
+   *  apagados (entonces uno de verdad no sonaría, y la prueba no puede hacer creer que sí). */
+  const [pruebaAviso, setPruebaAviso] = useState<{ stopId: number; texto: string } | null>(null);
+  async function probarAviso(stopId: number) {
+    const en = getLang() === "en";
+    const mensaje = en
+      ? "TEST — this is a test alert from the plan; nobody has been reported"
+      : "PRUEBA — esto es un aviso de prueba del plan; no han cantado a nadie";
+    try {
+      const encendidos = await invoke<boolean>("plan_aviso_probar", { stopId, mensaje });
+      setPruebaAviso({
+        stopId,
+        texto: encendidos
+          ? en
+            ? "Test alert sent: notification, alert and sound, as a real one. If nothing showed up, the system is silencing Koru."
+            : "Aviso de prueba enviado: notificación, aviso y sonido, como uno de verdad. Si no ha salido nada, el sistema está silenciando a Koru."
+          : en
+            ? "Test alert sent, but Live intel has alerts OFF: a real one would not sound."
+            : "Aviso de prueba enviado, pero Intel en vivo tiene los avisos APAGADOS: uno de verdad no sonaría.",
+      });
+    } catch (e) {
+      setPruebaAviso({ stopId, texto: `${en ? "The test alert failed" : "El aviso de prueba falló"}: ${String(e)}` });
+    }
+  }
   async function fijarVia(stopId: number, via: number | null) {
     try {
       await invoke("plan_via", { stopId, systemId: via });
@@ -1749,6 +1784,13 @@ export function PlanNav(props: {
                             {nameOf(res.system_id!) || res.system_name}
                           </a>
                           {res.empezada && <span className="plan-empezada"> ▶ {tr("en camino")}</span>}
+                          {/* Solo en la EMPEZADA: es la única que avisa de verdad. Ver `plan_aviso_probar`. */}
+                          {res.empezada && (
+                            <button className="route-add" onClick={() => void probarAviso(r.stopId)}>
+                              {getLang() === "en" ? "Test the alert" : "Probar el aviso"}
+                            </button>
+                          )}
+                          {pruebaAviso?.stopId === r.stopId && <div className="small muted">{pruebaAviso.texto}</div>}
                         </div>
                         <div className="small">
                           {!llega(r.estado) ? (
