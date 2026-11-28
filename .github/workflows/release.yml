@@ -89,7 +89,16 @@ jobs:
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: "Koru Desktop ${{ github.event.inputs.tag || github.ref_name }}"
-          releaseBody: "Instalador abajo. Si ya tienes la app, se actualizará sola."
+          # Lo que se ve al abrir la release: qué instalador coger. En inglés porque los pilotos no
+          # son todos hispanohablantes; la misma plantilla, en `documentacion/`, se pega al final de
+          # las notas escritas a mano.
+          releaseBody: |
+            **Already have Koru?** It updates itself, nothing to download.
+
+            - **Windows:** take the `x64-setup.exe` (recommended). If the icons don't load inside Koru, install the `.msi` instead.
+            - **Linux:** see the table in the [README](https://github.com/RoGiz7/koru-desktop#linux) to pick your package.
+
+            The `.sig` files and `latest.json` are for the updater: you can ignore them.
           releaseDraft: true
           # Un tag con GUION (v0.42.0-rc1, v0.42.0-beta) sale como PRERELEASE automáticamente.
           #

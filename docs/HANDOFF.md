@@ -6,9 +6,12 @@
 
 ## Estado
 
-- **`main` lleva TREINTA Y UN commits por encima del tag `v0.58.0` (`a3b330a`), el último este
-  fichero. SIN PUBLICAR.** Hasta `1b7fd8d` está empujado; los CUATRO de la fase 3b (`ed3a932`,
-  `b31fb44`, `5a77802` y este fichero) están **solo en local, sin push**. Ni versión, ni changelog,
+- **`main` lleva TREINTA Y CUATRO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `1b7fd8d` está empujado; los SIETE siguientes están **solo en local, sin push**:
+  la fase 3b (`ed3a932`, `b31fb44`, `5a77802`, `200d0a7`), lo que vino detrás (`4465c89`: el intel
+  por el intermedio, frases enteras y la caché de rutas), los retoques del panel vistos por RoGiz7
+  con intel real (`cd5907d`) y qué instalador coger (README, `releaseBody` y la plantilla
+  `documentacion/PLANTILLA_que_instalador.md`, que no sube). Este fichero va en el último. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
   (`0981590`), el salto (`dff63d9`), los huérfanos de `public/`, el skill-check y la lista de
   personajes.

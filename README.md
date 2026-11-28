@@ -62,8 +62,12 @@ Grab the installer from the **[latest release](https://github.com/RoGiz7/koru-de
 
 ### Windows
 
-Download the `.msi` or `setup.exe` and run it. Once installed it **updates itself**: when a new version
-ships, the app tells you and updates on restart.
+**Recommended: the `x64-setup.exe`.** Download it and run it. Once installed it **updates itself**: when a
+new version ships, the app tells you and updates on restart.
+
+The `.msi` is there too, as the alternative. If the icons don't load inside Koru, install with the
+`.msi` instead: some antivirus programs cut the network to anything installed in AppData, which is where
+the `setup.exe` puts the app.
 
 > **SmartScreen warning:** the app isn't signed with a certificate yet, so Windows will show
 > *"Windows protected your PC"*. Click **More info → Run anyway**. This is normal for indie apps and the
