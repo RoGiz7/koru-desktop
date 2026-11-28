@@ -4,12 +4,30 @@
 > sesión nueva arranque sin que nadie le recuente la historia. Si miente, hace más daño que bien.
 > Las reglas que no se negocian están en `CLAUDE.md` (raíz).
 
+## ▶ RETOMAR AQUÍ (fin de la jornada del 28-11)
+
+`a905233` y `237e6ae` pasan las puertas de fuera; **la revisión del código y la prueba en pantalla
+quedan para la siguiente jornada.** En este orden:
+
+1. **Posiciones: hechas, SIN VER EN PANTALLA.** Falta que RoGiz7 compile (`npx tauri build
+   --no-bundle`), lance la release con Intel en vivo encendido y la capa Intel, **corte la red unos
+   dos minutos** y vea: pastilla en ámbar con «Posición: fallo» pasados ~90 s, marcas discontinuas y
+   apagadas con «sin confirmar desde hace N min»; y al volver la red, «Activo» en menos de un minuto
+   sin reiniciar. Detalle en «las posiciones viejas ya se dicen», abajo.
+2. **Pendiente de DECIDIR:** con cero referencias para medir porque nadie tiene permiso de posición y
+   no hay anclas, la pastilla sigue diciendo «Activo» en verde mientras el aviso de siempre no puede
+   sonar (el hilo se salta la proximidad con `cfg.origins` vacío). Solo el caso causado por las
+   posiciones sale ya en rojo.
+3. **«Probar el aviso» del plan (`86dc9e9`): sin oír todavía.** No entra en el changelog hasta que
+   alguien lo haya oído sonar.
+4. **Después: boceto de estética del panel del plan.**
+
 ## Estado
 
-- **`main` lleva CINCUENTA Y CINCO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `d1e92b0` está empujado; los TRES siguientes están **solo en local, sin push**:
-  el arranque cerrado por ahora (`a0a7123`) y las posiciones viejas (`a905233` y el último, con
-  este fichero).
+- **`main` lleva CINCUENTA Y SEIS commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `d1e92b0` está empujado; los CUATRO siguientes están **solo en local, sin push**:
+  el arranque cerrado por ahora (`a0a7123`), las posiciones viejas (`a905233`, `237e6ae`) y este
+  fichero con el punto de retomar.
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
