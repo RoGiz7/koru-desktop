@@ -1440,6 +1440,16 @@ export function PlanNav(props: {
                     >
                       {getLang() === "en" ? `Use ${nom(a.ahora)}` : `Usar ${nom(a.ahora)}`}
                     </button>
+                    {/* Un salto guardado lo pueden usar varios planes, y «Usar» lo cambia en TODOS. Antes
+                        solo lo decía el título del botón, que hay que pasar el ratón para ver. */}
+                    {forma.planes.length > 1 && (
+                      <span className="muted">
+                        {" "}
+                        {getLang() === "en"
+                          ? `(“${forma.nombre}” is used by ${forma.planes.length} plans: it changes in all of them)`
+                          : `(«${forma.nombre}» lo usan ${forma.planes.length} planes: cambia en todos)`}
+                      </span>
+                    )}
                   </div>
                 );
               })()}
