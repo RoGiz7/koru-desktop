@@ -80,6 +80,13 @@ CREATE TABLE IF NOT EXISTS wallet_journal (
 
 CREATE INDEX IF NOT EXISTS idx_wj_char ON wallet_journal(character_id);
 CREATE INDEX IF NOT EXISTS idx_wj_date ON wallet_journal(date);
+-- ★ Para el SANEO del arranque (`SANEO_WALLET` en db/mod.rs), y solo para él: la misma expresión de
+--   fecha que usa su EXISTS, `substr(date, 1, 19)`. Sin este índice, por cada fila del CSV (id<0)
+--   el EXISTS recorría todas las de ESI de su personaje: medido el 28-11 sobre una copia de una base
+--   real (29.035 filas del CSV de 32.493), 6.961 ms en CADA arranque, con la ventana en «No
+--   responde». Con él, 27 ms y las mismas filas borradas. Si se cambia la expresión de la sentencia,
+--   hay que cambiar la del índice: el planificador solo lo usa si son idénticas (lo vigila un test).
+CREATE INDEX IF NOT EXISTS idx_wj_saneo ON wallet_journal(character_id, ref_type, substr(date, 1, 19));
 
 -- Transacciones de mercado acumuladas (ESI da ventana corta; aquí las conservamos).
 CREATE TABLE IF NOT EXISTS wallet_transactions (

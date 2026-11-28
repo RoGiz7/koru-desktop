@@ -11,6 +11,18 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+/// El saneo del wallet del arranque (ver su comentario en `Db::open`). En una constante para que el
+/// test `saneo_del_wallet_usa_su_indice` mire la MISMA sentencia que corre, no una copia.
+/// 🚨 Su expresión de fecha tiene que ser idéntica a la de `idx_wj_saneo` en schema.sql.
+const SANEO_WALLET: &str = "DELETE FROM wallet_journal WHERE id < 0 AND EXISTS (
+                 SELECT 1 FROM wallet_journal r
+                  WHERE r.id > 0
+                    AND r.character_id = wallet_journal.character_id
+                    AND r.ref_type = wallet_journal.ref_type
+                    AND substr(r.date, 1, 19) = substr(wallet_journal.date, 1, 19)
+                    AND ROUND(r.amount, 2) = ROUND(wallet_journal.amount, 2)
+             )";
+
 pub struct Db {
     /// El candado de la BD. Mismo `lock()` que un `Mutex`; con `KORU_MEDIR_ARRANQUE=1` mide además
     /// cuánto se espera (ver `medir_arranque.rs`). Apagado, es un `Mutex` y nada más.
@@ -98,17 +110,8 @@ impl Db {
         // Saneo: quita las filas del CSV (id<0) cuya transacción ya llegó por ESI (id>0). Se hace al
         // arrancar porque cada sync de ESI puede traer una gemela de algo que el CSV ya importó, y el
         // id sintético no colisiona a propósito → se contaba DOBLE. Idempotente y barato.
-        let _ = conn.execute(
-            "DELETE FROM wallet_journal WHERE id < 0 AND EXISTS (
-                 SELECT 1 FROM wallet_journal r
-                  WHERE r.id > 0
-                    AND r.character_id = wallet_journal.character_id
-                    AND r.ref_type = wallet_journal.ref_type
-                    AND substr(r.date, 1, 19) = substr(wallet_journal.date, 1, 19)
-                    AND ROUND(r.amount, 2) = ROUND(wallet_journal.amount, 2)
-             )",
-            [],
-        );
+        // ⚠️ «Barato» solo con `idx_wj_saneo` (schema.sql): sin él tardaba ~7 s en cada arranque.
+        let _ = conn.execute(SANEO_WALLET, []);
         // facility.tax pasa de `NOT NULL DEFAULT 0` a ANULABLE (F1c): hay que poder distinguir
         // «declaré que no cobra nada» de «no lo he rellenado». SQLite no sabe quitar un NOT NULL con
         // ALTER → toca reconstruir la tabla, y por eso va guardado: solo corre si la columna sigue
@@ -10167,4 +10170,56 @@ pub struct SkillWatchResult {
     pub seeded: bool,
     pub known: i64,
     pub learned: i64,
+}
+
+#[cfg(test)]
+mod tests_saneo_wallet {
+    use super::*;
+
+    /// El saneo del arranque usa su índice (con el SQLite de verdad de Koru, no el de una consola) y
+    /// borra lo que debe: la gemela del CSV de una fila de ESI, y no la que difiere en un céntimo.
+    /// Sin el índice tardaba ~7 s por arranque en una base real: si alguien cambia la expresión de la
+    /// sentencia o la del índice, el plan deja de usarlo y esto falla.
+    #[test]
+    fn saneo_del_wallet_usa_su_indice() {
+        let tmp = std::env::temp_dir().join(format!("koru-saneo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let ruta = tmp.join("koru.db");
+        {
+            let db = Db::open(ruta.clone()).unwrap();
+            let c = db.conn.lock().unwrap();
+            let plan: Vec<String> = c
+                .prepare(&format!("EXPLAIN QUERY PLAN {SANEO_WALLET}"))
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(3))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(plan.iter().any(|p| p.contains("idx_wj_saneo")), "el saneo no usa su índice: {plan:?}");
+            // Una fila de ESI, su gemela del CSV y una casi gemela (un céntimo).
+            for (id, amount) in [(10i64, 100.0f64), (-1, 100.0), (-2, 100.01)] {
+                c.execute(
+                    "INSERT INTO wallet_journal (id, character_id, date, ref_type, amount) VALUES (?1, 7, '2026-11-28T10:00:00Z', 'bounty_prizes', ?2)",
+                    rusqlite::params![id, amount],
+                )
+                .unwrap();
+            }
+        }
+        // El saneo corre al ABRIR: se reabre como un arranque.
+        let db = Db::open(ruta).unwrap();
+        let quedan: Vec<i64> = db
+            .conn
+            .lock()
+            .unwrap()
+            .prepare("SELECT id FROM wallet_journal ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(quedan, vec![-2, 10], "se va la gemela; la de ESI y la casi gemela se quedan");
+        drop(db);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

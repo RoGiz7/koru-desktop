@@ -6,10 +6,10 @@
 
 ## Estado
 
-- **`main` lleva CUARENTA Y TRES commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `4643a40` está empujado; los TRES siguientes están **solo en local, sin push**:
-  «ya sonó» de lo que sonó de verdad (`3f59cb5`), «Usar B» con cuántos planes (`7eccab1`) y la
-  medición del arranque (el último, con este fichero).
+- **`main` lleva CUARENTA Y CINCO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `b84f36e` está empujado; los DOS siguientes están **solo en local, sin push**:
+  el SDE apuntado como paso previo al corte (`031bd36`) y el índice del saneo del wallet (el último,
+  con este fichero).
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
@@ -162,7 +162,18 @@ Brief `documentacion/brief-arranque-no-responde.md`. **Hecho solo el paso 0: la 
 carrera de arranque), los tramos de `Db::open`, cada comando en el manejador (hilo principal) con lo
 que esperó el candado de la BD y el paso de `auto_sync` en marcha, y la cuenta de hilo principal sin
 atender. Informe a los 65 s en `%TEMP%\koru-arranque.txt`: solo nombres de comando y ms.
-⏳ Falta que RoGiz7 lo lance y pegue el resultado; con eso se propone el arreglo. Nada arreglado.
+**Medido (release, datos reales, 28-11):** Ready a los 8.640 ms; «Db::open · ALTER, migraciones y
+limpiezas» = 7.840 ms; los otros tres tramos de Db::open, 16 ms. Después, `intel_channels` 609 ms
+(0 esperando BD) y `fleet_op_activa` 479 ms (478 esperando BD, paso «ninguno»).
+✅ **Arreglado lo de Db::open** (28-11): cronometrado sentencia a sentencia sobre una COPIA de su
+base (API de backup), el 98 % era el saneo de `wallet_journal` (6.961 ms). Índice `idx_wj_saneo`
+con la misma expresión de fecha: 27 ms y las mismas filas borradas (probado con gemelas
+inyectadas en la copia). El tramo entero, de 7.099 a 116 ms en la copia (SQLite 3.38 de Python;
+Koru lleva 3.46). ⏳ Falta repetir la medición con la release.
+⏳ **El relleno de `killmails`** (~75 ms, repasa la tabla entera en cada arranque) NO se tocó: los
+killmails nuevos entran SIN `victim_character_id`/`victim_corporation_id` (`INSERT` de
+`db/mod.rs`) y es ese relleno del arranque el que se los pone. Pasarlo a «una vez» los dejaría vacíos.
+⏳ `intel_channels` y `fleet_op_activa`: después, con la medición repetida.
 
 ## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
 
