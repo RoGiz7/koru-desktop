@@ -268,11 +268,11 @@ console.log("Fase 3a — la forma de viajar y los dos relojes");
   const ev = evaluar([0, 1], AB, tr2, ahora, 1, 45, formaSalto(p2({})));
   const [rA, rB] = ev.resultados;
   const sA = rA.salto?.saltos[0], sB = rB.salto?.saltos[0];
-  console.log("  O→A:", rA.llegadaMs / M, rA.salto?.espera, sA?.cooldownMin, sA?.fatigaMin, "· A→B:", rB.llegadaMs / M, rB.salto?.espera, sB?.cooldownMin, sB?.fatigaMin);
-  ok(casi(rA.llegadaMs, 10 * M) && rA.salto.espera?.quien === "cyno" && casi(rA.salto.espera.min, 10),
+  console.log("  O→A:", rA.llegadaMs / M, rA.salto?.saltos[0]?.espera, sA?.cooldownMin, sA?.fatigaMin, "· A→B:", rB.llegadaMs / M, rB.salto?.saltos[0]?.espera, sB?.cooldownMin, sB?.fatigaMin);
+  ok(casi(rA.llegadaMs, 10 * M) && rA.salto.saltos[0].espera?.quien === "cyno" && casi(rA.salto.saltos[0].espera.min, 10),
     "O → A sale en t = 10: manda el cyno (10 saltos, sin ciclo pendiente)");
   ok(casi(sA.cooldownMin, 2.5) && casi(sA.fatigaMin, 25), "O → A: cooldown 2,5 y fatiga 25");
-  ok(casi(rB.llegadaMs, 71 * M) && rB.salto.espera?.quien === "cyno" && casi(rB.salto.espera.min, 16),
+  ok(casi(rB.llegadaMs, 71 * M) && rB.salto.saltos[0].espera?.quien === "cyno" && casi(rB.salto.saltos[0].espera.min, 16),
     "A → B sale en t = 71: el cyno, libre en 11, más 60 saltos; el sitio acabó en 55 → esperas 16 m");
   ok(casi(sB.cooldownMin, 3) && casi(sB.fatigaMin, 30), "A → B: cooldown 3 y fatiga 30");
   ok(rA.path.length === 11 && rB.path[0] === 2 && rB.path.at(-1) === 3, "el camino de una pata de salto es la ruta a puertas del CYNO");
@@ -284,8 +284,8 @@ console.log("Fase 3a — la forma de viajar y los dos relojes");
   const f3 = formaSalto(p2({ rutaCyno: (a, b) => ({ saltos: key(a, b) === "2-3" ? 1 : SALTOS[key(a, b)], path: [a, b], wormhole: false }) }));
   const tras = f3.pata(f3.inicial, 0, 1, 0);
   const pb = f3.pata(tras.despues, 1, 2, 10 * M);
-  console.log("  cooldown:", pb.llega && pb.viajeMin, pb.llega && pb.salto.espera, pb.llega && pb.salto.saltos[0].cooldownMin, pb.llega && pb.salto.saltos[0].fatigaMin);
-  ok(pb.llega && pb.salto.espera?.quien === "cooldown" && casi(pb.salto.espera.min, 2.5) && casi(pb.salto.saltos[0].salidaMs, 12.5 * M),
+  console.log("  cooldown:", pb.llega && pb.viajeMin, pb.llega && pb.salto.saltos[0].espera, pb.llega && pb.salto.saltos[0].cooldownMin, pb.llega && pb.salto.saltos[0].fatigaMin);
+  ok(pb.llega && pb.salto.saltos[0].espera?.quien === "cooldown" && casi(pb.salto.saltos[0].espera.min, 2.5) && casi(pb.salto.saltos[0].salidaMs, 12.5 * M),
     "cyno en B en t = 12, cooldown hasta 12,5: saltas en 12,5, esperas 2,5 m de cooldown");
   ok(pb.llega && casi(pb.salto.saltos[0].cooldownMin, 3) && casi(pb.salto.saltos[0].fatigaMin, 67.5),
     "llegas con 22,5 de fatiga: cooldown 3, fatiga 67,5");

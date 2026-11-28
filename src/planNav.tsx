@@ -609,7 +609,8 @@ export function PlanNav(props: {
       }
     }
   }
-  function lineaSalto(s: SaltoHecho, espera: { quien: "cyno" | "cooldown"; min: number } | null): string {
+  function lineaSalto(s: SaltoHecho): string {
+    const espera = s.espera;
     const e = !espera
       ? tr("sales nada más acabar")
       : espera.quien === "cyno"
@@ -1099,7 +1100,7 @@ export function PlanNav(props: {
                         </div>
                         {r.salto?.saltos.map((s, k) => (
                           <div key={k} className="small plan-salto">
-                            {lineaSalto(s, k === 0 ? r.salto!.espera : null)}
+                            {lineaSalto(s)}
                           </div>
                         ))}
                         {llega(r.estado) && <div className="small muted">{lineaMuertes(r)}</div>}

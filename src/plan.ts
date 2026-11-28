@@ -126,6 +126,13 @@ export type SaltoHecho = {
   isotopo: string;
   /** Cuándo se salta (ms). El salto es instantáneo: se llega en este mismo momento. */
   salidaMs: number;
+  /** Quién mandó en ESTE salto, si hubo que esperar, y DÓNDE (`en`: el sistema del que sale):
+   *  «esperas 16 m al cyno», «esperas 21 m en X al cyno». `null` = saliste en cuanto pudiste.
+   *  ⚠️ Es POR SALTO y obligatoria a propósito. Vivía en `InfoPata`, una por pata, y la pantalla
+   *     la pintaba solo en el salto 0: con un intermedio, la espera del segundo habría salido
+   *     «sales nada más acabar» sin que nada avisara. Aquí, quien construye un salto no puede
+   *     olvidarla y quien la lee no puede leer la de otro. */
+  espera: { quien: "cyno" | "cooldown"; min: number; en: number } | null;
   /** Con qué quedas: cooldown (rojo) y fatiga (azul), en minutos. Según lo publicado: «~». */
   cooldownMin: number;
   fatigaMin: number;
@@ -136,9 +143,6 @@ export type InfoPata = {
   /** 🔧 Una LISTA aunque en la fase 3a tenga un solo elemento: el salto intermedio (3b) será un
    *  segundo elemento que pase por el mismo bucle. */
   saltos: SaltoHecho[];
-  /** Quién mandó en la salida, si hubo que esperar: «esperas 16 m al cyno», «esperas 2 m de
-   *  cooldown». `null` = saliste nada más acabar el sitio. Esa frase es la fase entera. */
-  espera: { quien: "cyno" | "cooldown"; min: number } | null;
   /** Saltos a puertas que hizo el cyno para estar allí. */
   cynoSaltos: number;
 };
@@ -272,7 +276,7 @@ export function formaSalto(p: ParamsSalto): FormaCalc<EstadoSalto> {
       const dst = p.puntos[hasta];
       // Ya estás ahí (dos paradas en el mismo sistema): no hay salto ni cyno que esperar.
       if (dst === e.salta) {
-        return { llega: true, saltos: 0, path: [dst], wormhole: false, viajeMin: 0, salto: { saltos: [], espera: null, cynoSaltos: 0 }, despues: e };
+        return { llega: true, saltos: 0, path: [dst], wormhole: false, viajeMin: 0, salto: { saltos: [], cynoSaltos: 0 }, despues: e };
       }
       if (!p.saltable(dst)) return { llega: false, estado: "alta_sec" };
       const d = ly(e.salta, dst);
@@ -282,7 +286,9 @@ export function formaSalto(p: ParamsSalto): FormaCalc<EstadoSalto> {
       const cynoEn = e.cynoLibreMs + rc.saltos * p.cynoMinPorSalto * 60000;
       const salida = Math.max(t, e.cdHastaMs, cynoEn);
       const espera =
-        salida > t ? { quien: cynoEn >= e.cdHastaMs ? ("cyno" as const) : ("cooldown" as const), min: (salida - t) / 60000 } : null;
+        salida > t
+          ? { quien: cynoEn >= e.cdHastaMs ? ("cyno" as const) : ("cooldown" as const), min: (salida - t) / 60000, en: e.salta }
+          : null;
       const fatAntes = Math.max(0, e.fatMin - (salida - e.fatMs) / 60000);
       const f = saltoFatiga(d, p.casco.fatMult, fatAntes);
       return {
@@ -300,11 +306,11 @@ export function formaSalto(p: ParamsSalto): FormaCalc<EstadoSalto> {
               isotopos: isotoposSalto(d, p.casco.fuelPerLy, p.jfc),
               isotopo: p.casco.isotope,
               salidaMs: salida,
+              espera,
               cooldownMin: f.cooldown,
               fatigaMin: f.fatiga,
             },
           ],
-          espera,
           cynoSaltos: rc.saltos,
         },
         despues: {
