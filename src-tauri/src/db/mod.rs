@@ -10284,3 +10284,41 @@ mod tests_relleno_killmails {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
+
+#[cfg(test)]
+mod medir_sobre_copia {
+    use super::*;
+
+    /// ⏱ SOLO A MANO y sobre una COPIA de la base (nunca la real: `bitacora` escribe desbloqueos).
+    /// Ignorado por defecto. Cronometra las funciones que retenían el candado al arrancar, con el
+    /// SQLite de Koru (medido el 28-11: `bitacora` ~700 ms y `bitacora_series` ~660 ms, casi todo en
+    /// la serie negra; tras su arreglo, ~190 y ~146):
+    ///     KORU_COPIA_BD=<copia> cargo test --release medir_sobre_copia -- --ignored --nocapture
+    /// Solo imprime nombres de función y milisegundos.
+    #[test]
+    #[ignore]
+    fn cronometrar_agregados_del_arranque() {
+        let Ok(ruta) = std::env::var("KORU_COPIA_BD") else {
+            panic!("falta KORU_COPIA_BD: la ruta de una COPIA de la base");
+        };
+        let db = Db::open(PathBuf::from(ruta)).unwrap();
+        // Con KORU_VOLCAR=<carpeta>, deja lo que devuelven en JSON: para comparar antes y después de
+        // tocar una de estas funciones (la prueba de mismo resultado del 28-11).
+        if let Ok(dir) = std::env::var("KORU_VOLCAR") {
+            std::fs::write(format!("{dir}/bitacora.json"), serde_json::to_string(&db.bitacora(None).unwrap()).unwrap()).unwrap();
+            std::fs::write(format!("{dir}/bitacora_series.json"), serde_json::to_string(&db.bitacora_series(None).unwrap()).unwrap()).unwrap();
+        }
+        for vuelta in 1..=3 {
+            let t = std::time::Instant::now();
+            let _ = db.bitacora(None).unwrap();
+            let a = t.elapsed().as_secs_f64() * 1000.0;
+            let t = std::time::Instant::now();
+            let _ = db.bitacora_series(None).unwrap();
+            let b = t.elapsed().as_secs_f64() * 1000.0;
+            let t = std::time::Instant::now();
+            let _ = db.pvp_stats_global().unwrap();
+            let c = t.elapsed().as_secs_f64() * 1000.0;
+            println!("vuelta {vuelta}: bitacora {a:.0} ms · bitacora_series {b:.0} ms · pvp_stats_global {c:.0} ms");
+        }
+    }
+}
