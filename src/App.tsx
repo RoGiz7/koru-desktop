@@ -1,3 +1,4 @@
+import { aplicarSondeo, fusionarRefresh, type TarjetaPos } from "./posiciones";
 import { loadJson } from "./staticJson";
 import { PlanEstudiosView } from "./planEstudios";
 import { NotasVista } from "./notasVista";
@@ -232,7 +233,8 @@ function LastSyncText({ lastSync }: { lastSync: number }) {
 /* ---------- app ---------- */
 function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [cards, setCards] = useState<Record<number, CharacterCard>>({});
+  // Con la hora de confirmación de su posición (solo del frontend): ver `src/posiciones.ts`.
+  const [cards, setCards] = useState<Record<number, TarjetaPos>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feature, setFeature] = useState("core");
@@ -1128,28 +1130,8 @@ function App() {
       invoke<PositionUpdate[]>("poll_positions")
         .then((ps) => {
           if (ps.length === 0) return;
-          setCards((prev) => {
-            const next = { ...prev };
-            for (const p of ps) {
-              const card = next[p.character_id];
-              if (!card) continue; // aún no cargado por `refresh()`: el sondeo no inventa tarjetas
-              next[p.character_id] = {
-                ...card,
-                system_id: p.system_id ?? card.system_id,
-                // Si el sistema CAMBIÓ y no pudimos resolver su nombre, se queda vacío — nunca se
-                // hereda el anterior. Etiquetar el sistema nuevo con el nombre del viejo sería un
-                // dato falso con toda la pinta de bueno; un hueco, al menos, se ve.
-                system_name:
-                  p.system_id != null && p.system_id !== card.system_id
-                    ? p.system_name
-                    : card.system_name,
-                ship_type_id: p.ship_type_id ?? card.ship_type_id,
-                ship_type_name: p.ship_type_name ?? card.ship_type_name,
-                online: p.online,
-              };
-            }
-            return next;
-          });
+          // Lo de siempre, más la hora de confirmación de cada uno: ver `aplicarSondeo`.
+          setCards((prev) => aplicarSondeo(prev, ps, Date.now()));
           // ★ N2 del motor humano: notas que han saltado por llegar aquí. Rust ya las marcó (y
           // cerró las de «una vez»), así que esto solo las enseña. Van en la misma respuesta que
           // la posición a propósito: el aviso no puede llegar desincronizado del salto que lo
@@ -1518,12 +1500,12 @@ function App() {
         // funcionaba.
         setError(null);
         invoke<CharacterCard[]>("get_character_cards")
-          .then((cs) => {
-            const m: Record<number, CharacterCard> = {};
-            for (const c of cs) m[c.character_id] = c;
-            setCards(m);
-          })
-          .catch(() => {});
+          // Con la posición anterior conservada si la nueva llega sin sistema, y la hora de cuándo
+          // se confirmó cada una: ver `fusionarRefresh` en posiciones.ts.
+          .then((cs) => setCards((prev) => fusionarRefresh(prev, cs, Date.now())))
+          // Antes `.catch(() => {})`. Un `refresh()` fallido no confirma a nadie (no toca nada); que
+          // al menos deje rastro, como el sondeo de posiciones.
+          .catch((e) => console.error("[tarjetas] get_character_cards falló; se quedan las tarjetas de antes:", e));
         return;
       } catch (e) {
         ultimo = e;

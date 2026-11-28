@@ -2407,6 +2407,13 @@ pub struct PositionUpdate {
     /// llegada), así que meterlo en la respuesta ahorra un canal entero y hace imposible que el
     /// aviso llegue desincronizado de la posición que lo causó.
     pub fired_notes: Vec<crate::db::NoteRow>,
+    /// ★ ¿Se supo algo CIERTO de este personaje en este sondeo? Una respuesta buena de `/location/`
+    /// o `online == false` con certeza. El front guarda la hora de la última vez (ver
+    /// `src/posiciones.ts`): sin esto, una posición de hace horas se veía igual que una de ahora.
+    pub confirmado: bool,
+    /// Por qué no se confirmó, si no se confirmó y tiene permiso de posición. Literal del código:
+    /// `sin_token` · `sin_respuesta_posicion`.
+    pub motivo: Option<&'static str>,
 }
 
 /// Sondeo de posición: dónde están AHORA tus personajes conectados, y anotarlo en el recorrido.
@@ -2451,6 +2458,23 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
             .access_token(state.esi.http(), c.character_id)
             .await
         else {
+            // ⚠️ Antes era `continue` y el personaje ni salía en la respuesta: la app seguía
+            //    enseñando su última posición como si nada. Con permiso de posición, sale y DICE que
+            //    no se pudo confirmar. Sin datos: los de antes se quedan (`?? card.system_id`).
+            if has_loc {
+                out.push(PositionUpdate {
+                    character_id: c.character_id,
+                    system_id: None,
+                    system_name: None,
+                    ship_type_id: None,
+                    ship_type_name: None,
+                    online: None,
+                    moved: false,
+                    fired_notes: Vec::new(),
+                    confirmado: false,
+                    motivo: Some("sin_token"),
+                });
+            }
             continue;
         };
 
@@ -2481,11 +2505,17 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
                 online,
                 moved: false,
                 fired_notes: Vec::new(),
+                // Desconectado con certeza ES saber algo cierto: no está en ningún sitio que mirar.
+                confirmado: true,
+                motivo: None,
             });
             continue;
         }
 
         let mut system_id = None;
+        // Solo una respuesta BUENA de `/location/` confirma: `get_cached` no devuelve la caché
+        // vieja cuando ESI o la red fallan (devuelve el error), así que `Ok` es un dato de verdad.
+        let mut posicion_ok = false;
         if has_loc {
             if let Ok(loc) = state
                 .esi
@@ -2498,6 +2528,7 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
                 .await
             {
                 system_id = loc.solar_system_id;
+                posicion_ok = true;
             }
         }
         let mut ship_type_id = None;
@@ -2559,6 +2590,8 @@ pub async fn poll_positions(state: State<'_, AppState>) -> AppResult<Vec<Positio
             online,
             moved,
             fired_notes,
+            confirmado: posicion_ok,
+            motivo: if has_loc && !posicion_ok { Some("sin_respuesta_posicion") } else { None },
         });
     }
 

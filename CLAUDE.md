@@ -74,6 +74,7 @@ node scripts/verificar_plan.mjs          # si tocaste src/plan.ts
 node scripts/verificar_salud_intel.mjs   # si tocaste src/saludIntel.ts
 node scripts/verificar_lista_personajes.mjs  # si tocaste src/listaPersonajes.ts
 node scripts/verificar_skillcheck.mjs    # si tocaste src/skillCheck.ts o extract_skill_reqs.py
+node scripts/verificar_posiciones.mjs    # si tocaste src/posiciones.ts
 ```
 
 - ⚠️ **`Finished` sin `Compiling` NO es un build verde.** Si cargo no recompiló, no probaste nada.

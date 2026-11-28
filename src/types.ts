@@ -1138,6 +1138,10 @@ export type PositionUpdate = {
   moved: boolean;
   /** N2: notas que han saltado por llegar aquí. Viajan con la posición, no por evento aparte. */
   fired_notes: Note[];
+  /** ¿Se supo algo cierto de él en este sondeo? Ver `src/posiciones.ts`. */
+  confirmado: boolean;
+  /** Por qué no, si tiene permiso de posición: `sin_token` · `sin_respuesta_posicion`. */
+  motivo: string | null;
 };
 
 /** Una carpeta de logs que el buscador ha encontrado Y que tiene ficheros dentro. */
