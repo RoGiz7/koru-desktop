@@ -166,6 +166,9 @@ pub struct ParadaCargada {
     pub orden: i64,
     pub kind: String,
     pub ref_id: i64,
+    /// Fase 3b: el salto intermedio que el piloto aceptó para llegar aquí (`None` = ninguno). Lo
+    /// revalida el cálculo cada vez: se aceptó desde la parada de antes y el orden puede cambiar.
+    pub via_system_id: Option<i64>,
     pub resuelta: Option<ParadaResuelta>,
     /// Por qué no resuelve, como CÓDIGO y no como frase: el texto lo pone la pantalla con `tr()`
     /// para que salga en los dos idiomas. `kind_desconocido` · `no_existe`.
@@ -272,17 +275,17 @@ impl Db {
             )
             .optional()?
             .ok_or_else(|| AppError::Other(format!("el plan #{plan_id} ya no existe")))?;
-        let filas: Vec<(i64, i64, String, i64)> = {
+        let filas: Vec<(i64, i64, String, i64, Option<i64>)> = {
             let mut st = conn.prepare(
-                "SELECT id, orden, kind, ref_id FROM plan_stop WHERE plan_id = ?1 ORDER BY orden, id",
+                "SELECT id, orden, kind, ref_id, via_system_id FROM plan_stop WHERE plan_id = ?1 ORDER BY orden, id",
             )?;
             let v = st
-                .query_map([plan_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .query_map([plan_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
                 .collect::<Result<Vec<_>, _>>()?;
             v
         };
         let mut paradas = Vec::with_capacity(filas.len());
-        for (id, orden, kind, ref_id) in filas {
+        for (id, orden, kind, ref_id, via_system_id) in filas {
             let (resuelta, fallo) = match PlanKind::de_clave(&kind) {
                 // Un Koru más nuevo escribió un tipo que este no sabe leer.
                 None => (None, Some("kind_desconocido")),
@@ -292,7 +295,7 @@ impl Db {
                     None => (None, Some("no_existe")),
                 },
             };
-            paradas.push(ParadaCargada { id, orden, kind, ref_id, resuelta, fallo });
+            paradas.push(ParadaCargada { id, orden, kind, ref_id, via_system_id, resuelta, fallo });
         }
         Ok(PlanCargado { plan, paradas })
     }
@@ -514,6 +517,21 @@ impl Db {
         Ok(())
     }
 
+    /// Fase 3b: pone (o quita, con `None`) el salto intermedio de una parada. Solo lo llama el
+    /// piloto al pulsar «Usar X» o «Quitar intermedio»: Koru no aplica intermedios por su cuenta.
+    /// Si la parada ya no existe es un error, no un `Ok` callado: el botón diría que lo guardó.
+    pub fn plan_via(&self, stop_id: i64, system_id: Option<i64>) -> AppResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE plan_stop SET via_system_id = ?2 WHERE id = ?1",
+            rusqlite::params![stop_id, system_id],
+        )?;
+        if n == 0 {
+            return Err(AppError::Other(format!("la parada #{stop_id} ya no está en el plan")));
+        }
+        Ok(())
+    }
+
     /// Borra el plan. Sus paradas se van por `ON DELETE CASCADE`; las escalaciones no se tocan.
     pub fn plan_borrar(&self, plan_id: i64) -> AppResult<bool> {
         let conn = self.conn.lock().unwrap();
@@ -644,6 +662,16 @@ mod tests {
         db.run_end(run_d, "done", None, None, None, None, None).unwrap();
         assert!(db.forma_borrar(fid).unwrap(), "sin planes, se borra");
         assert!(db.forma_borrar(pid_a_puertas).unwrap());
+
+        // 4c) Fase 3b: el intermedio. Sin aceptar, nada; se pone, se lee, se quita. Y sobre una
+        //     parada que ya no existe, error: no un «guardado» que no guardó.
+        let s0 = db.plan_cargar(plan).unwrap().paradas[0].id;
+        assert_eq!(db.plan_cargar(plan).unwrap().paradas[0].via_system_id, None, "sin aceptar: ningún intermedio");
+        db.plan_via(s0, Some(30002659)).unwrap();
+        assert_eq!(db.plan_cargar(plan).unwrap().paradas[0].via_system_id, Some(30002659));
+        db.plan_via(s0, None).unwrap();
+        assert_eq!(db.plan_cargar(plan).unwrap().paradas[0].via_system_id, None, "«Quitar intermedio»");
+        assert!(db.plan_via(999_999, Some(1)).is_err(), "parada que no existe: error, no Ok");
 
         // 5) Borrar el plan se lleva sus paradas por la clave ajena.
         assert!(db.plan_borrar(plan).unwrap());

@@ -946,6 +946,13 @@ CREATE TABLE IF NOT EXISTS plan_stop (
     orden    INTEGER NOT NULL,
     kind     TEXT NOT NULL,
     ref_id   INTEGER NOT NULL,
+    -- Fase 3b: el salto intermedio que el PILOTO aceptó para llegar aquí. NULL = ninguno. Es una
+    -- declaración, como el origen del plan, no una copia de nada: Koru lo PROPONE, nunca lo pone.
+    -- No es una parada (no tiene plazo ni motivo propio), por eso es una columna y no un `kind`.
+    -- ⚠️ Se aceptó para llegar desde la parada de antes, y el orden cambia: se revalida en CADA
+    --    cálculo (`formaSalto` en plan.ts), nunca se da por bueno porque esté guardado.
+    -- (En BD ya creadas la añade `Db::open`.)
+    via_system_id INTEGER,
     UNIQUE (plan_id, kind, ref_id)
 );
 CREATE INDEX IF NOT EXISTS idx_plan_stop_ref ON plan_stop(kind, ref_id);

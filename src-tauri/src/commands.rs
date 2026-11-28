@@ -1211,6 +1211,12 @@ pub fn plan_origen(state: State<'_, AppState>, plan_id: i64, system_id: Option<i
     state.db.plan_origen(plan_id, system_id)
 }
 
+/// Fase 3b: el salto intermedio aceptado («Usar X») o quitado («Quitar intermedio»).
+#[tauri::command]
+pub fn plan_via(state: State<'_, AppState>, stop_id: i64, system_id: Option<i64>) -> AppResult<()> {
+    state.db.plan_via(stop_id, system_id)
+}
+
 #[tauri::command]
 pub fn plan_borrar(state: State<'_, AppState>, plan_id: i64) -> AppResult<bool> {
     state.db.plan_borrar(plan_id)

@@ -924,6 +924,8 @@ impl Db {
         // Plan, fase 3a: la forma de viajar. La tabla `plan` no ha salido en ninguna release, pero
         // las BD de desarrollo ya la tienen sin esta columna. NULL = a puertas, como antes.
         let _ = conn.execute("ALTER TABLE plan ADD COLUMN forma_id INTEGER REFERENCES forma_viaje(id)", []);
+        // Plan, fase 3b: el salto intermedio aceptado por el piloto. NULL = ninguno, como antes.
+        let _ = conn.execute("ALTER TABLE plan_stop ADD COLUMN via_system_id INTEGER", []);
         // v8: Fase C — el scan también puebla gamelog_mining/bounty/jumps → reparse una vez.
         // v9: + desperdicio de minería (gamelog_mining_waste) → reparse una vez.
         // v10: reparse LIMPIO para deshacer un doble conteo de gamelog_mining/bounty/jumps que quedó

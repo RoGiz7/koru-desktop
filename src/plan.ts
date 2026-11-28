@@ -143,8 +143,44 @@ export type InfoPata = {
   /** 🔧 Una LISTA aunque en la fase 3a tenga un solo elemento: el salto intermedio (3b) será un
    *  segundo elemento que pase por el mismo bucle. */
   saltos: SaltoHecho[];
-  /** Saltos a puertas que hizo el cyno para estar allí. */
+  /** Saltos a puertas que hizo el cyno para estar allí (con intermedio, los dos tramos). */
   cynoSaltos: number;
+  /** Fase 3b: el intermedio por el que se pasó (el que aceptó el piloto). */
+  via?: number;
+  /** Fase 3b: había un intermedio GUARDADO y se ignoró porque el destino está al alcance directo.
+   *  Se dice en la fila: tirarlo en silencio sería tirar algo que el piloto puso. */
+  viaIgnorada?: number;
+};
+
+/** Fase 3b: por qué un sistema NO sirve de intermedio. Un motivo con su número, nunca un genérico. */
+export type FalloIntermedio =
+  | { motivo: "mismo" }
+  | { motivo: "alta_sec" }
+  /** Desde donde está el que salta, el intermedio queda más lejos que el alcance. */
+  | { motivo: "lejos_ida"; ly: number; alcance: number }
+  /** Desde el intermedio, el destino queda más lejos que el alcance. */
+  | { motivo: "lejos_vuelta"; ly: number; alcance: number }
+  /** El cyno no tiene ruta a puertas hasta el intermedio, o de ahí al destino. */
+  | { motivo: "cyno_sin_ruta" };
+
+/** Fase 3b: lo que vale un intermedio que SÍ sirve: los dos saltos y las dos rutas del cyno. */
+export type IntermedioValido = {
+  via: number;
+  lyIda: number;
+  lyVuelta: number;
+  rutaIda: NonNullable<Tramo>;
+  rutaVuelta: NonNullable<Tramo>;
+};
+
+/** Los números de por qué no llega («11,2 al, y llegas a 8»), y desde dónde: la propuesta de
+ *  intermedio se busca desde AQUÍ (dónde está el que salta y dónde el cyno), no desde el origen. */
+export type NoLlega = {
+  ly: number;
+  alcance: number;
+  desde: number;
+  cyno: number;
+  /** Fase 3b: había un intermedio guardado y NO sirve desde aquí. Se dice con el número. */
+  viaNoSirve?: { via: number; fallo: FalloIntermedio };
 };
 
 export type ResultadoParada = {
@@ -163,7 +199,7 @@ export type ResultadoParada = {
   /** Fase 3a, con una forma `salto`: los saltos, la espera y con qué quedas. */
   salto?: InfoPata;
   /** Fase 3a: los números de por qué no llega («11,2 al, y llegas a 8»). */
-  noLlega?: { ly: number; alcance: number };
+  noLlega?: NoLlega;
 };
 
 /** ★ LA FORMA DE VIAJAR, PARA EL CÁLCULO: sabe calcular UNA pata desde un estado y dar el siguiente.
@@ -171,7 +207,7 @@ export type ResultadoParada = {
  *  sitio, la que no llega no mueve la partida) viven en él una vez. La forma solo dice cuánto cuesta
  *  cada pata. «A puertas» es una forma más: `formaPuertas`. */
 export type Pata<E> =
-  | { llega: false; estado: "sin_ruta" | "fuera_alcance" | "alta_sec" | "cyno_sin_ruta"; noLlega?: { ly: number; alcance: number } }
+  | { llega: false; estado: "sin_ruta" | "fuera_alcance" | "alta_sec" | "cyno_sin_ruta"; noLlega?: NoLlega }
   | {
       llega: true;
       saltos: number;
@@ -226,6 +262,9 @@ export type ParamsSalto = {
   /** Hasta cuándo dura su cooldown (rojo) al empezar. Es una COTA: ver `fatigaInicial`. */
   cooldownHastaMs: number;
   ahoraMs: number;
+  /** Fase 3b: el intermedio ACEPTADO para llegar a cada punto, por índice de `tramos` (el 0, el
+   *  origen, no tiene). `null`/ausente = ninguno. Se revalida en cada pata: ver `formaSalto`. */
+  vias?: (number | null)[];
 };
 
 /** El estado que se arrastra de pata en pata. */
@@ -248,21 +287,41 @@ export type EstadoSalto = {
  *  Quien cruza los sistemas es el CYNO: el `path` de la pata es su ruta a puertas, y de ahí salen las
  *  muertes del tramo, «ir seguro te cuesta…» y lo que vigila el intel (fase 2). */
 export function formaSalto(p: ParamsSalto): FormaCalc<EstadoSalto> {
-  const memoLy = new Map<number, number>();
-  const memoRuta = new Map<number, Tramo>();
-  const clave = (a: number, b: number) => a * 100_000_000 + b;
-  const ly = (a: number, b: number) => {
-    const k = clave(a, b);
-    let v = memoLy.get(k);
-    if (v === undefined) memoLy.set(k, (v = p.ly(a, b)));
-    return v;
+  const cx = contextoIntermedio(p);
+
+  /** ★ UN SALTO, el único código que hay. Con intermedio se llama DOS veces, y la segunda sale del
+   *  estado que dejó la primera: no hay un segundo cálculo que pueda discrepar del primero. */
+  const saltar = (e: EstadoSalto, dst: number, d: number, rc: NonNullable<Tramo>, t: number) => {
+    const cynoEn = e.cynoLibreMs + rc.saltos * p.cynoMinPorSalto * 60000;
+    const salida = Math.max(t, e.cdHastaMs, cynoEn);
+    const espera =
+      salida > t
+        ? { quien: cynoEn >= e.cdHastaMs ? ("cyno" as const) : ("cooldown" as const), min: (salida - t) / 60000, en: e.salta }
+        : null;
+    const fatAntes = Math.max(0, e.fatMin - (salida - e.fatMs) / 60000);
+    const f = saltoFatiga(d, p.casco.fatMult, fatAntes);
+    const hecho: SaltoHecho = {
+      desde: e.salta,
+      hasta: dst,
+      ly: d,
+      isotopos: isotoposSalto(d, p.casco.fuelPerLy, p.jfc),
+      isotopo: p.casco.isotope,
+      salidaMs: salida,
+      espera,
+      cooldownMin: f.cooldown,
+      fatigaMin: f.fatiga,
+    };
+    const despues: EstadoSalto = {
+      salta: dst,
+      fatMin: f.fatiga,
+      fatMs: salida,
+      cdHastaMs: salida + f.cooldown * 60000,
+      cyno: dst,
+      cynoLibreMs: salida + p.cicloCynoMin * 60000,
+    };
+    return { hecho, despues, salida };
   };
-  const ruta = (a: number, b: number): Tramo => {
-    if (a === b) return { saltos: 0, path: [a], wormhole: false };
-    const k = clave(a, b);
-    if (!memoRuta.has(k)) memoRuta.set(k, p.rutaCyno(a, b));
-    return memoRuta.get(k)!;
-  };
+
   return {
     inicial: {
       salta: p.puntos[0],
@@ -279,51 +338,194 @@ export function formaSalto(p: ParamsSalto): FormaCalc<EstadoSalto> {
         return { llega: true, saltos: 0, path: [dst], wormhole: false, viajeMin: 0, salto: { saltos: [], cynoSaltos: 0 }, despues: e };
       }
       if (!p.saltable(dst)) return { llega: false, estado: "alta_sec" };
-      const d = ly(e.salta, dst);
-      if (d > p.alcanceLy + 1e-6) return { llega: false, estado: "fuera_alcance", noLlega: { ly: d, alcance: p.alcanceLy } };
-      const rc = ruta(e.cyno, dst);
+      const guardada = p.vias?.[hasta] ?? null;
+      const d = cx.ly(e.salta, dst);
+      // ★ LA REGLA DEL INTERMEDIO GUARDADO, la misma para el orden en uso y para cada orden que prueba
+      //   la fuerza bruta. Se aceptó para llegar desde UN sitio, y el orden puede cambiar:
+      //   · destino al alcance directo → directo, y el guardado se IGNORA diciéndolo (`viaIgnorada`);
+      //   · si no, el guardado se usa solo si SIRVE DESDE AQUÍ: `probarIntermedio`, la misma función
+      //     que valida los candidatos y el «Otro…»;
+      //   · si no sirve, «fuera de alcance» con el motivo y su número (`viaNoSirve`).
+      //   Nunca se usa en silencio uno que no vale, ni se tira en silencio uno que el piloto puso.
+      if (d > p.alcanceLy + 1e-6) {
+        const noLlega: NoLlega = { ly: d, alcance: p.alcanceLy, desde: e.salta, cyno: e.cyno };
+        if (guardada == null) return { llega: false, estado: "fuera_alcance", noLlega };
+        const v = probarIntermedio(cx, e.salta, e.cyno, guardada, dst);
+        if (!v.ok) {
+          return { llega: false, estado: "fuera_alcance", noLlega: { ...noLlega, viaNoSirve: { via: guardada, fallo: v.fallo } } };
+        }
+        // En el intermedio NO hay sitio: el segundo salto sale en cuanto puede después del primero
+        // (su cooldown y el cyno en el destino), no después de un `minEnSitio`.
+        const s1 = saltar(e, v.via, v.lyIda, v.rutaIda, t);
+        const s2 = saltar(s1.despues, dst, v.lyVuelta, v.rutaVuelta, s1.salida);
+        return {
+          llega: true,
+          saltos: v.rutaIda.saltos + v.rutaVuelta.saltos,
+          // La ruta del cyno ENTERA: hasta el intermedio y de ahí al destino. De aquí comen las
+          // muertes del tramo y el intel (fase 2).
+          path: [...v.rutaIda.path, ...v.rutaVuelta.path.slice(1)],
+          wormhole: v.rutaIda.wormhole || v.rutaVuelta.wormhole,
+          viajeMin: (s2.salida - t) / 60000,
+          salto: { saltos: [s1.hecho, s2.hecho], cynoSaltos: v.rutaIda.saltos + v.rutaVuelta.saltos, via: v.via },
+          despues: s2.despues,
+        };
+      }
+      const rc = cx.ruta(e.cyno, dst);
       if (!rc) return { llega: false, estado: "cyno_sin_ruta" };
-      const cynoEn = e.cynoLibreMs + rc.saltos * p.cynoMinPorSalto * 60000;
-      const salida = Math.max(t, e.cdHastaMs, cynoEn);
-      const espera =
-        salida > t
-          ? { quien: cynoEn >= e.cdHastaMs ? ("cyno" as const) : ("cooldown" as const), min: (salida - t) / 60000, en: e.salta }
-          : null;
-      const fatAntes = Math.max(0, e.fatMin - (salida - e.fatMs) / 60000);
-      const f = saltoFatiga(d, p.casco.fatMult, fatAntes);
+      const s1 = saltar(e, dst, d, rc, t);
       return {
         llega: true,
         saltos: rc.saltos,
         path: rc.path,
         wormhole: rc.wormhole,
-        viajeMin: (salida - t) / 60000,
-        salto: {
-          saltos: [
-            {
-              desde: e.salta,
-              hasta: dst,
-              ly: d,
-              isotopos: isotoposSalto(d, p.casco.fuelPerLy, p.jfc),
-              isotopo: p.casco.isotope,
-              salidaMs: salida,
-              espera,
-              cooldownMin: f.cooldown,
-              fatigaMin: f.fatiga,
-            },
-          ],
-          cynoSaltos: rc.saltos,
-        },
-        despues: {
-          salta: dst,
-          fatMin: f.fatiga,
-          fatMs: salida,
-          cdHastaMs: salida + f.cooldown * 60000,
-          cyno: dst,
-          cynoLibreMs: salida + p.cicloCynoMin * 60000,
-        },
+        viajeMin: (s1.salida - t) / 60000,
+        salto: { saltos: [s1.hecho], cynoSaltos: rc.saltos, ...(guardada != null ? { viaIgnorada: guardada } : {}) },
+        despues: s1.despues,
       };
     },
   };
+}
+
+/** Lo que necesitan `probarIntermedio` y la búsqueda: distancias y rutas del cyno, con caché.
+ *  ⚠️ La caché es POR SISTEMA (a, b), no por índice de parada: el intermedio no es una parada, y
+ *     con índices la ruta hasta él no tendría dónde guardarse. */
+export type ContextoIntermedio = {
+  ly: (a: number, b: number) => number;
+  ruta: (a: number, b: number) => Tramo;
+  saltable: (sys: number) => boolean;
+  alcanceLy: number;
+};
+export function contextoIntermedio(p: Pick<ParamsSalto, "ly" | "rutaCyno" | "saltable" | "alcanceLy">): ContextoIntermedio {
+  const memoLy = new Map<number, number>();
+  const memoRuta = new Map<number, Tramo>();
+  const clave = (a: number, b: number) => a * 100_000_000 + b;
+  return {
+    ly: (a, b) => {
+      const k = clave(a, b);
+      let v = memoLy.get(k);
+      if (v === undefined) memoLy.set(k, (v = p.ly(a, b)));
+      return v;
+    },
+    ruta: (a, b) => {
+      if (a === b) return { saltos: 0, path: [a], wormhole: false };
+      const k = clave(a, b);
+      if (!memoRuta.has(k)) memoRuta.set(k, p.rutaCyno(a, b));
+      return memoRuta.get(k)!;
+    },
+    saltable: p.saltable,
+    alcanceLy: p.alcanceLy,
+  };
+}
+
+/** ★ FASE 3b · LA ÚNICA FUNCIÓN QUE DICE SI UN SISTEMA SIRVE DE INTERMEDIO. La usan los candidatos de
+ *  la búsqueda, el «Otro…» del piloto y el intermedio GUARDADO en cada pata. Si fueran tres, el
+ *  guardado podría pasar por una que el candidato no pasó.
+ *  `desde` = dónde está el que salta; `cyno` = dónde está el cyno. El motivo es el PRIMERO que
+ *  falla, en este orden: el mismo sitio, a dónde no se salta, los dos tramos al alcance, y las dos
+ *  rutas del cyno a puertas (las caras, al final). */
+export function probarIntermedio(
+  cx: ContextoIntermedio,
+  desde: number,
+  cyno: number,
+  via: number,
+  dst: number,
+): ({ ok: true } & IntermedioValido) | { ok: false; fallo: FalloIntermedio } {
+  if (via === desde || via === dst) return { ok: false, fallo: { motivo: "mismo" } };
+  if (!cx.saltable(via)) return { ok: false, fallo: { motivo: "alta_sec" } };
+  const lyIda = cx.ly(desde, via);
+  if (!(lyIda <= cx.alcanceLy + 1e-6)) return { ok: false, fallo: { motivo: "lejos_ida", ly: lyIda, alcance: cx.alcanceLy } };
+  const lyVuelta = cx.ly(via, dst);
+  if (!(lyVuelta <= cx.alcanceLy + 1e-6)) return { ok: false, fallo: { motivo: "lejos_vuelta", ly: lyVuelta, alcance: cx.alcanceLy } };
+  const rutaIda = cx.ruta(cyno, via);
+  if (!rutaIda) return { ok: false, fallo: { motivo: "cyno_sin_ruta" } };
+  const rutaVuelta = cx.ruta(via, dst);
+  if (!rutaVuelta) return { ok: false, fallo: { motivo: "cyno_sin_ruta" } };
+  return { ok: true, via, lyIda, lyVuelta, rutaIda, rutaVuelta };
+}
+
+/** Lo que sale de buscar un intermedio: el elegido o, si no hay, EL MOTIVO EXACTO. */
+export type BusquedaIntermedio =
+  | ({ tipo: "propuesta"; candidatos: number; validos: number } & IntermedioValido)
+  /** Más lejos que dos saltos enteros: «son N al y con dos saltos llegas a M». */
+  | { tipo: "ni_con_dos"; ly: number; alcanceDos: number }
+  /** Ningún sistema al alcance de los dos lados al que se pueda saltar. */
+  | { tipo: "sin_sistema" }
+  /** Los hay, pero el cyno no tiene ruta a puertas hasta ninguno (o de ninguno al destino). */
+  | { tipo: "cyno_sin_ruta"; candidatos: number };
+
+/** Cuántos candidatos se prueban entre cesión y cesión. Cada uno son hasta dos rutas del buscador
+ *  del mapa (6–20 ms cada una, medido el 28-11): con 5, un lote no pasa de ~200 ms en el peor caso. */
+export const LOTE_INTERMEDIO = 5;
+
+/** ★ FASE 3b · LA BÚSQUEDA DEL INTERMEDIO. Solo a demanda («Buscar intermedio»), nunca sola.
+ *
+ *  Medido el 28-11 con el mapa real: hasta 58 candidatos en baja densa y ~1,1 s en modo seguro,
+ *  casi todo en las rutas. Por eso es un GENERADOR: cada `yield` cede el paso tras
+ *  `LOTE_INTERMEDIO` candidatos; la pantalla la reparte en varios ticks y la cancela si cambia algo.
+ *  El guion la corre de un tirón (`buscarIntermedioYa`).
+ *
+ *  Candidatos: saltables, al alcance desde donde está el que salta y con el destino al alcance
+ *  desde ellos, y con ruta del cyno a puertas hasta ellos y de ellos al destino.
+ *  ⚠️ Fuera ANTES de buscar los que no tienen ninguna conexión en el grafo de rutas (`conectado`):
+ *     en el mapa hay 217 saltables sin una sola puerta, nunca sirven, y preguntarle al buscador por
+ *     cada uno cuesta ~25 ms en recorrer el grafo entero para decir que no. SIN tope de
+ *     candidatos: el elegido es el mejor de TODOS, no de los más cercanos.
+ *  El elegido: menos saltos a puertas del cyno en total (ida + vuelta); a igualdad, menos años luz
+ *  sumados; a igualdad, el id más bajo. Con los mismos datos, siempre el mismo. */
+export function* buscarIntermedio(
+  cx: ContextoIntermedio,
+  sistemas: Iterable<number>,
+  conectado: (sys: number) => boolean,
+  desde: number,
+  cyno: number,
+  dst: number,
+): Generator<number, BusquedaIntermedio, void> {
+  const total = cx.ly(desde, dst);
+  if (total > 2 * cx.alcanceLy + 1e-6) return { tipo: "ni_con_dos", ly: total, alcanceDos: 2 * cx.alcanceLy };
+  // La geometría primero: es barata (~1 ms para todo el mapa) y no toca el buscador de rutas.
+  const geo: number[] = [];
+  let sinConexion = 0;
+  for (const m of sistemas) {
+    if (m === desde || m === dst || !cx.saltable(m)) continue;
+    if (!(cx.ly(desde, m) <= cx.alcanceLy + 1e-6) || !(cx.ly(m, dst) <= cx.alcanceLy + 1e-6)) continue;
+    if (!conectado(m)) {
+      sinConexion++;
+      continue;
+    }
+    geo.push(m);
+  }
+  // Solo hay sistemas sin conexión: existen, pero el cyno no llega a ninguno. Eso es lo que se dice.
+  if (geo.length === 0) return sinConexion > 0 ? { tipo: "cyno_sin_ruta", candidatos: sinConexion } : { tipo: "sin_sistema" };
+  geo.sort((a, b) => a - b);
+  let mejor: IntermedioValido | null = null;
+  let validos = 0;
+  for (let i = 0; i < geo.length; i++) {
+    if (i > 0 && i % LOTE_INTERMEDIO === 0) yield i;
+    const v = probarIntermedio(cx, desde, cyno, geo[i], dst);
+    if (!v.ok) continue;
+    validos++;
+    if (!mejor) {
+      mejor = v;
+      continue;
+    }
+    const pv = v.rutaIda.saltos + v.rutaVuelta.saltos;
+    const pm = mejor.rutaIda.saltos + mejor.rutaVuelta.saltos;
+    const lv = v.lyIda + v.lyVuelta;
+    const lm = mejor.lyIda + mejor.lyVuelta;
+    // `geo` va por id creciente: el último desempate (id más bajo) es quedarse con el que ya estaba.
+    if (pv < pm || (pv === pm && lv < lm - 1e-9)) mejor = v;
+  }
+  if (!mejor) return { tipo: "cyno_sin_ruta", candidatos: geo.length + sinConexion };
+  return { tipo: "propuesta", candidatos: geo.length, validos, ...mejor };
+}
+
+/** La búsqueda de un tirón: para el guion. La pantalla la reparte en lotes. */
+export function buscarIntermedioYa(...args: Parameters<typeof buscarIntermedio>): BusquedaIntermedio {
+  const g = buscarIntermedio(...args);
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+  }
 }
 
 /** ★ EL ESTADO INICIAL DEL QUE SALTA, con lo que ESI da y lo que no.

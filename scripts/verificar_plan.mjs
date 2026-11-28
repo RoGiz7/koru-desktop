@@ -18,6 +18,7 @@
 import { proponer, evaluar, cacheTramos, posponer, muertesTramo, bajaNula, cuestaIrSeguro, mejor, tramosEmpezados, muertesViejas } from "../src/plan.ts";
 import { saltoFatiga, destinoSaltable } from "../src/jumpCalc.ts";
 import { llega, formaPuertas, formaSalto, fatigaInicial, separarImposibles } from "../src/plan.ts";
+import { buscarIntermedio, buscarIntermedioYa, contextoIntermedio, probarIntermedio, LOTE_INTERMEDIO } from "../src/plan.ts";
 
 let fallos = 0;
 let cuenta = 0;
@@ -334,5 +335,141 @@ console.log("Fase 3a — la forma de viajar y los dos relojes");
 }
 const fase3 = cuenta - fase1 - fase2 - salto;
 
-console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3})`);
+console.log("Fase 3b — el salto intermedio");
+{
+  const M = 60e3, H = 3600e3, ahora = 0;
+  const key = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+  const casi = (a, b) => Math.abs(a - b) < 1e-6;
+  // La tabla del brief. O = 1, B = 3; M1..M4 = 11..14; C = 5. 99 = un saltable SIN NINGUNA puerta,
+  // a tiro de los dos lados: no tiene que llegar nunca al buscador de rutas.
+  // Black Ops: alcance 8, fatMult 0,25. Cyno: ciclo 1 min, 1 min por salto. Sin fatiga, los dos en O.
+  const LYB = { "1-3": 12, "1-11": 6, "3-11": 7, "1-12": 7.5, "3-12": 5, "1-13": 9, "3-13": 4, "1-14": 6, "3-14": 6, "1-99": 5, "3-99": 7 };
+  const PUERTAS = { "1-11": 5, "3-11": 20, "1-12": 30, "3-12": 3, "1-13": 2, "3-13": 2, "1-14": 1, "3-14": 1, "1-3": 40 };
+  const ALTA = new Set([14]);
+  const SISTEMAS = [1, 3, 11, 12, 13, 14, 99];
+  const blops = { fatMult: 0.25, fuelPerLy: 700, isotope: "Helium Isotopes" };
+  const mk = ({ ly = {}, puertas = {}, vias, puntos = [1, 3], preguntas } = {}) => {
+    const L = { ...LYB, ...ly }, P = { ...PUERTAS, ...puertas };
+    return {
+      puntos,
+      ly: (a, b) => (a === b ? 0 : L[key(a, b)] ?? 50),
+      saltable: (s) => !ALTA.has(s),
+      rutaCyno: (a, b) => {
+        preguntas?.push(a, b);
+        const n = P[key(a, b)];
+        return n == null ? null : { saltos: n, path: [a, ...Array(n - 1).fill(98), b], wormhole: false };
+      },
+      cynoDesde: 1, alcanceLy: 8, casco: blops, jfc: 5, cicloCynoMin: 1, cynoMinPorSalto: 1,
+      fatigaMin: 0, cooldownHastaMs: ahora, ahoraMs: ahora, ...(vias ? { vias } : {}),
+    };
+  };
+  const conectado = (s) => s !== 99;
+  const busca = (p, desde = 1, cyno = 1, dst = 3) => buscarIntermedioYa(contextoIntermedio(p), SISTEMAS, conectado, desde, cyno, dst);
+  const calc = (a, b) => ({ saltos: 1, path: [a, b], wormhole: false });
+  const soloB = [{ stopId: 31, systemId: 3, caducaMs: 10 * H }];
+  const trB = cacheTramos([1, 3], calc);
+
+  // ---- la propuesta ----
+  const preguntas = [];
+  const b1 = busca(mk({ preguntas }));
+  console.log("  propuesta:", b1.tipo, b1.via, b1.candidatos, b1.validos);
+  ok(b1.tipo === "propuesta" && b1.via === 11, "se propone M1: 25 puertas contra las 33 de M2");
+  ok(b1.candidatos === 2 && b1.validos === 2, "candidatos M1 y M2: M3 queda a 9 al de O y M4 es alta seguridad");
+  ok(!preguntas.includes(99) && !preguntas.includes(13) && !preguntas.includes(14),
+    "al buscador de rutas no llegan ni el sistema sin puertas, ni el fuera de alcance, ni el de alta");
+  ok(JSON.stringify(busca(mk())) === JSON.stringify(b1), "con los mismos datos, la misma propuesta");
+  // Desempates: mismas puertas → menos años luz; mismos años luz → id más bajo.
+  const eq = busca(mk({ puertas: { "1-12": 5, "3-12": 20 } }));
+  ok(eq.tipo === "propuesta" && eq.via === 12, "a igualdad de puertas (25 y 25), gana el de menos años luz: M2, 12,5 contra 13");
+  const eq2 = busca(mk({ puertas: { "1-12": 5, "3-12": 20 }, ly: { "1-12": 6, "3-12": 7 } }));
+  ok(eq2.tipo === "propuesta" && eq2.via === 11, "a igualdad de puertas y de años luz, el de id más bajo: M1");
+
+  // ---- «Otro…»: la misma función, con el motivo y su número ----
+  const cx = contextoIntermedio(mk());
+  const o13 = probarIntermedio(cx, 1, 1, 13, 3);
+  ok(!o13.ok && o13.fallo.motivo === "lejos_ida" && casi(o13.fallo.ly, 9) && o13.fallo.alcance === 8, "«Otro…» M3: 9 al desde O, y llegas a 8");
+  const o14 = probarIntermedio(cx, 1, 1, 14, 3);
+  ok(!o14.ok && o14.fallo.motivo === "alta_sec", "«Otro…» M4: a alta seguridad no se salta");
+  const o12 = probarIntermedio(cx, 1, 1, 12, 3);
+  ok(o12.ok && o12.via === 12, "«Otro…» M2: sirve, aunque no sea el propuesto");
+
+  // ---- con M1 aceptado: los dos saltos, cada uno con su espera ----
+  const e1 = evaluar([0], soloB, trB, ahora, 1, 45, formaSalto(mk({ vias: [null, 11] })));
+  const r1 = e1.resultados[0];
+  const [j1, j2] = r1.salto?.saltos ?? [];
+  console.log("  O→M1:", j1?.salidaMs / M, j1?.espera, j1?.cooldownMin, j1?.fatigaMin, "· M1→B:", j2?.salidaMs / M, j2?.espera, j2?.cooldownMin, j2?.fatigaMin);
+  ok(r1.estado === "salvada" && r1.salto.saltos.length === 2 && r1.salto.via === 11, "con M1 aceptado, B se alcanza en dos saltos");
+  ok(j1.desde === 1 && j1.hasta === 11 && casi(j1.salidaMs, 5 * M) && j1.espera?.quien === "cyno" && casi(j1.espera.min, 5) && j1.espera.en === 1,
+    "O → M1 sale en t = 5: 5 m en O, el cyno");
+  ok(casi(j1.cooldownMin, 2.5) && casi(j1.fatigaMin, 25), "O → M1: cooldown 2,5 y fatiga 25");
+  ok(j2.desde === 11 && j2.hasta === 3 && casi(j2.salidaMs, 26 * M) && j2.espera?.quien === "cyno" && casi(j2.espera.min, 21) && j2.espera.en === 11,
+    "M1 → B sale en t = 26: esperas 21 m EN M1 al cyno (libre en 6, más 20 puertas)");
+  ok(casi(j2.cooldownMin, 2.75) && casi(j2.fatigaMin, 27.5), "M1 → B: cooldown 2,75 y fatiga 27,5");
+  ok(casi(r1.llegadaMs, 26 * M) && casi(e1.recorridoMin, 26), "llegas a B en t = 26: en el intermedio no hay sitio");
+  ok(r1.path.length === 26 && r1.path[0] === 1 && r1.path[5] === 11 && r1.path.at(-1) === 3 && r1.saltos === 25 && r1.salto.cynoSaltos === 25,
+    "el camino es la ruta del cyno ENTERA: O → M1 → B, 25 puertas");
+  // Manda el cooldown en el intermedio: de M1 a B hay 1 puerta.
+  const ec = evaluar([0], soloB, trB, ahora, 1, 45, formaSalto(mk({ vias: [null, 11], puertas: { "3-11": 1 } })));
+  const k2 = ec.resultados[0].salto.saltos[1];
+  console.log("  cooldown en M1:", k2.salidaMs / M, k2.espera, k2.cooldownMin, k2.fatigaMin);
+  ok(casi(k2.salidaMs, 7.5 * M) && k2.espera?.quien === "cooldown" && casi(k2.espera.min, 2.5) && k2.espera.en === 11,
+    "cyno en B en t = 7, cooldown hasta 7,5: saltas en 7,5 y esperas 2,5 m de cooldown en M1");
+  ok(casi(k2.cooldownMin, 2.75) && casi(k2.fatigaMin, 61.875), "llegas con 22,5 de fatiga: cooldown 2,75, fatiga 61,875");
+
+  // ---- sin aceptar ----
+  const e0 = evaluar([0], soloB, trB, ahora, 1, 45, formaSalto(mk()));
+  ok(e0.resultados[0].estado === "fuera_alcance" && !llega(e0.resultados[0].estado) && e0.salvadas === 0,
+    "sin aceptar: «fuera de alcance», no cuenta como alcanzada y llega() da falso");
+  ok(e0.resultados[0].noLlega.desde === 1 && e0.resultados[0].noLlega.cyno === 1 && !e0.resultados[0].noLlega.viaNoSirve,
+    "y dice desde dónde se buscaría la propuesta (el que salta y el cyno en O)");
+  const directo = evaluar([0], [{ stopId: 32, systemId: 11, caducaMs: 10 * H }], cacheTramos([1, 11], calc), ahora, 1, 45, formaSalto(mk({ puntos: [1, 11] })));
+  ok(JSON.stringify(Object.keys(directo.resultados[0].salto).sort()) === JSON.stringify(["cynoSaltos", "saltos"]),
+    "una pata directa sin intermedio no lleva ni `via` ni `viaIgnorada`: lo de la 3a");
+
+  // ---- el orden cambia: M1 guardado para B, y ahora se llega a B desde C ----
+  const CB = [{ stopId: 41, systemId: 5, caducaMs: 10 * H }, { stopId: 42, systemId: 3, caducaMs: 10 * H }];
+  const trCB = cacheTramos([1, 5, 3], calc);
+  const cerca = { ly: { "1-5": 5, "3-5": 6 }, puertas: { "1-5": 2, "3-5": 4 }, puntos: [1, 5, 3], vias: [null, null, 11] };
+  const ed = evaluar([0, 1], CB, trCB, ahora, 1, 45, formaSalto(mk(cerca)));
+  const rd = ed.resultados[1];
+  ok(rd.estado === "salvada" && rd.salto.saltos.length === 1 && rd.salto.saltos[0].desde === 5 && rd.salto.viaIgnorada === 11 && rd.salto.via === undefined,
+    "C a 6 al de B: directo, M1 se ignora Y SE DICE");
+  const lejos = { ly: { "1-5": 5, "3-5": 12, "5-11": 9, "5-12": 7 }, puertas: { "1-5": 2, "5-12": 4 }, puntos: [1, 5, 3], vias: [null, null, 11] };
+  const el = evaluar([0, 1], CB, trCB, ahora, 1, 45, formaSalto(mk(lejos)));
+  const rl = el.resultados[1];
+  console.log("  desde C:", rl.estado, rl.noLlega);
+  ok(rl.estado === "fuera_alcance" && !llega(rl.estado), "C a 12 al de B: «fuera de alcance» otra vez (M1 NO se usa)");
+  ok(rl.noLlega?.viaNoSirve?.via === 11 && rl.noLlega.viaNoSirve.fallo.motivo === "lejos_ida" && casi(rl.noLlega.viaNoSirve.fallo.ly, 9) && rl.noLlega.desde === 5,
+    "y dice que M1 ya no sirve desde C: 9 al");
+  // Con `?.`: si una guarda rota hace que M1 se use, esto tiene que dar ✗, no reventar el guion.
+  const nueva = rl.noLlega ? busca(mk(lejos), rl.noLlega.desde, rl.noLlega.cyno, 3) : null;
+  ok(nueva?.tipo === "propuesta" && nueva.via === 12, "propuesta nueva desde C: M2");
+  // La fuerza bruta evalúa cada orden con la MISMA pata: en el orden B primero, M1 sí sirve desde O.
+  const eb = evaluar([1, 0], CB, trCB, ahora, 1, 45, formaSalto(mk(lejos)));
+  ok(eb.resultados[0].stopId === 42 && eb.resultados[0].estado === "salvada" && eb.resultados[0].salto.via === 11,
+    "en el otro orden (B primero, desde O) el MISMO M1 guardado sí sirve, y se usa");
+
+  // ---- no hay propuesta: el motivo exacto ----
+  const n17 = busca(mk({ ly: { "1-3": 17 } }));
+  ok(n17.tipo === "ni_con_dos" && casi(n17.ly, 17) && n17.alcanceDos === 16, "B a 17 al: ni con un salto intermedio, 17 al y con dos saltos llegas a 16");
+  const nada = busca(mk({ ly: { "3-11": 9, "3-12": 9, "1-99": 9 } }));
+  ok(nada.tipo === "sin_sistema", "ningún sistema saltable al alcance de los dos lados");
+  const sinR = busca(mk({ puertas: { "1-11": null, "1-12": null } }));
+  ok(sinR.tipo === "cyno_sin_ruta" && sinR.candidatos === 3,
+    "el cyno no tiene ruta a ninguno de los 3 posibles (M1, M2 y el que no tiene puertas)");
+  const soloSinPuertas = busca(mk({ ly: { "3-11": 9, "3-12": 9 } }));
+  ok(soloSinPuertas.tipo === "cyno_sin_ruta", "si el único posible no tiene puertas: es el cyno el que no llega, no «no hay sistema»");
+
+  // ---- la búsqueda cede el paso: un generador por lotes ----
+  const muchos = Array.from({ length: 23 }, (_, i) => 200 + i);
+  const pm = mk({ ly: Object.fromEntries(muchos.flatMap((s) => [[`1-${s}`, 6], [`3-${s}`, 7]])), puertas: Object.fromEntries(muchos.flatMap((s) => [[`1-${s}`, 3], [`3-${s}`, 3]])) });
+  const g = buscarIntermedio(contextoIntermedio(pm), [...SISTEMAS, ...muchos], conectado, 1, 1, 3);
+  let cesiones = 0, fin;
+  for (;;) { const x = g.next(); if (x.done) { fin = x.value; break; } cesiones++; }
+  ok(cesiones === Math.ceil(25 / LOTE_INTERMEDIO) - 1 && fin.tipo === "propuesta" && fin.via === 200,
+    `25 candidatos: cede ${Math.ceil(25 / LOTE_INTERMEDIO) - 1} veces y acaba en el de id más bajo con menos puertas`);
+}
+const fase3b = cuenta - fase1 - fase2 - salto - fase3;
+
+console.log(`\n${cuenta - fallos}/${cuenta} bien (fase 1: ${fase1}, fase 2: ${fase2}, salto: ${salto}, fase 3a: ${fase3}, fase 3b: ${fase3b})`);
 process.exit(fallos ? 1 : 0);

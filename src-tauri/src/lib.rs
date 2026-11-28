@@ -609,6 +609,7 @@ pub fn run() {
             commands::plan_reordenar,
             commands::plan_orden_propuesto,
             commands::plan_origen,
+            commands::plan_via,
             commands::plan_borrar,
             commands::forma_listar,
             commands::forma_guardar,
