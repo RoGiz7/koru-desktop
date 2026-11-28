@@ -29,13 +29,17 @@
   (`src/i18n.ts:328`). «No alerts» se leia como «ahora no hay avisos», que es la lectura benigna
   que esa release venia a quitar.
 
-- **SDE**: base en **`3749835`** (26-11), integrado y con el guardián en código 0.
+- **SDE**: base en **`3749835`** (26-11), integrado y con el guardián en código 0. El 3744011 se
+  saltó a propósito: el guardián da el acumulado contra la base.
   ⏳ **Publicada la 3754864 (27-11), SIN integrar.** El guardián solo marca `types`, y comparado campo a
   campo con la base cambian 8 tipos y solo en `published` (true → false): 8 SKIN «Frost Thorn» de
   naves Navy/Fleet Issue. Al regenerar saldrían de `market_types.json` y `type_volumes.json` (sus
   extractores filtran por publicado). `dogmaAttributes` sale «sin versión en la base» porque la lee
-  `extract_cyno_fit.py` desde el 28-11. El 3744011 se
-  saltó a propósito: el guardián da el acumulado contra la base.
+  `extract_cyno_fit.py` desde el 28-11.
+  🔺 **PASO PREVIO AL CORTE DE LA 0.59.0** (decidido el 28-11): un commit propio que baje el zip de la
+  3754864 a la `documentacion/` HERMANA, regenere lo que cambia (`market_types.json` y
+  `type_volumes.json`; prueba de oro y diff clave por clave, ver `CLAUDE.md`), guarde la base nueva
+  (`sde_check.py --guardar-base`) y deje `sde_check.py` en código 0, también por `dogmaAttributes`.
   ⚠️ El zip va a la `documentacion/` **HERMANA** (`../documentacion/sde-source/`), que es la que leen
   los extractores. Una ruta relativa lanzada desde el repo cae en la de DENTRO, y la comprobación del
   glob, lanzada desde el mismo sitio, sale en verde mientras ellos usan el zip viejo.
