@@ -1,4 +1,4 @@
-# Dónde estamos — actualizado 2026-11-26 (v0.58.0 publicada; el plan de escalaciones, sin publicar)
+# Dónde estamos — actualizado 2026-11-28 (v0.58.0 publicada; el plan de escalaciones, sin publicar)
 
 > Léelo ANTES de empezar nada. Y **actualízalo al terminar**: este fichero existe para que una
 > sesión nueva arranque sin que nadie le recuente la historia. Si miente, hace más daño que bien.
@@ -6,11 +6,12 @@
 
 ## Estado
 
-- **`main` lleva TRECE commits por encima del tag `v0.58.0` (`a3b330a`), el último este fichero.
-  SIN PUBLICAR y sin push.** Ni versión, ni changelog, ni release: el plan no se anuncia todavía.
-  `a294cf0` y `dd8b5c5` son este fichero; los demás, el plan de escalaciones y lo que arrastró
-  (abajo): fases 1 y 2 (`a07d7f6`…`d1eb4f6`), los guiones al repo (`866f77d`), `FaltaScope`
-  (`0981590`), el salto (`dff63d9`) y la fase 3a (`337afb5`, `56aa788`).
+- **`main` lleva TREINTA Y UN commits por encima del tag `v0.58.0` (`a3b330a`), el último este
+  fichero. SIN PUBLICAR.** Hasta `1b7fd8d` está empujado; los CUATRO de la fase 3b (`ed3a932`,
+  `b31fb44`, `5a77802` y este fichero) están **solo en local, sin push**. Ni versión, ni changelog,
+  ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
+  (`0981590`), el salto (`dff63d9`), los huérfanos de `public/`, el skill-check y la lista de
+  personajes.
 - **Publicado: v0.58.0** (2026-11-26) = tag `v0.58.0` = **`a3b330a`**.
   Verificado desde fuera, no por un «listo»: `releases/latest/download/latest.json` dice
   `version: 0.58.0` con **7 plataformas y las 7 firmadas**, y la release esta publicada
@@ -77,8 +78,30 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
   - 🚨 **Fórmulas del salto según lo PUBLICADO, no validadas.** El autor va a hacer un salto con la
     Black Ops y traer los años luz y los dos timers: entra como una fila más en
     `scripts/verificar_plan.mjs` («Salto — cooldown y fatiga»).
-  - **Fase 3b** (proponer el salto intermedio): cuando la 3a esté vista en pantalla. La pata ya es
-    una lista de saltos para eso.
+- **Fase 3b** (`ed3a932`, `b31fb44`, `5a77802`) — **SIN VER EN PANTALLA, SOLO EN LOCAL.** Hecha
+  antes de que nadie vea la 3a, a propósito (RoGiz7 apenas hace ese contenido; la probará un piloto
+  tras publicar). Brief `documentacion/brief-cadena-fase3b.md` (la de DENTRO); su sección final,
+  «Decisiones del paso 0», manda sobre lo de arriba.
+  - Una parada fuera de alcance puede pasar por UN salto intermedio, y **solo si el piloto lo
+    acepta** (`plan_stop.via_system_id`, comando `plan_via`). No es un `kind` ni una parada.
+  - `probarIntermedio` (plan.ts) es la ÚNICA función que dice si un sistema sirve: la usan la
+    búsqueda, el «Otro…» y el intermedio guardado. El guardado se revalida en CADA pata desde donde
+    está el que salta, también dentro de la fuerza bruta: destino a tiro → directo y se dice
+    («ahora no hace falta»); no sirve → «fuera de alcance» con el motivo y su número.
+  - Los dos saltos pasan por el mismo `saltar()` que el directo. La espera es POR SALTO
+    (`SaltoHecho.espera`, con `en`: dónde esperas), no por pata: ver `ed3a932`.
+  - **La propuesta NO se calcula sola** (paso 0, medido el 28-11 con `neweden.json`: hasta 58
+    candidatos y ~1,1 s en baja densa con la ruta segura, casi todo en `findRoute`). Botón «Buscar
+    intermedio»; generador por lotes de 5 (peor lote medido: 170 ms); sin tope de candidatos y sin
+    los saltables sin salidas en el grafo (217 en el mapa). Se ata a una clave: si cambia el grafo,
+    el modo, la ficha, el orden… desaparece y vuelve el botón.
+  - Mapa: la línea del cyno pasa por el intermedio; los saltos, en el trazo violeta de la 3a.
+  - ⏳ **Sin probar**: todo en pantalla (cómo se ve la fila, el «buscando…», que no congele la
+    ventana, que la propuesta desaparezca al cambiar el modo), el `ALTER` sobre una BD real ya
+    creada, y un intermedio de verdad en el juego.
+  - ⚠️ **Hueco conocido, fuera de alcance del brief (fase 2 no se tocaba):** con el panel CERRADO,
+    lo que vigila el intel de una parada empezada es la ruta del cyno directa a ella
+    (`tramosEmpezados`), no la que pasa por el intermedio. Con el panel abierto sí pasa por él.
 - **Los guiones del cálculo están en el repo** (`866f77d`): `scripts/verificar_plan.mjs` y
   `scripts/verificar_salud_intel.mjs`, puerta en `CLAUDE.md` si se tocan `plan.ts` o `saludIntel.ts`.
 
@@ -196,7 +219,7 @@ la ventana principal—, nunca por número.
    - un planificador industrial web como referencia (es una app JS, hace falta navegador para
      verla) — sin tocar;
    - ★ **rutas de salto encadenando escalaciones** — EN CURSO, ver «el plan de escalaciones»
-     arriba (fases 1, 2 y 3a hechas);
+     arriba (fases 1, 2, 3a y 3b hechas; 3a y 3b sin ver);
    - **la lista de personajes de arriba, ilegible pasados ~10** — **HECHA, SIN VER EN PANTALLA**
      (26-11, brief `documentacion/brief-lista-personajes.md`). El nombre del elegido siempre a la
      vista; con más de `UMBRAL_RECOGER` (10) la fila lleva solo los conectados y el elegido, y el
