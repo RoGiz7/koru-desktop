@@ -71,9 +71,15 @@ pub struct PlanMarca {
 ///    más tarde, uno de tus pilotos entra en su radio y suena el de siempre. Son dos noticias
 ///    distintas («está en tu camino» y «está cerca de ti»). Al revés no pasa: el de siempre va
 ///    primero en cada vuelta del vigilante, y si ya sonó, el plan no suena (solo marca).
+///
+/// · `sonado` (28-11): lo que la alerta de siempre AVISÓ de verdad. `siempre` es «visto», y se
+///   apunta también lo que se calló (sistema silenciado, avisos apagados), así que no sirve para
+///   decir «ya sonó»: con el silencio quitado después, el plan habría dicho «ya sonó por tus
+///   pilotos» de algo que nunca sonó, y se habría callado. El plan lee `sonado` para eso.
 #[derive(Debug, Default)]
 pub struct Vistos {
     pub siempre: HashSet<String>,
+    pub sonado: HashSet<String>,
     pub plan: HashSet<String>,
 }
 
@@ -144,7 +150,7 @@ pub fn pasada(
             //    El motivo se apunta en lo del plan con su propia clave (`ya:`): en la pasada
             //    siguiente la clave normal ya está en `plan`, y sin esto no se sabría POR QUÉ no sonó.
             let ya_sono = t.empezado && (vistos.plan.contains(&format!("ya:{clave}"))
-                || (!vistos.plan.contains(&clave) && vistos.siempre.contains(&clave)));
+                || (!vistos.plan.contains(&clave) && vistos.sonado.contains(&clave)));
             let aviso = if !t.empezado {
                 "no_empezado"
             } else if silenciado(**sid) {
@@ -274,7 +280,7 @@ mod tests {
     #[test]
     fn no_suena_dos_veces() {
         let (adj, names) = grafo();
-        let mut alerted = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), plan: HashSet::new() };
+        let mut alerted = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), sonado: ["3-10".to_string()].into_iter().collect(), plan: HashSet::new() };
         let p = pasada(&adj, &names, &rep(&[(3, 10)]), &tramos(), 3, &|_| false, true, &mut alerted);
         assert!(p.avisar.is_empty());
         assert!(!p.marcas.is_empty(), "pero se sigue marcando");
@@ -286,7 +292,7 @@ mod tests {
     #[test]
     fn ya_sono_se_dice() {
         let (adj, names) = grafo();
-        let mut v = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), plan: HashSet::new() };
+        let mut v = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), sonado: ["3-10".to_string()].into_iter().collect(), plan: HashSet::new() };
         let r = rep(&[(3, 10)]);
         let p = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut v);
         let m = p.marcas.iter().find(|m| m.stop_id == 100).unwrap();
@@ -300,8 +306,23 @@ mod tests {
         let a = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut w);
         assert_eq!(a.avisar.len(), 1);
         w.siempre.insert("3-10".into());
+        w.sonado.insert("3-10".into());
         let b = pasada(&adj, &names, &r, &tramos(), 3, &|_| false, true, &mut w);
         assert_eq!(b.marcas.iter().find(|m| m.stop_id == 100).unwrap().aviso, "avisa");
+    }
+
+    /// Visto pero CALLADO por el aviso de siempre (silenciado o avisos apagados entonces) no es
+    /// «ya sonó»: con el silencio quitado, el plan suena. Antes leía «visto» y se callaba diciendo
+    /// «ya sonó por tus pilotos» de algo que nunca sonó.
+    #[test]
+    fn visto_pero_callado_no_cuenta_como_sonado() {
+        let (adj, names) = grafo();
+        let mut v = Vistos { siempre: ["3-10".to_string()].into_iter().collect(), ..Vistos::default() };
+        let p = pasada(&adj, &names, &rep(&[(3, 10)]), &tramos(), 3, &|_| false, true, &mut v);
+        let m = p.marcas.iter().find(|m| m.stop_id == 100).unwrap();
+        assert_eq!(m.aviso, "avisa", "nunca sonó: no se dice «ya sonó»");
+        assert_eq!(p.avisar.len(), 1, "y suena");
+        assert!(v.sonado.is_empty() && v.siempre.len() == 1, "y no toca lo del aviso de siempre");
     }
 
     /// El plan avisa y NO deja la clave en el conjunto del aviso de siempre: así, si más tarde un
@@ -312,7 +333,7 @@ mod tests {
         let mut v = Vistos::default();
         let p = pasada(&adj, &names, &rep(&[(3, 10)]), &tramos(), 3, &|_| false, true, &mut v);
         assert_eq!(p.avisar.len(), 1, "el plan avisa");
-        assert!(v.siempre.is_empty(), "y el conjunto del aviso de siempre queda intacto");
+        assert!(v.siempre.is_empty() && v.sonado.is_empty(), "y lo del aviso de siempre queda intacto");
         assert!(v.plan.contains("3-10"));
     }
 

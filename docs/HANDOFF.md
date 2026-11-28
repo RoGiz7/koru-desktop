@@ -6,12 +6,11 @@
 
 ## Estado
 
-- **`main` lleva TREINTA Y OCHO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `9a48dc7` está empujado; los CUATRO siguientes están **solo en local, sin
-  push**: los nombres de «Cómo viajas» (`f0065d3`), los fallos de la 3a que destapó el paso 0
-  (`49d7081`: el aviso de siempre suelta al plan, el plan ve a todos, las skills dicen si faltan),
-  los retoques vistos en pantalla (`57704be`) y la parte B (el último, con este fichero).
-  ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count`): en los informes, de git, nunca de memoria. Ni versión, ni changelog,
+- **`main` lleva CUARENTA Y UN commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `4643a40` está empujado; el siguiente, el de «sonó de verdad» con este fichero,
+  está **solo en local, sin push**.
+  ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
+  los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
   (`0981590`), el salto (`dff63d9`), los huérfanos de `public/`, el skill-check y la lista de
   personajes.
@@ -112,6 +111,8 @@ solo `escalacion`, y nada se copia de la escalación a la parada).
 - **El plan y el aviso de siempre ya no comparten el «ya avisado»** (28-11, `plan_intel::Vistos`).
   El de siempre es exactamente el de antes del plan: ni lee ni escribe nada del plan. El plan LEE el
   suyo (si ya sonó por tus personajes, el plan solo marca) y apunta en un conjunto propio.
+  «Ya sonó por tus pilotos» se lee de `Vistos::sonado`, que el aviso de siempre apunta SOLO dentro de
+  la rama que emite. `siempre` es «visto» (también lo callado) y no sirve para eso.
   ⚠️ **El único doble aviso, a propósito:** suena el plan por un reporte lejos de tus pilotos y, más
   tarde, uno de tus pilotos entra en su radio y suena el de siempre. Son dos noticias distintas.
   Antes compartían conjunto, y el plan callaba avisos de siempre según por dónde fuera su camino.
@@ -214,6 +215,11 @@ día en que se apuntaron. Se buscan por contenido —`.catch(() => {})` en efect
 la ventana principal—, nunca por número.
 
 ## 📋 Pendientes
+
+🔺 **CON PRIORIDAD · el sondeo de posiciones.** Si `poll_positions` falla, las posiciones se quedan
+viejas SIN LÍMITE y SIN AVISO, también las que usa la proximidad del intel (el aviso de siempre mide
+desde ahí). Detalle en «ABIERTO: las posiciones se quedan viejas», arriba. Sin arreglar a propósito
+el 28-11: va en una sesión propia.
 
 0. **La ronda de `FaltaScope` por los demás paneles.** Desde `0981590` el permiso que falta es un
    error propio (`AppError::FaltaScope`, texto «Falta permiso: …», ayudante `esFaltaPermiso` en

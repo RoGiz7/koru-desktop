@@ -9511,11 +9511,12 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                             if let Some(&d) = dist.get(sid) {
                                 if d <= cfg.alert_jumps {
                                     let key = format!("{sid}-{ts}");
-                                    // Solo `siempre`: esta alerta ni lee ni escribe nada del plan.
+                                    // Solo lo suyo (`siempre`, y `sonado` abajo): esta alerta ni lee ni
+                                    // escribe nada del plan, y sus decisiones son las de antes del plan.
                                     let is_new = watch
                                         .alerted
                                         .lock()
-                                        .map(|mut a| a.siempre.insert(key))
+                                        .map(|mut a| a.siempre.insert(key.clone()))
                                         .unwrap_or(false);
                                     // `is_new` se registra SIEMPRE (aunque no alertemos): así, al
                                     // reactivar las alertas no se dispara de golpe todo lo que pasó
@@ -9534,6 +9535,19 @@ fn spawn_intel_thread(app: tauri::AppHandle, watch: std::sync::Arc<IntelWatch>) 
                                             && m.until_ms.map(|u| u > ahora_ms).unwrap_or(true)
                                     });
                                     if is_new && cfg.alerts_enabled && !silenciado {
+                                        // ★ «SONÓ DE VERDAD», apuntado AQUÍ y en ningún otro sitio: dentro
+                                        //   de la rama que emite. `siempre` es «visto», y también se
+                                        //   apunta lo silenciado o lo de con los avisos apagados; el plan
+                                        //   lee ESTO para decir «ya sonó por tus pilotos». No cambia
+                                        //   ninguna decisión de esta alerta: solo deja constancia.
+                                        // Un mutex envenenado se recupera, no se salta: un «sonó» perdido
+                                        // haría que el plan sonara otra vez por lo mismo, sin decir por qué.
+                                        watch
+                                            .alerted
+                                            .lock()
+                                            .unwrap_or_else(|e| e.into_inner())
+                                            .sonado
+                                            .insert(key.clone());
                                         let system = g
                                             .id_to_name
                                             .get(sid)
