@@ -21,8 +21,8 @@
 //!    la carpeta temporal del sistema, a los 65 s de arrancar.
 
 use rusqlite::Connection;
-use std::cell::Cell;
-use std::sync::{LockResult, Mutex, MutexGuard, OnceLock};
+use std::cell::{Cell, RefCell};
+use std::sync::{LockResult, Mutex, MutexGuard, OnceLock, TryLockError};
 use std::time::{Duration, Instant};
 
 /// Un comando de más de esto entra en la lista (la cuenta de seguidos los mira todos).
@@ -38,6 +38,9 @@ static INICIO: OnceLock<Instant> = OnceLock::new();
 static HILO_PRINCIPAL: OnceLock<std::thread::ThreadId> = OnceLock::new();
 static ESTADO: Mutex<Estado> = Mutex::new(Estado::nuevo());
 static PASO_SYNC: Mutex<&'static str> = Mutex::new("ninguno");
+/// Quién cogió el candado de la BD la última vez: mientras está cogido, es quien lo TIENE. Lo pone
+/// cada `lock()` nada más conseguirlo; lo lee quien se encuentra el candado ocupado.
+static TITULAR: Mutex<String> = Mutex::new(String::new());
 
 thread_local! {
     /// Lo que lleva esperado el candado de la BD el comando que corre en ESTE hilo.
@@ -45,6 +48,10 @@ thread_local! {
     /// El paso de la sincronización durante la espera más larga de ese comando.
     static PASO_EN_ESPERA: Cell<&'static str> = const { Cell::new("") };
     static ESPERA_MAX_MS: Cell<f64> = const { Cell::new(0.0) };
+    /// El comando que corre en ESTE hilo dentro del manejador, si corre uno.
+    static CMD_ACTUAL: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Quién tenía el candado durante la espera más larga de ese comando.
+    static TITULAR_EN_ESPERA: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 struct Comando {
@@ -53,6 +60,8 @@ struct Comando {
     dur_ms: f64,
     espera_bd_ms: f64,
     paso: &'static str,
+    /// Quién tenía el candado en su espera más larga: un comando, o «fondo · <paso del sync>».
+    quien: String,
 }
 
 struct Estado {
@@ -148,8 +157,11 @@ pub fn comando<F: FnOnce() -> bool>(nombre: &str, f: F) -> bool {
     ESPERA_BD_MS.with(|c| c.set(0.0));
     ESPERA_MAX_MS.with(|c| c.set(0.0));
     PASO_EN_ESPERA.with(|c| c.set(""));
+    TITULAR_EN_ESPERA.with(|c| c.borrow_mut().clear());
+    CMD_ACTUAL.with(|c| *c.borrow_mut() = Some(nombre.to_string()));
     let t = Instant::now();
     let r = f();
+    CMD_ACTUAL.with(|c| *c.borrow_mut() = None);
     let dur_ms = t.elapsed().as_secs_f64() * 1000.0;
     let ini_ms = ms_desde_inicio(t);
     if ini_ms <= VENTANA_MS {
@@ -159,6 +171,7 @@ pub fn comando<F: FnOnce() -> bool>(nombre: &str, f: F) -> bool {
             dur_ms,
             espera_bd_ms: ESPERA_BD_MS.with(|c| c.get()),
             paso: PASO_EN_ESPERA.with(|c| c.get()),
+            quien: TITULAR_EN_ESPERA.with(|c| c.borrow().clone()),
         });
     }
     r
@@ -175,8 +188,21 @@ impl CandadoBd {
         if !activa() {
             return self.0.lock();
         }
+        // Libre: se coge y se apunta quién lo tiene. Ocupado: se lee quién lo tiene ANTES de esperar.
+        let quien = match self.0.try_lock() {
+            Ok(g) => {
+                apuntar_titular();
+                return Ok(g);
+            }
+            Err(TryLockError::Poisoned(p)) => {
+                apuntar_titular();
+                return Err(p);
+            }
+            Err(TryLockError::WouldBlock) => TITULAR.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+        };
         let t = Instant::now();
         let r = self.0.lock();
+        apuntar_titular();
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         if ms > 0.5 {
             ESPERA_BD_MS.with(|c| c.set(c.get() + ms));
@@ -184,10 +210,22 @@ impl CandadoBd {
                 ESPERA_MAX_MS.with(|c| c.set(ms));
                 let p = *PASO_SYNC.lock().unwrap_or_else(|e| e.into_inner());
                 PASO_EN_ESPERA.with(|c| c.set(p));
+                TITULAR_EN_ESPERA.with(|c| *c.borrow_mut() = quien);
             }
         }
         r
     }
+}
+
+/// Apunta quién acaba de coger el candado: el comando de este hilo si corre uno en el manejador; si
+/// no, «fondo» y el paso de la sincronización. ⚠️ Los comandos `async` corren FUERA del manejador
+/// (Tauri los lanza en su runtime), así que salen como «fondo»: nombrarlos pediría tocar cada uno.
+fn apuntar_titular() {
+    let q = CMD_ACTUAL.with(|c| c.borrow().clone()).unwrap_or_else(|| {
+        let p = *PASO_SYNC.lock().unwrap_or_else(|e| e.into_inner());
+        format!("fondo · {p}")
+    });
+    *TITULAR.lock().unwrap_or_else(|e| e.into_inner()) = q;
 }
 
 /// El informe: lo que se pega. Solo nombres del código y milisegundos.
@@ -210,17 +248,18 @@ fn componer(e: &Estado, principal: bool) -> String {
         "\n-- Comandos de más de {UMBRAL_MS:.0} ms en el primer minuto (en el manejador = hilo principal{})\n",
         if principal { "" } else { "; sin hilo principal registrado" }
     );
-    o += "   empieza(ms)   duró(ms)  esperando BD(ms)  paso del sync al esperar  comando\n";
+    o += "   empieza(ms)   duró(ms)  esperando BD(ms)  paso del sync al esperar  comando  ← quién tenía la BD\n";
     let mut largos: Vec<&Comando> = e.comandos.iter().filter(|c| c.dur_ms > UMBRAL_MS).collect();
     largos.sort_by(|a, b| a.ini_ms.total_cmp(&b.ini_ms));
     for c in &largos {
         o += &format!(
-            "   {:>10.0} {:>10.1} {:>17.1}  {:<24}  {}\n",
+            "   {:>10.0} {:>10.1} {:>17.1}  {:<24}  {}{}\n",
             c.ini_ms,
             c.dur_ms,
             c.espera_bd_ms,
             if c.paso.is_empty() { "-" } else { c.paso },
-            c.nombre
+            c.nombre,
+            if c.quien.is_empty() { String::new() } else { format!("  ← {}", c.quien) }
         );
     }
     if largos.is_empty() {
@@ -262,7 +301,14 @@ mod tests {
     /// UN tramo seguido; uno corto no entra en la lista; uno separado es otro tramo.
     #[test]
     fn informe_junta_lo_pegado_y_lista_lo_largo() {
-        let c = |nombre: &str, ini_ms, dur_ms, espera_bd_ms, paso| Comando { nombre: nombre.into(), ini_ms, dur_ms, espera_bd_ms, paso };
+        let c = |nombre: &str, ini_ms, dur_ms, espera_bd_ms, paso| Comando {
+            nombre: nombre.into(),
+            ini_ms,
+            dur_ms,
+            espera_bd_ms,
+            paso,
+            quien: if espera_bd_ms > 0.0 { "fondo · auto_sync: assets e inventario".into() } else { String::new() },
+        };
         let e = Estado {
             tramos: vec![("Db::open · esquema (schema.sql)", 120.0)],
             marcas: vec![("Ready (setup terminado, el bucle de eventos arranca)", 900.0)],
@@ -274,6 +320,7 @@ mod tests {
         };
         let t = componer(&e, true);
         assert!(t.contains("get_character_cards") && t.contains("auto_sync: assets e inventario"), "{t}");
+        assert!(t.contains("get_character_cards  ← fondo · auto_sync: assets e inventario"), "dice quién tenía la BD: {t}");
         assert!(t.contains("plan_cargar") && !t.contains("ui_lista"), "solo los de más de 50 ms: {t}");
         assert!(t.contains("el tramo seguido más largo: 1305 ms (de 0 a 1305)"), "Ready + el comando pegado: {t}");
         assert!(t.contains("total en el primer minuto: 1388 ms · 3 tramos"), "{t}");
@@ -291,5 +338,18 @@ mod tests {
         assert!(c.lock().is_ok());
         assert!(comando("x", || true));
         assert!(estado().comandos.is_empty(), "apagada no apunta nada");
+    }
+
+    /// Encendida a mano en el test: un comando que coge el candado queda como su titular, y alguien
+    /// que no es un comando queda como «fondo» con el paso del sync.
+    #[test]
+    fn titular_comando_o_fondo() {
+        CMD_ACTUAL.with(|c| *c.borrow_mut() = Some("fleet_op_activa".into()));
+        apuntar_titular();
+        assert_eq!(*TITULAR.lock().unwrap(), "fleet_op_activa");
+        CMD_ACTUAL.with(|c| *c.borrow_mut() = None);
+        apuntar_titular();
+        assert!(TITULAR.lock().unwrap().starts_with("fondo · "), "{}", TITULAR.lock().unwrap());
+        TITULAR.lock().unwrap().clear();
     }
 }

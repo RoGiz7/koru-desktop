@@ -6,10 +6,11 @@
 
 ## Estado
 
-- **`main` lleva CUARENTA Y CINCO commits por encima del tag `v0.58.0` (`a3b330a`). SIN
-  PUBLICAR.** Hasta `b84f36e` está empujado; los DOS siguientes están **solo en local, sin push**:
-  el SDE apuntado como paso previo al corte (`031bd36`) y el índice del saneo del wallet (el último,
-  con este fichero).
+- **`main` lleva CUARENTA Y SIETE commits por encima del tag `v0.58.0` (`a3b330a`). SIN
+  PUBLICAR.** Hasta `b84f36e` está empujado; los CUATRO siguientes están **solo en local, sin push**:
+  el SDE apuntado como paso previo al corte (`031bd36`), el índice del saneo del wallet (`3d3c22c`),
+  el índice parcial de killmails con `intel_channels` asíncrono (`4824e95`) y quién tiene la BD en
+  la medición (el último, con este fichero).
   ⚠️ Cuenta sacada de git el 28-11 (`git rev-list --count v0.58.0..HEAD` y `origin/main..HEAD`): en
   los informes, de git, nunca de memoria. Ni versión, ni changelog,
   ni release: el plan no se anuncia todavía. Además del plan de escalaciones (abajo): `FaltaScope`
@@ -170,10 +171,13 @@ base (API de backup), el 98 % era el saneo de `wallet_journal` (6.961 ms). Índi
 con la misma expresión de fecha: 27 ms y las mismas filas borradas (probado con gemelas
 inyectadas en la copia). El tramo entero, de 7.099 a 116 ms en la copia (SQLite 3.38 de Python;
 Koru lleva 3.46). ⏳ Falta repetir la medición con la release.
-⏳ **El relleno de `killmails`** (~75 ms, repasa la tabla entera en cada arranque) NO se tocó: los
-killmails nuevos entran SIN `victim_character_id`/`victim_corporation_id` (`INSERT` de
-`db/mod.rs`) y es ese relleno del arranque el que se los pone. Pasarlo a «una vez» los dejaría vacíos.
-⏳ `intel_channels` y `fleet_op_activa`: después, con la medición repetida.
+✅ **El relleno de `killmails`** (~75 ms): sigue corriendo en cada arranque (los killmails nuevos
+entran SIN víctima y es él quien se la pone), pero con el índice parcial `idx_km_sin_victima`, creado
+tras el ALTER de la columna: de 76 a 0 ms en la copia, mismas filas rellenas.
+✅ **`intel_channels`** (609 ms en el hilo principal, solo lista la carpeta) pasa a `async`.
+✅ **La medición dice ahora QUIÉN tenía la BD** cuando un comando espera: el comando, o «fondo ·
+<paso del sync>». ⚠️ Los comandos `async` corren fuera del manejador y salen como «fondo».
+⏳ `fleet_op_activa` (478 ms esperando la BD): sin tocar, hasta ver quién la tenía.
 
 ## 🐛 ABIERTO: las posiciones se quedan viejas sin decirlo (visto el 28-11)
 
